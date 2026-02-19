@@ -3,12 +3,16 @@
 import os
 
 import h5py
-import numpy as np
+import jax.numpy as jnp
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS._input_data import find_input_file
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
-from petitRADTRANS.physics import wavelength2frequency
+from petitRADTRANS.physics import wavelength2frequency, frequency2wavelength, rebin_spectrum
+
+JAX_DTYPE = jnp.float32
+if config.jax_enable_x64:
+    JAX_DTYPE = jnp.float64
 
 
 class PhoenixStarTable:
@@ -40,8 +44,8 @@ class PhoenixStarTable:
         if not self._loaded:
             self.load()
 
-        log_temp = np.log10(temperature)
-        interpolation_index = np.searchsorted(self.log10_effective_temperature_grid, log_temp)
+        log_temp = jnp.log10(temperature)
+        interpolation_index = jnp.searchsorted(self.log10_effective_temperature_grid, log_temp)
 
         if interpolation_index == 0:
             spec_dat = self.flux_grid[0]
@@ -82,11 +86,11 @@ class PhoenixStarTable:
 
         frequency_grid = wavelength2frequency(self.wavelength_grid)
         flux = spec_dat
-        norm = -np.sum((flux[1:] + flux[:-1]) * np.diff(frequency_grid)) / 2.
+        norm = -jnp.sum((flux[1:] + flux[:-1]) * jnp.diff(frequency_grid)) / 2.
 
         spec_dat = flux / norm * cst.sigma * temperature ** 4.
 
-        spec_dat = np.transpose(np.stack((self.wavelength_grid, spec_dat)))
+        spec_dat = jnp.transpose(jnp.stack((self.wavelength_grid, spec_dat)))
 
         return spec_dat, radius
 
@@ -131,4 +135,49 @@ class PhoenixStarTable:
         print("Done.")
 
 
-phoenix_star_table = PhoenixStarTable()
+def compute_star_spectrum(star_effective_temperature, orbit_semi_major_axis, frequencies, star_radius=None):
+    """Method to get the PHOENIX spectrum of the star and rebin it
+    to the wavelength points. If t_star is not explicitly written, the
+    spectrum will be 0. If the distance is not explicitly written,
+    the code will raise an error and break to urge the user to
+    specify the value.
+
+        Args:
+            star_effective_temperature (float):
+                the stellar temperature in K.
+            orbit_semi_major_axis (float):
+                the semi-major axis of the planet in cm.
+            frequencies (float):
+                the frequencies on which to interpolate the spectrum in Hz.
+            star_radius (float):
+                if specified, uses this radius in cm
+                to scale the flux, otherwise it uses PHOENIX radius.
+    """
+    phoenix_star_table = PhoenixStarTable()
+    if star_radius is not None:
+        star_spectrum, _ = phoenix_star_table.compute_spectrum(star_effective_temperature)
+        _star_radius = star_radius
+    else:
+        star_spectrum, _star_radius = phoenix_star_table.compute_spectrum(star_effective_temperature)
+
+    stellar_intensity = rebin_star_spectrum(
+        star_spectrum=star_spectrum[:, 1],
+        star_wavelengths=star_spectrum[:, 0],
+        wavelengths=frequency2wavelength(frequencies)
+    )
+
+    stellar_intensity = stellar_intensity / jnp.pi * (star_radius / orbit_semi_major_axis) ** 2
+
+    return stellar_intensity
+
+
+def rebin_star_spectrum(star_spectrum, star_wavelengths, wavelengths):
+    add_stellar_flux = jnp.zeros(100, dtype=JAX_DTYPE)
+    add_wavelengths = jnp.logspace(jnp.log10(1.0000002e-02), 2, 100)
+
+    wavelengths_interp = jnp.append(star_wavelengths, add_wavelengths)
+    fluxes_interp = jnp.append(star_spectrum, add_stellar_flux)
+
+    stellar_intensity = rebin_spectrum(wavelengths_interp, fluxes_interp, wavelengths)
+
+    return stellar_intensity

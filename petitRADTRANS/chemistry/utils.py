@@ -617,8 +617,8 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
     return mass_fractions
 
 
-@jit
-def fixed_length_adaptive_mesh_refinement(p_clouds: ArrayLike, pressures: ArrayLike):
+@jit(static_argnames=('scaling', 'width'))
+def fixed_length_adaptive_mesh_refinement(p_clouds: ArrayLike, pressures: ArrayLike, scaling=10, width=3):
     r"""This function takes in the cloud base pressures for each cloud,
     and returns an array of pressures with a high resolution mesh
     in the region where the clouds are located.
@@ -634,14 +634,14 @@ def fixed_length_adaptive_mesh_refinement(p_clouds: ArrayLike, pressures: ArrayL
         pressures : jnp.ndarray
             The high resolution pressure array.
         scaling : int
-            The factor by which the low resolution pressure array is scaled
+            The factor by which the low resolution pressure array is scaled.
+            **This argument is treated as static for JIT compilation.**
         width : int
             The number of low resolution bins to be replaced for each cloud layer.
+            **This argument is treated as static for JIT compilation.**
     """
     length = pressures.shape[0]
     n_clouds = p_clouds.shape[0]
-    scaling = 10
-    width = 3
 
     # Calculate output size (static if shapes are static)
     # len(pressures[::scaling]) is equivalent to ceil(length / scaling)
@@ -743,6 +743,21 @@ def linear_spline_profile(pressure_array, pressure_nodes, abundance_points, gamm
     return interpolated_abunds, prior
 
 
+def get_base_species_mass_fractions(mass_fractions, species_basenames):
+        base_species_mass_fractions = {}
+
+        for species, mass_fraction in mass_fractions.items():
+            # Using Opacity.get_species_basename to get the base species name
+            species_basename = species_basenames[species]
+
+            if species_basename not in base_species_mass_fractions:
+                base_species_mass_fractions[species_basename] = copy.deepcopy(mass_fraction)
+            else:
+                base_species_mass_fractions[species_basename] += mass_fraction
+
+        return base_species_mass_fractions
+
+
 def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
     """Convert mass fractions to volume mixing ratios.
 
@@ -816,7 +831,7 @@ def simplify_species_list(species_list: list) -> list:
     return species_basenames
 
 
-@partial(jit)
+@jit
 def stepped_profile(pressure_array, transition_pressures, abundance_points):
     """
     Compute a stepped profile for abundance based on pressure points.

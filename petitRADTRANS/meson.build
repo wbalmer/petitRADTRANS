@@ -17,6 +17,7 @@ py.install_sources([
     'radtrans.py',
     'spectral_model.py',
     'utils.py',
+    'validation.py',
     '_input_data.py',
     '_input_data_loader.py',
     '__debug.py',

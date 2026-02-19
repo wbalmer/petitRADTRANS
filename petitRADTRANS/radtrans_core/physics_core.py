@@ -116,7 +116,7 @@ def compute_planck_function(T, nu):
         nu (ndarray): 1D array of frequencies in Hertz
 
     Returns:
-        B_nu (ndarray): (len(nu),len(T)) matrix of the spectral radiance (ie flux) as calculated from 
+        B_nu (ndarray): (len(nu),len(T)) matrix of the spectral radiance (ie flux) as calculated from
                         Planck's law for each frequency and temperature.
     """
     T_use = jnp.tile(T, (nu.shape[0], 1))
@@ -128,7 +128,7 @@ def compute_planck_function(T, nu):
 @jit
 def compute_planck_function_temperature_derivative(T, frequency_bin_edges):
     """
-    Calculates the gradient of B_ν (Planck's Law) with respect to temperature for 
+    Calculates the gradient of B_ν (Planck's Law) with respect to temperature for
     each temperature and frequency provided using JAX.
 
     Args:
@@ -146,7 +146,7 @@ def compute_planck_function_temperature_derivative(T, frequency_bin_edges):
 
     # Vectorized calculation of exp_terms and denominator for all T and nu
     exp_arg = (h_over_kb * jnp.outer(0.5/T, nu))
-    exp_term_pos = jnp.exp(exp_arg) 
+    exp_term_pos = jnp.exp(exp_arg)
     exp_term_neg = jnp.exp(-exp_arg)
 
     denominator = (exp_term_pos - exp_term_neg)**2 * jnp.outer(cst.kB * T**2, jnp.ones_like(nu))
@@ -208,7 +208,7 @@ def _compute_planck_function_integral(temperatures, frequencies):
 def star_planck(T, nu):
     """
     Calculates B_ν https://en.wikipedia.org/wiki/Planck%27s_law
-    For every temperature and frequency provided. 
+    For every temperature and frequency provided.
     Approximates the integral using Boole's method
 
     Args:
@@ -220,22 +220,68 @@ def star_planck(T, nu):
                         Planck's law for each frequency and temperature.
     """
     frequency_len = nu.shape[0]
-    bnus = []
-    # Take mean using Boole's method
-    for i in range(frequency_len-1):
-        nu_large = jnp.max(nu[i:i+1])
-        nu_small = jnp.min(nu[i:i+1])
+    # Take mean using Boole's method implemented via lax.scan for JAX friendliness
+    def _body(carry, i):
+        nu_segment = nu[i:i+1]
+        nu_large = jnp.max(nu_segment)
+        nu_small = jnp.min(nu_segment)
         nu1 = nu_small
-        nu2 = nu_small+1.0*(nu_large-nu_small)/4.0
-        nu3 = nu_small+2.0*(nu_large-nu_small)/4.0
-        nu4 = nu_small+3.0*(nu_large-nu_small)/4.0
+        nu2 = nu_small + 1.0 * (nu_large - nu_small) / 4.0
+        nu3 = nu_small + 2.0 * (nu_large - nu_small) / 4.0
+        nu4 = nu_small + 3.0 * (nu_large - nu_small) / 4.0
         nu5 = nu_large
-        val = 1.0 / 90.0 *\
-            ((7.0 * 2.0 * cst.h * nu1**3) / (cst.c**2.0 * (jnp.exp(cst.h*nu1/(cst.kB*T)) - 1.0)) +
-             (32.0 * 2.0 * cst.h * nu2**3) / (cst.c**2.0 * (jnp.exp(cst.h*nu2/(cst.kB*T)) - 1.0)) +
-             (12.0 * 2.0 * cst.h * nu3**3) / (cst.c**2.0 * (jnp.exp(cst.h*nu3/(cst.kB*T)) - 1.0)) +
-             (32.0 * 2.0 * cst.h * nu4**3) / (cst.c**2.0 * (jnp.exp(cst.h*nu4/(cst.kB*T)) - 1.0)) +
-             (7.0 * 2.0 * cst.h * nu5**3) / (cst.c**2.0 * (jnp.exp(cst.h*nu5/(cst.kB*T)) - 1.0)))
-        bnus.append(val)
-    B_nu = jnp.array(bnus)
+        val = 1.0 / 90.0 * (
+            (7.0 * 2.0 * cst.h * nu1**3) / (cst.c**2.0 * (jnp.exp(cst.h * nu1 / (cst.kB * T)) - 1.0)) +
+            (32.0 * 2.0 * cst.h * nu2**3) / (cst.c**2.0 * (jnp.exp(cst.h * nu2 / (cst.kB * T)) - 1.0)) +
+            (12.0 * 2.0 * cst.h * nu3**3) / (cst.c**2.0 * (jnp.exp(cst.h * nu3 / (cst.kB * T)) - 1.0)) +
+            (32.0 * 2.0 * cst.h * nu4**3) / (cst.c**2.0 * (jnp.exp(cst.h * nu4 / (cst.kB * T)) - 1.0)) +
+            (7.0 * 2.0 * cst.h * nu5**3) / (cst.c**2.0 * (jnp.exp(cst.h * nu5 / (cst.kB * T)) - 1.0))
+        )
+        return carry, val
+
+    indices = jnp.arange(frequency_len - 1)
+    _, bnus = lax.scan(_body, None, indices)
+    B_nu = bnus
     return B_nu
+
+
+def compute_pressure_hydrostatic_equilibrium(
+            mean_molar_masses, reference_gravity, planet_radius, p0, temperature, radii, rk4=True):
+    p0 = p0 * 1e6
+    vs = 1. / radii
+    r_pl_sq = planet_radius ** 2
+
+    def integrand(press):
+        temp = temperature(press)
+        mu = mean_molar_masses(press / 1e6, temp)
+        if not jnp.isscalar(mu):
+            mu = mu[0]
+
+        integral = mu * cst.amu * reference_gravity * r_pl_sq / cst.kB / temp
+        return integral
+
+    pressures = [p0]
+    dvs = jnp.diff(vs)
+    press1 = p0
+    chi1 = jnp.log(p0)
+    for dv in dvs:
+        k1 = integrand(press1)
+
+        if rk4:
+            chi2 = chi1 + 0.5 * dv * k1
+            press2 = jnp.exp(chi2)
+            k2 = integrand(press2)
+            chi3 = chi1 + 0.5 * dv * k2
+            press3 = jnp.exp(chi3)
+            k3 = integrand(press3)
+            chi4 = chi1 + dv * k3
+            press4 = jnp.exp(chi4)
+            k4 = integrand(press4)
+            chi1 = chi1 + 1. / 6. * (k1 + 2 * k2 + 2 * k3 + k4) * dv
+        else:
+            chi1 = chi1 + dv * k1
+
+        press1 = jnp.exp(chi1)
+        pressures.append(press1)
+
+    return jnp.array(pressures) / 1e6

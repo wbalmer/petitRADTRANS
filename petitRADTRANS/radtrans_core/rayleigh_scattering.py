@@ -387,7 +387,7 @@ def ch4_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, press
 
     return rayleigh_scattering_opacities
 
-def compute_rayleigh_scattering_opacities(species, mass_fractions, wavelengths_angstroem,
+def compute_rayleigh_scattering(species, mass_fractions, wavelengths_angstroem,
                                           mean_molar_masses, temperatures, pressures):
     if species == 'H2':
         return H2_rayleigh(wavelengths_angstroem,mass_fractions)

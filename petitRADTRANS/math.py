@@ -306,6 +306,52 @@ def longitude2phase(longitude: float):
     return longitude / (2 * jnp.pi)
 
 
+def median_filter(spectrum, size=10, mode='nearest'):
+    """
+    JAX-compatible implementation of scipy.ndimage.median_filter for 1D arrays.
+    Applies a median filter with a sliding window of specified size.
+
+    Args:
+        spectrum: 1D array to filter
+        size: Window size (will be made odd if even)
+        mode: Padding mode ('nearest', 'reflect', 'constant', etc.)
+               - 'nearest': pad with edge values
+               - 'reflect': mirror values at boundaries
+               - 'constant': pad with zeros
+               - 'edge': same as 'nearest'
+
+    Returns:
+        Filtered spectrum with same shape as input
+    """
+    # Ensure odd window size for symmetric median
+    if size % 2 == 0:
+        size = size + 1
+
+    half_size = size // 2
+
+    # Map 'edge' to 'nearest' for compatibility
+    pad_mode = 'edge' if mode == 'nearest' else mode
+
+    # Pad the spectrum based on mode
+    padded = jnp.pad(spectrum, half_size, mode=pad_mode)
+
+    # Create window indices: for each output position, get indices of elements in the window
+    # window_indices[i, j] = index in padded array for position i, element j in window
+    n_positions = spectrum.shape[0]
+    window_offsets = jnp.arange(size)  # [0, 1, 2, ..., size-1]
+    window_starts = jnp.arange(n_positions)  # starting indices [0, 1, 2, ...]
+
+    # Create 2D index array: shape (n_positions, size)
+    window_indices = window_starts[:, None] + window_offsets[None, :]
+
+    # Gather windows from padded array
+    windows = padded[window_indices]  # shape: (n_positions, size)
+
+    # Compute median for each window (along axis 1, across the size dimension)
+    filtered = jnp.median(windows, axis=1)
+
+    return filtered
+
 def mean_uncertainty(uncertainties: ArrayLike) -> float:
     """Calculate the uncertainty of the mean of an array.
 
@@ -434,6 +480,69 @@ def running_mean(x: ArrayLike, n: int) -> ArrayLike:
     cum_sum = jnp.cumsum(jnp.insert(x, 0, 0))
 
     return (cum_sum[n:] - cum_sum[:-n]) / float(n)
+
+
+def savgol_filter(spectrum, window_length=11, polyorder=3, mode='nearest'):
+    """
+    JAX-compatible Savitzky-Golay filter for 1D signals.
+    Fits a polynomial to a sliding window and evaluates it at the center.
+
+    Note: Edge behavior differs slightly from scipy due to JAX padding mode limitations.
+    The interior points (away from edges) match scipy's output to machine precision.
+
+    Args:
+        spectrum: 1D input array
+        window_length: Length of the filter window (will be made odd if even)
+        polyorder: Order of the polynomial to fit (must be < window_length)
+        mode: Padding mode ('nearest'→'edge', 'reflect', 'constant', etc.)
+              At edges: JAX uses 'edge' padding which may differ slightly from scipy's 'nearest'
+
+    Returns:
+        Filtered spectrum (same shape as input)
+    """
+    # Ensure odd window length for symmetric filtering
+    if window_length % 2 == 0:
+        window_length = window_length - 1
+
+    if polyorder >= window_length:
+        raise ValueError("polyorder must be strictly less than window_length")
+
+    half_window = window_length // 2
+
+    # Generate relative positions within window: [-half_window, ..., 0, ..., half_window]
+    x = jnp.arange(-half_window, half_window + 1, dtype=jnp.float32)
+
+    # Build polynomial design matrix where each row is [1, x, x^2, ..., x^polyorder]
+    design_matrix = jnp.vstack([x ** i for i in range(polyorder + 1)]).T  # (window_length, polyorder+1)
+
+    # Map scipy mode to JAX padding mode ('nearest' → 'edge')
+    pad_mode = 'edge' if mode == 'nearest' else mode
+
+    # Pad the input spectrum
+    padded = jnp.pad(spectrum, half_window, mode=pad_mode)
+
+    # Create sliding windows
+    n = spectrum.shape[0]
+    window_offsets = jnp.arange(window_length)
+    window_starts = jnp.arange(n)
+    window_indices = window_starts[:, None] + window_offsets[None, :]
+    windows = padded[window_indices]  # (n, window_length)
+
+    # Pre-compute filter weights for center point (constant term of polynomial at x=0)
+    # The Savitzky-Golay weights extract the polynomial value at the center
+    # Mathematics: least-squares solution gives weights via (D^T D)^-1 D^T
+    gram_matrix = design_matrix.T @ design_matrix  # (polyorder+1, polyorder+1)
+    e1 = jnp.zeros(polyorder + 1)
+    e1 = e1.at[0].set(1.0)  # select constant term [1, 0, 0, ...]
+    proj_vector = jnp.linalg.solve(gram_matrix, e1)  # (polyorder+1,)
+
+    # Filter weights that extract polynomial value at center from window values
+    sg_weights = design_matrix @ proj_vector  # (window_length,)
+
+    # Apply filter as weighted sum of window values
+    filtered = jnp.dot(windows, sg_weights)  # (n,)
+
+    return filtered
 
 
 def sigma2bayes_factor(sigma: float) -> float:

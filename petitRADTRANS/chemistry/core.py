@@ -6,11 +6,11 @@ import jax.numpy as jnp
 from jax import lax, jit, typing
 from jax import debug
 
-
 try:
     from petitRADTRANS.chemistry.prt_easychem import get_exoatmos_abundances
 except ModuleNotFoundError:
     get_exoatmos_abundances = None
+
 from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.chemistry.utils import (
@@ -24,7 +24,7 @@ from petitRADTRANS.chemistry.utils import (
     fill_atmosphere
 )
 from petitRADTRANS.chemistry import clouds as fc
-from petitRADTRANS.opacities.opacities import Opacity
+
 
 @jit(static_argnames=['cloud_species', 'adaptive_mesh_refinement'])
 def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
@@ -40,7 +40,6 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
         species_full_name = cloud_opacity.species_full_name
         cloud_name = species_full_name.split('_')[0]
         simple_cloud_names.append(cloud_name)
-
 
     def get_cloud_abundance(cloud, parameters):
         cloud_opacity = CloudOpacity([cloud], natural_abundance=False)

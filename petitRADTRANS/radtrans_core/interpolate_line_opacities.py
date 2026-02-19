@@ -1,9 +1,12 @@
-import jax.numpy as jnp
-from jax import lax, vmap, jit
-
 """
 JAX implementation of fortran_inputs.interpolate_line_opacities
 """
+import jax.numpy as jnp
+from jax import lax, vmap, jit
+
+JAX_DTYPE = jnp.float32
+if config.jax_enable_x64:
+    JAX_DTYPE = jnp.float64
 
 
 @jit
@@ -94,3 +97,35 @@ def interpolate_line_opacities(pressures, temperatures, temperature_pressure_gri
                                        y_t_lows,
                                        interpolated_opacities)
     return interpolated_opacities
+
+
+def interpolate_species_opacities(
+    pressures, temperatures, n_g, n_frequencies, line_opacities_grid, line_opacities_temperature_pressure_grid,
+    line_opacities_temperature_grid_size, line_opacities_pressure_grid_size
+):
+    # Interpolate line opacities to given temperature structure.
+    n_layers = pressures.size
+    n_line_species = len(line_opacities_grid)
+
+    # TODO: change to use line_opacities_grid.shape[0]
+    if n_line_species > 0:
+        line_opacities = jnp.zeros(
+            (n_g, n_frequencies, n_line_species, n_layers), dtype=JAX_DTYPE)
+
+        for i, species in enumerate(line_opacities_grid):
+            line_opacities_tp_grid = \
+                line_opacities_temperature_pressure_grid[species].reshape(
+                    line_opacities_temperature_grid_size[species],
+                    line_opacities_pressure_grid_size[species],
+                    2)
+            line_opacities = line_opacities.at[:, :, i, :].set(interpolate_line_opacities(
+                pressures,
+                temperatures,
+                line_opacities_tp_grid,
+                line_opacities_grid[species]
+            ))
+    else:
+        line_opacities = jnp.zeros(
+            (n_g, n_frequencies, 1, n_layers), dtype=JAX_DTYPE)
+
+    return line_opacities

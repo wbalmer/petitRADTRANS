@@ -168,51 +168,36 @@ def calculate_ck_emission_contribution(
     flux = jnp.zeros(struct_shape[0])
     contr_em = jnp.zeros(struct_shape)
 
-    for i_scat_angle in range(emission_cos_angles.shape[0]):
-        # Transmissions for a given incidence angle
-        transm_mu = jnp.exp(-optical_depths/emission_cos_angles[i_scat_angle])
+    # Vectorize over emission angles using vmap: compute per-angle contributions then sum.
+    r = physics_core.compute_planck_function(temperatures, frequencies)
 
-        # Flux contribution from given scat_angle-angle
-
-        # mean_transm = np.zeros((struct_shape[0],transmission.shape[2],struct_shape[1])
+    def _angle_contrib(mu, mu_w):
+        transm_mu = jnp.exp(-optical_depths / mu)
         mean_transm = jnp.sum(transm_mu * weights_gauss[:, None, None, None], axis=0)
         transm_all = jnp.prod(mean_transm, axis=1)
 
-        r = physics_core.compute_planck_function(temperatures, frequencies)
+        # Radiative transport contribution for this angle
+        flux_mu = jnp.sum((r[:, :-1] + r[:, 1:]) * (transm_all[:, 0:-1] - transm_all[:, 1:]) / 2.0,
+                          axis=1)
+        flux_mu = flux_mu + r[:, struct_shape[1]] * transm_all[:, struct_shape[1]]
 
-        # Do the actual radiative transport
-        flux_mu = jnp.sum(
-            (r[:, :-1]+r[:, 1:])
-            * (transm_all[:, 0:-1]-transm_all[:, 1:])
-            / 2.0,
-            axis=1
-            )
-        flux_mu = jnp.add(
-            flux_mu,
-            r[:, struct_shape[1]] * transm_all[:, struct_shape[1]]
-            )
-        contr_em = contr_em.at[:, :-1].add(
-            (r[:, :-1]+r[:, 1:])
-            * (transm_all[:, 0:-1]-transm_all[:, 1:])
-            * emission_cos_angles[i_scat_angle]
-            * emission_cos_angles_weights[i_scat_angle]
-            )
-        contr_em = contr_em.at[:, -1].add(
-            2.0
-            * r[:, struct_shape[1]]
-            * transm_all[:, struct_shape[1]]
-            * emission_cos_angles[i_scat_angle]
-            * emission_cos_angles_weights[i_scat_angle]
-            )
+        contr_local = jnp.zeros(struct_shape)
+        contr_local = contr_local.at[:, :-1].set(
+            (r[:, :-1] + r[:, 1:]) * (transm_all[:, 0:-1] - transm_all[:, 1:]) * mu * mu_w
+        )
+        contr_local = contr_local.at[:, -1].set(
+            2.0 * r[:, struct_shape[1]] * transm_all[:, struct_shape[1]] * mu * mu_w
+        )
 
-        # angle integ, factor 1/2 needed for flux calc. from upward pointing intensity
-        flux = jnp.add(
-            flux,
-            flux_mu
-            / 2.0
-            * emission_cos_angles[i_scat_angle]
-            * emission_cos_angles_weights[i_scat_angle]
-            )
+        flux_contrib = flux_mu / 2.0 * mu * mu_w
+        return flux_contrib, contr_local
+
+    vmapped = vmap(_angle_contrib, in_axes=(0, 0))
+    fluxs_per_angle, contrs_per_angle = vmapped(emission_cos_angles, emission_cos_angles_weights)
+
+    # Sum over angles
+    flux = jnp.sum(fluxs_per_angle, axis=0)
+    contr_em = jnp.sum(contrs_per_angle, axis=0)
 
     # Normalization
     flux = flux * 4.0 * jnp.pi
@@ -255,30 +240,23 @@ def compute_ck_flux(
         contribution = jnp.zeros((struct_shape[1], struct_shape[0]))
         flux = jnp.zeros(struct_shape[0])
 
-        for i_mu in range(emission_cos_angles.shape[0]):
-            # Transmissions for a given incidence angle
-            transm_mu = jnp.exp(-optical_depths/emission_cos_angles[i_mu])
+        # Vectorize over emission angles using vmap: compute per-angle flux then sum.
+        r = physics_core.compute_planck_function(temperatures, frequencies)
+
+        def _angle_contrib(mu, mu_w):
+            transm_mu = jnp.exp(-optical_depths / mu)
             mean_transm = jnp.sum(transm_mu * weights_gauss[:, None, None, None], axis=0)
             transm_all = jnp.prod(mean_transm, axis=1)
 
-            r = physics_core.compute_planck_function(temperatures, frequencies)
-            # Do the actual radiative transport
-            flux_mu = jnp.sum(
-                (r[:, :-1]+r[:, 1:])
-                * (transm_all[:, 0:-1]-transm_all[:, 1:])
-                * 0.5,
-                axis=1
-                )
-            flux_mu = jnp.add(flux_mu, r[:, struct_shape[1]]*transm_all[:, struct_shape[1]])
-            # print(flux_mu.shape)
-            # angle integ, factor 1/2 needed for flux calc. from upward pointing intensity
-            flux = jnp.add(flux,
-                           (
-                            flux_mu
-                            * 0.5
-                            * emission_cos_angles[i_mu]
-                            * emission_cos_angles_weights[i_mu]
-                            ))
+            flux_mu = jnp.sum((r[:, :-1] + r[:, 1:]) * (transm_all[:, 0:-1] - transm_all[:, 1:]) * 0.5,
+                              axis=1)
+            flux_mu = flux_mu + r[:, struct_shape[1]] * transm_all[:, struct_shape[1]]
+
+            return flux_mu * 0.5 * mu * mu_w
+
+        vmapped = vmap(_angle_contrib, in_axes=(0, 0))
+        fluxs_per_angle = vmapped(emission_cos_angles, emission_cos_angles_weights)
+        flux = jnp.sum(fluxs_per_angle, axis=0)
         return flux * 4.0 * jnp.pi, contribution
 
     # Check if we should calculate the contribution function
@@ -958,11 +936,14 @@ def compute_photon_destruction_prob(total_opacity_in, continuum_opacity_scat_emi
         photon_destruction_prob: probability that the photon DOESN'T leave the atmospheric layer
     """
     total_opacity = total_opacity_in[:, :, 0, :]
-    g_len = total_opacity_in.shape[0]
-    photon_destruction_prob = jnp.ones(total_opacity.shape)
-    for i_g in range(g_len):
-        total_opacity = total_opacity.at[i_g].set(total_opacity[i_g] + continuum_opacity_scat_emis)
-        photon_destruction_prob = photon_destruction_prob.at[i_g].set(continuum_opacity_scat_emis/total_opacity[i_g])
+    total_opacity = total_opacity_in[:, :, 0, :]
+
+    # Vectorized per-g computation: add continuum opacity and compute destruction probability
+    def _per_g(opacity_g):
+        tot = opacity_g + continuum_opacity_scat_emis
+        return continuum_opacity_scat_emis / tot
+
+    photon_destruction_prob = vmap(_per_g)(total_opacity)
     photon_destruction_prob = 1 - photon_destruction_prob
     return photon_destruction_prob
 

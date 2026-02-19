@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a8] - 2025-08-06
+## [4.0.0a9] - 2026-02-19
 ### Summary
 pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs.
@@ -38,6 +38,8 @@ As of version 4.0.0a6 most functionality should "work". Tests still fail, but mo
 - Clean up comment blocks.
 
 ### Changed
+- a9 Refactored `radtrans.py` to move static methods to standalone files, mostly new dedicated files for calculating opacities.
+- a9 Further improvements for JIT compatibility in convolutions and spectrum utils.
 - JAX translations of fortran functions are stored in the `radtrans_core` directory.
 - Translated `fortran_radtrans_core` to JAX.
 - Translated `fortran_rebin` to JAX.
