@@ -1288,9 +1288,7 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
             Only the clear atmosphere contribution is returned.
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
-    reference_pressure = 100.0
-    if "reference_pressure" in parameters.keys():
-        reference_pressure = parameters["reference_pressure"].value
+
     # Calculate the spectrum
     gravity, planet_radius = _compute_gravity(parameters)
 
@@ -1349,7 +1347,6 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
         gravity=gravity,
         mean_molar_masses=mmw,
         planet_radius=planet_radius,
-        reference_pressure=reference_pressure,
         sigma_lnorm=sigma_lnorm,
         cloud_particles_mean_radii=cloud_particles_mean_radii,
         cloud_f_sed=cloud_f_sed,

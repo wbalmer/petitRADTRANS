@@ -4,6 +4,11 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.3.2] - 2026-02-16
+### Fixed
+- An incorrect `reference_pressure` argument is passed to `calculate_emission_spectrum` in `models.py`, causing the function to compute emission spectra using the wrong pressure reference ([issue 124](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/124)).
+
+
 ## [3.3.1] - 2026-02-01
 ### Fixed
 - Infinite recursive error checking when retrieving photometric data with the `Radtrans` retrieval workflow ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122)).
