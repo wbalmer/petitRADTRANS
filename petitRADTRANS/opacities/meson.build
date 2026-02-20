@@ -1,5 +1,5 @@
 py.install_sources([
-    'cia.py,
+    'cia.py',
     'clouds.py',
     'continuum.py',
     'file_conversion.py',

@@ -146,7 +146,7 @@ class Radtrans:
             debug.print("pressure was not set, initializing one layer at 1 bar")
             pressures = jnp.array([1.0], dtype=JAX_DTYPE)  # bar
 
-        self._pressures = jnp.array(pressures) * 1e6  # bar to cgs  # TODO pressure could be spectral function argument
+        self.pressures = jnp.array(pressures) * 1e6  # bar to cgs  # TODO pressure could be spectral function argument
         _check_pressures(pressures)
 
         self._line_species = tuple_init(line_species)
@@ -433,13 +433,13 @@ class Radtrans:
     @property
     def pressures(self) -> ArrayLike:
         # TODO pressures doesn't need to be a property
-        return self._pressures
+        return self.pressures
 
     @pressures.setter
     def pressures(self, array):
         debug.print(self.__property_setting_warning_message)
         _check_pressures(array)
-        self._pressures = array
+        self.pressures = array
 
     @property
     def rayleigh_species(self):
@@ -658,7 +658,7 @@ class Radtrans:
 
         optical_depths, photon_destruction_probabilities, relative_cloud_scaling_factor = (
             compute_optical_depths(
-                pressures=self._pressures,
+                pressures=self.pressures,
                 reference_gravity=reference_gravity,
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
@@ -801,11 +801,11 @@ class Radtrans:
         # Initialization
         if len(self._line_species) > 0:
             line_species_mass_fractions = jnp.zeros(
-                (self._pressures.size, len(self._line_species)), dtype=JAX_DTYPE)
+                (self.pressures.size, len(self._line_species)), dtype=JAX_DTYPE)
         else:
             # If there are no specified line species then we need at least an array to contain the continuum opacities
             line_species_mass_fractions = jnp.zeros(
-                (self._pressures.size, 1), dtype=JAX_DTYPE)
+                (self.pressures.size, 1), dtype=JAX_DTYPE)
 
         # Fill line mass fraction dictionary with provided mass fraction dictionary
         for i_spec, species in enumerate(self._line_species):
@@ -827,7 +827,7 @@ class Radtrans:
         continuum_opacities = continuum.compute_continuum_opacities(
             frequencies=self._frequencies,
             frequency_bins_edges=self._frequency_bins_edges,
-            pressures=self._pressures,
+            pressures=self.pressures,
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
@@ -838,9 +838,9 @@ class Radtrans:
         )
 
         continuum_opacities_scattering, self.__scattering_in_transmission = (
-            self._compute_continuum_scattering_opacities(
+            continuum.compute_continuum_scattering_opacities(
                 frequencies=self._frequencies,
-                pressures=self._pressures,
+                pressures=self.pressures,
                 temperatures=temperatures,
                 mass_fractions=mass_fractions,
                 mean_molar_masses=mean_molar_masses,
@@ -904,7 +904,7 @@ class Radtrans:
          self.__scattering_in_transmission) = clouds.compute_cloud_continuum_opacities(
             frequencies=self._frequencies,
             frequency_bins_edges=self._frequency_bins_edges,
-            pressures=self._pressures,
+            pressures=self.pressures,
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
@@ -955,7 +955,7 @@ class Radtrans:
             (additional_absorption_opacities, additional_scattering_opacities,
              _cloud_absorption_opacities, _cloud_scattering_opacities) = self._compute_additional_continuum_opacities(
                 frequencies=self._frequencies,
-                pressures=self._pressures,
+                pressures=self.pressures,
                 additional_absorption_opacities_function=additional_absorption_opacities_function,
                 additional_scattering_opacities_function=additional_scattering_opacities_function,
                 cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth
@@ -981,7 +981,7 @@ class Radtrans:
 
         # Line opacities (calculating them just before calculating the combined opacities reduces peak memory usage)
         opacities = interpolate_species_opacities(
-            pressures=self._pressures,
+            pressures=self.pressures,
             temperatures=temperatures,
             n_g=self._lines_loaded_opacities['g_gauss'].size,
             n_frequencies=self._frequencies.size,
@@ -1123,7 +1123,7 @@ class Radtrans:
         """
         #if copy_opacities:
         transmission_contribution = jnp.zeros(
-            (jnp.size(self._pressures), self._frequencies.size), dtype=JAX_DTYPE)
+            (jnp.size(self.pressures), self._frequencies.size), dtype=JAX_DTYPE)
         #else:
         #    transmission_contribution = None
 
@@ -1132,7 +1132,7 @@ class Radtrans:
             transit_radii, radius_hydrostatic_equilibrium = radiative_transfer_core.compute_transit_radii_summed(
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
-                pressures=self._pressures * 1e-6,  # cgs to bar
+                pressures=self.pressures * 1e-6,  # cgs to bar
                 temperatures=temperatures,
                 weights_gauss=self._lines_loaded_opacities['weights_gauss'],
                 mean_molar_masses=mean_molar_masses,
@@ -1161,7 +1161,7 @@ class Radtrans:
                     transit_radii=transit_radii,
                     opacities=opacities[:, :, :1, :],
                     temperatures=temperatures,
-                    pressures=self._pressures,
+                    pressures=self.pressures,
                     reference_gravity=reference_gravity,
                     mean_molar_masses=mean_molar_masses,
                     reference_pressure=reference_pressure,
@@ -1176,7 +1176,7 @@ class Radtrans:
         transit_radii, radius_hydrostatic_equilibrium = radiative_transfer_core.compute_transit_radii(
             opacities=opacities,
             continuum_opacities_scattering=continuum_opacities_scattering,
-            pressures=self._pressures * 1e-6,  # cgs to bar
+            pressures=self.pressures * 1e-6,  # cgs to bar
             temperatures=temperatures,
             weights_gauss=self._lines_loaded_opacities['weights_gauss'],
             mean_molar_masses=mean_molar_masses,
@@ -1192,7 +1192,7 @@ class Radtrans:
                         transit_radii=transit_radii,
                         opacities=opacities,
                         temperatures=temperatures,
-                        pressures=self._pressures,
+                        pressures=self.pressures,
                         reference_gravity=reference_gravity,
                         mean_molar_masses=mean_molar_masses,
                         reference_pressure=reference_pressure,
@@ -1410,7 +1410,7 @@ class Radtrans:
                     '_lines_loaded_opacities',
                     '_cias_loaded_opacities',
                     '_clouds_loaded_opacities')  # arrays / dynamic values
-        aux_data = {'pressures': self._pressures,
+        aux_data = {'pressures': self.pressures,
                     'wavelength_boundaries': self._wavelength_boundaries,
                     'line_species': self._line_species,
                     'gas_continuum_contributors': self._gas_continuum_contributors,
@@ -2114,7 +2114,7 @@ class Radtrans:
         if self._clouds_have_effect(mass_fractions, cloud_fraction) and return_cloud_contribution:
             cloud_contribution = clouds.compute_species_optical_depths(
                 reference_gravity=reference_gravity,
-                pressures=self._pressures,
+                pressures=self.pressures,
                 cloud_opacities=cloud_opacities
             )
         else:
@@ -2124,9 +2124,9 @@ class Radtrans:
             if sum_opacities and opacities_rosseland is not None:
                 optical_depths_rosseland = clouds.compute_species_optical_depths(
                     reference_gravity=reference_gravity,
-                    pressures=self._pressures,
-                    cloud_opacities=opacities_rosseland.reshape(1, 1, 1, len(self._pressures))
-                ).reshape(len(self._pressures))
+                    pressures=self.pressures,
+                    cloud_opacities=opacities_rosseland.reshape(1, 1, 1, len(self.pressures))
+                ).reshape(len(self.pressures))
 
         # TODO wrap in helper function
         additional_outputs = {}
@@ -2422,10 +2422,6 @@ class Radtrans:
 
             debug.callback(_check_emissivities_size, emissivities, self._frequencies)
 
-        optical_depths_rosseland = None
-        photosphere_radius = None
-        flux_clear = None
-
         # --- Normalize optional inputs for JAX-friendly downstream calls ---
         complete_coverage_clouds_norm = () if complete_coverage_clouds is None else tuple(complete_coverage_clouds)
 
@@ -2633,17 +2629,17 @@ class Radtrans:
         """
         sum_opacities = self._set_sum_opacities(emission=True)
 
-        atmospheric_densities = self._pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
+        atmospheric_densities = self.pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
         radius_hydrostatic_equilibrium = radiative_transfer_core.compute_radius_hydrostatic_equilibrium(
-            pressures=self._pressures,
+            pressures=self.pressures,
             reference_gravity=reference_gravity,
             atmosphere_densities=atmospheric_densities,
-            reference_pressure=self._pressures[-1],
+            reference_pressure=self.pressures[-1],
             planet_radius=planet_radius,
         )
 
         # TODO replace interp1d
-        radius_interp = interp1d(self._pressures, radius_hydrostatic_equilibrium)
+        radius_interp = interp1d(self.pressures, radius_hydrostatic_equilibrium)
 
         photosphere_radius = jnp.zeros(self._frequencies.size, dtype=JAX_DTYPE)
 
@@ -2651,7 +2647,7 @@ class Radtrans:
         if sum_opacities:
             if optical_depths is None:
                 optical_depths, _, _ = compute_optical_depths(
-                    pressures=self._pressures,
+                    pressures=self.pressures,
                     reference_gravity=reference_gravity,
                     opacities=opacities,
                     continuum_opacities_scattering=continuum_opacities_scattering,
@@ -2676,7 +2672,7 @@ class Radtrans:
             # TODO replace interp1d
             for i_freq in range(self._frequencies.size):
                 tau_p = jnp.sum(weights_gauss_reshape * optical_depths[:, i_freq, 0, :], axis=0)
-                pressures_tau_p = interp1d(tau_p, self._pressures)
+                pressures_tau_p = interp1d(tau_p, self.pressures)
                 if jnp.max(tau_p) > 2. / 3.:
                     photosphere_radius = photosphere_radius.at[i_freq].set(radius_interp(pressures_tau_p(2 / 3)))
                 else:

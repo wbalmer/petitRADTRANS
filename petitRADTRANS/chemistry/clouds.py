@@ -5,12 +5,31 @@ import copy
 import warnings
 
 import jax.numpy as jnp
-from jax import lax
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d  # noqa: F401
 from petitRADTRANS.opacities.opacities import CloudOpacity
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
+from petitRADTRANS.chemistry.condensation_curves import (
+    vapour_pressure_fe_solid,
+    vapour_pressure_fe_liquid,
+    vapour_pressure_mgsi03,
+    vapour_pressure_mg2sio4,
+    vapour_pressure_na2s,
+    vapour_pressure_kcl,
+    vapour_pressure_sio,
+    vapour_pressure_tio2,
+    vapour_pressure_cr,
+    vapour_pressure_zns,
+    vapour_pressure_nh3,
+    vapour_pressure_mns,
+    vapour_pressure_h2o,
+    vapour_pressure_ch4,
+    vapour_pressure_al2o3,
+    vapour_pressure_catio3,
+    vapour_pressure_caal12o19,
+    vapour_pressure_sio2,
+)
 # metal species
-__metals = ['C', 'N', 'O', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'K', 'Ca', 'Ti', 'V', 'Fe', 'Ni']
+__metals = ['C', 'N', 'O', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'K', 'Ca', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Ni', 'Zn']
 
 # solar abundances, [Fe/H] = 0, from Asplund+ 2009
 __elemental_abundances = {  # TODO replace with chemistry.utils._solar_elemental_abundances
@@ -30,8 +49,11 @@ __elemental_abundances = {  # TODO replace with chemistry.utils._solar_elemental
     'Ca': 2.01439011429255e-06,
     'Ti': 8.20622804366359e-08,
     'V': 7.83688694089992e-09,
+    'Cr': 4.018e-07, # TODO double check value
+    'Mn': 2.477e-07, # TODO double check value
     'Fe': 2.91167958499589e-05,
-    'Ni': 1.52807116806281e-06
+    'Ni': 1.52807116806281e-06,
+    'Zn': 3.34e-08 # TODO double check value
 }
 
 # Get molar masses ahead of time to gain speed
@@ -52,16 +74,91 @@ __molar_masses = {
     'Ca': get_species_molar_mass('Ca'),
     'Ti': get_species_molar_mass('Ti'),
     'V': get_species_molar_mass('V'),
+    'Cr': get_species_molar_mass('Cr'),
+    'Mn': get_species_molar_mass('Mn'),
     'Fe': get_species_molar_mass('Fe'),
-    'Ni': get_species_molar_mass('Ni')
+    'Ni': get_species_molar_mass('Ni'),
+    'Zn': get_species_molar_mass('Zn')
 }
 
 
-def __get_species_molar_mass(species):
+def _get_species_molar_mass(species):
+    """Get molar mass of a species from cache or compute it."""
     if species in __molar_masses:
         return __molar_masses[species]
     else:
         return get_species_molar_mass(species)
+
+
+# ============================================================================
+# Helper functions for consolidated cloud calculations
+# ============================================================================
+
+def _prepare_elemental_abundances(metallicity, co_ratio):
+    """Prepare elemental abundances adjusted for metallicity and C/O ratio."""
+    nfracs_use = copy.copy(__elemental_abundances)
+    for spec in __elemental_abundances.keys():
+        if spec not in ('H', 'He'):
+            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
+    nfracs_use['O'] = nfracs_use['C'] / co_ratio
+    return nfracs_use
+
+
+def _get_total_mass(abundances):
+    """Calculate total mass for mass fraction normalization."""
+    total_mass = 0.0
+    for spec in abundances.keys():
+        total_mass += _get_species_molar_mass(spec) * abundances[spec]
+    return total_mass
+
+
+def _calculate_cloud_mass_fraction(element_counts, compound_mass, abundances):
+    """Generic mass fraction calculator for cloud species.
+
+    Args:
+        element_counts: dict mapping element names to stoichiometric coefficients
+        compound_mass: total molar mass of the compound
+        abundances: elemental abundance dict (from _prepare_elemental_abundances)
+    """
+    # Find the limiting element
+    limiting_nfracs = jnp.min(jnp.array([
+        abundances[elem] / count
+        for elem, count in element_counts.items()
+    ]))
+
+    total_mass = _get_total_mass(abundances)
+    return (compound_mass * limiting_nfracs) / total_mass
+
+
+def _calculate_cloud_base_pressure_generic(pressures, temperatures, cond_func_args):
+    """Generic cloud base pressure calculator for any species.
+
+    Args:
+        press: pressure array
+        temp: temperature array
+        cond_func_args: tuple of (cond_callable, *args) where cond_callable returns (pc, tc)
+    """
+    condensation_pressures = cond_func_args[0](*cond_func_args[1:])
+    interpolated_condensation_temperature = jnp.interp(pressures, condensation_pressures, temperatures)
+    t_diff = interpolated_condensation_temperature - temperatures
+    diff_vec = t_diff[1:] * t_diff[:-1]
+    ind_cdf = (diff_vec < 0.)
+
+    p_mid = (pressures[1:] + pressures[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(pressures))
+
+    return p_cloud
+
+
+def _get_cloud_species_base_name(name):
+    """Extract base cloud species name from full name."""
+    cloud_bases = ['Fe', 'MgSiO3', 'Mg2SiO4', 'Na2S', 'KCL', 'MgFeSiO4', 'SiO', 'TiO2', 'Cr', 'ZnS', 'NH3', 'MnS', 'H2O', 'CH4', 'Al2O3', 'CaTiO3', 'CaAl12O19', 'SiO2']
+    for base in cloud_bases:
+        if base in name:
+            return base
+    return None
 
 
 def setup_clouds(pressures, parameters, cloud_species):
@@ -150,11 +247,16 @@ def setup_clouds(pressures, parameters, cloud_species):
 
 
 def setup_simple_clouds_hazes(parameters):
-    """
-    Setup clouds for transmission spectrum
+    """Setup cloud and haze parameters for transmission spectrum models.
 
     Args:
-        parameters (dict): dictionary of atmospheric parameters
+        parameters: dictionary of atmospheric parameters
+
+    Returns:
+        pcloud: cloud top pressure
+        power_law_opacity_coefficient: power law exponent for opacity
+        haze_factor: strength of haze opacity
+        power_law_opacity_350nm: reference opacity at 350 nm
     """
     pcloud = None
     power_law_opacity_coefficient = None
@@ -242,683 +344,1172 @@ def get_bhans(parameters, cloud_species, shape=0):
 
 
 def return_cloud_mass_fraction(name, metallicity, co_ratio):
-    if "Fe(s)" in name or "Fe(l)" in name:
-        return return_x_fe(metallicity, co_ratio)
-    elif "MgSiO3(s)" in name or "MgSiO3(l)" in name:
-        return return_x_mgsio3(metallicity, co_ratio)
-    elif "Mg2SiO4(s)" in name or "Mg2SiO4(l)" in name:
-        return return_x_mg2sio4(metallicity, co_ratio)
-    elif "Na2S(s)" in name or "Na2S(l)" in name:
-        return return_x_na2s(metallicity, co_ratio)
-    elif "KCL(s)" in name or "KCL(l)" in name:
-        return return_x_kcl(metallicity, co_ratio)
-    elif "MgFeSiO4(s)" in name:
-        return return_x_mgfesio4(metallicity, co_ratio)
-    elif "SiO(s)" in name:
-        return return_x_sio(metallicity, co_ratio)
-    else:
-        warnings.warn(f"The cloud {name} is not currently implemented.")
-        return jnp.zeros_like(metallicity)
-
-
-def simple_cdf(name, press, temp, metallicity=0.0, co_ratio=0.55, mmw=2.33):
-    if "Fe(s)" in name or "Fe(l)" in name:
-        return simple_cdf_fe(press, temp, metallicity, co_ratio, mmw)
-    elif "MgSiO3(s)" in name or "MgSiO3(l)" in name:
-        return simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw)
-    elif "Mg2SiO4(s)" in name or "Mg2SiO4(l)" in name:
-        return simple_cdf_mg2sio4(press, temp, metallicity, co_ratio, mmw)
-    elif "Na2S(s)" in name or "Na2S(l)" in name:
-        return simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw)
-    elif "KCL(s)" in name or "KCL(l)" in name:
-        return simple_cdf_kcl(press, temp, metallicity, co_ratio, mmw)
-    elif "SiO(s)":
-        return simple_cdf_sio(press, temp, metallicity, co_ratio, mmw)
-    else:
-        warnings.warn(f"The cloud {name} is not currently implemented.")
-
-        return jnp.zeros_like(metallicity)
-
-
-def simple_cdf_free(name, press, temp, metallicity, mfrac, mmw=2.33):
-    if "Fe(s)" in name or "Fe(l)" in name:
-        return simple_cdf_fe_free(press, temp, mfrac, mmw)
-    elif "MgSiO3(s)" in name or "MgSiO3(l)" in name:
-        return simple_cdf_mgsio3_free(press, temp, mfrac, mmw)
-    elif "Mg2SiO4(s)" in name or "Mg2SiO4(l)" in name:
-        return simple_cdf_mg2sio4_free(press, temp, mfrac, mmw)
-    elif "Na2S(s)" in name or "Na2S(l)" in name:
-        return simple_cdf_na2s_free(press, temp, mfrac, mmw)
-    elif "KCL(s)" in name or "KCL(l)" in name:
-        return simple_cdf_kcl_free(press, temp, mfrac, mmw)
-    elif "SiO(s)" in name:
-        return simple_cdf_sio_free(press, temp, mfrac, mmw)
-    else:
-        warnings.warn(f"The cloud {name} is not currently implemented.")
-
-        return jnp.zeros_like(metallicity)
-
-
-def return_x_fe(metallicity=0.0, co_ratio=0.55):
-    nfracs_use = copy.copy(__elemental_abundances)
-
-    for spec in __elemental_abundances.keys():
-        if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
-
-    nfracs_use['O'] = nfracs_use['C'] / co_ratio
-
-    x_fe = __get_species_molar_mass('Fe') * nfracs_use['Fe']
-    add = 0.
-
-    for spec in nfracs_use.keys():
-        add += __get_species_molar_mass(spec) * nfracs_use[spec]
-
-    x_fe = x_fe / add
-
-    return x_fe
-
-
-def return_x_mgsio3(metallicity, co_ratio):
-    nfracs_use = copy.copy(__elemental_abundances)
-
-    for spec in __elemental_abundances.keys():
-        if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
-
-    nfracs_use['O'] = nfracs_use['C'] / co_ratio
-
-    nfracs_mgsio3 = jnp.min([nfracs_use['Mg'],
-                            nfracs_use['Si'],
-                            nfracs_use['O'] / 3.])
-    masses_mgsio3 = __get_species_molar_mass('Mg') \
-        + __get_species_molar_mass('Si') \
-        + 3. * __get_species_molar_mass('O')
-
-    xmgsio3 = masses_mgsio3 * nfracs_mgsio3
-    add = 0.
-
-    for spec in nfracs_use.keys():
-        add += __get_species_molar_mass(spec) * nfracs_use[spec]
-
-    xmgsio3 = xmgsio3 / add
-
-    return xmgsio3
-
-
-def return_x_mg2sio4(metallicity, co_ratio):
-    nfracs_use = copy.copy(__elemental_abundances)
-
-    for spec in __elemental_abundances.keys():
-        if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
-
-    nfracs_use['O'] = nfracs_use['C'] / co_ratio
-
-    nfracs_mg2sio4 = jnp.min([
-        nfracs_use['Mg'] / 2.,
-        nfracs_use['Si'],
-        nfracs_use['O'] / 4.]
-    )
-    masses_mg2sio4 = 2 * __get_species_molar_mass('Mg') \
-        + __get_species_molar_mass('Si') \
-        + 4. * __get_species_molar_mass('O')
-
-    x_mg2sio4 = masses_mg2sio4 * nfracs_mg2sio4
-
-    add = 0.
-
-    for spec in nfracs_use.keys():
-        add += __get_species_molar_mass(spec) * nfracs_use[spec]
-
-    x_mg2sio4 = x_mg2sio4 / add
-
-    return x_mg2sio4
-
-
-def return_x_mgfesio4(metallicity, co_ratio):
-    nfracs_use = copy.copy(__elemental_abundances)
-
-    for spec in __elemental_abundances.keys():
-        if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
-
-    nfracs_use['O'] = nfracs_use['C'] / co_ratio
-
-    nfracs_mgfesio4 = jnp.min([
-        nfracs_use['Mg'],
-        nfracs_use['Fe'],
-        nfracs_use['Si'],
-        nfracs_use['O'] / 4.]
-    )
-    masses_mgfesio4 = __get_species_molar_mass('Mg') \
-        + __get_species_molar_mass('Fe') \
-        + __get_species_molar_mass('Si') \
-        + 4. * __get_species_molar_mass('O')
-
-    x_mgfesio4 = masses_mgfesio4 * nfracs_mgfesio4
-
-    add = 0.
-
-    for spec in nfracs_use.keys():
-        add += __get_species_molar_mass(spec) * nfracs_use[spec]
-
-    x_mgfesio4 = x_mgfesio4 / add
-
-    return x_mgfesio4
-
-
-def return_x_sio(metallicity, co_ratio):
-    nfracs_use = copy.copy(__elemental_abundances)
-
-    for spec in __elemental_abundances.keys():
-        if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
-
-    nfracs_use['O'] = nfracs_use['C'] / co_ratio
-
-    nfracs_sio = jnp.min([
-        nfracs_use['Si'],
-        nfracs_use['O']]
-    )
-    masses_sio = __get_species_molar_mass('Si') \
-        + __get_species_molar_mass('O')
-
-    x_sio = masses_sio * nfracs_sio
-
-    add = 0.
-
-    for spec in nfracs_use.keys():
-        add += __get_species_molar_mass(spec) * nfracs_use[spec]
-
-    x_sio = x_sio / add
-
-    return x_sio
-
-
-def return_x_na2s(metallicity, co_ratio):
-    nfracs_use = copy.copy(__elemental_abundances)
-
-    for spec in __elemental_abundances.keys():
-        if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
-
-    nfracs_use['O'] = nfracs_use['C'] / co_ratio
-
-    nfracs_na2s = jnp.min([nfracs_use['Na'] / 2.,
-                          nfracs_use['S']])
-    masses_na2s = 2. * __get_species_molar_mass('Na') \
-        + __get_species_molar_mass('S')
-
-    xna2s = masses_na2s * nfracs_na2s
-    add = 0.
-
-    for spec in nfracs_use.keys():
-        add += __get_species_molar_mass(spec) * nfracs_use[spec]
-
-    xna2s = xna2s / add
-
-    return xna2s
-
-
-def return_x_kcl(metallicity, co_ratio):
-    nfracs_use = copy.copy(__elemental_abundances)
-
-    for spec in __elemental_abundances.keys():
-        if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
-
-    nfracs_use['O'] = nfracs_use['C'] / co_ratio
-
-    nfracs_kcl = jnp.min([nfracs_use['K'],
-                         nfracs_use['Cl']])
-    masses_kcl = __get_species_molar_mass('K') \
-        + __get_species_molar_mass('Cl')
-
-    xkcl = masses_kcl * nfracs_kcl
-    add = 0.
-
-    for spec in nfracs_use.keys():
-        add += __get_species_molar_mass(spec) * nfracs_use[spec]
-
-    xkcl = xkcl / add
-
-    return xkcl
-
-
-#############################################################
-# Fe saturation pressure, from Ackerman & Marley (2001), including erratum (P_vap is in bar, not cgs!)
-#############################################################
-
-def return_t_cond_fe(metallicity, co_ratio, mmw=2.33):
-    t = jnp.linspace(100., 10000., 1000)
-
-    # Taken from Ackerman & Marley (2001) including their erratum
-    def p_vap(x):
-        return jnp.exp(15.71 - 47664. / x)
-
-    x_fe = return_x_fe(metallicity, co_ratio)
-
-    return p_vap(t) / (x_fe * mmw / __get_species_molar_mass('Fe')), t
-
-
-def return_t_cond_fe_l(metallicity, co_ratio, mmw=2.33):
-    t = jnp.linspace(100., 10000., 1000)
-
-    # Taken from Ackerman & Marley (2001) including their erratum
-    def p_vap(x):
-        return jnp.exp(9.86 - 37120. / x)
-
-    x_fe = return_x_fe(metallicity, co_ratio)
-
-    return p_vap(t) / (x_fe * mmw / __get_species_molar_mass('Fe')), t
-
-
-def return_t_cond_fe_comb(metallicity, co_ratio, mmw=2.33):
-    p1, t1 = return_t_cond_fe(metallicity, co_ratio, mmw)
-    p2, t2 = return_t_cond_fe_l(metallicity, co_ratio, mmw)
+    """Return mass fraction for a cloud species using unified dispatch."""
+    cloud_species_functions = {
+        'Fe': calculate_mass_fraction_fe,
+        'MgSiO3': calculate_mass_fraction_mgsio3,
+        'Mg2SiO4': calculate_mass_fraction_mg2sio4,
+        'Na2S': calculate_mass_fraction_na2s,
+        'KCL': calculate_mass_fraction_kcl,
+        'MgFeSiO4': calculate_mass_fraction_mgfesio4,
+        'SiO': calculate_mass_fraction_sio,
+        'TiO2': calculate_mass_fraction_tio2,
+        'Cr': calculate_mass_fraction_cr,
+        'ZnS': calculate_mass_fraction_zns,
+        'NH3': calculate_mass_fraction_nh3,
+        'MnS': calculate_mass_fraction_mns,
+        'H2O': calculate_mass_fraction_h2o,
+        'CH4': calculate_mass_fraction_ch4,
+        'Al2O3': calculate_mass_fraction_al2o3,
+        'CaTiO3': calculate_mass_fraction_catio3,
+        'CaAl12O19': calculate_mass_fraction_caal12o19,
+        'SiO2': calculate_mass_fraction_sio2,
+    }
+
+    base_name = _get_cloud_species_base_name(name)
+    if base_name and base_name in cloud_species_functions:
+        return cloud_species_functions[base_name](metallicity, co_ratio)
+
+    warnings.warn(f"The cloud {name} is not currently implemented.")
+    return jnp.zeros_like(metallicity)
+
+
+def calculate_cloud_base_pressure(name, press, temp, metallicity=0.0, co_ratio=0.55, mmw=2.33):
+    """Calculate cloud base pressure for a cloud species using unified dispatch."""
+    cloud_species_functions = {
+        'Fe': calculate_cloud_base_pressure_fe,
+        'MgSiO3': calculate_cloud_base_pressure_mgsio3,
+        'Mg2SiO4': calculate_cloud_base_pressure_mg2sio4,
+        'Na2S': calculate_cloud_base_pressure_na2s,
+        'KCL': calculate_cloud_base_pressure_kcl,
+        'SiO': calculate_cloud_base_pressure_sio,
+        'TiO2': calculate_cloud_base_pressure_tio2,
+        'Cr': calculate_cloud_base_pressure_cr,
+        'ZnS': calculate_cloud_base_pressure_zns,
+        'NH3': calculate_cloud_base_pressure_nh3,
+        'MnS': calculate_cloud_base_pressure_mns,
+        'H2O': calculate_cloud_base_pressure_h2o,
+        'CH4': calculate_cloud_base_pressure_ch4,
+        'Al2O3': calculate_cloud_base_pressure_al2o3,
+        'CaTiO3': calculate_cloud_base_pressure_catio3,
+        'CaAl12O19': calculate_cloud_base_pressure_caal12o19,
+        'SiO2': calculate_cloud_base_pressure_sio2,
+    }
+
+    base_name = _get_cloud_species_base_name(name)
+    if base_name and base_name in cloud_species_functions:
+        return cloud_species_functions[base_name](press, temp, metallicity, co_ratio, mmw)
+
+    warnings.warn(f"The cloud {name} is not currently implemented.")
+    return jnp.zeros_like(temp)
+
+
+def calculate_cloud_base_pressure_free(name, press, temp, metallicity, mfrac, mmw=2.33):
+    """Calculate cloud base pressure for a cloud species (free abundance) using unified dispatch."""
+    cloud_species_functions = {
+        'Fe': calculate_cloud_base_pressure_fe_free,
+        'MgSiO3': calculate_cloud_base_pressure_mgsio3_free,
+        'Mg2SiO4': calculate_cloud_base_pressure_mg2sio4_free,
+        'Na2S': calculate_cloud_base_pressure_na2s_free,
+        'KCL': calculate_cloud_base_pressure_kcl_free,
+        'SiO': calculate_cloud_base_pressure_sio_free,
+        'TiO2': calculate_cloud_base_pressure_tio2_free,
+        'Cr': calculate_cloud_base_pressure_cr_free,
+        'ZnS': calculate_cloud_base_pressure_zns_free,
+        'NH3': calculate_cloud_base_pressure_nh3_free,
+        'MnS': calculate_cloud_base_pressure_mns_free,
+        'H2O': calculate_cloud_base_pressure_h2o_free,
+        'CH4': calculate_cloud_base_pressure_ch4_free,
+        'Al2O3': calculate_cloud_base_pressure_al2o3_free,
+        'CaTiO3': calculate_cloud_base_pressure_catio3_free,
+        'CaAl12O19': calculate_cloud_base_pressure_caal12o19_free,
+        'SiO2': calculate_cloud_base_pressure_sio2_free,
+    }
+
+    base_name = _get_cloud_species_base_name(name)
+    if base_name and base_name in cloud_species_functions:
+        return cloud_species_functions[base_name](press, temp, mfrac, mmw)
+
+    warnings.warn(f"The cloud {name} is not currently implemented.")
+    return jnp.zeros_like(temp)
+
+
+def calculate_mass_fraction_fe(metallicity=0.0, co_ratio=0.55):
+    """Calculate Fe mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    compound_mass = _get_species_molar_mass('Fe')
+    limiting_nfracs = nfracs_use['Fe']
+    total_mass = _get_total_mass(nfracs_use)
+    return (compound_mass * limiting_nfracs) / total_mass
+
+
+def calculate_mass_fraction_mgsio3(metallicity, co_ratio):
+    """Calculate MgSiO3 mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Mg': 1, 'Si': 1, 'O': 3}
+    compound_mass = (_get_species_molar_mass('Mg')
+                     + _get_species_molar_mass('Si')
+                     + 3. * _get_species_molar_mass('O'))
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_mg2sio4(metallicity, co_ratio):
+    """Calculate Mg2SiO4 mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Mg': 2, 'Si': 1, 'O': 4}
+    compound_mass = (2 * _get_species_molar_mass('Mg')
+                     + _get_species_molar_mass('Si')
+                     + 4. * _get_species_molar_mass('O'))
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_mgfesio4(metallicity, co_ratio):
+    """Calculate MgFeSiO4 mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Mg': 1, 'Fe': 1, 'Si': 1, 'O': 4}
+    compound_mass = (_get_species_molar_mass('Mg')
+                     + _get_species_molar_mass('Fe')
+                     + _get_species_molar_mass('Si')
+                     + 4. * _get_species_molar_mass('O'))
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_sio(metallicity, co_ratio):
+    """Calculate SiO mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Si': 1, 'O': 1}
+    compound_mass = _get_species_molar_mass('Si') + _get_species_molar_mass('O')
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_na2s(metallicity, co_ratio):
+    """Calculate Na2S mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Na': 2, 'S': 1}
+    compound_mass = 2. * _get_species_molar_mass('Na') + _get_species_molar_mass('S')
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_kcl(metallicity, co_ratio):
+    """Calculate KCL mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'K': 1, 'Cl': 1}
+    compound_mass = _get_species_molar_mass('K') + _get_species_molar_mass('Cl')
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_tio2(metallicity, co_ratio):
+    """Calculate TiO2 mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Ti': 1, 'O': 2}
+    compound_mass = _get_species_molar_mass('Ti') + 2. * _get_species_molar_mass('O')
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_cr(metallicity, co_ratio):
+    """Calculate Cr mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    compound_mass = _get_species_molar_mass('Cr')
+    limiting_nfracs = nfracs_use['Cr']
+    total_mass = _get_total_mass(nfracs_use)
+    return (compound_mass * limiting_nfracs) / total_mass
+
+
+def calculate_mass_fraction_zns(metallicity, co_ratio):
+    """Calculate ZnS mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Zn': 1, 'S': 1}
+    compound_mass = _get_species_molar_mass('Zn') + _get_species_molar_mass('S')
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_nh3(metallicity, co_ratio):
+    """Calculate NH3 mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'N': 1, 'H': 3}
+    compound_mass = _get_species_molar_mass('N') + 3. * _get_species_molar_mass('H')
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_mns(metallicity, co_ratio):
+    """Calculate MnS mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Mn': 1, 'S': 1}
+    compound_mass = _get_species_molar_mass('Mn') + _get_species_molar_mass('S')
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_h2o(metallicity, co_ratio):
+    """Calculate H2O mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'H': 2, 'O': 1}
+    compound_mass = 2. * _get_species_molar_mass('H') + _get_species_molar_mass('O')
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_ch4(metallicity, co_ratio):
+    """Calculate CH4 mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'C': 1, 'H': 4}
+    compound_mass = _get_species_molar_mass('C') + 4. * _get_species_molar_mass('H')
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_al2o3(metallicity, co_ratio):
+    """Calculate Al2O3 mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Al': 2, 'O': 3}
+    compound_mass = 2. * _get_species_molar_mass('Al') + 3. * _get_species_molar_mass('O')
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_catio3(metallicity, co_ratio):
+    """Calculate CaTiO3 mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Ca': 1, 'Ti': 1, 'O': 3}
+    compound_mass = (_get_species_molar_mass('Ca') + _get_species_molar_mass('Ti')
+                     + 3. * _get_species_molar_mass('O'))
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_caal12o19(metallicity, co_ratio):
+    """Calculate CaAl12O19 mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Ca': 1, 'Al': 12, 'O': 19}
+    compound_mass = (_get_species_molar_mass('Ca') + 12. * _get_species_molar_mass('Al')
+                     + 19. * _get_species_molar_mass('O'))
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+
+def calculate_mass_fraction_sio2(metallicity, co_ratio):
+    """Calculate SiO2 mass fraction for given metallicity and C/O ratio."""
+    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
+    element_counts = {'Si': 1, 'O': 2}
+    compound_mass = _get_species_molar_mass('Si') + 2. * _get_species_molar_mass('O')
+    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
+
+# ============================================================================
+# Vapor pressure functions are imported from condensation_curves.py
+# ============================================================================
+
+def condensation_temperature_fe(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate Fe condensation curve (solid).
+
+    Based on Ackerman & Marley (2001) including erratum (P_vap in bar).
+    """
+    x_fe = calculate_mass_fraction_fe(metallicity, co_ratio)
+
+    return vapour_pressure_fe_solid(temperatures) / (x_fe * mmw / _get_species_molar_mass('Fe'))
+
+
+def condensation_temperature_fe_liquid(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate Fe condensation curve (liquid).
+
+    Based on Ackerman & Marley (2001) including erratum (P_vap in bar).
+    """
+    x_fe = calculate_mass_fraction_fe(metallicity, co_ratio)
+
+    return vapour_pressure_fe_liquid(temperatures) / (x_fe * mmw / _get_species_molar_mass('Fe'))
+
+
+def condensation_temperature_fe_combined(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate Fe condensation curve using minimum of solid/liquid phases."""
+    p1, t1 = condensation_temperature_fe(temperatures, metallicity, co_ratio, mmw)
+    p2, t2 = condensation_temperature_fe_liquid(temperatures, metallicity, co_ratio, mmw)
 
     ret_p = jnp.zeros_like(p1)
     index = p1 < p2
     ret_p = jnp.where(index, p1, ret_p)
     ret_p = jnp.where(~index, p2, ret_p)
-    return ret_p, t2
+    return ret_p
 
 
-def return_t_cond_fe_free(x_fe, mmw=2.33):
-    t = jnp.linspace(100., 12000., 1200)
+def condensation_temperature_fe_free(temperatures, x_fe, mmw=2.33):
+    """Calculate Fe condensation curve (solid) for prescribed abundance.
 
-    # Taken from Ackerman & Marley (2001) including their erratum
-    def p_vap(x):
-        return jnp.exp(15.71 - 47664. / x)
-
-    return p_vap(t) / (x_fe * mmw / __get_species_molar_mass('Fe')), t
+    Based on Ackerman & Marley (2001) including erratum (P_vap in bar).
+    """
+    return vapour_pressure_fe_solid(temperatures) / (x_fe * mmw / _get_species_molar_mass('Fe'))
 
 
-def return_t_cond_fe_l_free(x_fe, mmw=2.33):
-    t = jnp.linspace(100., 12000., 1200)
+def condensation_temperature_fe_l_free(temperatures, x_fe, mmw=2.33):
+    """Calculate Fe condensation curve (liquid) for prescribed abundance.
 
-    # Taken from Ackerman & Marley (2001) including their erratum
-    def p_vap(x):
-        return jnp.exp(9.86 - 37120. / x)
-
-    return p_vap(t) / (x_fe * mmw / __get_species_molar_mass('Fe')), t
+    Based on Ackerman & Marley (2001) including erratum (P_vap in bar).
+    """
+    return vapour_pressure_fe_liquid(temperatures) / (x_fe * mmw / _get_species_molar_mass('Fe'))
 
 
-def return_t_cond_fe_comb_free(x_fe, mmw=2.33):
-    p1, t1 = return_t_cond_fe_free(x_fe, mmw)
-    p2, t2 = return_t_cond_fe_l_free(x_fe, mmw)
+def condensation_temperature_fe_comb_free(temperatures, x_fe, mmw=2.33):
+    """Calculate Fe condensation curve for prescribed abundance using minimum of solid/liquid."""
+    p1, t1 = condensation_temperature_fe_free(temperatures, x_fe, mmw)
+    p2, t2 = condensation_temperature_fe_l_free(temperatures, x_fe, mmw)
     ret_p = jnp.zeros_like(p1)
     index = p1 < p2
     ret_p = jnp.where(index, p1, ret_p)
     ret_p = jnp.where(~index, p2, ret_p)
-
-    return ret_p, t2
-
-
-def return_t_cond_mgsio3(metallicity, co_ratio, mmw=2.33):
-    t = jnp.linspace(100., 10000., 1000)
-
-    # Taken from Ackerman & Marley (2001) including their erratum
-    def p_vap(x):
-        return jnp.exp(25.37 - 58663. / x)
-
-    xmgsio3 = return_x_mgsio3(metallicity, co_ratio)
-
-    m_mgsio3 = __get_species_molar_mass('Mg') \
-        + __get_species_molar_mass('Si') \
-        + 3. * __get_species_molar_mass('O')
-
-    return p_vap(t) / (xmgsio3 * mmw / m_mgsio3), t
+    return ret_p
 
 
-def return_t_cond_mg2sio4(metallicity, co_ratio, mmw=2.33):
-    t = jnp.linspace(100., 10000., 1000)
-
-    # Visscher 2010 condensation curve
-    def p_vap(x):
-        """Total pressure of condensation, not the species' vapor pressure like for most of the other species."""
-        return 10 ** (15.92 - 1.97 * metallicity - 27027.03 / x)
-
-    return p_vap(t), t
+def vapour_pressure_mgsi03(temperature):
+    return jnp.exp(25.37 - 58663. / temperature)
 
 
-def return_t_cond_mgsio3_free(x_mgsio3, mmw=2.33):
-    t = jnp.linspace(100., 10000., 1000)
+def condensation_temperature_mgsio3(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate MgSiO3 condensation curve.
 
-    # Taken from Ackerman & Marley (2001) including their erratum
-
-    def p_vap(x):
-        return jnp.exp(25.37 - 58663. / x)
-
-    m_mgsio3 = __get_species_molar_mass('Mg') \
-        + __get_species_molar_mass('Si') \
-        + 3. * __get_species_molar_mass('O')
-
-    return p_vap(t) / (x_mgsio3 * mmw / m_mgsio3), t
+    Based on Ackerman & Marley (2001) including erratum.
+    """
+    xmgsio3 = calculate_mass_fraction_mgsio3(metallicity, co_ratio)
+    m_mgsio3 = _get_species_molar_mass('Mg') \
+        + _get_species_molar_mass('Si') \
+        + 3. * _get_species_molar_mass('O')
+    return vapour_pressure_mgsi03(temperatures) / (xmgsio3 * mmw / m_mgsio3)
 
 
-def return_t_cond_mg2sio4_free(x_mg2sio4, mmw=2.33):
-    t = jnp.linspace(100., 10000., 1000)
+def condensation_temperature_mgsio3_free(temperatures, x_mgsio3, mmw=2.33):
+    """Calculate MgSiO3 condensation curve for prescribed abundance.
 
-    # Taken from Ackerman & Marley (2001) including their erratum
-    def p_vap(x):
-        return jnp.exp(25.37 - 58663. / x)
-
-    m_mg2sio4 = 2 * __get_species_molar_mass('Mg') \
-        + __get_species_molar_mass('Si') \
-        + 4. * __get_species_molar_mass('O')
-
-    return p_vap(t) / (x_mg2sio4 * mmw / m_mg2sio4), t
+    Based on Ackerman & Marley (2001) including erratum.
+    """
+    m_mgsio3 = _get_species_molar_mass('Mg') \
+        + _get_species_molar_mass('Si') \
+        + 3. * _get_species_molar_mass('O')
+    return vapour_pressure_mgsi03(temperatures) / (x_mgsio3 * mmw / m_mgsio3)
 
 
-def return_t_cond_na2s(metallicity, co_ratio, mmw=2.33):
-    # Taken from Charnay+2018
-    t = jnp.linspace(100., 10000., 1000)
-
-    # This is the partial pressure of Na, so /2 to get the partial pressure of the hypothetical Na2S gas particles
-    # This is OK: there are more S than Na atoms at solar abundance ratios
-    def p_vap(x):
-        return 1e1 ** (8.55 - 13889. / x - 0.5 * metallicity) / 2.
-
-    xna2s = return_x_na2s(metallicity, co_ratio)
-
-    m_na2s = 2. * __get_species_molar_mass('Na') \
-        + __get_species_molar_mass('S')
-
-    return p_vap(t) / (xna2s * mmw / m_na2s), t
+def vapour_pressure_mg2sio4(temperature, metallicity=None):
+    """Total pressure of condensation, not the species' vapor pressure like for most of the other species."""
+    if metallicity is None:
+        return jnp.exp(25.37 - 58663. / temperature)
+    return 10 ** (15.92 - 1.97 * metallicity - 27027.03 / temperature)
 
 
-def return_t_cond_na2s_free(x_na2s, mmw=2.33):
-    # Taken from Charnay+2018
-    t = jnp.linspace(100., 10000., 1000)
+def condensation_temperature_mg2sio4(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate Mg2SiO4 condensation curve.
 
+    Based on Visscher 2010. Returns total pressure, not species vapor pressure.
+    """
+    return vapour_pressure_mg2sio4(temperatures, metallicity)
+
+
+def condensation_temperature_mg2sio4_free(temperatures, x_mg2sio4, mmw=2.33):
+    """Calculate Mg2SiO4 condensation curve for prescribed abundance.
+
+    Based on Ackerman & Marley (2001) including erratum.
+    """
+    m_mg2sio4 = 2 * _get_species_molar_mass('Mg') \
+        + _get_species_molar_mass('Si') \
+        + 4. * _get_species_molar_mass('O')
+
+    return vapour_pressure_mg2sio4(temperatures) / (x_mg2sio4 * mmw / m_mg2sio4)
+
+
+def vapour_pressure_na2s(temperature, metallicity=0.0, na2s_mass_fraction=None, mmw=2.33):
+    if na2s_mass_fraction is not None:
+        # We're also using [Na/H] as a proxy for [Fe/H]
+        # Definitely not strictly correct, but should be good enough for ~ solar compositions.
+        # [+- 1 for Fe/H]
+        # Assumes constant vertical abundance
+        return (10 ** (8.55 - 13889.
+                       / temperature - 0.5
+                       * (jnp.log10(2 * na2s_mass_fraction * mmw / na2s_mass_fraction) + 5.7)
+                       )
+                / 2
+                )
+    return 10 ** (8.55 - 13889. / temperature - 0.5 * metallicity) / 2.
+
+
+def condensation_temperature_na2s(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate Na2S condensation curve.
+
+    Based on Charnay+2018. Accounts for partial pressure of Na.
+    """
     # This is the partial pressure of Na, so /2 to get the partial pressure of the hypothetical Na2S gas particles
     # This is OK: there are more S than Na atoms at solar abundance ratios
 
-    # We're also using [Na/H] as a proxy for [Fe/H]
-    # Definitely not strictly correct, but should be good enough for ~ solar compositions. [+- 1 for Fe/H]
-    # Assumes constant vertical abundance
-    def p_vap(x):
-        return 1e1 ** (8.55 - 13889. / x - 0.5 * (jnp.log10(2 * x_na2s * mmw / m_na2s) + 5.7)) / 2
+    xna2s = calculate_mass_fraction_na2s(metallicity, co_ratio)
 
-    m_na2s = 2. * __get_species_molar_mass('Na') \
-        + __get_species_molar_mass('S')
+    m_na2s = 2. * _get_species_molar_mass('Na') \
+        + _get_species_molar_mass('S')
 
-    return p_vap(t) / (x_na2s * mmw / m_na2s), t
+    return vapour_pressure_na2s(temperatures, metallicity) / (xna2s * mmw / m_na2s)
 
 
-def return_t_cond_kcl(metallicity, co_ratio, mmw=2.33):
-    # Taken from Charnay+2018
-    t = jnp.linspace(100., 10000., 1000)
+def condensation_temperature_na2s_free(temperatures, x_na2s, mmw=2.33):
+    """Calculate Na2S condensation curve for prescribed abundance.
 
-    def p_vap(x):
-        return 1e1 ** (7.611 - 11382. / x)  # TODO check if this p_vap is alright
+    Based on Charnay+2018. Uses Na/H as proxy for Fe/H for solar compositions.
+    """
+    # This is the partial pressure of Na, so /2 to get the partial pressure of the hypothetical Na2S gas particles
+    # This is OK: there are more S than Na atoms at solar abundance ratios
+    m_na2s = 2. * _get_species_molar_mass('Na') \
+        + _get_species_molar_mass('S')
 
-    xkcl = return_x_kcl(metallicity, co_ratio)
+    return vapour_pressure_na2s(temperatures, na2s_mass_fraction=m_na2s, mmw=mmw) / (x_na2s * mmw / m_na2s)
 
-    m_kcl = __get_species_molar_mass('K') \
-        + __get_species_molar_mass('Cl')
 
-    return p_vap(t) / (xkcl * mmw / m_kcl), t
+def vapour_pressure_kcl(temperature):
+    """
+    Notes
+    -----
+    .. [1] Morley, C.~V., Fortney, et a.  2012.
+           Neglected Clouds in T and Y Dwarf Atmospheres.
+           The Astrophysical Journal 756. doi:10.1088/0004-637X/756/2/172
+    .. [2] Lodders, K. 1999.
+           Alkali Element Chemistry in Cool Dwarf Atmospheres.
+           The Astrophysical Journal 519, 793–801. doi:10.1086/307387
+    """
+    return 10 ** (7.6106 - 11382. / temperature)
 
 
-def return_t_cond_kcl_free(x_kcl, mmw=2.33):
-    # Taken from Charnay+2018
-    t = jnp.linspace(100., 10000., 1000)
+def condensation_temperature_kcl(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate KCL condensation curve.
 
-    def p_vap(x):
-        return 1e1 ** (7.611 - 11382. / x)  # TODO check if this p_vap is alright
+    Based on Charnay+2018.
+    """
+    xkcl = calculate_mass_fraction_kcl(metallicity, co_ratio)
 
-    m_kcl = __get_species_molar_mass('K') \
-        + __get_species_molar_mass('Cl')
+    m_kcl = _get_species_molar_mass('K') \
+        + _get_species_molar_mass('Cl')
 
-    return p_vap(t) / (x_kcl * mmw / m_kcl), t
+    return vapour_pressure_kcl(temperatures) / (xkcl * mmw / m_kcl)
 
 
-def return_t_cond_sio(metallicity, co_ratio, mmw=2.33):
-    # Taken from Wetzel+2013
-    t = jnp.linspace(100., 10000., 1000)
+def condensation_temperature_kcl_free(temperatures, x_kcl, mmw=2.33):
+    """Calculate KCL condensation curve for prescribed abundance.
 
-    def p_vap(x):                        # conversion to bar
-        return jnp.exp(33.848 - 42648./x)*1e-6
+    Based on Charnay+2018.
+    """
+    m_kcl = _get_species_molar_mass('K') \
+        + _get_species_molar_mass('Cl')
 
-    xsio = return_x_sio(metallicity, co_ratio)
+    return vapour_pressure_kcl(temperatures) / (x_kcl * mmw / m_kcl)
 
-    m_sio = __get_species_molar_mass('Si') \
-        + __get_species_molar_mass('O')
 
-    return p_vap(t) / (xsio * mmw / m_sio), t
+def vapour_pressure_sio(temperature):
+    return jnp.exp(33.848 - 42648./temperature)*1e-6
 
 
-def return_t_cond_sio_free(x_sio, mmw=2.33):
-    # Taken from Wetzel+2013
-    t = jnp.linspace(100., 10000., 1000)
+def condensation_temperature_sio(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate SiO condensation curve.
 
-    def p_vap(x):                        # conversion to bar
-        return jnp.exp(33.848 - 42648./x)*1e-6
+    Based on Wetzel+2013.
+    """
+    xsio = calculate_mass_fraction_sio(metallicity, co_ratio)
 
-    m_sio = __get_species_molar_mass('Si') \
-        + __get_species_molar_mass('O')
+    m_sio = _get_species_molar_mass('Si') \
+        + _get_species_molar_mass('O')
 
-    return p_vap(t) / (x_sio * mmw / m_sio), t
+    return vapour_pressure_sio(temperatures) / (xsio * mmw / m_sio)
 
 
-def simple_cdf_fe(press, temp, metallicity, co_ratio, mmw=2.33):
-    pc, tc = return_t_cond_fe_comb(metallicity, co_ratio, mmw)
-    # TODO clean comments
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
+def condensation_temperature_sio_free(temperatures, x_sio, mmw=2.33):
+    """Calculate SiO condensation curve for prescribed abundance.
 
-    tcond_on_input_grid = jnp.interp(press, pc, tc)
-    #tcond_p = interp1d(pc, tc)
-    #tcond_on_input_grid = tcond_p(press)
+    Based on Wetzel+2013.
+    """
+    m_sio = _get_species_molar_mass('Si') \
+        + _get_species_molar_mass('O')
 
-    tdiff = tcond_on_input_grid - temp
-    diff_vec = tdiff[1:] * tdiff[:-1]
-    ind_cdf = (diff_vec < 0.)
+    return vapour_pressure_sio(temperatures) / (x_sio * mmw / m_sio)
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
-    return p_cloud
+def vapour_pressure_tio2(temp, metallicity=0):
+    """Compute vapor pressure curve for TiO2.
 
+    Args:
+        temp: float or ndarray
+            Temperature (K)
+        metallicity: float
+            Metallicity relative to solar in log10 units (default: 0 = 1X solar)
 
-def simple_cdf_fe_free(press, temp, x_fe, mmw=2.33):
-    pc, tc = return_t_cond_fe_comb_free(x_fe, mmw)
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
-    tcond_on_input_grid = jnp.interp(press, pc, tc)
+    Returns:
+        float or ndarray
+            Vapor pressure in dyne/cm^2
 
-    t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:] * t_diff[:-1]
-    ind_cdf = (diff_vec < 0.)
+    References:
+        [1] Marley M. S., Saumon D., Visscher C., Lupu R., Freedman R.,
+            Morley C., Fortney J. J., et al., 2021, ApJ, 920, 85.
+            doi:10.3847/1538-4357/ac141d
+        [2] Virga: https://github.com/natashabatalha/virga/
+            Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
+    """
+    # return 1e6 * 10. ** (9.5489 - 32456.8678/temp)  # Gao 2020
+    return 1e6 * 10. ** (13.95 - 38266/temp - metallicity)  # Marley et al. 2021
+
+
+def condensation_temperature_tio2(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate TiO2 condensation curve."""
+    xtio2 = calculate_mass_fraction_tio2(metallicity, co_ratio)
+    m_tio2 = _get_species_molar_mass('Ti') + 2. * _get_species_molar_mass('O')
+    return vapour_pressure_tio2(temperatures, metallicity) / (xtio2 * mmw / m_tio2)
+
+
+def condensation_temperature_tio2_free(temperatures, x_tio2, mmw=2.33):
+    """Calculate TiO2 condensation curve for prescribed abundance."""
+    m_tio2 = _get_species_molar_mass('Ti') + 2. * _get_species_molar_mass('O')
+    return vapour_pressure_tio2(temperatures) / (x_tio2 * mmw / m_tio2)
+
+def vapour_pressure_cr(temp, metallicity=0):
+    """Compute vapor pressure curve for Cr.
+
+    Args:
+        temp: float or ndarray
+            Temperature (K)
+        metallicity: float
+            Metallicity relative to solar in log10 units (default: 0 = 1X solar)
+
+    Returns:
+        float or ndarray
+            Vapor pressure in dyne/cm^2
+
+    References:
+        [1] Morley, Caroline V., et al. "Neglected clouds in T and Y dwarf
+            atmospheres." The Astrophysical Journal 756.2 (2012): 172.
+    """
+    # Cr vapor pressure above cloud
+    pvap_cr_bars = 10.0**(7.49-20592./temp)
+    # Then convert from bars to dynes/cm^2
+    pvap_cr = pvap_cr_bars*1e6
+    return pvap_cr
+
+def condensation_temperature_cr(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate Cr condensation curve."""
+    xcr = calculate_mass_fraction_cr(metallicity, co_ratio)
+    m_cr = _get_species_molar_mass('Cr')
+    return vapour_pressure_cr(temperatures, metallicity) / (xcr * mmw / m_cr)
+
+
+def condensation_temperature_cr_free(temperatures, x_cr, mmw=2.33):
+    """Calculate Cr condensation curve for prescribed abundance."""
+    m_cr = _get_species_molar_mass('Cr')
+    return vapour_pressure_cr(temperatures) / (x_cr * mmw / m_cr)
+
+
+def vapour_pressure_zns(temp, metallicity=0):
+    """Compute vapor pressure curve for ZnS.
+
+    Args:
+        temp: float or ndarray
+            Temperature (K)
+        metallicity: float
+            Metallicity relative to solar in log10 units (default: 0 = 1X solar)
+
+    Returns:
+        float or ndarray
+            Vapor pressure in dyne/cm^2
+
+    References:
+        [1] Morley, Caroline V., et al. "Neglected clouds in T and Y dwarf
+            atmospheres." The Astrophysical Journal 756.2 (2012): 172.
+        [2] Visscher, Channon, Katharina Lodders, and Bruce Fegley Jr.
+            "Atmospheric chemistry in giant planets, brown dwarfs, and
+            low-mass dwarf stars. II. Sulfur and phosphorus."
+            The Astrophysical Journal 648.2 (2006): 1181.
+        [3] Virga: https://github.com/natashabatalha/virga/
+            Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
+    """
+    # Zn vapor pressure above cloud
+    pvap_zns_bars = 10.0**(12.8117-15873./temp - metallicity)
+    # Then convert from bars to dynes/cm^2
+    pvap_zns = pvap_zns_bars*1e6
+    return pvap_zns
+
+def condensation_temperature_zns(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate ZnS condensation curve."""
+    xzns = calculate_mass_fraction_zns(metallicity, co_ratio)
+    m_zns = _get_species_molar_mass('Zn') + _get_species_molar_mass('S')
+    return vapour_pressure_zns(temperatures, metallicity) / (xzns * mmw / m_zns)
+
+
+def condensation_temperature_zns_free(temperatures, x_zns, mmw=2.33):
+    """Calculate ZnS condensation curve for prescribed abundance."""
+    m_zns = _get_species_molar_mass('Zn') + _get_species_molar_mass('S')
+    return vapour_pressure_zns(temperatures) / (x_zns * mmw / m_zns)
+
+def vapour_pressure_nh3(temp, metallicity=0):
+    """Compute vapor pressure curve for NH3.
+
+    Args:
+        temp: float or ndarray
+            Temperature (K)
+        metallicity: float
+            Metallicity relative to solar in log10 units (default: 0 = 1X solar)
+
+    Returns:
+        float or ndarray
+            Vapor pressure in dyne/cm^2
+
+    References:
+        [1] Lodders, K. & Fegley, B. 1998, The planetary scientist's
+            companion / Katharina Lodders, Bruce Fegley. New York:
+            Oxford University Press, 1998. QB601 .L84 1998
+        [2] Virga: https://github.com/natashabatalha/virga/
+            Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
+    """
+    # NH3 vapor pressure above cloud
+    is_scalar = isinstance(temp, float)
+    if is_scalar:
+        temp = jnp.array([temp])
+
+    # Use JAX-compatible operations
+    low_temp_vp = 10**(6.900 - 1588/temp)
+    high_temp_vp = 10**(5.201 - 1248/temp)
+
+    # Combine based on temperature threshold
+    pvap_nh3 = jnp.where(temp < 195.4, low_temp_vp, high_temp_vp)
+
+    # Convert from bars to dyne/cm^2
+    pvap_nh3 = pvap_nh3 * 1e6
+
+    if is_scalar:
+        pvap_nh3 = pvap_nh3[0]
+
+    return pvap_nh3
+
+def condensation_temperature_nh3(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate NH3 condensation curve."""
+    xnh3 = calculate_mass_fraction_nh3(metallicity, co_ratio)
+    m_nh3 = _get_species_molar_mass('N') + 3. * _get_species_molar_mass('H')
+    return vapour_pressure_nh3(temperatures) / (xnh3 * mmw / m_nh3)
+
+
+def condensation_temperature_nh3_free(temperatures, x_nh3, mmw=2.33):
+    """Calculate NH3 condensation curve for prescribed abundance."""
+    m_nh3 = _get_species_molar_mass('N') + 3. * _get_species_molar_mass('H')
+    return vapour_pressure_nh3(temperatures) / (x_nh3 * mmw / m_nh3)
+
+
+def vapour_pressure_mns(temp, metallicity=0):
+    """Compute vapor pressure curve for MnS.
+
+    Args:
+        temp: float or ndarray
+            Temperature (K)
+        metallicity: float
+            Metallicity relative to solar in log10 units (default: 0 = 1X solar)
+
+    Returns:
+        float or ndarray
+            Vapor pressure in dyne/cm^2
+
+    References:
+        [1] Morley, Caroline V., et al. "Neglected clouds in T and Y dwarf
+            atmospheres." The Astrophysical Journal 756.2 (2012): 172.
+        [2] Visscher, Channon, Katharina Lodders, and Bruce Fegley Jr.
+            "Atmospheric chemistry in giant planets, brown dwarfs, and
+            low-mass dwarf stars. II. Sulfur and phosphorus."
+            The Astrophysical Journal 648.2 (2006): 1181.
+        [3] Virga: https://github.com/natashabatalha/virga/
+            Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
+    """
+    # Mn vapor pressure above cloud
+    pvap_mns_bars = 10.0**(11.5315-23810./temp - metallicity)
+    # Then convert from bars to dynes/cm^2
+    pvap_mns = pvap_mns_bars*1e6
+    return pvap_mns
+
+
+def condensation_temperature_mns(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate MnS condensation curve."""
+    xmns = calculate_mass_fraction_mns(metallicity, co_ratio)
+    m_mns = _get_species_molar_mass('Mn') + _get_species_molar_mass('S')
+    return vapour_pressure_mns(temperatures, metallicity) / (xmns * mmw / m_mns)
+
+
+def condensation_temperature_mns_free(temperatures, x_mns, mmw=2.33):
+    """Calculate MnS condensation curve for prescribed abundance."""
+    m_mns = _get_species_molar_mass('Mn') + _get_species_molar_mass('S')
+    return vapour_pressure_mns(temperatures) / (x_mns * mmw / m_mns)
+
+
+def vapour_pressure_h2o(temp, do_buck=True, metallicity=0):
+    """Compute vapor pressure curve for H2O.
+
+    Args:
+        temp: float or ndarray
+            Temperature (K)
+        do_buck: bool
+            If True, use Buck (1981) expression. If False, use Wexler's.
+        metallicity: float
+            Metallicity relative to solar in log10 units (default: 0 = 1X solar)
+
+    Returns:
+        float or ndarray
+            Vapor pressure in dyne/cm^2
+
+    References:
+        [1] Lodders, K. & Fegley, B. 1998, The planetary scientist's
+            companion / Katharina Lodders, Bruce Fegley. New York:
+            Oxford University Press, 1998. QB601 .L84 1998
+        [2] Buck, Arden L. "New equations for computing vapor pressure and
+            enhancement factor." Journal of Applied Meteorology and
+            Climatology 20.12 (1981): 1527-1532.
+        [3] Flatau, Piotr J., Robert L. Walko, and William R. Cotton.
+            "Polynomial fits to saturation vapor pressure." Journal of
+            Applied Meteorology 31.12 (1992): 1507-1513.
+        [4] Virga: https://github.com/natashabatalha/virga/
+            Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
+    """
+    is_scalar = isinstance(temp, float)
+    if is_scalar:
+        temp = jnp.array([temp])
+
+    # Convert to array if needed
+    temp = jnp.asarray(temp)
+
+    # Define constants used in Buck's expressions
+    # Buck, 1981 (J. Atmos. Sci., 20, p. 1527)
+    BAL = 6.1121e3
+    BBL = 18.729
+    BCL = 257.87
+    BDL = 227.3
+    BAI = 6.1115e3
+    BBI = 23.036
+    BCI = 279.82
+    BDI = 333.7
+
+    # Define constants used in Wexler formulas
+    # (see Flatau et al., 1992, J. Appl. Meteor. p. 1507)
+    GG0 = -0.29912729e4
+    GG1 = -0.60170128e4
+    GG2 = 0.1887643854e2
+    GG3 = -0.28354721e-1
+    GG4 = 0.17838301e-4
+    GG5 = -0.84150417e-9
+    GG6 = 0.44412543e-12
+    GG7 = 0.28584870e1
+
+    HH0 = -0.58653696e4
+    HH1 = 0.2224103300e2
+    HH2 = 0.13749042e-1
+    HH3 = -0.34031775e-4
+    HH4 = 0.26967687e-7
+    HH5 = 0.6918651
+
+    # Initialize output array
+    pvap_h2o = jnp.zeros_like(temp)
+
+    # Ice (T < 273.16 K)
+    if do_buck:
+        tc_low = temp - 273.16
+        vap_low = BAI * jnp.exp((BBI - tc_low/BDI)*tc_low / (tc_low + BCI))
+    else:
+        vap_low = 10*jnp.exp(1.0/temp *
+                            (HH0+(HH1+HH5*jnp.log(temp)+
+                             (HH2+(HH3+HH4*temp)*temp)*temp)*temp))
+
+    # Liquid water (273.16 K <= T < 1048 K)
+    if do_buck:
+        tc_mid = temp - 273.16
+        vap_mid = BAL * jnp.exp((BBL - tc_mid/BDL)*tc_mid / (tc_mid + BCL))
+    else:
+        vap_mid = 10*jnp.exp((1.0/(temp*temp)) *
+                            (GG0+(GG1+(GG2+GG7*jnp.log(temp)+
+                             (GG3+(GG4+(GG5+GG6*temp)*temp)*temp)*temp)*temp)*temp))
+
+    # High temperature (T >= 1048 K) - fixed at 600 bars
+    vap_high = 600.0e6
+
+    # Combine based on temperature ranges using jnp.where
+    pvap_h2o = jnp.where(temp < 273.16, vap_low,
+                        jnp.where(temp < 1048, vap_mid, vap_high))
+
+    if is_scalar:
+        pvap_h2o = pvap_h2o[0]
+
+    return pvap_h2o
+
+
+def condensation_temperature_h2o(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate H2O condensation curve."""
+    xh2o = calculate_mass_fraction_h2o(metallicity, co_ratio)
+    m_h2o = 2. * _get_species_molar_mass('H') + _get_species_molar_mass('O')
+    return vapour_pressure_h2o(temperatures) / (xh2o * mmw / m_h2o)
+
+
+def condensation_temperature_h2o_free(temperatures, x_h2o, mmw=2.33):
+    """Calculate H2O condensation curve for prescribed abundance."""
+    m_h2o = 2. * _get_species_molar_mass('H') + _get_species_molar_mass('O')
+    return vapour_pressure_h2o(temperatures) / (x_h2o * mmw / m_h2o)
+
+
+def vapour_pressure_ch4(temp, metallicity=0):
+    """Compute vapor pressure curve for CH4.
+
+    Args:
+        temp: float or ndarray
+            Temperature (K)
+        metallicity: float
+            Metallicity relative to solar in log10 units (default: 0 = 1X solar)
+
+    Returns:
+        float or ndarray
+            Vapor pressure in dyne/cm^2
+
+    References:
+        [1] Lodders, K. & Fegley, B. 1998, The planetary scientist's
+            companion / Katharina Lodders, Bruce Fegley. New York:
+            Oxford University Press, 1998. QB601 .L84 1998
+        [2] Virga: https://github.com/natashabatalha/virga/
+            Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
+    """
+    # Constants
+    AMR = 16.043 / 8.3143
+    TCRIT = 90.68
+    PCRIT = 0.11719
+    AS = 2.213 - 2.650  # specific heat (gas - solid)
+    AL = 2.213 - 3.370  # specific heat (gas - liquid)
+    ALS = 611.10  # latent heat of sublimation
+    ALV = 552.36  # latent heat of vaporization
+
+    is_scalar = isinstance(temp, float)
+    temp_arr = jnp.atleast_1d(jnp.asarray(temp, dtype=float))
+
+    # Prepare coefficients for both phases
+    C_solid = -AMR * AS
+    C_liquid = -AMR * AL
+    B_solid = -AMR * (ALS + AS * TCRIT)
+    B_liquid = -AMR * (ALV + AL * TCRIT)
+    A_solid = PCRIT * TCRIT ** (-C_solid) * jnp.exp(-B_solid / TCRIT)
+    A_liquid = PCRIT * TCRIT ** (-C_liquid) * jnp.exp(-B_liquid / TCRIT)
+
+    # ic=0: temperature below triple point (solid), ic=1: temperature above triple point (liquid)
+    # Calculate vapor pressure for both phases and select based on temperature
+    pvap_solid = A_solid * temp_arr**C_solid * jnp.exp(B_solid / temp_arr)
+    pvap_liquid = A_liquid * temp_arr**C_liquid * jnp.exp(B_liquid / temp_arr)
+
+    # Use liquid phase for T > TCRIT, solid phase otherwise
+    pvap_ch4 = jnp.where(temp_arr > TCRIT, pvap_liquid, pvap_solid)
+
+    # Convert from bars to dyne/cm^2
+    pvap_ch4 = pvap_ch4 * 1e6
+
+    if is_scalar:
+        pvap_ch4 = pvap_ch4[0]
+
+    return pvap_ch4
+
+
+def condensation_temperature_ch4(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate CH4 condensation curve."""
+    xch4 = calculate_mass_fraction_ch4(metallicity, co_ratio)
+    m_ch4 = _get_species_molar_mass('C') + 4. * _get_species_molar_mass('H')
+    return vapour_pressure_ch4(temperatures, metallicity) / (xch4 * mmw / m_ch4)
+
+
+def condensation_temperature_ch4_free(temperatures, x_ch4, mmw=2.33):
+    """Calculate CH4 condensation curve for prescribed abundance."""
+    m_ch4 = _get_species_molar_mass('C') + 4. * _get_species_molar_mass('H')
+    return vapour_pressure_ch4(temperatures) / (x_ch4 * mmw / m_ch4)
+
+
+def vapour_pressure_al2o3(temp, metallicity=0):
+    """Compute vapor pressure curve for Al2O3.
+
+    Args:
+        temp: float or ndarray
+            Temperature (K)
+        metallicity: float
+            Metallicity relative to solar in log10 units (default: 0 = 1X solar)
+
+    Returns:
+        float or ndarray
+            Vapor pressure in dyne/cm^2
+
+    References:
+        [1] Wakeford, Hannah R., et al. "High temperature condensate clouds
+            in super-hot Jupiter atmospheres." Monthly Notices of the Royal
+            Astronomical Society (2016): stw2639.
+        [2] Virga: https://github.com/natashabatalha/virga/
+            Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
+    """
+    # return jnp.exp(-73503./temp + 22.01)*1e6  # Kozasa et al. Ap J. 344 325
+    # calculated from wakeford 2017
+    # pvap_al2o3 = 1e6 * 10.0 ** (17.7 - 45892.6/temp - 1.66*metallicity)  # wakeford et al 2017
+    pvap_al2o3 = 1e6 * 10.0 ** (15.24 - 41481/temp - 1.66*metallicity)  # diamondback
+    return pvap_al2o3
+
+
+def condensation_temperature_al2o3(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate Al2O3 condensation curve."""
+    xal2o3 = calculate_mass_fraction_al2o3(metallicity, co_ratio)
+    m_al2o3 = 2. * _get_species_molar_mass('Al') + 3. * _get_species_molar_mass('O')
+    return vapour_pressure_al2o3(temperatures, metallicity) / (xal2o3 * mmw / m_al2o3)
+
+
+def condensation_temperature_al2o3_free(temperatures, x_al2o3, mmw=2.33):
+    """Calculate Al2O3 condensation curve for prescribed abundance."""
+    m_al2o3 = 2. * _get_species_molar_mass('Al') + 3. * _get_species_molar_mass('O')
+    return vapour_pressure_al2o3(temperatures) / (x_al2o3 * mmw / m_al2o3)
+
+
+def vapour_pressure_catio3(temp, p, metallicity=0):
+    """Compute vapor pressure curve for CaTiO3.
+
+    Args:
+        temp: float or ndarray
+            Temperature (K)
+        p: float
+            Pressure (dyne/cm^2)
+        metallicity: float
+            Metallicity relative to solar in log10 units (default: 0 = 1X solar)
+
+    Returns:
+        float or ndarray
+            Vapor pressure in dyne/cm^2
+
+    References:
+        [1] Wakeford, Hannah R., et al. "High temperature condensate clouds
+            in super-hot Jupiter atmospheres." Monthly Notices of the Royal
+            Astronomical Society (2016): stw2639.
+        [2] Virga: https://github.com/natashabatalha/virga/
+            Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
+    """
+    # calculated from wakeford 2017
+    pvap_catio3 = 1e6 * 10.0 ** (-72160./temp + 30.24 - 1*jnp.log10(p/1e6) - 2*metallicity)
+    return pvap_catio3
+
+
+def condensation_temperature_catio3(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate CaTiO3 condensation curve."""
+    xcatio3 = calculate_mass_fraction_catio3(metallicity, co_ratio)
+    m_catio3 = (_get_species_molar_mass('Ca') + _get_species_molar_mass('Ti')
+                + 3. * _get_species_molar_mass('O'))
+    # For CaTiO3, we need to handle pressure dependence
+    # The vapour_pressure_catio3 function takes pressure as an argument
+    # For now, we'll use a fixed reference pressure - this should be revisited
+    p_ref = 1e6  # dyne/cm^2
+    return vapour_pressure_catio3(temperatures, p_ref, metallicity) / (xcatio3 * mmw / m_catio3)
+
+
+def condensation_temperature_catio3_free(temperatures, x_catio3, mmw=2.33):
+    """Calculate CaTiO3 condensation curve for prescribed abundance."""
+    m_catio3 = (_get_species_molar_mass('Ca') + _get_species_molar_mass('Ti')
+                + 3. * _get_species_molar_mass('O'))
+    p_ref = 1e6  # dyne/cm^2
+    return vapour_pressure_catio3(temperatures, p_ref) / (x_catio3 * mmw / m_catio3)
+
+
+def vapour_pressure_caal12o19(temp, p, metallicity=0):
+    """Compute vapor pressure curve for CaAl12O19.
+
+    Args:
+        temp: float or ndarray
+            Temperature (K)
+        p: float
+            Pressure (dyne/cm^2)
+        metallicity: float
+            Metallicity relative to solar in log10 units (default: 0 = 1X solar)
+
+    Returns:
+        float or ndarray
+            Vapor pressure in dyne/cm^2
+
+    References:
+        [1] Wakeford, Hannah R., et al. "High temperature condensate clouds
+            in super-hot Jupiter atmospheres." Monthly Notices of the Royal
+            Astronomical Society (2016): stw2639.
+        [2] Virga: https://github.com/natashabatalha/virga/
+            Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
+    """
+    # calculated from wakeford 2017
+    pvap_caal12o19 = 1e6 * 10.0 ** (16.46 - 44021./temp - 0.083*jnp.log10(p/1e6) - 1.67*metallicity)
+    return pvap_caal12o19
+
+
+def condensation_temperature_caal12o19(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate CaAl12O19 condensation curve."""
+    xcaal12o19 = calculate_mass_fraction_caal12o19(metallicity, co_ratio)
+    m_caal12o19 = (_get_species_molar_mass('Ca') + 12. * _get_species_molar_mass('Al')
+                   + 19. * _get_species_molar_mass('O'))
+    # For CaAl12O19, we need to handle pressure dependence
+    p_ref = 1e6  # dyne/cm^2
+    return vapour_pressure_caal12o19(temperatures, p_ref, metallicity) / (xcaal12o19 * mmw / m_caal12o19)
+
+
+def condensation_temperature_caal12o19_free(temperatures, x_caal12o19, mmw=2.33):
+    """Calculate CaAl12O19 condensation curve for prescribed abundance."""
+    m_caal12o19 = (_get_species_molar_mass('Ca') + 12. * _get_species_molar_mass('Al')
+                   + 19. * _get_species_molar_mass('O'))
+    p_ref = 1e6  # dyne/cm^2
+    return vapour_pressure_caal12o19(temperatures, p_ref) / (x_caal12o19 * mmw / m_caal12o19)
+
+
+def vapour_pressure_sio2(temp, metallicity=0):
+    """Compute vapor pressure curve for SiO2.
+
+    Args:
+        temp: float or ndarray
+            Temperature (K)
+        metallicity: float
+            Metallicity relative to solar in log10 units (default: 0 = 1X solar)
+
+    Returns:
+        float or ndarray
+            Vapor pressure in dyne/cm^2
+    References:
+        [1] Virga: https://github.com/natashabatalha/virga/
+                Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
+    Notes:
+        PLACEHOLDER: Not suited yet for public use.
+    """
+    # V1 undepleted gas source
+    pvap_sio2 = 10.0**(13.168 - 28265/temp - metallicity)
+
+    # V1 depleted gas source
+    # 13.360 - 28265/T(K) - mh
+
+    # Convert bars -> dynes/cm^2
+    pvap_sio2 = 1e6 * pvap_sio2
+    return pvap_sio2
+
+
+def condensation_temperature_sio2(temperatures, metallicity, co_ratio, mmw=2.33):
+    """Calculate SiO2 condensation curve."""
+    xsio2 = calculate_mass_fraction_sio2(metallicity, co_ratio)
+    m_sio2 = _get_species_molar_mass('Si') + 2. * _get_species_molar_mass('O')
+    return vapour_pressure_sio2(temperatures, metallicity) / (xsio2 * mmw / m_sio2)
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
-    return p_cloud
+def condensation_temperature_sio2_free(temperatures, x_sio2, mmw=2.33):
+    """Calculate SiO2 condensation curve for prescribed abundance."""
+    m_sio2 = _get_species_molar_mass('Si') + 2. * _get_species_molar_mass('O')
+    return vapour_pressure_sio2(temperatures) / (x_sio2 * mmw / m_sio2)
 
 
-def simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw=2.33):
-    pc, tc = return_t_cond_mgsio3(metallicity, co_ratio, mmw)
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
-    tcond_on_input_grid = jnp.interp(press, pc, tc)
+def calculate_cloud_base_pressure_fe(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_fe_combined, temp, metallicity, co_ratio, mmw))
 
-    t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:] * t_diff[:-1]
-    ind_cdf = (diff_vec < 0.)
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
+def calculate_cloud_base_pressure_fe_free(press, temp, x_fe, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_fe_comb_free, temp, x_fe, mmw))
 
-    return p_cloud
 
+def calculate_cloud_base_pressure_mgsio3(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mgsio3, temp, metallicity, co_ratio, mmw))
 
-def simple_cdf_mgsio3_free(press, temp, x_mgsio3, mmw=2.33):
-    pc, tc = return_t_cond_mgsio3_free(x_mgsio3, mmw)
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
-    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:] * t_diff[:-1]
-    ind_cdf = (diff_vec < 0.)
+def calculate_cloud_base_pressure_mgsio3_free(press, temp, x_mgsio3, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mgsio3_free, temp, x_mgsio3, mmw))
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
-    return p_cloud
+def calculate_cloud_base_pressure_mg2sio4(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mg2sio4, temp, metallicity, co_ratio, mmw))
 
 
-def simple_cdf_mg2sio4(press, temp, metallicity, co_ratio, mmw=2.33):
-    p_c, t_c = return_t_cond_mg2sio4(metallicity, co_ratio, mmw)
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
-    tcond_on_input_grid = jnp.interp(press, pc, tc)
+def calculate_cloud_base_pressure_mg2sio4_free(press, temp, x_mg2sio4, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mg2sio4_free, temp, x_mg2sio4, mmw))
 
-    t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:] * t_diff[:-1]
-    ind_cdf = (diff_vec < 0.)
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
+def calculate_cloud_base_pressure_na2s(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_na2s, temp, metallicity, co_ratio, mmw))
 
-    return p_cloud
 
+def calculate_cloud_base_pressure_na2s_free(press, temp, x_na2s, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_na2s_free, temp, x_na2s, mmw))
 
-def simple_cdf_mg2sio4_free(press, temp, x_mg2sio4, mmw=2.33):
-    p_c, t_c = return_t_cond_mg2sio4_free(x_mg2sio4, mmw)
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
-    tcond_on_input_grid = jnp.interp(press, p_c, t_c)
 
-    t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:] * t_diff[:-1]
-    ind_cdf = (diff_vec < 0.)
+def calculate_cloud_base_pressure_kcl(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_kcl, temp, metallicity, co_ratio, mmw))
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
-    return p_cloud
+def calculate_cloud_base_pressure_kcl_free(press, temp, x_kcl, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_kcl_free, temp, x_kcl, mmw))
 
 
-def simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw=2.33):
-    pc, tc = return_t_cond_na2s(metallicity, co_ratio, mmw)
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
-    tcond_on_input_grid = jnp.interp(press, pc, tc)
+def calculate_cloud_base_pressure_sio(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio, temp, metallicity, co_ratio, mmw))
 
-    t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:] * t_diff[:-1]
-    ind_cdf = (diff_vec < 0.)
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
+def calculate_cloud_base_pressure_sio_free(press, temp, x_sio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio_free, temp, x_sio, mmw))
 
-    return p_cloud
 
+def calculate_cloud_base_pressure_tio2(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_tio2, temp, metallicity, co_ratio, mmw))
 
-def simple_cdf_na2s_free(press, temp, x_na2s, mmw=2.33):
-    pc, tc = return_t_cond_na2s_free(x_na2s, mmw)
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
-    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:] * t_diff[:-1]
-    ind_cdf = (diff_vec < 0.)
+def calculate_cloud_base_pressure_tio2_free(press, temp, x_tio2, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_tio2_free, temp, x_tio2, mmw))
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
-    return p_cloud
+def calculate_cloud_base_pressure_cr(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_cr, temp, metallicity, co_ratio, mmw))
 
 
-def simple_cdf_kcl(press, temp, metallicity, co_ratio, mmw=2.33):
-    pc, tc = return_t_cond_kcl(metallicity, co_ratio, mmw)
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
-    tcond_on_input_grid = jnp.interp(press, pc, tc)
+def calculate_cloud_base_pressure_cr_free(press, temp, x_cr, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_cr_free, temp, x_cr, mmw))
 
-    t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:] * t_diff[:-1]
-    ind_cdf = (diff_vec < 0.)
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
+def calculate_cloud_base_pressure_zns(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_zns, temp, metallicity, co_ratio, mmw))
 
-    return p_cloud
 
+def calculate_cloud_base_pressure_zns_free(press, temp, x_zns, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_zns_free, temp, x_zns, mmw))
 
-def simple_cdf_kcl_free(press, temp, x_kcl, mmw=2.33):
-    pc, tc = return_t_cond_kcl_free(x_kcl, mmw)
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
-    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:] * t_diff[:-1]
-    ind_cdf = (diff_vec < 0.)
+def calculate_cloud_base_pressure_nh3(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_nh3, temp, metallicity, co_ratio, mmw))
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
-    return p_cloud
+def calculate_cloud_base_pressure_nh3_free(press, temp, x_nh3, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_nh3_free, temp, x_nh3, mmw))
 
 
-def simple_cdf_sio(press, temp, metallicity, co_ratio, mmw=2.33):
-    pc, tc = return_t_cond_sio(metallicity, co_ratio, mmw)
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
-    tcond_on_input_grid = jnp.interp(press, pc, tc)
+def calculate_cloud_base_pressure_mns(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mns, temp, metallicity, co_ratio, mmw))
 
-    t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:] * t_diff[:-1]
-    ind_cdf = (diff_vec < 0.)
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
+def calculate_cloud_base_pressure_mns_free(press, temp, x_mns, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mns_free, temp, x_mns, mmw))
 
-    return p_cloud
 
+def calculate_cloud_base_pressure_h2o(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_h2o, temp, metallicity, co_ratio, mmw))
 
-def simple_cdf_sio_free(press, temp, x_sio, mmw=2.33):
-    pc, tc = return_t_cond_sio_free(x_sio, mmw)
-    #index = (pc > 1e-8) & (pc < 1e5)
-    #pc, tc = pc[index], tc[index]
-    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:] * t_diff[:-1]
-    ind_cdf = (diff_vec < 0.)
+def calculate_cloud_base_pressure_h2o_free(press, temp, x_h2o, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_h2o_free, temp, x_h2o, mmw))
 
-    p_mid = (press[1:] + press[:-1]) / 2.
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
-    last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
-    return p_cloud
+def calculate_cloud_base_pressure_ch4(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_ch4, temp, metallicity, co_ratio, mmw))
+
+
+def calculate_cloud_base_pressure_ch4_free(press, temp, x_ch4, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_ch4_free, temp, x_ch4, mmw))
+
+
+def calculate_cloud_base_pressure_al2o3(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_al2o3, temp, metallicity, co_ratio, mmw))
+
+
+def calculate_cloud_base_pressure_al2o3_free(press, temp, x_al2o3, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_al2o3_free, temp, x_al2o3, mmw))
+
+
+def calculate_cloud_base_pressure_catio3(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_catio3, temp, metallicity, co_ratio, mmw))
+
+
+def calculate_cloud_base_pressure_catio3_free(press, temp, x_catio3, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_catio3_free, temp, x_catio3, mmw))
+
+
+def calculate_cloud_base_pressure_caal12o19(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_caal12o19, temp, metallicity, co_ratio, mmw))
+
+
+def calculate_cloud_base_pressure_caal12o19_free(press, temp, x_caal12o19, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_caal12o19_free, temp, x_caal12o19, mmw))
+
+
+def calculate_cloud_base_pressure_sio2(press, temp, metallicity, co_ratio, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio2, temp, metallicity, co_ratio, mmw))
+
+
+def calculate_cloud_base_pressure_sio2_free(press, temp, x_sio2, mmw=2.33):
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio2_free, temp, x_sio2, mmw))

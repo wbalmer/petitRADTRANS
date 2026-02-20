@@ -107,6 +107,7 @@ def combine_opacities(line_species_mass_fractions, opacities, continuum_opacitie
 
     return opacities
 
+
 def compute_continuum_scattering_opacities(
     frequencies,
     pressures, temperatures, mass_fractions, mean_molar_masses,

@@ -38,6 +38,7 @@ As of version 4.0.0a6 most functionality should "work". Tests still fail, but mo
 - Clean up comment blocks.
 
 ### Changed
+- a9 Added new condensation curves based on VIRGA.
 - a9 Refactored `radtrans.py` to move static methods to standalone files, mostly new dedicated files for calculating opacities.
 - a9 Further improvements for JIT compatibility in convolutions and spectrum utils.
 - JAX translations of fortran functions are stored in the `radtrans_core` directory.

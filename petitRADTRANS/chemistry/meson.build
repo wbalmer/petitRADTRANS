@@ -1,5 +1,6 @@
 py.install_sources([
     'clouds.py',
+    'condensation_curves.py',
     'core.py',
     'pre_calculated_chemistry.py',
     'prt_easychem.py',
