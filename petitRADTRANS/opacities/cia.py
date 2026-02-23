@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from jax import  debug, vmap, jit, config
 from petitRADTRANS.utils import LockedDict
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS.opacities.hminusm import get_non_cia_gas_continuum_contributions
+from petitRADTRANS.opacities.hminus import get_non_cia_gas_continuum_contributions
 from petitRADTRANS.chemistry.utils import get_base_species_mass_fractions
 
 JAX_DTYPE = jnp.float32

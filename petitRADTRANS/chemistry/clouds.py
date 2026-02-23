@@ -1,17 +1,16 @@
 """This file allows the calculation of equilibrium cloud abundances and base pressures"""
-# TODO make a better cloud module
-# TODO add/replace with Exo-REM condensation curves
+# TODO - add in 'metallicity' calculations based on cloud mass fractions for free X condensation.
 import copy
 import warnings
 
 import jax.numpy as jnp
-from scipy.interpolate import interp1d  # noqa: F401
+from jax import lax
 from petitRADTRANS.opacities.opacities import CloudOpacity
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.chemistry.condensation_curves import (
     vapour_pressure_fe_solid,
     vapour_pressure_fe_liquid,
-    vapour_pressure_mgsi03,
+    vapour_pressure_mgsio3,
     vapour_pressure_mg2sio4,
     vapour_pressure_na2s,
     vapour_pressure_kcl,
@@ -138,8 +137,9 @@ def _calculate_cloud_base_pressure_generic(pressures, temperatures, cond_func_ar
         temp: temperature array
         cond_func_args: tuple of (cond_callable, *args) where cond_callable returns (pc, tc)
     """
-    condensation_pressures = cond_func_args[0](*cond_func_args[1:])
-    interpolated_condensation_temperature = jnp.interp(pressures, condensation_pressures, temperatures)
+    linear_temperatures = jnp.linspace(50, 15000, 200)
+    condensation_pressures = cond_func_args[0](linear_temperatures, *cond_func_args[1:])
+    interpolated_condensation_temperature = jnp.interp(pressures, condensation_pressures, linear_temperatures)
     t_diff = interpolated_condensation_temperature - temperatures
     diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
@@ -148,13 +148,32 @@ def _calculate_cloud_base_pressure_generic(pressures, temperatures, cond_func_ar
     masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
     last_idx = jnp.max(masked_indices)
     p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(pressures))
-
     return p_cloud
 
 
 def _get_cloud_species_base_name(name):
     """Extract base cloud species name from full name."""
-    cloud_bases = ['Fe', 'MgSiO3', 'Mg2SiO4', 'Na2S', 'KCL', 'MgFeSiO4', 'SiO', 'TiO2', 'Cr', 'ZnS', 'NH3', 'MnS', 'H2O', 'CH4', 'Al2O3', 'CaTiO3', 'CaAl12O19', 'SiO2']
+    cloud_bases = [
+        'Fe(l)',
+        'Fe(s)',
+        'Fe',
+        'MgSiO3',
+        'Mg2SiO4',
+        'Na2S',
+        'KCL',
+        'SiO',
+        'TiO2',
+        'Cr',
+        'ZnS',
+        'NH3',
+        'MnS',
+        'H2O',
+        'CH4',
+        'Al2O3',
+        'CaTiO3',
+        'CaAl12O19',
+        'SiO2'
+        ]
     for base in cloud_bases:
         if base in name:
             return base
@@ -351,7 +370,6 @@ def return_cloud_mass_fraction(name, metallicity, co_ratio):
         'Mg2SiO4': calculate_mass_fraction_mg2sio4,
         'Na2S': calculate_mass_fraction_na2s,
         'KCL': calculate_mass_fraction_kcl,
-        'MgFeSiO4': calculate_mass_fraction_mgfesio4,
         'SiO': calculate_mass_fraction_sio,
         'TiO2': calculate_mass_fraction_tio2,
         'Cr': calculate_mass_fraction_cr,
@@ -374,10 +392,43 @@ def return_cloud_mass_fraction(name, metallicity, co_ratio):
     return jnp.zeros_like(metallicity)
 
 
+def calculate_vapour_pressure(name, args):
+    """Return mass fraction for a cloud species using unified dispatch."""
+    cloud_species_functions = {
+        'Fe(l)': vapour_pressure_fe_liquid,
+        'Fe(s)': vapour_pressure_fe_solid,
+        'MgSiO3': vapour_pressure_mgsio3,
+        'Mg2SiO4': vapour_pressure_mg2sio4,
+        'Na2S': vapour_pressure_na2s,
+        'KCL': vapour_pressure_kcl,
+        'SiO': vapour_pressure_sio,
+        'TiO2': vapour_pressure_tio2,
+        'Cr': vapour_pressure_cr,
+        'ZnS': vapour_pressure_zns,
+        'NH3': vapour_pressure_nh3,
+        'MnS': vapour_pressure_mns,
+        'H2O': vapour_pressure_h2o,
+        'CH4': vapour_pressure_ch4,
+        'Al2O3': vapour_pressure_al2o3,
+        'CaTiO3': vapour_pressure_catio3,
+        'CaAl12O19': vapour_pressure_caal12o19,
+        'SiO2': vapour_pressure_sio2,
+    }
+
+    base_name = _get_cloud_species_base_name(name)
+    if base_name and base_name in cloud_species_functions:
+        return cloud_species_functions[base_name](*args)
+
+    warnings.warn(f"The condensation curve for {name} is not currently implemented.")
+    return jnp.zeros_like(args[0])
+
+
 def calculate_cloud_base_pressure(name, press, temp, metallicity=0.0, co_ratio=0.55, mmw=2.33):
     """Calculate cloud base pressure for a cloud species using unified dispatch."""
     cloud_species_functions = {
         'Fe': calculate_cloud_base_pressure_fe,
+        'Fe(s)': calculate_cloud_base_pressure_fe,
+        'Fe(l)': calculate_cloud_base_pressure_fe,
         'MgSiO3': calculate_cloud_base_pressure_mgsio3,
         'Mg2SiO4': calculate_cloud_base_pressure_mg2sio4,
         'Na2S': calculate_cloud_base_pressure_na2s,
@@ -400,11 +451,11 @@ def calculate_cloud_base_pressure(name, press, temp, metallicity=0.0, co_ratio=0
     if base_name and base_name in cloud_species_functions:
         return cloud_species_functions[base_name](press, temp, metallicity, co_ratio, mmw)
 
-    warnings.warn(f"The cloud {name} is not currently implemented.")
-    return jnp.zeros_like(temp)
+    warnings.warn(f"The cloud {name} is not currently implemented, defaulting to top of atmosphere.")
+    return press[0]
 
 
-def calculate_cloud_base_pressure_free(name, press, temp, metallicity, mfrac, mmw=2.33):
+def calculate_cloud_base_pressure_free(name, press, temp, mfrac, mmw=2.33):
     """Calculate cloud base pressure for a cloud species (free abundance) using unified dispatch."""
     cloud_species_functions = {
         'Fe': calculate_cloud_base_pressure_fe_free,
@@ -458,17 +509,6 @@ def calculate_mass_fraction_mg2sio4(metallicity, co_ratio):
     nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
     element_counts = {'Mg': 2, 'Si': 1, 'O': 4}
     compound_mass = (2 * _get_species_molar_mass('Mg')
-                     + _get_species_molar_mass('Si')
-                     + 4. * _get_species_molar_mass('O'))
-    return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
-
-
-def calculate_mass_fraction_mgfesio4(metallicity, co_ratio):
-    """Calculate MgFeSiO4 mass fraction for given metallicity and C/O ratio."""
-    nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
-    element_counts = {'Mg': 1, 'Fe': 1, 'Si': 1, 'O': 4}
-    compound_mass = (_get_species_molar_mass('Mg')
-                     + _get_species_molar_mass('Fe')
                      + _get_species_molar_mass('Si')
                      + 4. * _get_species_molar_mass('O'))
     return _calculate_cloud_mass_fraction(element_counts, compound_mass, nfracs_use)
@@ -614,8 +654,8 @@ def condensation_temperature_fe_liquid(temperatures, metallicity, co_ratio, mmw=
 
 def condensation_temperature_fe_combined(temperatures, metallicity, co_ratio, mmw=2.33):
     """Calculate Fe condensation curve using minimum of solid/liquid phases."""
-    p1, t1 = condensation_temperature_fe(temperatures, metallicity, co_ratio, mmw)
-    p2, t2 = condensation_temperature_fe_liquid(temperatures, metallicity, co_ratio, mmw)
+    p1 = condensation_temperature_fe(temperatures, metallicity, co_ratio, mmw)
+    p2 = condensation_temperature_fe_liquid(temperatures, metallicity, co_ratio, mmw)
 
     ret_p = jnp.zeros_like(p1)
     index = p1 < p2
@@ -642,8 +682,8 @@ def condensation_temperature_fe_l_free(temperatures, x_fe, mmw=2.33):
 
 def condensation_temperature_fe_comb_free(temperatures, x_fe, mmw=2.33):
     """Calculate Fe condensation curve for prescribed abundance using minimum of solid/liquid."""
-    p1, t1 = condensation_temperature_fe_free(temperatures, x_fe, mmw)
-    p2, t2 = condensation_temperature_fe_l_free(temperatures, x_fe, mmw)
+    p1 = condensation_temperature_fe_free(temperatures, x_fe, mmw)
+    p2 = condensation_temperature_fe_l_free(temperatures, x_fe, mmw)
     ret_p = jnp.zeros_like(p1)
     index = p1 < p2
     ret_p = jnp.where(index, p1, ret_p)
@@ -660,7 +700,7 @@ def condensation_temperature_mgsio3(temperatures, metallicity, co_ratio, mmw=2.3
     m_mgsio3 = _get_species_molar_mass('Mg') \
         + _get_species_molar_mass('Si') \
         + 3. * _get_species_molar_mass('O')
-    return vapour_pressure_mgsi03(temperatures) / (xmgsio3 * mmw / m_mgsio3)
+    return vapour_pressure_mgsio3(temperatures) / (xmgsio3 * mmw / m_mgsio3)
 
 
 def condensation_temperature_mgsio3_free(temperatures, x_mgsio3, mmw=2.33):
@@ -671,7 +711,7 @@ def condensation_temperature_mgsio3_free(temperatures, x_mgsio3, mmw=2.33):
     m_mgsio3 = _get_species_molar_mass('Mg') \
         + _get_species_molar_mass('Si') \
         + 3. * _get_species_molar_mass('O')
-    return vapour_pressure_mgsi03(temperatures) / (x_mgsio3 * mmw / m_mgsio3)
+    return vapour_pressure_mgsio3(temperatures) / (x_mgsio3 * mmw / m_mgsio3)
 
 
 def condensation_temperature_mg2sio4(temperatures, metallicity, co_ratio, mmw=2.33):
@@ -927,136 +967,136 @@ def condensation_temperature_sio2_free(temperatures, x_sio2, mmw=2.33):
 
 
 def calculate_cloud_base_pressure_fe(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_fe_combined, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_fe_combined, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_fe_free(press, temp, x_fe, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_fe_comb_free, temp, x_fe, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_fe_comb_free, x_fe, mmw))
 
 
 def calculate_cloud_base_pressure_mgsio3(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mgsio3, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mgsio3, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_mgsio3_free(press, temp, x_mgsio3, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mgsio3_free, temp, x_mgsio3, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mgsio3_free, x_mgsio3, mmw))
 
 
 def calculate_cloud_base_pressure_mg2sio4(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mg2sio4, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mg2sio4, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_mg2sio4_free(press, temp, x_mg2sio4, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mg2sio4_free, temp, x_mg2sio4, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mg2sio4_free, x_mg2sio4, mmw))
 
 
 def calculate_cloud_base_pressure_na2s(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_na2s, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_na2s, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_na2s_free(press, temp, x_na2s, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_na2s_free, temp, x_na2s, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_na2s_free, x_na2s, mmw))
 
 
 def calculate_cloud_base_pressure_kcl(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_kcl, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_kcl, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_kcl_free(press, temp, x_kcl, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_kcl_free, temp, x_kcl, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_kcl_free, x_kcl, mmw))
 
 
 def calculate_cloud_base_pressure_sio(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_sio_free(press, temp, x_sio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio_free, temp, x_sio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio_free, x_sio, mmw))
 
 
 def calculate_cloud_base_pressure_tio2(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_tio2, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_tio2, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_tio2_free(press, temp, x_tio2, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_tio2_free, temp, x_tio2, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_tio2_free, x_tio2, mmw))
 
 
 def calculate_cloud_base_pressure_cr(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_cr, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_cr, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_cr_free(press, temp, x_cr, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_cr_free, temp, x_cr, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_cr_free, x_cr, mmw))
 
 
 def calculate_cloud_base_pressure_zns(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_zns, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_zns, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_zns_free(press, temp, x_zns, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_zns_free, temp, x_zns, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_zns_free, x_zns, mmw))
 
 
 def calculate_cloud_base_pressure_nh3(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_nh3, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_nh3, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_nh3_free(press, temp, x_nh3, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_nh3_free, temp, x_nh3, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_nh3_free, x_nh3, mmw))
 
 
 def calculate_cloud_base_pressure_mns(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mns, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mns, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_mns_free(press, temp, x_mns, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mns_free, temp, x_mns, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_mns_free, x_mns, mmw))
 
 
 def calculate_cloud_base_pressure_h2o(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_h2o, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_h2o, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_h2o_free(press, temp, x_h2o, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_h2o_free, temp, x_h2o, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_h2o_free, x_h2o, mmw))
 
 
 def calculate_cloud_base_pressure_ch4(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_ch4, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_ch4, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_ch4_free(press, temp, x_ch4, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_ch4_free, temp, x_ch4, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_ch4_free, x_ch4, mmw))
 
 
 def calculate_cloud_base_pressure_al2o3(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_al2o3, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_al2o3, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_al2o3_free(press, temp, x_al2o3, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_al2o3_free, temp, x_al2o3, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_al2o3_free, x_al2o3, mmw))
 
 
 def calculate_cloud_base_pressure_catio3(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_catio3, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_catio3, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_catio3_free(press, temp, x_catio3, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_catio3_free, temp, x_catio3, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_catio3_free, x_catio3, mmw))
 
 
 def calculate_cloud_base_pressure_caal12o19(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_caal12o19, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_caal12o19, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_caal12o19_free(press, temp, x_caal12o19, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_caal12o19_free, temp, x_caal12o19, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_caal12o19_free, x_caal12o19, mmw))
 
 
 def calculate_cloud_base_pressure_sio2(press, temp, metallicity, co_ratio, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio2, temp, metallicity, co_ratio, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio2, metallicity, co_ratio, mmw))
 
 
 def calculate_cloud_base_pressure_sio2_free(press, temp, x_sio2, mmw=2.33):
-    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio2_free, temp, x_sio2, mmw))
+    return _calculate_cloud_base_pressure_generic(press, temp, (condensation_temperature_sio2_free, x_sio2, mmw))

@@ -16,7 +16,7 @@ def vapour_pressure_fe_liquid(temperature):
     return jnp.exp(9.86 - 37120. / temperature)
 
 
-def vapour_pressure_mgsi03(temperature):
+def vapour_pressure_mgsio3(temperature):
     return jnp.exp(25.37 - 58663. / temperature)
 
 

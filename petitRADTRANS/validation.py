@@ -1,6 +1,7 @@
 import os
 import jax.numpy as jnp
 from jax import lax, debug
+from jax.typing import ArrayLike
 import numpy as np
 import numpy.typing as npt
 import petitRADTRANS.physical_constants as cst

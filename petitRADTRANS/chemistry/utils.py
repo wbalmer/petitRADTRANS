@@ -7,6 +7,7 @@ import jax.numpy as jnp
 from jax import lax, jit, vmap
 from jax.experimental import checkify
 from interpax import PchipInterpolator
+# TODO: Finish adding in error checking - difficult to make checkify work with JIT.
 
 from numpy import argsort
 from jax.typing import ArrayLike
@@ -117,8 +118,13 @@ def _compute_h_ratios(elemental_abundances: dict[int, float]) -> dict[int, float
         raise ValueError("cannot calculate hydrogen ratios if no hydrogen is present "
                          "(key '1' was lacking in provided dict)")
 
-    if jnp.any(elemental_abundances[1] <= 0):
-        raise ValueError(f"hydrogen abundance must always be > 0, but was {elemental_abundances[1]}")
+    #checkify.check(
+    #        jnp.all(elemental_abundances[1] > 0),
+    #        f"hydrogen abundance must always be > 0, but was {elemental_abundances[1]}"
+    #)
+    #        f"results may be inaccurate"
+    #if jnp.any(elemental_abundances[1] <= 0):
+    #    raise ValueError(f"hydrogen abundance must always be > 0, but was {elemental_abundances[1]}")
 
     return {
         atomic_number: abundance / elemental_abundances[1]
@@ -137,9 +143,9 @@ def _compute_z_ratios(elemental_abundances: dict[int, float],
     if 2 not in elemental_abundances:
         elemental_abundances[2] = 0
 
-    if jnp.any(elemental_abundances[1] <= 0) and jnp.any(elemental_abundances[2] <= 0):
-        raise ValueError(f"cannot calculate metallicity if no hydrogen and no helium is present "
-                         f"(H = {elemental_abundances[1]}, He = {elemental_abundances[2]})")
+    #if jnp.any(elemental_abundances[1] <= 0) and jnp.any(elemental_abundances[2] <= 0):
+    #    raise ValueError(f"cannot calculate metallicity if no hydrogen and no helium is present "
+    #                     f"(H = {elemental_abundances[1]}, He = {elemental_abundances[2]})")
 
     non_metal_abundances = elemental_abundances[1]
 
@@ -473,9 +479,9 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
     return jnp.array(pressure_interpolation_nodes)
 
 
-@jit
+#@jit
 def fill_atmosphere(mass_fractions: dict[str, ArrayLike], filling_species: dict, mass_fraction_sum: ArrayLike,
-                    ) -> dict[str, ArrayLike]:
+                    ) -> tuple[dict[str, ArrayLike], ArrayLike]:
     """Fill an atmosphere with filling species, so that the sum of the mass fractions in all layers is 1.
 
     See fill_atmospheric_layer for more details.
@@ -493,18 +499,19 @@ def fill_atmosphere(mass_fractions: dict[str, ArrayLike], filling_species: dict,
     """
 
     filled_mass_fractions = mass_fractions.copy()
-
+    sum_weights = jnp.sum(jnp.array(list(filling_species.values())), axis=0)
+    msum = mass_fraction_sum
     for species, weights in filling_species.items():
         filled_mass_fractions[species] = jnp.where(jnp.logical_and(0.0 < mass_fraction_sum, mass_fraction_sum < 1.0),
-                                                   (1.0 - mass_fraction_sum) * weights,
+                                                   (1.0 - mass_fraction_sum) * weights / sum_weights,
                                                    filled_mass_fractions[species])
-
+        msum += filled_mass_fractions[species]
     # Re-add cloud mass fractions
     for species, mass_fraction in mass_fractions.items():
         if '(s)' in species or '(l)' in species:
             filled_mass_fractions[species] = mass_fraction
 
-    return filled_mass_fractions
+    return filled_mass_fractions, msum
 
 
 def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: dict,
@@ -947,10 +954,12 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, ArrayLike],
     if jnp.ndim(sum_vmrs) == 0:
         sum_vmrs = jnp.array([sum_vmrs])
 
-    for i, sum_vmr in enumerate(list(sum_vmrs)):
-        if jnp.abs(sum_vmr - 1.0) > 1e-6:
-            warnings.warn(f"the sum of volume mixing ratios at level {i} is not 1 ({sum_vmr}), "
-                          f"results may be inaccurate")
+    #for i, sum_vmr in enumerate(list(sum_vmrs)):
+    #    checkify.check(
+    #        jnp.abs(sum_vmr - 1.0) <= 1e-6,
+    #        f"the sum of volume mixing ratios at level {i} is not 1 ({sum_vmr}), "
+    #        f"results may be inaccurate"
+    #)
 
     # Convert keys from symbol to atomic number
     _elemental_abundances = {

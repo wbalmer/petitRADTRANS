@@ -4,7 +4,7 @@ import os
 
 import h5py
 import jax.numpy as jnp
-
+from jax import config
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS._input_data import find_input_file
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
