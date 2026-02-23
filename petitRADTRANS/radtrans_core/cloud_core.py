@@ -1004,7 +1004,8 @@ def _integrate_cloud_opacities_from_dn_dr(
     integrand_anisotropy = integrand_scattering * (1.0 - clouds_particles_asymmetry_parameters[:, :, None])
 
     # Selectively disable bins
-    if target_pressure is not None:
+    # TODO: make JIT compileable
+    """if target_pressure is not None:
         target_pressure = [tp * 1e6 for tp in target_pressure]  # bar→cgs
         target_particle_radii = [tr * 1e-4 for tr in target_particle_radii]  # micron→cm
 
@@ -1021,34 +1022,32 @@ def _integrate_cloud_opacities_from_dn_dr(
         integrand_scale *= block
         integrand_absorption *= block[:, None]
         integrand_scattering *= block[:, None]
-        integrand_anisotropy *= block[:, None]
+        integrand_anisotropy *= block[:, None]"""
 
     # Integrate over radius
     widths = jnp.diff(cloud_particles_radii_bins)[:, None, None, None]
 
-    clouds_absorption_opacities = jnp.sum(integrand_absorption * widths, axis=(0, 3))
-    clouds_scattering_opacities = jnp.sum(integrand_scattering * widths, axis=(0, 3))
-    cloud_one_minus_g = jnp.sum(integrand_anisotropy * widths, axis=(0, 3))
+    _cloud_absorption_opacities = jnp.sum(integrand_absorption * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
+    _cloud_scattering_opacities = jnp.sum(integrand_scattering * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
+    cloud_anisotropic_fraction = jnp.sum(integrand_anisotropy * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
 
-    clouds_scattering_opacities = jnp.where(
-        clouds_scattering_opacities < 1e-200,
+    _cloud_scattering_opacities = jnp.where(
+        _cloud_scattering_opacities < 1e-200,
         1e-200,
-        clouds_scattering_opacities
+        _cloud_scattering_opacities
         )
-
-    cloud_one_minus_g = jnp.true_divide(
-        cloud_one_minus_g,
-        clouds_scattering_opacities
+    cloud_anisotropic_fraction = jnp.true_divide(
+        cloud_anisotropic_fraction,
+        _cloud_scattering_opacities
     )
 
-    # Divide by atmosphere density
-    clouds_absorption_opacities /= atmosphere_densities
-    clouds_scattering_opacities /= atmosphere_densities
+    _cloud_absorption_opacities = _cloud_absorption_opacities / atmosphere_densities
+    _cloud_scattering_opacities = _cloud_scattering_opacities / atmosphere_densities
 
-    return clouds_absorption_opacities, clouds_scattering_opacities, cloud_one_minus_g
+    return _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_anisotropic_fraction
 
 
-def _compute_cloud_log_normal_particles_distribution_opacities(
+def compute_cloud_log_normal_particles_distribution_opacities_grid(
         atmosphere_densities,
         clouds_particles_densities,
         clouds_mass_fractions,
@@ -1067,8 +1066,6 @@ def _compute_cloud_log_normal_particles_distribution_opacities(
     For some reason it runs faster in python than in fortran, so we'll use this from now on.
     This function integrates the cloud opacity through the different layers of the atmosphere to get the total
     optical depth, scattering and anisotropic fraction.
-    # TODO optical depth or opacity?
-    # TODO complete docstring and vectorize on/off code
 
     Author: Francois Rozet
 
@@ -1098,19 +1095,23 @@ def _compute_cloud_log_normal_particles_distribution_opacities(
 
     """
     # Compute dn/dr from log-normal distribution
-    n = (
-            3.0 * clouds_mass_fractions * atmosphere_densities[:, None] /
-            (4.0 * jnp.pi * clouds_particles_densities * cloud_particles_mean_radii ** 3)
+    n = (  # (n_layers, n_clouds)
+            3.0
+            * clouds_mass_fractions
+            * atmosphere_densities[:, None]
+            / (4.0 * jnp.pi * clouds_particles_densities * (cloud_particles_mean_radii ** 3))
             * jnp.exp(-4.5 * jnp.log(cloud_particles_distribution_std) ** 2)
     )
 
     diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(cloud_particles_mean_radii)
 
-    dn_dr = (
-            n / (cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi)
-                 * jnp.log(cloud_particles_distribution_std))
-            * jnp.exp(-diff ** 2 / (2.0 * jnp.log(cloud_particles_distribution_std) ** 2))
-            )
+    dn_dr = (  # (n_radii, n_layers, n_clouds)
+        n / (
+            cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi)
+            * jnp.log(cloud_particles_distribution_std)
+        )
+        * jnp.exp(-diff ** 2 / (2.0 * jnp.log(cloud_particles_distribution_std) ** 2))
+    )
 
     # Delegate to shared integrator
     _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g =\

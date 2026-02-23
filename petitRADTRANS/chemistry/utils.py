@@ -187,7 +187,7 @@ def abundance_curvature_prior(press, abundance, gamma):
     return weighted_abund_prior
 
 
-@partial(jit, static_argnames=['mode', 'nnodes'])
+#@partial(jit, static_argnames=['mode', 'nnodes'])
 def compute_pressure_nodes(pressure_array, mode='even', nnodes=0, points_list=None):
     """
     Compute the location of nodes for a spline or step profile in pressure space.
@@ -255,7 +255,7 @@ def compute_pressure_nodes(pressure_array, mode='even', nnodes=0, points_list=No
     return pressure_nodes
 
 
-@partial(jit, static_argnames=['mode'])
+#@partial(jit, static_argnames=['mode'])
 def compute_mean_molar_masses(abundances: dict[str, ArrayLike], mode: str = 'mmr'):
     """Calculate the mean molecular weight in each layer, from mass fractions or volume mixing ratios.
 
@@ -624,7 +624,7 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
     return mass_fractions
 
 
-@jit(static_argnames=('scaling', 'width'))
+#@jit(static_argnames=('scaling', 'width'))
 def fixed_length_adaptive_mesh_refinement(p_clouds: ArrayLike, pressures: ArrayLike, scaling=10, width=3):
     r"""This function takes in the cloud base pressures for each cloud,
     and returns an array of pressures with a high resolution mesh
@@ -750,19 +750,19 @@ def linear_spline_profile(pressure_array, pressure_nodes, abundance_points, gamm
     return interpolated_abunds, prior
 
 
-def get_base_species_mass_fractions(mass_fractions, species_basenames):
-        base_species_mass_fractions = {}
+@jit(static_argnames=['species_basenames'])
+def get_base_species_mass_fractions(mass_fractions: dict, species_basenames: tuple) -> dict:
+    base_species_mass_fractions = {}
+    for i, species in enumerate(list(mass_fractions.keys())):
+        # Using Opacity.get_species_basename to get the base species name
+        species_basename = species_basenames[i]
 
-        for species, mass_fraction in mass_fractions.items():
-            # Using Opacity.get_species_basename to get the base species name
-            species_basename = species_basenames[species]
+        if species_basename not in base_species_mass_fractions:
+            base_species_mass_fractions[species_basename] = copy.deepcopy(mass_fractions[species])
+        else:
+            base_species_mass_fractions[species_basename] += mass_fractions[species]
 
-            if species_basename not in base_species_mass_fractions:
-                base_species_mass_fractions[species_basename] = copy.deepcopy(mass_fraction)
-            else:
-                base_species_mass_fractions[species_basename] += mass_fraction
-
-        return base_species_mass_fractions
+    return base_species_mass_fractions
 
 
 def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
@@ -838,7 +838,7 @@ def simplify_species_list(species_list: list) -> list:
     return species_basenames
 
 
-@jit
+#@jit
 def stepped_profile(pressure_array, transition_pressures, abundance_points):
     """
     Compute a stepped profile for abundance based on pressure points.

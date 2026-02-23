@@ -2307,9 +2307,16 @@ class Retrieval:
                     beta = beta_model
 
                 # Validate model output
-                is_valid, error_msg = validate_model_output(spectrum_model, wavelengths_model)
-                if not is_valid:
-                    return invalid_value
+                is_valid = validate_model_output(spectrum_model, wavelengths_model)
+                #if not is_valid:
+                #    warnings.warn("spectrum_model contains NaN values")
+                #    return invalid_value
+                invalid_log_like = lax.cond(
+                    is_valid,
+                    lambda: 0.0,  # valid output contributes 0 to logL (neutral element)
+                    lambda: invalid_value  # invalid output contributes -1e99 to logL
+                )
+                log_likelihood_contributions.append(invalid_log_like)
 
                 # Handle masked arrays (JAX compatibility)
                 if isinstance(spectrum_model, np.ma.MaskedArray):

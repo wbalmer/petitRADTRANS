@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from jax import  debug, vmap, jit, config
 from petitRADTRANS.utils import LockedDict
 import petitRADTRANS.physical_constants as cst
+from petitRADTRANS.opacities.opacities import Opacity
 from petitRADTRANS.opacities.hminus import get_non_cia_gas_continuum_contributions
 from petitRADTRANS.chemistry.utils import get_base_species_mass_fractions
 
@@ -59,7 +60,7 @@ def init_cia_loaded_opacities(cia_contributors):
 
     cia_loaded_opacities.lock()
 
-    return
+    return cia_loaded_opacities
 
 
 def get_cia_contributors(gas_continuum_contributors):
@@ -74,9 +75,14 @@ def get_cia_contributors(gas_continuum_contributors):
     return cia
 
 
-def compute_cia_opacities(cia_dicts, mass_fractions, pressures, temperatures, frequencies, mean_molar_masses, species_basenames):
+def compute_cia_opacities(cia_dicts, mass_fractions, pressures, temperatures, frequencies, mean_molar_masses):
     """Wrapper to interpolate_cia, calculating each collision's combined mass fraction."""
     # Add mass fractions sharing the same basename
+    species_basenames = []
+    for species in mass_fractions.keys():
+        species_basenames.append(Opacity.get_species_base_name(species))
+    species_basenames = tuple(species_basenames)
+
     base_species_mass_fractions = get_base_species_mass_fractions(mass_fractions, species_basenames)
 
     # Calculate CIA opacities

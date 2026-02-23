@@ -3,6 +3,7 @@ import os
 import warnings
 from typing import Callable
 
+import numpy as np
 import jax.numpy as jnp
 from numpy import genfromtxt
 from jax.typing import ArrayLike
@@ -338,7 +339,8 @@ class Data:
 
         if self.photometry:
             return
-        obs = jnp.genfromtxt(path, delimiter=delimiter, comments=comments)
+        obs = np.genfromtxt(path, delimiter=delimiter, comments=comments)
+        obs = jnp.array(obs)
         # Input sanity checks
         if jnp.isnan(obs).any():
             obs = jnp.array(genfromtxt(path))

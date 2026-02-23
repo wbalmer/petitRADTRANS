@@ -19,8 +19,7 @@ _MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=JAX_DTYPE)
 def compute_continuum_opacities(
     frequencies, frequency_bins_edges,
     pressures, temperatures, mass_fractions, mean_molar_masses,
-    cias_loaded_opacities, gas_continuum_contributors, gray_opacity,
-    species_basenames
+    cias_loaded_opacities, gas_continuum_contributors, gray_opacity
     ):
     # Reset
     continuum_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
@@ -34,7 +33,6 @@ def compute_continuum_opacities(
             temperatures=temperatures,
             frequencies=frequencies,
             mean_molar_masses=mean_molar_masses,
-            species_basenames=species_basenames
         )
     )
 
@@ -111,7 +109,7 @@ def combine_opacities(line_species_mass_fractions, opacities, continuum_opacitie
 def compute_continuum_scattering_opacities(
     frequencies,
     pressures, temperatures, mass_fractions, mean_molar_masses,
-    rayleigh_species, haze_factor, species_basenames
+    rayleigh_species, haze_factor
 ):
     # Reset
     continuum_opacities_scattering = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
@@ -130,7 +128,6 @@ def compute_continuum_scattering_opacities(
                 mean_molar_masses=mean_molar_masses,
                 frequencies=frequencies,
                 haze_factor=haze_factor,
-                species_basenames=species_basenames
             )
         )
 

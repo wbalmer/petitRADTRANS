@@ -1,8 +1,9 @@
 import jax.numpy as jnp
 from jax import jit, config
 from jax.typing import ArrayLike
-from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
+from petitRADTRANS.radtrans_core.rayleigh_scattering import compute_rayleigh_scattering
 from petitRADTRANS.chemistry.utils import get_base_species_mass_fractions
+from petitRADTRANS.opacities.opacities import Opacity
 from petitRADTRANS.physics import frequency2wavelength, hz2um
 
 JAX_DTYPE = jnp.float32
@@ -20,7 +21,7 @@ def compute_power_law_opacities(
 
 def compute_rayleigh_scattering_opacities(
     rayleigh_species, pressures, temperatures,
-    mass_fractions, mean_molar_masses, frequencies, haze_factor=1.0, species_basenames={}
+    mass_fractions, mean_molar_masses, frequencies, haze_factor=1.0
     ):
     """Add Rayleigh scattering opacities to scattering continuum opacities.
 
@@ -32,6 +33,11 @@ def compute_rayleigh_scattering_opacities(
     rayleigh_scattering_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
 
     # TODO Store base names
+    species_basenames = []
+    for species in mass_fractions.keys():
+        species_basenames.append(Opacity.get_species_base_name(species))
+    species_basenames = tuple(species_basenames)
+
     base_species_mass_fractions = get_base_species_mass_fractions(mass_fractions, species_basenames)
 
     for species in rayleigh_species:
@@ -41,7 +47,7 @@ def compute_rayleigh_scattering_opacities(
                                 f"(listed species: {list(mass_fractions.keys())}, "
                                 f"listed species base names {list(base_species_mass_fractions.keys())}:)")
 
-        rayleigh_scattering_opacities += haze_factor * compute_rayleigh_scattering_opacities(
+        rayleigh_scattering_opacities += haze_factor * compute_rayleigh_scattering(
             species,
             base_species_mass_fractions[species],
             wavelengths_angstroem,

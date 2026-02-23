@@ -530,7 +530,7 @@ def handle_dimenstionality_dispatch(
 def validate_model_output(
     spectrum_model: Optional[jnp.ndarray],
     wavelengths_model: Optional[jnp.ndarray]
-) -> Tuple[bool, str]:
+) -> bool:
     """
     Validate model output for NaNs and None values.
 
@@ -547,10 +547,13 @@ def validate_model_output(
     if isinstance(spectrum_model, np.ma.MaskedArray):
         spectrum_model = spectrum_model.filled(0)
 
-    if jnp.isnan(spectrum_model).any():
-        return False, "spectrum_model contains NaN values"
+    value = lax.cond(
+        jnp.isnan(spectrum_model).any(),
+        lambda: False,
+        lambda: True
+    )
 
-    return True, ""
+    return value
 
 
 def ensure_jax_array(
