@@ -3,8 +3,7 @@ import warnings
 import copy
 
 import jax.numpy as jnp
-from jax import lax, jit, typing
-from jax import debug
+from jax import lax, jit, typing, config, debug
 
 try:
     from petitRADTRANS.chemistry.prt_easychem import get_exoatmos_abundances
@@ -28,6 +27,11 @@ from petitRADTRANS.chemistry.utils import (
 )
 from petitRADTRANS.chemistry import clouds as fc
 
+JAX_DTYPE = jnp.float32
+if config.jax_enable_x64:
+    JAX_DTYPE = jnp.float64
+
+INVALID_VALUE = jnp.array(jnp.inf, JAX_DTYPE)
 
 #@jit(static_argnames=['line_species', 'cloud_species', 'verbose'])
 def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, parameters=None, line_species=None,
@@ -297,7 +301,7 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
 
     #@jit(static_argnames=['key_list'])
     def no_chem_case(key_list):
-        return {}, -jnp.inf
+        return {}, -INVALID_VALUE
 
     if 'Fe/H' in parameter_key_tuple:
         mass_fractions_chemical_table, mean_molar_mass = precalculated_equilibrium_case(parameter_key_tuple)
@@ -715,29 +719,32 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, c_o_rat
 
         def log_pbase_case():
             if 'log_Pbase_' + cloud_name in parameter_key_list:
-                return 10 ** parameters['log_Pbase_' + cloud_name].value
+                output = 10 ** parameters['log_Pbase_' + cloud_name].value
             else:
-                return jnp.inf
+                output = INVALID_VALUE
+            return output.astype(JAX_DTYPE)
 
         def pbase_case():
             if 'Pbase_' + cloud_name in parameter_key_list:
-                return parameters['Pbase_' + cloud_name].value
+                output = parameters['Pbase_' + cloud_name].value
             else:
-                return jnp.inf
+                output = INVALID_VALUE
+            return output.astype(JAX_DTYPE)
 
         def eq_case():
-            return fc.calculate_cloud_base_pressure(
+            output = fc.calculate_cloud_base_pressure(
                     name=cloud_name,
                     press=pressures,
                     temp=temperatures,
                     metallicity=metallicity,
                     co_ratio=c_o_ratio,
-                    mmw=jnp.mean(mean_molar_mass)
+                    mmw=jnp.mean(mean_molar_mass).astype(JAX_DTYPE)
                 )
+            return output.astype(JAX_DTYPE)
 
         def free_case():
             if 'log_X_cb_' + cloud_name in parameter_key_list:
-                return fc.calculate_cloud_base_pressure_free(
+                output = fc.calculate_cloud_base_pressure_free(
                     cloud_name,
                     pressures,
                     temperatures,
@@ -745,7 +752,8 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, c_o_rat
                     mean_molar_mass[0]
                 )
             else:
-                return jnp.inf
+                output = INVALID_VALUE
+            return output
 
         return lax.cond(
             'log_Pbase_' + cloud_name in parameter_key_list,
@@ -787,15 +795,17 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, c_o_rat
     def get_fsed(cloud_name, parameters):
         def fsed_cloud_case(_):
             if 'fsed_' + cloud_name in parameter_key_list:
-                return parameters['fsed_' + cloud_name].value
+                output = parameters['fsed_' + cloud_name].value
             else:
-                return 0.0
+                output = INVALID_VALUE
+            return output.astype(JAX_DTYPE)
 
         def fsed_default_case(_):
             if 'fsed' in parameter_key_list:
-                return parameters['fsed'].value
+                output = parameters['fsed'].value
             else:
-                return 0.0
+                output = INVALID_VALUE
+            return output.astype(JAX_DTYPE)
 
         return lax.cond(
             'fsed_' + cloud_name in parameter_key_list,
@@ -820,7 +830,7 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, c_o_rat
             species_full_name = cloud_opacity.species_full_name
             cloud_name = species_full_name.split('_')[0]
             fseds[cloud_name] = get_fsed(cloud_name, parameters)
-            mf[cloud_name] = clouds[cloud_name]
+            mf[cloud] = clouds[cloud_name]
         return mf, fseds
 
     def fill_clouds_case(mf, fseds):
@@ -830,7 +840,7 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, c_o_rat
             cloud_name = species_full_name.split('_')[0]
 
             fseds[cloud_name] = get_fsed(cloud_name, parameters)
-            mf[cloud_name] = fill_cloud_mass_fractions(
+            mf[cloud] = fill_cloud_mass_fractions(
                 cloud_name, pressures, p_bases, clouds, fseds, temperatures, pressure_indices
             )
         return mf, fseds
@@ -913,7 +923,7 @@ def get_abundances(pressures: typing.ArrayLike, temperatures: typing.ArrayLike,
     if 'use_easychem' in parameters.keys():
         use_easychem = True
 
-    p_bases, pressure_indices = jnp.inf, jnp.zeros_like(pressures, dtype=int)
+    p_bases, pressure_indices = INVALID_VALUE, jnp.zeros_like(pressures, dtype=int)
     if cloud_species:
         mass_fractions, p_bases, pressure_indices = calculate_cloud_mass_fractions(
             pressures,

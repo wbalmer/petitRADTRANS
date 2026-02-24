@@ -498,18 +498,18 @@ def _compute_cloud_opacities(
                 cloud_scattering_reduction_factor) = \
                 cloud_core.compute_cloud_log_normal_particles_distribution_opacities_grid(
                     atmosphere_densities=atmospheric_densities,
-                    clouds_particles_densities=_cloud_particles_density,
-                    clouds_mass_fractions=_cloud_species_mass_fractions,
-                    cloud_particles_mean_radii=_cloud_particles_mean_radii,
-                    cloud_particles_distribution_std=cloud_particle_radius_distribution_std,
-                    cloud_particles_radii_bins=clouds_loaded_opacities['particles_radii_bins'],
-                    cloud_particles_radii=clouds_loaded_opacities['particles_radii'],
-                    clouds_absorption_opacities=clouds_loaded_opacities['absorption_opacities'],
-                    clouds_scattering_opacities=clouds_loaded_opacities['scattering_opacities'],
-                    clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters'],
-                    pressures=pressures,
-                    target_particle_radii=target_particle_radii,
-                    target_pressure=target_pressure
+                        clouds_particles_densities=_cloud_particles_density,
+                        clouds_mass_fractions=_cloud_species_mass_fractions,
+                        cloud_particles_mean_radii=_cloud_particles_mean_radii,
+                        cloud_particles_distribution_std=cloud_particle_radius_distribution_std,
+                        cloud_particles_radii_bins=clouds_loaded_opacities['particles_radii_bins'],
+                        cloud_particles_radii=clouds_loaded_opacities['particles_radii'],
+                        clouds_absorption_opacities=clouds_loaded_opacities['absorption_opacities'],
+                        clouds_scattering_opacities=clouds_loaded_opacities['scattering_opacities'],
+                        clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters'],
+                        pressures=pressures,
+                        target_particle_radii=target_particle_radii,
+                        target_pressure=target_pressure
                 )
         elif cloud_particles_radius_distribution == "custom":
                 (

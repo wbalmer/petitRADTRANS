@@ -11,7 +11,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import binned_statistic
 import jax
-from jax import lax, random, devices, numpy as jnp
+from jax import lax, random, devices, config, numpy as jnp
 
 # TODO decide if we want to use tfp distributions
 import tensorflow_probability.substrates.jax as tfp
@@ -58,6 +58,10 @@ from petitRADTRANS.retrieval.sampler import (Sampler,
                                              JAXNSShardedStaticNestedSampler)
 from petitRADTRANS.retrieval.log_likelihood import LogLikelihood
 from petitRADTRANS.utils import flatten_object, list_str2str
+
+JAX_DTYPE = jnp.float32
+if config.jax_enable_x64:
+    JAX_DTYPE = jnp.float64
 
 prt_emcee_mode = os.environ.get("pRT_emcee_mode")
 load_mpi = True
@@ -2544,7 +2548,6 @@ class Retrieval:
             if not parameter.is_free_parameter:
                 continue
             parameter.value = yield parameter.set_prior()
-            print(key, parameter.value)
         return self.configuration.parameters
 
     def run(self, sampler_object: Sampler = None, **sampler_kwargs):
@@ -2695,7 +2698,7 @@ class Retrieval:
                 counter = 0
                 for value in self.configuration.parameters.values():
                     if value.is_free_parameter:
-                        value.value = args[counter]
+                        value.value = args[counter].astype(JAX_DTYPE)
                         counter += 1
                 #self.configuration.parameters = parameters
                 return self.log_likelihood_jax(

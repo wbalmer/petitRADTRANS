@@ -1,8 +1,8 @@
 import os
 import sys
 
-import jax
-jax.config.update("jax_enable_x64", True)
+#import jax
+#jax.config.update("jax_enable_x64", True)
 
 # Ensure that we are testing the package installed (*not* the development) files
 del sys.path[0]  # remove current directory from searching path

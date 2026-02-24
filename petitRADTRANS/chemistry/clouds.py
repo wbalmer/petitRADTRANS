@@ -4,7 +4,7 @@ import copy
 import warnings
 
 import jax.numpy as jnp
-from jax import lax
+from jax import lax, config
 from petitRADTRANS.opacities.opacities import CloudOpacity
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.chemistry.condensation_curves import (
@@ -80,6 +80,9 @@ __molar_masses = {
     'Zn': get_species_molar_mass('Zn')
 }
 
+JAX_DTYPE = jnp.float32
+if config.jax_enable_x64:
+    JAX_DTYPE = jnp.float64
 
 def _get_species_molar_mass(species):
     """Get molar mass of a species from cache or compute it."""
@@ -452,7 +455,7 @@ def calculate_cloud_base_pressure(name, press, temp, metallicity=0.0, co_ratio=0
         return cloud_species_functions[base_name](press, temp, metallicity, co_ratio, mmw)
 
     warnings.warn(f"The cloud {name} is not currently implemented, defaulting to top of atmosphere.")
-    return press[0]
+    return press[0].astype(JAX_DTYPE)
 
 
 def calculate_cloud_base_pressure_free(name, press, temp, mfrac, mmw=2.33):

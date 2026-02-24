@@ -1,9 +1,14 @@
 import os
 os.environ["XLA_FLAGS"] = f"--xla_force_host_platform_device_count={os.cpu_count()}"
 import jax.numpy as jnp
+from jax import config
 from jaxns import Prior
 from petitRADTRANS.retrieval.utils import log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
 from jax import tree_util
+
+JAX_DTYPE = jnp.float32
+if config.jax_enable_x64:
+    JAX_DTYPE = jnp.float64
 
 class Parameter:
     """

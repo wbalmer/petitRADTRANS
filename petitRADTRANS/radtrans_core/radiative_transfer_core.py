@@ -358,10 +358,7 @@ vmapped_m_approximate_ng_source = vmap(
 
 
 # --- Main Feautrier Radiative Transfer JAX Function ---
-@partial(jit, static_argnames=(
-    "adaptive_feautrier_iterations", "emission_geometry_str", "return_contribution",
-    "iter_scat_max",
-))
+@jit(static_argnames=("emission_geometry_str"))
 def compute_feautrier_radiative_transfer(
         frequencies_bin_edges,  # (n_frequencies_bin_edges,)
         temperatures,           # (n_layers,)

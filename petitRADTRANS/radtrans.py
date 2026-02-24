@@ -476,6 +476,7 @@ class Radtrans:
             mass_fractions: atmospheric mass mixing ratios
             cloud_fraction: cloud coverage fraction
         """
+
         # TODO revert to clearer pythonic statements
         output = lax.cond(
             cloud_fraction == 0,
@@ -623,6 +624,7 @@ class Radtrans:
             sum_opacities = True
         return sum_opacities
 
+    @jit(static_argnames=['self', 'emission_geometry'])
     def _calculate_flux(
         self, temperatures, reference_gravity, opacities, continuum_opacities_scattering,
         emission_geometry, star_irradiation_cos_angle, stellar_intensity, reflectances, emissivities,
@@ -683,26 +685,25 @@ class Radtrans:
             # TODO investigate bug with scattering and low VMR near surface
             # Only use 0 index for species because for lbl or test_ck_shuffle_comp = True
             # everything has been moved into the 0th index
-
             flux, emission_contribution = radiative_transfer_core.compute_feautrier_radiative_transfer(
-                frequencies_bins_edges=self._frequency_bins_edges,
+                frequencies_bin_edges=self._frequency_bins_edges,
                 temperatures=temperatures,
                 weights_gauss=self._lines_loaded_opacities['weights_gauss'],
                 emission_cos_angles=self._emission_angle_grid['cos_angles'],
                 emission_cos_angles_weights=self._emission_angle_grid['weights'],
                 optical_depths_in=optical_depths[:, :, 0, :],
                 photon_destruction_probabilities_in=photon_destruction_probabilities,
-                emission_geometry=emission_geometry,
                 stellar_intensity=stellar_intensity,
                 star_irradiation_cos_angle=star_irradiation_cos_angle,
                 reflectances=reflectances,
                 emissivities=emissivities,
                 adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+                emission_geometry_str=emission_geometry,
                 return_contribution=return_contribution
             )
 
             # TODO jit to cond - check output shape
-            if return_rosseland_opacities:
+            """if return_rosseland_opacities:
                 opacities_rosseland = \
                     rosseland.compute_rosseland_opacities(
                         frequency_bins_edges=self._frequency_bins_edges,
@@ -711,7 +712,7 @@ class Radtrans:
                         opacities=opacities[:, :, 0, :],
                         continuum_opacities_scattering=continuum_opacities_scattering,
                         scattering_in_emission=self._scattering_in_emission
-                    )
+                    )"""
         else:
             # TODO jit to cond
             if self._line_opacity_mode == 'lbl' and len(self._line_species) > 1:
