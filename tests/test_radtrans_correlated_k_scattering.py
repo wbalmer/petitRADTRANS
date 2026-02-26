@@ -128,8 +128,8 @@ def test_correlated_k_photospheric_radius_calculation():
         relative_tolerance=relative_tolerance
     )
 
-    atmosphere_ck_scattering._Radtrans__set_sum_opacities(emission=True)
-    atmosphere_ck_scattering._Radtrans__use_smart_clear_opacities = False
+    #atmosphere_ck_scattering._Radtrans.set_sum_opacities(emission=True)
+    #atmosphere_ck_scattering._Radtrans.use_smart_clear_opacities = False
 
     # TODO: update using updated outputs
     """(opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,

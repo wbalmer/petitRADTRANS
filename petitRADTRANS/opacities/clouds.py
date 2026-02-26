@@ -109,7 +109,9 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
     min_cloud_shape = max(n_clouds, 1)  # to allow for no-cloud cases without breaking the code with zero-size arrays
     cloud_absorption_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
     cloud_scattering_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
-    cloud_opacities = jnp.zeros((min_cloud_shape, frequencies.size, min_cloud_shape, pressures.size), dtype=JAX_DTYPE)
+    # TODO: figure out what shape cloud_opacities should actually have. And why we even need it...
+    #cloud_opacities = jnp.zeros((min_cloud_shape, frequencies.size, min_cloud_shape, pressures.size), dtype=JAX_DTYPE)
+    cloud_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
     _cloud_particles_mean_radii = jnp.zeros((pressures.size, min_cloud_shape), dtype=JAX_DTYPE)
 
     cloud_continuum_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
@@ -471,6 +473,10 @@ def _compute_cloud_opacities(
 
     # Initialize cloud species mass fractions, densities, and mean radii
     for i_spec, cloud_name in enumerate(cloud_species_mass_fractions):
+        cloud_opacity = CloudOpacity([cloud_name], natural_abundance=False)
+        species_full_name = cloud_opacity.species_full_name
+        cloud_short_name = species_full_name.split('_')[0]
+
         _cloud_species_mass_fractions = _cloud_species_mass_fractions.at[:, i_spec].set(
             cloud_species_mass_fractions[cloud_name]
             )
@@ -485,9 +491,14 @@ def _compute_cloud_opacities(
                 )
 
         if cloud_particles_mean_radii is not None:
-            _cloud_particles_mean_radii = _cloud_particles_mean_radii.at[:, i_spec].set(
-                cloud_particles_mean_radii[cloud_name]
-                )
+            if cloud_name in cloud_particles_mean_radii.keys():
+                _cloud_particles_mean_radii = _cloud_particles_mean_radii.at[:, i_spec].set(
+                    cloud_particles_mean_radii[cloud_name]
+                    )
+            elif cloud_short_name in cloud_particles_mean_radii.keys():
+                _cloud_particles_mean_radii = _cloud_particles_mean_radii.at[:, i_spec].set(
+                    cloud_particles_mean_radii[cloud_short_name]
+                    )
         elif cloud_hansen_a is not None:
             _cloud_particles_mean_radii = _cloud_particles_mean_radii.at[:, i_spec].set(cloud_hansen_a[cloud_name])
 
@@ -711,7 +722,7 @@ def _compute_cloud_opacities(
     # TODO: figure out cloud_opacities and how to return contribution
     #if return_cloud_contribution:
     opacity_shape = (min_cloud_shape, frequency_bins_edges.size - 1, min_cloud_shape, pressures.size)
-    cloud_opacities = cloud_anisotropic_extinctions.reshape(opacity_shape)
+    cloud_opacities = cloud_anisotropic_extinctions#.reshape(opacity_shape)
     #else:
     #    cloud_opacities = None
 

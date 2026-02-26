@@ -4,6 +4,7 @@ import copy
 import os
 
 from .context import petitRADTRANS
+phoenix_star_table = petitRADTRANS.stellar_spectra.phoenix.PhoenixStarTable()
 
 
 def test_configuration_file_generation():
@@ -49,17 +50,17 @@ def test_configuration_file_generation():
     error_raised = False
 
     # Ensure the directory exists
-    star_table_directory = os.path.dirname(petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.get_default_file())
+    star_table_directory = os.path.dirname(phoenix_star_table.get_default_file())
 
     if not os.path.isdir(star_table_directory):
         os.makedirs(star_table_directory)
 
     try:
-        petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load(search_online=False)
+        phoenix_star_table.load(search_online=False)
 
-        if os.path.isfile(petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.get_default_file()):
+        if os.path.isfile(phoenix_star_table.get_default_file()):
             raise FileExistsError(
-                f"file '{petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.get_default_file()}' exists, "
+                f"file '{phoenix_star_table.get_default_file()}' exists, "
                 f"while it should not for this test"
             )
     except FileNotFoundError as error:
@@ -67,7 +68,7 @@ def test_configuration_file_generation():
 
         if not os.path.isdir(new_config.directory):
             raise FileNotFoundError(f"configuration directory '{new_config.directory}' is expected to be generated")
-        elif not os.path.isdir(petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.get_default_file()):
+        elif not os.path.isdir(phoenix_star_table.get_default_file()):
             print(f"directory '{new_config.get_input_data_path()}' is incorrect, as expected")
         else:
             raise FileExistsError(f"a file was unexpectedly not found: '{str(error)}'")
@@ -88,7 +89,7 @@ def test_configuration_file_generation():
 
     # Now test if the file is correctly loaded once everything is set properly
     print(f"Testing for correct input_data path behaviour...")
-    petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load(search_online=False)
+    phoenix_star_table.load(search_online=False)
 
 
 def test_configuration_file_repair():
@@ -143,4 +144,4 @@ def test_configuration_file_repair():
     petitRADTRANS.config.petitradtrans_config_parser.load()
 
     print(f"Testing for correct behaviour...")
-    petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load(search_online=False)
+    phoenix_star_table.load(search_online=False)
