@@ -62,6 +62,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Functional pymultinest and JAXNS retrievals as of v4.0.a7.
 
 ### Added
+- Reimplemented synthetic photometry calculations from `species` to avoid circular dependencies.
 - Implemented new `Sampler` package to allow easier selection of `pymultinest`, `jaxns` or `ultranest`
 - Implemented new `LogLikelihood` class to ensure consistent chi2 calculations.
 - Added median filter continuum subtraction.

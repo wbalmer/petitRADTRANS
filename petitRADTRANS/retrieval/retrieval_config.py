@@ -11,7 +11,7 @@ from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
 from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity
 from petitRADTRANS.retrieval.jax_parameter import Parameter
 from petitRADTRANS.retrieval.utils import uniform_prior
-
+from petitRADTRANS.synthetic_photometry import SyntheticPhotometry
 # Import prior distributions
 import tensorflow_probability.substrates.jax as tfp
 tfpd = tfp.distributions
@@ -812,24 +812,6 @@ class RetrievalConfig:
                 Opacity mode.
         """
         with open(path) as photometry:
-            if photometric_transformation_function is None:
-                try:
-                    # TODO: switch to pyphot library? Lighter weight/less complicated than species.
-                    import species as sp
-                except ModuleNotFoundError as e:
-                    e.add_note(
-                        "Please provide a function to transform a spectrum into photometry, or pip install species"
-                    )
-                    raise e
-
-                from species.phot.syn_phot import SyntheticPhotometry
-
-                sp.SpeciesInit()
-            else:
-                # Prevent potential reference before assignment
-                class SyntheticPhotometry:
-                    ...
-
             for line in photometry:
                 # # must be the comment character
                 if line[0] == '#':

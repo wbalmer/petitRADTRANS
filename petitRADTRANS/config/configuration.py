@@ -4,7 +4,9 @@ Manages the configuration files.
 import configparser
 import os
 import warnings
-from pathlib import Path
+from pathlib import Path, PosixPath, WindowsPath
+import h5py
+from typing import Optional, Union
 
 from petitRADTRANS.utils import LockedDict
 
@@ -209,6 +211,80 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         if repaired:
             print(f"Repairing configuration file ('{self._config_file}')...")
             self.save()
+
+    def init_filter_database(
+        self, database_file: Optional[Union[str, PosixPath, WindowsPath]] = None
+    ) -> None:
+        working_folder = Path.cwd()
+        print(f"Working folder: {working_folder}")
+
+        config = configparser.ConfigParser(allow_no_value=True)
+        config_file = Path(self._config_file)
+
+        config.read(config_file)
+        config_update = False
+
+        data_folder = self._default_config['Paths']['pRT_input_data_path']
+        data_folder = Path(os.path.join(data_folder, 'filters'))
+
+        if database_file is None:
+            if "database" in config["filters"]:
+                database_file = Path(config["filters"]["database"])
+
+            else:
+                database_file = Path(f"{data_folder}/filter_database.hdf5")
+                config.set("filters", "database", "filter_database.hdf5")
+                config_update = True
+
+        else:
+            if isinstance(database_file, str):
+                config.set("filters", "database", database_file)
+                database_file = Path(database_file)
+            else:
+                config.set("filters", "database", str(database_file))
+
+            config_update = True
+
+        if "data_folder" not in config["filters"]:
+            config.set("filters", "data_folder", str(data_folder))
+            config_update = True
+
+        if "vega_mag" in config["filters"]:
+            vega_mag = config["filters"]["vega_mag"]
+
+        else:
+            vega_mag = 0.03
+            config.set("filters", "vega_mag", "0.03")
+            config_update = True
+
+        if config_update:
+            # If condition is needed because the file should
+            # not be opened when using MPI and the config
+            # file is already present and no need to update
+            with open(self._config_file, "w", encoding="utf-8") as file_obj:
+                config.write(file_obj)
+
+        if data_folder.exists():
+            print(f"Data folder: {data_folder}")
+
+        else:
+            print("Creating data folder...", end="", flush=True)
+            data_folder.mkdir()
+            print(" [DONE]")
+
+        if database_file.exists():
+            print(f"Database file: {database_file}")
+
+        else:
+            print("Creating filter_database.hdf5...", end="", flush=True)
+            h5_file = h5py.File(database_file, "w")
+            h5_file.close()
+            print(" [DONE]")
+
+        print("\nConfiguration settings:")
+        print(f"   - Database: {database_file}")
+        print(f"   - Data folder: {data_folder}")
+        print(f"   - Magnitude of Vega: {vega_mag}")
 
 
 def get_input_data_subpaths() -> LockedDict:

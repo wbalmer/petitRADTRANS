@@ -25,7 +25,6 @@ All models must take the same set of inputs:
 """
 # TODO replace by SpectralModel function
 import jax.numpy as jnp
-from species.util.dust_util import apply_ism_ext
 
 from petitRADTRANS.chemistry import clouds
 from petitRADTRANS.chemistry.core import get_abundances
@@ -2035,3 +2034,99 @@ def pglobal_check(press, shape, scaling):
                               jnp.log10(press[-1]),
                               int(scaling * shape))
     return PGLOBAL
+
+
+def ism_extinction(
+    av_mag, rv_red, wavelengths
+):
+    """
+    Function for calculating the optical and IR extinction
+    with the empirical relation from `Cardelli et al. (1989)
+    <https://ui.adsabs.harvard.edu/abs/1989ApJ...345..245C/abstract>`_.
+    Reimplemented from species.utils.dust_utils to avoid circular
+    dependencies.
+
+    Parameters
+    ----------
+    av_mag : float
+        Extinction (mag) in the $V$ band.
+    rv_red : float
+        Reddening in the $V$ band, ``R_V = A_V / E(B-V)``.
+    wavelengths : np.ndarray, list(float), float
+        Array or list with the wavelengths (um) for which
+        the extinction is calculated. It is also possible
+        to provide a single value as float.
+
+    Returns
+    -------
+    np.ndarray
+        Extinction (mag) at ``wavelengths``.
+    """
+
+    wavelengths = jnp.array(wavelengths)
+
+    x_wavel = 1.0 / wavelengths
+    y_wavel = x_wavel - 1.82
+
+    a_coeff = jnp.zeros(x_wavel.size)
+    b_coeff = jnp.zeros(x_wavel.size)
+
+    indices = jnp.where(x_wavel < 1.1)[0]
+
+    if len(indices) > 0:
+        a_coeff[indices] = 0.574 * x_wavel[indices] ** 1.61
+        b_coeff[indices] = -0.527 * x_wavel[indices] ** 1.61
+
+    indices = jnp.where(x_wavel >= 1.1)[0]
+
+    if len(indices) > 0:
+        a_coeff[indices] = (
+            1.0
+            + 0.17699 * y_wavel[indices]
+            - 0.50447 * y_wavel[indices] ** 2
+            - 0.02427 * y_wavel[indices] ** 3
+            + 0.72085 * y_wavel[indices] ** 4
+            + 0.01979 * y_wavel[indices] ** 5
+            - 0.77530 * y_wavel[indices] ** 6
+            + 0.32999 * y_wavel[indices] ** 7
+        )
+
+        b_coeff[indices] = (
+            1.41338 * y_wavel[indices]
+            + 2.28305 * y_wavel[indices] ** 2
+            + 1.07233 * y_wavel[indices] ** 3
+            - 5.38434 * y_wavel[indices] ** 4
+            - 0.62251 * y_wavel[indices] ** 5
+            + 5.30260 * y_wavel[indices] ** 6
+            - 2.09002 * y_wavel[indices] ** 7
+        )
+
+    return av_mag * (a_coeff + b_coeff / rv_red)
+
+
+def apply_ism_ext(
+    wavelengths, flux, v_band_ext, v_band_red
+):
+    """
+    Function for applying ISM extinction to a spectrum.
+    Reimplemented from species.utils.dust_utils to avoid circular
+    dependencies.
+
+    wavelengths : jnp.ndarray
+        Wavelengths (um) of the spectrum.
+    flux : jnp.ndarray
+        Fluxes (W m-2 um-1) of the spectrum.
+    v_band_ext : float
+        Extinction (mag) in the $V$ band.
+    v_band_red : float
+        Reddening in the $V$ band.
+
+    Returns
+    -------
+    jnp.ndarray
+        Fluxes (W m-2 um-1) with the extinction applied.
+    """
+
+    ext_mag = ism_extinction(v_band_ext, v_band_red, wavelengths)
+
+    return flux * 10.0 ** (-0.4 * ext_mag)

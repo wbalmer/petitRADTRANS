@@ -17,6 +17,7 @@ py.install_sources([
     'planet.py',
     'radtrans.py',
     'spectral_model.py',
+    'synthetic_photometry.py',
     'utils.py',
     'validation.py',
     '_input_data.py',
