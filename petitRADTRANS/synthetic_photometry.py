@@ -13,6 +13,7 @@ from scipy.interpolate import interp1d, InterpolatedUnivariateSpline
 
 from typing import Tuple, Optional, Union
 import urllib.request
+import requests
 import warnings
 import pooch
 from pathlib import Path
@@ -284,7 +285,6 @@ class SyntheticPhotometry:
     <https://species.readthedocs.io/en/latest/configuration.html>`_.
     """
 
-    @typechecked
     def __init__(self, filter_name: str, zero_point: Optional[float] = None) -> None:
         """
         Parameters
