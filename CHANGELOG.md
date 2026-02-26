@@ -14,6 +14,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 
 ### TODO
 - Feautrier is only accurate to 0.01% (relative). Should be better numerically?
+- Feature completion: Reimplement patchy clouds without using smart_clear_opacities.
 - Feature completion: Implement hansen cloud opacities.
 - Feature completion: Finish reimplementing contribution functions.
 - Feature completion: need to replace smart_clear_opacities with JAX based patchiness implementation.
