@@ -19,13 +19,13 @@ from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.radtrans_core.interpolate_line_opacities import interpolate_species_opacities
 from petitRADTRANS.radtrans_core import radiative_transfer_core
-from petitRADTRANS.radtrans_core.spectrum_utils import compute_bins_edges
+from petitRADTRANS.radtrans_core.spectrum_utils import compute_bins_edges, rebin_spectrum
 from petitRADTRANS.opacities.opacities import CIAOpacity, CloudOpacity, CorrelatedKOpacity, LineByLineOpacity, Opacity
 from petitRADTRANS.opacities import cia, clouds, continuum, hminus, load, rayleigh, rosseland
 from petitRADTRANS.opacities.optical_depths import compute_optical_depths
 from petitRADTRANS.stellar_spectra.phoenix import compute_star_spectrum
 from petitRADTRANS.physics import (
-    flux_hz2flux_cm, frequency2wavelength, hz2um, rebin_spectrum, um2hz, wavelength2frequency
+    flux_hz2flux_cm, frequency2wavelength, hz2um, um2hz, wavelength2frequency
 )
 from petitRADTRANS.utils import LockedDict, tuple_init
 from petitRADTRANS.validation import (

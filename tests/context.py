@@ -11,11 +11,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) 
 import petitRADTRANS
 
 # Fortran extensions
-import petitRADTRANS.fortran_chemistry
-import petitRADTRANS.fortran_rebin
-import petitRADTRANS.fortran_inputs
-import petitRADTRANS.fortran_radtrans_core
-import petitRADTRANS.fortran_rebin
+#import petitRADTRANS.fortran_chemistry
+#import petitRADTRANS.fortran_rebin
+#import petitRADTRANS.fortran_inputs
+#import petitRADTRANS.fortran_radtrans_core
+#import petitRADTRANS.fortran_rebin
 
 # Python modules
 import petitRADTRANS.ccf

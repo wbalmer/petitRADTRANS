@@ -2,7 +2,7 @@ import copy
 import jax.numpy as jnp
 from jax import lax, debug, jit, config
 from jax.typing import ArrayLike
-from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
+#from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.radtrans_core import radiative_transfer_core, cloud_core
 from petitRADTRANS.opacities.opacities import CloudOpacity, Opacity
 from petitRADTRANS.opacities.rayleigh import compute_power_law_opacities
@@ -537,7 +537,7 @@ def _compute_cloud_opacities(
             #TODO: Implement hansen cloud opas in cloud_core
             (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                 cloud_scattering_reduction_factor) = \
-                fcore.compute_cloud_hansen_opacities(
+                cloud_core.compute_cloud_hansen_opacities(
                     atmospheric_densities,
                     _cloud_particles_density,
                     _cloud_species_mass_fractions,
@@ -640,7 +640,7 @@ def _compute_cloud_opacities(
             #TODO: Implement hansen cloud opas
             (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                 cloud_scattering_reduction_factor) = \
-                fcore.compute_cloud_hansen_opacities(
+                cloud_core.compute_cloud_hansen_opacities(
                     atmospheric_densities,
                     _cloud_particles_density,
                     _cloud_species_mass_fractions,

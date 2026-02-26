@@ -2,9 +2,6 @@ import jax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 from jax import jit, lax
-from scipy.ndimage import gaussian_filter
-from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
 
 class LogLikelihood:
     def __init__(self,

@@ -1,14 +1,13 @@
 """
 JAX implementation of fortran_core.math
 """
-import numpy as np
 import jax.numpy as jnp
-from jax import jit, vmap, lax, ShapeDtypeStruct, pure_callback
-import petitRADTRANS.physical_constants as cst
-from  petitRADTRANS.fortran_radtrans_core import math as fmath
+from jax import jit, vmap, lax
+#from  petitRADTRANS.fortran_radtrans_core import math as fmath
 
 
-@jit
+# TODO: delete old tridag call
+"""@jit
 def wrap_tridag(a, b, c, r, I_plus, I_minus):
     # deprecated
     # Set initial value of r
@@ -26,7 +25,7 @@ def wrap_tridag(a, b, c, r, I_plus, I_minus):
 
 def wrap_callback(a, b, c, r):
     result_shape = ShapeDtypeStruct(r.shape, r.dtype)
-    return pure_callback(fmath.tridag_own, result_shape, a, b, c, r)
+    return pure_callback(fmath.tridag_own, result_shape, a, b, c, r)"""
 
 
 @jit

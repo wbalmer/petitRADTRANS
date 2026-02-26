@@ -1,14 +1,34 @@
+import os
 import numpy as np
 import numpy.typing as npt
 import jax.numpy as jnp
 from jax import config
 from jax.typing import ArrayLike
 import h5py
+import warnings
+
 from petitRADTRANS.opacities.opacities import CorrelatedKOpacity, Opacity
-from petitRADTRANS.opacities.file_conversion import rebin_ck_line_opacities
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.utils import intersection_indices
 from petitRADTRANS.utils import LockedDict
+
+MPI = None
+rank = 0
+comm = None
+load_mpi = True
+
+if load_mpi:
+    # MPI Multiprocessing
+    try:
+        from mpi4py import MPI
+
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+    except ImportError:
+        MPI = None
+        comm = None
+        rank = 0
+
 
 JAX_DTYPE = jnp.float32
 if config.jax_enable_x64:
@@ -321,3 +341,113 @@ def get_opacity_sources_dict():
             'stellar_intensities': None
         })
     })
+
+
+def _get_default_rebinning_wavelength_range():
+    return np.array([0.1, 251.0])  # um
+
+
+def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=None, rewrite=False):
+    try:
+        import exo_k
+    except ImportError:
+        # Only raise a warning to give a chance to download the binned-down file
+        warnings.warn("binning down of opacities requires exo_k to be installed, no binning down has been performed")
+        return -1
+
+    if rank == 0:  # prevent race condition when writing the binned down file during multi-processes execution
+        if wavenumber_grid is None:
+            # Define own wavenumber grid, make sure that log spacing is constant everywhere
+            wavelengths_boundaries = _get_default_rebinning_wavelength_range()
+
+            n_spectral_points = int(
+                target_resolving_power * np.log(wavelengths_boundaries[1] / wavelengths_boundaries[0]) + 1
+            )
+
+            wavenumber_grid = np.logspace(
+                np.log10(1 / wavelengths_boundaries[1] * 1e4),
+                np.log10(1 / wavelengths_boundaries[0] * 1e4),
+                n_spectral_points
+            )
+
+        # Output files
+        output_file = input_file.replace(
+            CorrelatedKOpacity.join_species_all_info(
+                '',
+                spectral_info=CorrelatedKOpacity.get_resolving_power_string(
+                    CorrelatedKOpacity.get_default_resolving_power()
+                )
+            ),
+            CorrelatedKOpacity.join_species_all_info(
+                '', spectral_info=CorrelatedKOpacity.get_resolving_power_string(target_resolving_power)
+            )
+        )
+
+        if os.path.isfile(output_file) and not rewrite:
+            print(f"File '{output_file}' already exists, skipping re-binning...")
+        else:
+            print(f"Rebinning file '{input_file}' to R = {target_resolving_power}...")
+            # Use Exo-k to rebin to low-res
+            tab = exo_k.Ktable(filename=input_file, remove_zeros=True)
+            tab.bin_down(wavenumber_grid)
+            print(" Done.")
+
+            print(f" Writing binned down file '{output_file}'...", end=' ')
+            tab.write_hdf5(output_file)
+            print("Done.")
+
+            print(f"Successfully binned down k-table into '{output_file}' (R = {target_resolving_power})")
+    elif not isinstance(rank, int):
+        raise TypeError(
+            f"MPI rank must be of type '{int.__name__}', not {type(rank)}\n"
+            f"This is likely a code error and not a user error, you may report this to "
+            f"https://gitlab.com/mauricemolli/petitRADTRANS/-/issues"
+        )
+
+    if comm is not None:  # wait for the main process to finish the binning down
+        comm.barrier()
+
+    return 0  # execution without error
+
+
+def rebin_multiple_ck_line_opacities(target_resolving_power, paths=None, species=None, rewrite=False):
+    if species is None:
+        species = []
+
+    if paths is None:
+        paths = []
+
+    # Define own wavenumber grid, make sure that log spacing is constant everywhere
+    wavelengths_boundaries = _get_default_rebinning_wavelength_range()
+    n_spectral_points = int(
+        target_resolving_power * np.log(wavelengths_boundaries[1] / wavelengths_boundaries[0]) + 1
+    )
+
+    wavenumber_grid = np.logspace(
+        np.log10(1 / wavelengths_boundaries[1] * 1e4),
+        np.log10(1 / wavelengths_boundaries[0] * 1e4),
+        n_spectral_points
+    )
+
+    success = False
+
+    # Do the rebinning, loop through species
+    for i, s in enumerate(species):
+        # Output files
+        hdf5_opacity_file_input = paths[i]
+
+        state = rebin_ck_line_opacities(
+            input_file=hdf5_opacity_file_input,
+            target_resolving_power=target_resolving_power,
+            wavenumber_grid=wavenumber_grid,
+            rewrite=rewrite
+        )
+
+        if state is None:
+            success = True
+        elif state == -1:
+            success = False
+            break
+
+    if success:
+        print("Successfully binned down all k-tables\n")

@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a10] - 2026-02-23
+## [4.0.0a11] - 2026-02-26
 ### Summary
 pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs.

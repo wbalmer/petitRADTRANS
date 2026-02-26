@@ -12,7 +12,6 @@ from jax.typing import ArrayLike
 
 from petitRADTRANS._input_data import find_input_file
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
-# noinspection PyUnresolvedReferences
 
 
 def interpolate_chemical_table(
@@ -36,13 +35,6 @@ def interpolate_chemical_table(
     Input indices (largest_..._indices) are 1-based and point to the upper
     bound of the interpolation cell.
     """
-
-    # Convert 1-based Fortran indices (upper bound of cell) to 0-based JAX indices
-    idx_T_up_0based   = largest_temperatures_indices - 1
-    idx_P_up_0based   = largest_pressures_indices - 1
-    idx_CO_up_0based  = largest_co_ratios_indices - 1
-    idx_FeH_up_0based = largest_metallicities_indices - 1
-
     # Ensure table axes are JAX arrays
     table_T_jax = jnp.asarray(table_temperatures)
     table_P_jax = jnp.asarray(table_pressures)
@@ -108,13 +100,14 @@ def interpolate_chemical_table(
         _interpolate_single_layer,
         in_axes=(0, 0, 0, 0, 0, 0, 0, 0)  # Map over the first axis of all 8 input arrays
     )(co_ratios, log10_metallicities, temperatures, pressures,
-        idx_T_up_0based, idx_P_up_0based, idx_CO_up_0based, idx_FeH_up_0based)
+        largest_temperatures_indices, largest_pressures_indices, largest_co_ratios_indices, largest_metallicities_indices)
 
     # Transpose to Fortran's output shape: (n_species, n_layers)
+    # TODO: not sure this is necessary now that we're not using fotran
     chemical_table_interp = jnp.transpose(chemical_table_interp_flat, (1, 0))
 
     # If is_mass_fraction, convert back from log space (for abundances)
-    # The Fortran code applies 10** to all species if is_mass_fraction is true.
+    # The Fortran code applied 10** to all species if is_mass_fraction is true.
     # This means MMW and nabla_ad (if present, and were linear) also get 10**.
     # This is a direct translation of the provided Fortran.
     if is_mass_fraction:
@@ -207,10 +200,10 @@ class PreCalculatedEquilibriumChemistryTable:
         )
 
         # Get interpolation indices
-        co_ratios_large_int = jnp.searchsorted(self.co_ratios, co_ratios) + 1
-        fehs_large_int = jnp.searchsorted(self.log10_metallicities, log10_metallicities) + 1
-        temps_large_int = jnp.searchsorted(self.temperatures, temperatures) + 1
-        pressures_large_int = jnp.searchsorted(self.pressures, pressures) + 1
+        co_ratios_large_int = jnp.searchsorted(self.co_ratios, co_ratios)
+        fehs_large_int = jnp.searchsorted(self.log10_metallicities, log10_metallicities)
+        temps_large_int = jnp.searchsorted(self.temperatures, temperatures)
+        pressures_large_int = jnp.searchsorted(self.pressures, pressures)
 
         _mass_fractions = interpolate_chemical_table(
             co_ratios,

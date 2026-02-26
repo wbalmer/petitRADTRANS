@@ -240,7 +240,7 @@ def make_petitradtrans_test_config_file(filename):
 
 def make_test_opacities():
     import h5py
-    from petitRADTRANS.opacities.file_conversion import (
+    from petitRADTRANS.opacities.write import (
         write_cia_opacities, write_cloud_opacities, write_correlated_k, write_line_by_line
     )
 
