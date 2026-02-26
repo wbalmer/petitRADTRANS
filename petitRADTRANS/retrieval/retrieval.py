@@ -1,30 +1,25 @@
-import copy
-import json
 import os
 import sys
+import copy
+import json
 import traceback
 import warnings
-from typing import Callable
-
 import dill
 import numpy as np
 import numpy.typing as npt
+from typing import Callable
+
 from scipy.stats import binned_statistic
 import jax
 from jax import lax, random, devices, config, numpy as jnp
-
-# TODO decide if we want to use tfp distributions
 import tensorflow_probability.substrates.jax as tfp
-
 tfpd = tfp.distributions
 
 import petitRADTRANS
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity, CorrelatedKOpacity
-
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
-# noinspection PyUnresolvedReferences
 from petitRADTRANS.radtrans_core.spectrum_utils import (
     continuum_subtract_spectrum,
     convolve,
@@ -32,12 +27,9 @@ from petitRADTRANS.radtrans_core.spectrum_utils import (
     filter_spectrum_with_spline,
     rebin_spectrum_bin
 )
-
 from petitRADTRANS.math import running_mean
-
 from petitRADTRANS.opacities import CorrelatedKOpacity
 from petitRADTRANS.physics import wavelength2frequency, shift_wavelengths_by_radial_velocity
-
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
@@ -51,13 +43,16 @@ from petitRADTRANS.retrieval.utils import (
     validate_model_output,
     ensure_jax_array
 )
-from petitRADTRANS.retrieval.sampler import (Sampler,
-                                             PymultinestSampler,
-                                             UltranestSampler,
-                                             JAXNSSampler,
-                                             JAXNSShardedStaticNestedSampler)
+from petitRADTRANS.retrieval.sampler import (
+    Sampler,
+    PymultinestSampler,
+    UltranestSampler,
+    JAXNSSampler,
+    JAXNSShardedStaticNestedSampler
+    )
 from petitRADTRANS.retrieval.log_likelihood import LogLikelihood
 from petitRADTRANS.utils import flatten_object, list_str2str
+# noinspection PyUnresolvedReferences
 
 JAX_DTYPE = jnp.float32
 if config.jax_enable_x64:
@@ -152,16 +147,12 @@ class Retrieval:
                     warnings.warn("there are no line species present in the run definition")
                     break
 
-        # Maybe inherit from retrieval config class?
+        # TODO - Maybe inherit from retrieval config class?
         # Could actually be merged with RetrievalConfig
         self.use_mpi = use_mpi
-
         self.uncertainties_mode = uncertainties_mode
-
         self.print_log_likelihood_for_debugging = print_log_likelihood_for_debugging
-
         self.generate_mock_data = generate_mock_data
-
         self.output_directory = output_directory
 
         self.corner_files = corner_plot_names
@@ -198,7 +189,7 @@ class Retrieval:
                                  'evaluate_' + self.configuration.retrieval_name), exist_ok=True)
 
         # Setup pRT Objects for each data structure.
-        self.setup_data()
+        self.initialise_radtrans_objects()
         self._n_free_params_total_retrieval = 0
         free_param_names_list = []
         for p_name, p_obj in self.configuration.parameters.items():
@@ -215,7 +206,7 @@ class Retrieval:
             best_fit_sample = samples_use[:-1, best_fit_index]
             self.best_fit_parameters = self.build_param_dict(best_fit_sample, parameters_read)
         try:
-            analyzer_for_summary = self.get_analyzer(ret_name=self.configuration.retrieval_name)
+            analyzer_for_summary = self.get_pymultinest_analyzer(ret_name=self.configuration.retrieval_name)
             if analyzer_for_summary and hasattr(analyzer_for_summary, 'get_stats'):
                 self.generate_retrieval_summary(stats=analyzer_for_summary.get_stats())
             else:
@@ -860,8 +851,8 @@ class Retrieval:
                     summary.write(fmts % (param, med, sigma) + '\n')
 
                 summary.write('\n')
-            # TODO: Ultranest and JAXNS sampler output saving to file.
 
+            # TODO: Ultranest and JAXNS sampler output saving to file.
             if self.configuration.run_mode == 'evaluate':
                 summary.write("Best Fit Parameters\n")
 
@@ -877,13 +868,13 @@ class Retrieval:
                 # Get best-fit index
                 log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
                 self.build_param_dict(samples_use[:-1, best_fit_index], parameters_read)
-                chi2_wavelengths = self.get_reduced_chi2(
+                chi2_wavelengths = self.get_reduced_chi2_from_sample(
                     sample=samples_use[:, best_fit_index],
                     subtract_n_parameters=False,
                     verbose=True,
                     show_chi2=True
                 )
-                chi2_d_o_f = self.get_reduced_chi2(
+                chi2_d_o_f = self.get_reduced_chi2_from_sample(
                     sample=samples_use[:, best_fit_index],
                     subtract_n_parameters=True,
                     verbose=True,
@@ -911,7 +902,7 @@ class Retrieval:
                     else:
                         summary.write(f"    {key} = {out}\n")
 
-    def get_analyzer(self, ret_name: str = ""):
+    def get_pymultinest_analyzer(self, ret_name: str = ""):
         """
         Get the PMN analyzer from a retrieval run
 
@@ -1181,7 +1172,7 @@ class Retrieval:
             for parameter_name, value in samples.items()
         }
 
-    def get_chi2(self, sample: npt.NDArray[np.floating]) -> float:
+    def get_chi2_from_sample(self, sample: npt.NDArray[np.floating]) -> float:
         """
         Get the 𝛘^2 of the given sample relative to the data - removing normalization term from log L
 
@@ -1200,33 +1191,23 @@ class Retrieval:
         param_dict = self.build_param_dict(sample, params)
 
         for name, data in self.configuration.data.items():
-            sf = 1.0
+            # Prepare spectrum data
+            data_spectrum = data.spectrum
+            data_spectrum = data.scale_flux(data_spectrum, param_dict)
+            data_spectrum = data.offset_flux(data_spectrum, param_dict)
+            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(param_dict)
 
-            if data.scale_err:
-                sf = param_dict[f"{name}_scale_factor"].value
-
-            if data.covariance is not None:
-                _, log_det = np.linalg.slogdet(2 * np.pi * data.covariance * sf ** 2)
+            if data_covariance is not None:
+                _, log_det = np.linalg.slogdet(2 * np.pi * data_covariance)
                 add = 0.5 * log_det
             else:
-                f_err = data.uncertainties
-
-                if hasattr(f_err, '__iter__'):
-                    f_err = flatten_object(f_err)
-
-                if data.scale_err:
-                    f_err = f_err * sf
-
-                if f"{name}_b" in self.configuration.parameters.keys():
-                    f_err = np.sqrt(f_err ** 2 + 10 ** param_dict[f"{name}_b"].value)
-
-                add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))
+                add = 0.5 * np.sum(np.log(2.0 * np.pi * data_uncertainties ** 2.))
 
             norm = norm + add
 
         return 2 * (-log_l - norm)
 
-    def get_chi2_normalisation(self, sample: npt.NDArray[np.floating]) -> float:
+    def get_chi2_normalisation_from_sample(self, sample: npt.NDArray[np.floating]) -> float:
         """
         Get the 𝛘^2 normalization term from log L
 
@@ -1244,23 +1225,17 @@ class Retrieval:
         param_dict = self.build_param_dict(sample, params)
 
         for name, data in self.configuration.data.items():
-            sf = 1.0
+            # Prepare spectrum data
+            data_spectrum = data.spectrum
+            data_spectrum = data.scale_flux(data_spectrum, param_dict)
+            data_spectrum = data.offset_flux(data_spectrum, param_dict)
+            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(param_dict)
 
-            if data.scale_err:
-                sf = param_dict[f"{name}_scale_factor"].value
-
-            if data.covariance is not None:
-                _, log_det = np.linalg.slogdet(2 * np.pi * data.covariance * sf ** 2)
+            if data_covariance is not None:
+                _, log_det = np.linalg.slogdet(2 * np.pi * data_covariance)
                 add = 0.5 * log_det
             else:
-                f_err = data.uncertainties
-
-                if data.scale_err:
-                    f_err = f_err * sf
-
-                if f"{name}_b" in self.configuration.parameters.keys():
-                    f_err = np.sqrt(f_err ** 2 + 10 ** param_dict[f"{name}_b"].value)
-                add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))
+                add = 0.5 * np.sum(np.log(2.0 * np.pi * data_uncertainties ** 2.))
 
             norm = norm + add
 
@@ -1321,7 +1296,7 @@ class Retrieval:
                 The name of the retrieval that prepends all the PMN
                 output files.
         """
-        analyzer = self.get_analyzer(ret_name)
+        analyzer = self.get_pymultinest_analyzer(ret_name)
         s = analyzer.get_stats()
 
         return s['global evidence'] / np.log(10), s['global evidence error'] / np.log(10)
@@ -1597,7 +1572,7 @@ class Retrieval:
             for parameter_name, value in samples.items()
         }
 
-    def get_reduced_chi2(self, sample, subtract_n_parameters=False, verbose=False, show_chi2=False):
+    def get_reduced_chi2_from_sample(self, sample, subtract_n_parameters=False, verbose=False, show_chi2=False):
         """
         Get the 𝛘^2/DoF of the given model - divide chi^2 by DoF or number of wavelength channels.
 
@@ -1612,7 +1587,7 @@ class Retrieval:
             show_chi2 : bool
                 If True, additionally display the calculated best fit chi^2 if verbose is True
         """
-        chi2 = self.get_chi2(sample)
+        chi2 = self.get_chi2_from_sample(sample)
         d_o_f = 0
 
         for name, data in self.configuration.data.items():
@@ -1637,21 +1612,22 @@ class Retrieval:
         return chi2 / d_o_f
 
     def get_reduced_chi2_from_model(self,
-                                    wlen_model,
+                                    wavelengths_model,
                                     spectrum_model,
                                     parameters,
                                     subtract_n_parameters=False,
                                     verbose=False,
                                     show_chi2=False):
-        # TODO @Evert add missing 'parameters' docstring
         """
         Get the 𝛘^2/DoF of the supplied spectrum - divide chi^2 by DoF
 
         Args:
-            wlen_model : np.ndarray
+            wavelengths_model : np.ndarray
                 The wavelength grid of the model spectrum in micron.
             spectrum_model : np.ndarray
                 The model flux in the same units as the data.
+            parameters : dict[Parameter]
+                Dictionary of Parameters passed to the forward model used to calculate the spectrum
             subtract_n_parameters : bool
                 If True, divide the Chi2 by the degrees of freedom (n_data - n_parameters). If False,
                 divide only by n_data
@@ -1660,59 +1636,44 @@ class Retrieval:
             show_chi2 : bool
                 If True, additionally display the calculated best fit chi^2 if verbose is True
         """
-        log_l = 0
-        norm = 0
+        chi2 = 0
         d_o_f = 0
 
         for name, data in self.configuration.data.items():
             if isinstance(data.data_resolution, np.ndarray):
-                data.initialise_data_resolution(wlen_model)
+                data.initialise_data_resolution(wavelengths_model)
 
             d_o_f += np.size(data.spectrum)
-            sf = 1.0
 
-            log_l += data.get_chisq(
-                wlen_model,
-                spectrum_model,
-                False,
-                parameters
-            )
+            spectrum_params = extract_spectrum_parameters(parameters, name)
 
-            # Normalisation factor with covariance
-            if data.covariance is not None:
-                if data.scale_err:
-                    sf = parameters[f"{name}_scale_factor"].value
+            data_spectrum = data.spectrum
+            data_spectrum = data.scale_flux(data_spectrum, parameters)
+            data_spectrum = data.offset_flux(data_spectrum, parameters)
+            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(parameters)
 
-                _, log_det = np.linalg.slogdet(2 * np.pi * data.covariance * (sf ** 2.0))
-                add = 0.5 * log_det
-            else:
-                # Normalisation factor without covariance
-                f_err = data.uncertainties
+            model_spectrum_processed = process_spectrum_pipeline(
+                            wavelengths_model,
+                            spectrum_model,
+                            data,
+                            parameters,
+                            name,
+                            spectrum_params
+                        )
 
-                # Test for error inflation or scaling
-                b_val = None
-                if f"{name}_b" in parameters.keys():
-                    b_val = parameters[name + "_b"].value
-                elif f"{name.rsplit('_', 1)[0]}_b" in parameters.keys():
-                    b_val = parameters[f"{name.rsplit('_', 1)[0]}_b"].value
-                elif "uncertainty_scaling_b" in parameters.keys():
-                    b_val = parameters["uncertainty_scaling_b"].value
-                if b_val is not None:
-                    f_err = np.sqrt(f_err ** 2 + 10 ** b_val)
-                if data.scale_err:
-                    f_err = f_err * parameters[name + "_scale_factor"].value
-
-                add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2))
-
-            # Add for the dataset
-            norm += add
+            chi2 += LogLikelihood(
+                model_spectrum=model_spectrum_processed,
+                data_spectrum=data_spectrum,
+                data_uncertainties=data_uncertainties,
+                data_covariance=data_covariance,
+                n_free_parameters=self._n_free_params_total_retrieval
+            ).get_chi_squared()
 
         if subtract_n_parameters:
             for name, pp in self.configuration.parameters.items():
                 if pp.is_free_parameter:
                     d_o_f -= 1
 
-        chi2 = 2 * (-log_l - norm)
         if verbose:
             if show_chi2:
                 print(f"Best fit 𝛘^2 = {chi2:.2f}")
@@ -2017,7 +1978,7 @@ class Retrieval:
                     if ((isinstance(data.spectrum, float) or jnp.ndim(data.spectrum) == 1)
                             and jnp.ndim(spectrum_model) == 1):
 
-                        if data.resample:
+                        if data.fit_instrumental_resolution:
                             # Convolve and rebin if fitting for resolution
                             resolution_slope = self.configuration.parameters[data.name + "_R_slope"].value
                             resolution_intersect = self.configuration.parameters[data.name + "_R_int"].value
@@ -2127,7 +2088,7 @@ class Retrieval:
                         if np.isnan(spectrum_model).any():
                             return invalid_value
 
-                        if data.resample:
+                        if data.fit_instrumental_resolution:
                             # Convolve and rebin if fitting for resolution
                             resolution_slope = self.configuration.parameters[data.name + "_R_slope"].value
                             resolution_intersect = self.configuration.parameters[data.name + "_R_int"].value
@@ -2278,7 +2239,7 @@ class Retrieval:
 
         # === Main Data Iteration ===
         for data_name, data in configuration.data.items():
-            # Pre-extract spectrum parameters to avoid repeated lookups (Issue #7)
+            # Pre-extract spectrum parameters to avoid repeated lookups
             spectrum_params = extract_spectrum_parameters(parameters, data_name)
 
             # Prepare spectrum data
@@ -2760,7 +2721,7 @@ class Retrieval:
         self.sampler = sampler
         return self.latest_sampler_results
 
-    def sample_teff(self, sample_dict, param_dict, ret_names=None, nsample=None, resolution=40):
+    def sample_effective_temperature(self, sample_dict, param_dict, ret_names=None, nsample=None, resolution=40):
         r"""
         This function samples the outputs of a retrieval and computes Teff
         for each sample. For each sample, a model is computed at low resolution,
@@ -3224,7 +3185,7 @@ class Retrieval:
 
         return vmrs
 
-    def setup_data(self, scaling=10, width=3):
+    def initialise_radtrans_objects(self, scaling=10, width=3):
         """
         Creates a pRT object for each data set that asks for a unique object.
         Checks if there are low resolution c-k models from exo-k, and creates them if necessary.
@@ -4399,7 +4360,7 @@ class Retrieval:
                 refresh=refresh
             )
             chi2 = self.get_reduced_chi2_from_model(
-                wlen_model=best_fit_wavelengths,
+                wavelengths_model=best_fit_wavelengths,
                 spectrum_model=best_fit_spectrum,
                 subtract_n_parameters=True,
                 parameters=parameters,
@@ -4626,7 +4587,7 @@ class Retrieval:
                 refresh=refresh,
                 mode=mode)
             chi2 = self.get_reduced_chi2_from_model(
-                wlen_model=best_fit_wavelengths,
+                wavelengths_model=best_fit_wavelengths,
                 spectrum_model=best_fit_spectrum,
                 subtract_n_parameters=True,
                 parameters=self.best_fit_parameters,

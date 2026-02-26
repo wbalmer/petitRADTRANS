@@ -130,7 +130,7 @@ class Data:
         scale: bool = False,
         scale_err: bool = False,
         offset_bool: bool = False,
-        resample: bool = False,
+        fit_instrumental_resolution: bool = False,
         subtract_continuum: bool = False,
         wavelength_bin_widths: ArrayLike | None = None,
         photometry: bool = False,
@@ -225,7 +225,7 @@ class Data:
         self.scale: bool = scale
         self.scale_err: bool = scale_err
         self.offset_bool: bool = offset_bool
-        self.resample: bool = resample
+        self.fit_instrumental_resolution: bool = fit_instrumental_resolution
         self.subtract_continuum: bool = subtract_continuum
         self.scale_factor: float = 1.0
         self.offset: float = 0.0

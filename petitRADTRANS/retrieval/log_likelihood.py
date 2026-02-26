@@ -87,14 +87,6 @@ class LogLikelihood:
 
     def calculate_log_likelihood(self) -> float:
         chi_squared = self.get_chi_squared()
-        # self._log_norm_constant was pre-calculated in __init__
-        # It already contains the -0.5 * (N*log(2pi) + log(det(Cov))) part for covariance case
-        # or -0.5 * sum(log(2pi*sigma_i^2)) for uncertainties case.
-        # Standard Gaussian log-likelihood:
-        # log_L = -0.5 * sum_i((x_i - mu_i)^2 / sigma_i^2) - 0.5 * sum_i(log(2*pi*sigma_i^2))
-        # or for covariance: log_L = -0.5 * (x-mu)^T Cov^-1 (x-mu) - 0.5 * log(det(2*pi*Cov))
-        # The chi-squared term is (x-mu)^T Cov^-1 (x-mu) or sum((x-mu)^2/sigma^2).
-        # So, log_L = -0.5 * chi_squared + self._log_norm_constant
         log_l = self._log_norm_constant - 0.5 * chi_squared
         return log_l
 

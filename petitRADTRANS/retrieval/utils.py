@@ -283,7 +283,7 @@ def process_spectrum_pipeline(
         spectrum_params = extract_spectrum_parameters(parameters, data_name)
 
     # Handle variable resolution convolution and rebin
-    if data.resample:
+    if data.fit_instrumental_resolution:
         resolution_slope = spectrum_params['resolution_slope']
         resolution_intersect = spectrum_params['resolution_intersect']
         if resolution_slope is not None and resolution_intersect is not None:
