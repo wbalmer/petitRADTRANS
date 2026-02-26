@@ -18,6 +18,7 @@ from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equi
 from petitRADTRANS.chemistry.utils import (
     compute_mean_molar_masses, fill_atmosphere, mass_fractions2volume_mixing_ratios, simplify_species_list
 )
+from petitRADTRANS.chemistry.core import calculate_gas_mass_fractions
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.math import gaussian_weights_running, resolving_space
 from petitRADTRANS.physics import (
@@ -26,9 +27,8 @@ from petitRADTRANS.physics import (
     flux_hz2flux_cm,
     frequency2wavelength,
     hz2um,
-
-    temperature_profile_function_guillot_metallic
 )
+from petitRADTRANS.profiles import temperature_profile_function_guillot_metallic
 from petitRADTRANS.radtrans_core.spectrum_utils import rebin_spectrum, rebin_spectrum_bin
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
@@ -100,7 +100,7 @@ class SpectralModel(Radtrans):
         atmospheric_mixing:
             Scaling factor [0, 1] representing how well metals are mixed in the atmosphere.
             Used to calculate the atmospheric metallicity when the metallicity model parameter is None.
-        carbon_pressure_quench:
+        carbon_quench_pressure:
             (bar) Pressure where the carbon species are quenched, used with equilibrium chemistry.
         co_ratio:
             Desired carbon to oxygen ratios, obtained by increasing the amount of oxygen. Can be a scalar or an array
@@ -1872,7 +1872,7 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def compute_equilibrium_mass_fractions(pressures, temperatures, co_ratio, metallicity,
-                                           carbon_pressure_quench=None, numpy_compatible=True):
+                                           carbon_quench_pressure=None, numpy_compatible=True):
         """Use the per-calculated chemical table to calculate major species mass fractions at equilibrium.
 
         Args:
@@ -1884,7 +1884,7 @@ class SpectralModel(Radtrans):
                 (K) desired temperatures.
             pressures:
                 (bar) desired pressures.
-            carbon_pressure_quench:
+            carbon_quench_pressure:
                 (bar) pressure at which to put a simplistic carbon-bearing species quenching.
 
         Returns:
@@ -1908,7 +1908,7 @@ class SpectralModel(Radtrans):
                 log10_metallicities=log10_metallicities,
                 temperatures=temperatures,
                 pressures=pressures,
-                carbon_pressure_quench=carbon_pressure_quench,
+                carbon_quench_pressure=carbon_quench_pressure,
                 full=False,  # no need for nabla_adiabatic or the mean molar mass
                 numpy_compatible=True
             )
@@ -1933,7 +1933,7 @@ class SpectralModel(Radtrans):
     @staticmethod
     def compute_mass_fractions(pressures, temperatures=None, imposed_mass_fractions=None, line_species=None,
                                cloud_species=None, filling_species=None, use_equilibrium_chemistry=False,
-                               metallicity=None, co_ratio=0.55, carbon_pressure_quench=None,
+                               metallicity=None, co_ratio=0.55, carbon_quench_pressure=None,
                                verbose=False, **kwargs):
         """Initialize a model mass mixing ratios.
         Ensure that in any case, the sum of mass mixing ratios is equal to 1. Imposed mass mixing ratios are kept to
@@ -1961,7 +1961,7 @@ class SpectralModel(Radtrans):
             temperatures: (K) temperatures of the mass mixing ratios, used with equilibrium chemistry
             co_ratio: carbon over oxygen ratios of the model, used with equilibrium chemistry
             metallicity: ratio between heavy elements and H2 + He compared to solar, used with equilibrium chemistry
-            carbon_pressure_quench: (bar) pressure where the carbon species are quenched, used with equilibrium
+            carbon_quench_pressure: (bar) pressure where the carbon species are quenched, used with equilibrium
                 chemistry
             imposed_mass_fractions: imposed mass mixing ratios
             use_equilibrium_chemistry: if True, use pRT equilibrium chemistry module
@@ -1973,206 +1973,11 @@ class SpectralModel(Radtrans):
         Returns:
             A dictionary containing the mass mixing ratios.
         """
-        _ = kwargs  # kwargs is not used in this function, this is intended
 
-        # Initialization
-        if line_species is None:
-            line_species = []
-
-        if hasattr(filling_species, '__iter__'):
-            # Facilitate the building of H2 and He-only filling species dict
-            if len(filling_species) == 2 and not isinstance(filling_species, dict):
-                if 'H2' in filling_species and 'He' in filling_species:
-                    if use_equilibrium_chemistry:
-                        filling_species = {
-                            'H2': None,
-                            'He': None
-                        }
-                    else:
-                        filling_species = {
-                            'H2': 37 * np.ones(pressures.size),
-                            'He': 12 * np.ones(pressures.size)
-                        }
-
-        # Handle string and non-dict case
-        if not isinstance(filling_species, dict):
-            if isinstance(filling_species, str):
-                filling_species = {
-                    filling_species: np.ones(pressures.size)
-                }
-            elif hasattr(filling_species, '__iter__'):
-                filling_species = {species: np.ones(pressures.size) for species in filling_species}
-            elif filling_species is None:
-                filling_species = {}
-
-            if not isinstance(filling_species, dict):
-                raise ValueError(f"filling_species must be a dictionary, but is {filling_species}")
-
-        mass_fractions = {}
-
-        # Initialize imposed mass fractions
-        if imposed_mass_fractions is not None:
-            for species, mass_fraction in imposed_mass_fractions.items():
-                if np.size(mass_fraction) == 1:
-                    imposed_mass_fractions[species] = np.ones(np.shape(pressures)) * mass_fraction
-                elif np.size(mass_fraction) != np.size(pressures):
-                    raise ValueError(f"mass mixing ratio for species '{species}' must be a scalar or an array of the"
-                                     f"size of the pressure array ({np.size(pressures)}), "
-                                     f"but is of size ({np.size(mass_fraction)})")
-        else:
-            # Nothing is imposed
-            imposed_mass_fractions = {}
-
-        # Remove imposed species from filling species
-        for species in imposed_mass_fractions:
-            if species in filling_species:
-                warnings.warn(f"filling species '{species}' has also imposed mass fractions, "
-                              f"the imposed mass fraction will be used")
-                del filling_species[species]
-
-        # Add imposed mass fractions to mass fractions
-        m_sum_imposed_species = np.zeros(pressures.shape)
-
-        for species, imposed_mass_fraction in imposed_mass_fractions.items():
-            mass_fractions[species] = imposed_mass_fraction
-
-            # Do not count clouds
-            if species not in cloud_species:
-                m_sum_imposed_species += imposed_mass_fraction
-
-        # Ensure that the sum of imposed mass fractions is <= 1
-        for i in range(np.size(m_sum_imposed_species)):
-            if m_sum_imposed_species[i] > 1:
-                if verbose:
-                    warnings.warn(f"sum of mass mixing ratios of imposed species ({m_sum_imposed_species}) is > 1, "
-                                  f"correcting...")
-
-                for species in imposed_mass_fractions:
-                    if species not in cloud_species:  # Do not count clouds
-                        mass_fractions[species][i] /= m_sum_imposed_species[i]
-
-        m_sum_imposed_species = np.sum(list(mass_fractions.values()), axis=0)
-
-        # Initialize chemical equilibrium mass fractions
-        mass_fractions_chemical_table = None
-
-        if use_equilibrium_chemistry:
-            missing = {}
-
-            if metallicity is None:
-                missing['metallicity'] = metallicity
-
-            if co_ratio is None:
-                missing['co_ratio'] = co_ratio
-
-            if len(missing) > 0:
-                names = ', '.join(list(missing.keys()))
-                values = list(missing.values())
-
-                raise ValueError(f"equilibrium chemistry function missing {names} values (were {values})\n"
-                                 f"Add 'metallicity' as a model parameter, check your metallicity model function, "
-                                 f"or disable equilibrium chemistry with 'use_equilibrium_chemistry=False'")
-
-            # Interpolate chemical equilibrium
-            mass_fractions_chemical_table = SpectralModel.compute_equilibrium_mass_fractions(
-                pressures=pressures,
-                temperatures=temperatures,
-                co_ratio=co_ratio,
-                metallicity=metallicity,
-                carbon_pressure_quench=carbon_pressure_quench,
-                numpy_compatible=True
-            )
-
-        # Add non-imposed mass fractions to mass fractions
-        m_sum_chemical_table_species = np.zeros(pressures.shape)
-
-        if mass_fractions_chemical_table is not None:
-            # Convert chemical table species names to line species names
-            line_species_simple = simplify_species_list(line_species)
-
-            for i, simple_species in enumerate(line_species_simple):
-                if simple_species in mass_fractions_chemical_table and simple_species != line_species[i]:
-                    mass_fractions_chemical_table[line_species[i]] = copy.deepcopy(
-                        mass_fractions_chemical_table[simple_species]
-                    )
-                    del mass_fractions_chemical_table[simple_species]
-
-            # Remove imposed mass fractions names from chemical table species names
-            imposed_species_simple = simplify_species_list(list(imposed_mass_fractions.keys()))
-
-            for simple_species in imposed_species_simple:
-                if simple_species in mass_fractions_chemical_table:
-                    del mass_fractions_chemical_table[simple_species]
-
-            # Get the sum of mass fractions of non-imposed species
-            for species in mass_fractions_chemical_table:
-                if species not in imposed_mass_fractions:
-                    if species in filling_species:
-                        if filling_species[species] is not None:
-                            continue
-
-                    mass_fractions[species] = mass_fractions_chemical_table[species]
-                    m_sum_chemical_table_species += mass_fractions_chemical_table[species]
-
-        # Ensure that all line species are in mass_fractions
-        for species in line_species:
-            if species not in mass_fractions:
-                warnings.warn(
-                    f"line species '{species}' initialised to {sys.float_info.min} ; "
-                    f"to remove this warning set use_equilibrium_chemistry to True "
-                    f"or add '{species}' and the desired mass mixing ratio to imposed_mass_fractions"
-                )
-
-                mass_fractions[species] = sys.float_info.min * np.ones(pressures.size)
-
-        # Ensure that filling species are initialized as an array
-        for species in filling_species:
-            if species not in mass_fractions:
-                mass_fractions[species] = np.zeros(pressures.size)
-
-        # Ensure that the sum of mass mixing ratios of all species is = 1
-        m_sum_total = m_sum_chemical_table_species + m_sum_imposed_species
-
-        # TODO: Update fill with new function without layer by layer
-        #if 0 < m_sum < 1:
-        if len(filling_species) > 0:  # fill the atmosphere using the filling species
-            mass_fractions_i = fill_atmosphere(
-                mass_fractions=mass_fractions,
-                filling_species=filling_species,
-                mass_fraction_sum=m_sum_total,
-                #fill_layer=i
-            )
-
-            for species in mass_fractions:
-                mass_fractions[species][i] = mass_fractions_i[species][0]
-        else:
-            warnings.warn(f"the sum of mass mixing ratios at level {i} is lower than 1 ({m_sum_total[i]}). "
-                            f"Set filling_species to automatically fill the atmosphere "
-                            f"or manually adjust the imposed mass fractions")
-        """elif m_sum > 1:  # scale down the mass fractions, no filling species needed
-            if verbose:
-                warnings.warn(
-                    f"sum of species mass fraction "
-                    f"({m_sum_chemical_table_species[i]} + {m_sum_imposed_species[i]}) "
-                    f"is > 1, correcting..."
-                )
-
-            for species in mass_fractions:
-                if species not in imposed_mass_fractions:
-                    if m_sum_chemical_table_species[i] > 0:
-                        mass_fractions[species][i] = (
-                            mass_fractions[species][i]
-                            * (1 - m_sum_imposed_species[i]) / m_sum_chemical_table_species[i]
-                        )
-                    else:
-                        mass_fractions[species][i] = mass_fractions[species][i] / m_sum
-        elif m_sum <= 0:
-            raise ValueError(f"invalid total mass fraction at pressure level {i}: "
-                                f"mass fraction must be > 0, but is {m_sum}\n"
-                                f"If the sum is 0, add at least one species with non-zero imposed mass fractions "
-                                f"or set equilibrium chemistry to True\n"
-                                f"If the sum is < 0, check your imposed mass fractions and chemical model")
-        """
+        mass_fractions, _ =  calculate_gas_mass_fractions(
+            pressures, temperatures, imposed_mass_fractions, line_species,
+            cloud_species, filling_species, use_equilibrium_chemistry,
+            metallicity, co_ratio, carbon_quench_pressure, **kwargs)
         return mass_fractions
 
     @staticmethod

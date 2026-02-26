@@ -1,4 +1,4 @@
-"""Test the fortran modules.
+"""Test the spectrum_utility modules.
 """
 import numpy as np
 
@@ -13,7 +13,7 @@ def test_rebin_spectrum():
     reference_data = np.load(reference_filenames['simple_spectrum'])
 
     benchmark = Benchmark(
-        function=petitRADTRANS.fortran_rebin.fortran_rebin.rebin_spectrum,
+        function=petitRADTRANS.radtrans_core.spectrum_utils.rebin_spectrum,
         relative_tolerance=relative_tolerance
     )
 

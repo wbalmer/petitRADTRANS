@@ -958,7 +958,7 @@ def get_main_model_parameters(spectral_model, **kwargs):
 
 # Initializations
 def init_guillot_2010_temperature_profile():
-    temperature_guillot = petitRADTRANS.physics.temperature_profile_function_guillot_global(
+    temperature_guillot = petitRADTRANS.profiles.temperature_profile_function_guillot_global(
         pressures=test_parameters['pressures'],
         infrared_mean_opacity=test_parameters['temperature_guillot_2010_parameters']['infrared_mean_opacity'],
         gamma=test_parameters['temperature_guillot_2010_parameters']['gamma'],

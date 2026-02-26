@@ -496,10 +496,14 @@ def _raise_small_size(x):
         raise ValueError(f"Error: output wavelength array size must be >= 2, but is of size {x}")
 
 
-def _raise_incomplete_wavelength_range(input_array, output_array):
-    raise ValueError(f"Error: input wavelength array needs to extend at least half a bin width further than output wavelength array on both sides:\n"
-                     f"input interval: {input_array[0]} -- {input_array[-1]}\n"
-                     f"required interval: {output_array[0]} -- {output_array[-1]}")
+def _raise_incomplete_wavelength_range(args):
+    input_array, output_array = args
+    half_bin_width = (output_array[1]-output_array[0])/2.0
+    if (input_array[0] >= (output_array[0]-half_bin_width)) or (input_array[-1] <= (output_array[-1]+half_bin_width)):
+        raise ValueError(f"Error: input wavelength array needs to extend at least half a bin width further "
+                         f"than output wavelength array on both sides:\n"
+                         f"input interval: {input_array[0]} -- {input_array[-1]}\n"
+                         f"required interval: {output_array[0]} -- {output_array[-1]}")
 
 
 @jit

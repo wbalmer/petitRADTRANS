@@ -1,8 +1,10 @@
 import os
 import sys
 
-#import jax
-#jax.config.update("jax_enable_x64", True)
+import jax
+jax.config.update("jax_enable_x64", True)
+os.environ["DYLD_LIBRARY_PATH"] = "/Users/nasedkin/software/MultiNest/lib/:$DYLD_LIBRARY_PATH"
+os.environ["LD_LIBRARY_PATH"] = "/Users/nasedkin/software/MultiNest/lib/:$LD_LIBRARY_PATH"
 
 # Ensure that we are testing the package installed (*not* the development) files
 del sys.path[0]  # remove current directory from searching path
@@ -30,6 +32,8 @@ import petitRADTRANS.chemistry
 import petitRADTRANS.chemistry.pre_calculated_chemistry
 import petitRADTRANS.chemistry.utils
 import petitRADTRANS.radtrans
+import petitRADTRANS.radtrans_core
+import petitRADTRANS.profiles
 import petitRADTRANS.retrieval
 import petitRADTRANS.retrieval.preparing
 import petitRADTRANS.utils

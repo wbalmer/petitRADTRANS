@@ -34,9 +34,10 @@ if config.jax_enable_x64:
 INVALID_VALUE = jnp.array(jnp.inf, JAX_DTYPE)
 
 #@jit(static_argnames=['line_species', 'cloud_species', 'verbose'])
-def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, parameters=None, line_species=None,
-                                    cloud_species=None, filling_species=None,
-                                    verbose=False, **kwargs):
+def calculate_gas_mass_fractions(pressures, temperatures=None, imposed_mass_fractions=None, line_species=None,
+                               cloud_species=None, filling_species=None, use_equilibrium_chemistry=False,
+                               metallicity=None, co_ratio=0.55, carbon_quench_pressure=None,
+                               exo_atmos=None, atomic_mass_fractions=None, **kwargs):
     """Initialize a model mass mixing ratios.
     Ensure that in any case, the sum of mass mixing ratios is equal to 1. Imposed mass mixing ratios are kept to
     their imposed value as long as the sum of the imposed values is lower or equal to 1. H2 and He are used as
@@ -63,7 +64,7 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
         temperatures: (K) temperatures of the mass mixing ratios, used with equilibrium chemistry
         co_ratio: carbon over oxygen ratios of the model, used with equilibrium chemistry
         metallicity: ratio between heavy elements and H2 + He compared to solar, used with equilibrium chemistry
-        carbon_pressure_quench: (bar) pressure where the carbon species are quenched, used with equilibrium
+        carbon_quench_pressure: (bar) pressure where the carbon species are quenched, used with equilibrium
             chemistry
         imposed_mass_fractions: imposed mass mixing ratios
         use_equilibrium_chemistry: if True, use pRT equilibrium chemistry module
@@ -78,21 +79,38 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
 
     _ = kwargs  # kwargs is not used in this function, this is intended
 
-    parameter_key_tuple = tuple(parameters.keys())  # Make it static for JIT
     if line_species is None:
         line_species = ()
 
-    def build_filling_species(filling_species, parameters, pressures):
-        def h2he_case(_):
-            if 'Fe/H' in parameter_key_tuple:
-                return {'H2': jnp.zeros(pressures.size), 'He': jnp.zeros(pressures.size)}
-            else:
-                return {
-                    'H2': 74 * jnp.ones(pressures.size),
-                    'He': 24 * jnp.ones(pressures.size)
-                }
+    if imposed_mass_fractions is None:
+        imposed_mass_fractions = {}
 
-        def default_case(_):
+    def build_filling_species(filling_species, pressures):
+        def h2he_case(filling_species):
+            fill_species = {}
+            if metallicity is not None:
+                fill_species = {
+                    'H2': jnp.zeros(pressures.size).astype(JAX_DTYPE),
+                    'He': jnp.zeros(pressures.size).astype(JAX_DTYPE)}
+            else:
+                fill_species = {
+                    'H2': 74.0 * jnp.ones(pressures.size).astype(JAX_DTYPE),
+                    'He': 24.0 * jnp.ones(pressures.size).astype(JAX_DTYPE)
+                }
+            if isinstance(filling_species, dict):
+                for species, value in filling_species.items():
+                    if species not in fill_species:
+                        fill_species[species] = value * jnp.ones(pressures.size).astype(JAX_DTYPE)
+            elif isinstance(filling_species, tuple):
+                for species in filling_species:
+                    if species not in fill_species:
+                        fill_species[species] = jnp.zeros(pressures.size).astype(JAX_DTYPE)
+            return fill_species
+
+        def default_case(filling_species):
+            if isinstance(filling_species, dict):
+                for key, value in filling_species.items():
+                    filling_species[key] = value * jnp.ones_like(pressures).astype(JAX_DTYPE)
             return filling_species
 
         return lax.cond(
@@ -100,10 +118,10 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
              and 'H2' in filling_species and 'He' in filling_species),
             h2he_case,
             default_case,
-            operand=None
+            operand=filling_species
         )
 
-    filling_species = build_filling_species(filling_species, parameters, pressures)
+    filling_species = build_filling_species(filling_species, pressures)
 
     # Handle string and non-dict case
     def handle_non_dict(fs):
@@ -139,15 +157,14 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
     mass_fractions = {}
     simple_line_species = simplify_species_list(line_species)
     m_sum_imposed_species = 0.0 * jnp.ones_like(pressures)
-    imposed_mass_fractions = []
 
     # Free chemistry species
-    for species in line_species:
-        if species in parameter_key_tuple:
-            imposed_mass_fractions.append(species)
-            abund = 10 ** parameters[species].value
-            mass_fractions[species] = abund * jnp.ones_like(pressures)
-            m_sum_imposed_species += mass_fractions[species]
+    for species in imposed_mass_fractions:
+        abund = 10 ** imposed_mass_fractions[species]
+        mass_fractions[species] = abund * jnp.ones_like(pressures)
+        m_sum_imposed_species += mass_fractions[species]
+
+        # TODO: re-implement non-vertically constant abundances in JAX
         """def not_vert_const_case(_):
             pressure_interpolation_nodes = define_pressure_node_list(
                 pressures,
@@ -220,7 +237,6 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
             del filling_species[species]
 
     # Ensure that the sum of imposed mass fractions is <= 1
-    imposed_mass_fractions = tuple(imposed_mass_fractions)  # Make it static for JIT
     cloud_species = tuple(cloud_species)  # Make it static for JIT
 
     #@jit(static_argnames=['imposed_mass_fractions', 'cloud_species'])
@@ -236,7 +252,11 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
             # This is functional and JIT-compatible as loops over static strings unroll.
             updates = {}
             for species in imposed_mass_fractions:
-                if species not in cloud_species:
+                # Need
+                cloud_opacity = CloudOpacity([species], natural_abundance=False)
+                species_full_name = cloud_opacity.species_full_name
+                cloud_name = species_full_name.split('_')[0]
+                if species in line_species:
                     updates[species] = mf[species] / m_sum_imposed_species
                 else:
                     updates[species] = mf[species]
@@ -266,45 +286,36 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
         if get_exoatmos_abundances is None:
             raise ModuleNotFoundError("module 'easychem' is not installed, "
                                       "remove key 'use_easychem from the parameters'")
+
         mf = get_exoatmos_abundances(
+            exo_atmos,
             pressures,
             temperatures,
-            parameters
+            atomic_mass_fractions,
+            metallicity,
+            carbon_quench_pressure
         )
         mean_molar_mass = mf['MMW']
         return mf, mean_molar_mass
 
-    def precalculated_equilibrium_case(key_list):
-        if 'Fe/H' not in key_list:
-            metallicity = 0.0
-        else:
-            metallicity = parameters['Fe/H'].value
-
-        if 'C/O' not in key_list:
-            carbon_to_oxygen = 0.55
-        else:
-            carbon_to_oxygen = parameters['C/O'].value
-        pquench_c = None
-        if 'log_pquench' in key_list:
-            pquench_c = 10 ** parameters['log_pquench'].value
-
+    def precalculated_equilibrium_case():
         mf, mean_molar_mass, _ = \
             pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
-                carbon_to_oxygen * jnp.ones_like(pressures),
+                co_ratio * jnp.ones_like(pressures),
                 metallicity * jnp.ones_like(pressures),
                 temperatures,
                 pressures,
-                carbon_pressure_quench=pquench_c,
+                carbon_quench_pressure=carbon_quench_pressure,
                 full=True
             )
         return mf, mean_molar_mass
 
     #@jit(static_argnames=['key_list'])
-    def no_chem_case(key_list):
+    def no_chem_case():
         return {}, -INVALID_VALUE
 
-    if 'Fe/H' in parameter_key_tuple:
-        mass_fractions_chemical_table, mean_molar_mass = precalculated_equilibrium_case(parameter_key_tuple)
+    if metallicity is not None:
+        mass_fractions_chemical_table, mean_molar_mass = precalculated_equilibrium_case()
 
     # Add non-imposed mass fractions to mass fractions
     m_sum_chemical_table_species = jnp.zeros(pressures.shape)
@@ -318,7 +329,7 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
                 )
                 del mass_fractions_chemical_table[simple_species]
 
-        imposed_species_simple = simplify_species_list(imposed_mass_fractions)
+        imposed_species_simple = simplify_species_list(list(imposed_mass_fractions.keys()))
         for simple_species in imposed_species_simple:
             if simple_species in mass_fractions_chemical_table:
                 del mass_fractions_chemical_table[simple_species]
@@ -368,7 +379,6 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
             mass_fraction_sum=m_sum_total,
         )
 
-
     for species, mf_array in mass_fractions.items():
         if species not in imposed_mass_fractions:
             mass_fractions[species] = lax.cond(
@@ -385,286 +395,8 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
     return mass_fractions, m_sum_total
 
 
-def calculate_line_species_mass_fractions(pressures, temperatures=None, parameters=None, line_species=None,
-                                          cloud_species=None, filling_species=None, verbose=False, **kwargs):
-    """Initialize a model mass mixing ratios.
-    Ensure that in any case, the sum of mass mixing ratios is equal to 1. Imposed mass mixing ratios are kept to
-    their imposed value as long as the sum of the imposed values is lower or equal to 1. H2 and He are used as
-    filling gases.
-    The different possible cases are dealt with as follows:
-        - Sum of imposed mass mixing ratios > 1: the mass mixing ratios are scaled down, conserving the ratio
-        between them. Non-imposed mass mixing ratios are set to 0.
-        - Sum of imposed mass mixing ratio of all imposed species < 1: if equilibrium chemistry is used or if H2 and
-        He are imposed species, the atmosphere will be filled with H2 and He respecting the imposed H2/He ratio.
-        Otherwise, the heh2_ratio parameter is used.
-        - Sum of imposed and non-imposed mass mixing ratios > 1: the non-imposed mass mixing ratios are scaled down,
-        conserving the ratios between them. Imposed mass mixing ratios are unchanged.
-        - Sum of imposed and non-imposed mass mixing ratios < 1: if equilibrium chemistry is used or if H2 and
-        He are imposed species, the atmosphere will be filled with H2 and He respecting the imposed H2/He ratio.
-        Otherwise, the heh2_ratio parameter is used.
-
-    When using equilibrium chemistry with imposed mass mixing ratios, imposed mass mixing ratios are set to their
-    imposed value regardless of chemical equilibrium consistency.
-
-    Args:
-        pressures: (cgs) pressures of the mass mixing ratios
-        line_species: list of line species, required to manage naming differences between opacities and chemistry
-        cloud_species: list of cloud species, required to not count cloud species in the gas mass fractions.
-        temperatures: (K) temperatures of the mass mixing ratios, used with equilibrium chemistry
-        co_ratio: carbon over oxygen ratios of the model, used with equilibrium chemistry
-        metallicity: ratio between heavy elements and H2 + He compared to solar, used with equilibrium chemistry
-        carbon_pressure_quench: (bar) pressure where the carbon species are quenched, used with equilibrium
-            chemistry
-        imposed_mass_fractions: imposed mass mixing ratios
-        use_equilibrium_chemistry: if True, use pRT equilibrium chemistry module
-        filling_species:
-            Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
-            filling species are represented with None.
-        verbose: if True, print additional information
-
-    Returns:
-        A dictionary containing the mass mixing ratios.
-    """
-    _ = kwargs  # kwargs is not used in this function, this is intended
-    # Initialization
-    if line_species is None:
-        line_species = []
-
-    # TODO: can't define as Nones,should always define filling species
-    if hasattr(filling_species, '__iter__'):
-        # Facilitate the building of H2 and He-only filling species dict
-        if len(filling_species) == 2 and not isinstance(filling_species, dict):
-            if 'H2' in filling_species and 'He' in filling_species:
-                if 'Fe/H' in parameters.keys():
-                    filling_species = {
-                        'H2': None,
-                        'He': None
-                    }
-                else:
-                    filling_species = {
-                        'H2': 74 * jnp.ones(pressures.size),  # % of atmosphere by mass for H2/He ratio
-                        'He': 24 * jnp.ones(pressures.size)
-                    }
-
-    # Handle string and non-dict case
-    # TODO: no longer accept strings.
-    # TODO: restructure to depend on shape of  filling_species for JIT
-    if not isinstance(filling_species, dict):
-        #if isinstance(filling_species, str):
-        #    filling_species = {
-        #        filling_species: jnp.ones(pressures.size)
-        #    }
-        if hasattr(filling_species, '__iter__'):
-            filling_species = {species: jnp.ones(pressures.size) for species in filling_species}
-        elif filling_species is None:
-            filling_species = {}
-
-        if not isinstance(filling_species, dict):
-            raise ValueError(f"filling_species must be a dictionary, but is {filling_species}")
-
-    mass_fractions = {}
-    simple_line_species = simplify_species_list(line_species)
-    m_sum = jnp.zeros_like(pressures)
-
-    imposed_mass_fractions = []
-
-    # Free chemistry species
-    for species in line_species:
-        species_opacity = Opacity([species])
-        species_full_name = species_opacity.get_full_name().split('.R')[0]
-        species_basename = Opacity.get_species_base_name(species)
-
-        # Vertically constant abundance
-        if species_full_name in parameters.keys():
-            imposed_mass_fractions.append(species_full_name)
-            abund = 10 ** parameters[species].value
-            mass_fractions[species] = abund * jnp.ones_like(pressures)
-            m_sum += mass_fractions[species]
-            continue
-        elif species_basename in parameters.keys():
-            imposed_mass_fractions.append(species_basename)
-            abund = 10 ** parameters[species_basename].value
-            mass_fractions[species_basename] = abund * jnp.ones_like(pressures)
-            m_sum += mass_fractions[species_basename]
-            continue
-
-        # Non-vertically constant abundances
-        pressure_interpolation_nodes = define_pressure_node_list(
-            pressures,
-            species,
-            parameters
-        )
-        abundance_nodes = define_abundance_node_list(species, parameters)
-        # Stepped abundance profile
-        if f"{species}_stepped_abundance_profile" in parameters.keys():
-            imposed_mass_fractions.append(species)
-            mass_fractions[species] = stepped_profile(
-                pressures,
-                pressure_interpolation_nodes,
-                abundance_nodes)
-            m_sum += mass_fractions[species]
-
-        # Linear spline interpolation
-        if f"{species}_linear_abundance_profile" in parameters.keys():
-            imposed_mass_fractions.append(species)
-            mass_fractions[species], _ = linear_spline_profile(
-                pressures,
-                pressure_interpolation_nodes,
-                abundance_nodes,
-                gamma=0.04,
-                nnodes=len(pressure_interpolation_nodes))
-            m_sum += mass_fractions[species]
-
-        # Cubic spline interpolation
-        if f"{species}_cubic_abundance_profile" in parameters.keys():
-            imposed_mass_fractions.append(species)
-            mass_fractions[species], _ = cubic_spline_profile(
-                pressures,
-                pressure_interpolation_nodes,
-                abundance_nodes,
-                gamma=0.04,
-                nnodes=len(pressure_interpolation_nodes))
-            m_sum += mass_fractions[species]
-
-    # Remove imposed species from filling species
-    for species in imposed_mass_fractions:
-        if species in filling_species:
-            warnings.warn(f"filling species '{species}' has also imposed mass fractions, "
-                          f"the imposed mass fraction will be used")
-            del filling_species[species]
-
-    #  Ensure that the sum of imposed mass fractions is <= 1
-    for i in range(jnp.size(m_sum)):
-        if m_sum[i] > 1:
-            if verbose:
-                warnings.warn(f"sum of mass mixing ratios of imposed species ({m_sum}) is > 1, "
-                              f"correcting...")
-
-            for species in imposed_mass_fractions:
-                if species not in cloud_species:  # Do not count clouds
-                    mass_fractions[species][i] /= m_sum[i]
-
-    # Initialize chemical equilibrium mass fractions
-    mass_fractions_chemical_table = None
-
-    if 'use_easychem' in parameters.keys():
-        if get_exoatmos_abundances is None:
-            raise ModuleNotFoundError("module 'easychem' is not installed, "
-                                      "remove key 'use_easychem from the parameters'")
-
-        # Actual equilibrium chemistry
-        # Can retrieve atomic abundances
-
-        # Calling it abundances_interp to be consistent w poor mans
-        mass_fractions_chemical_table = get_exoatmos_abundances(
-            pressures,
-            temperatures,
-            parameters
-            )
-        mean_molar_mass = mass_fractions_chemical_table['MMW']
-
-    elif 'Fe/H' in parameters.keys():
-        missing = {}
-
-        if 'C/O' not in parameters.keys():
-            missing['co_ratio'] = 0.55
-
-        if len(missing) > 0:
-            names = ', '.join(list(missing.keys()))
-            values = list(missing.values())
-
-            raise ValueError(f"equilibrium chemistry function missing {names} values (were {values})\n"
-                             f"Add 'metallicity' as a model parameter, check your metallicity model function",
-                             f"or disable equilibrium chemistry with 'use_equilibrium_chemistry=False'")
-
-        # Interpolated Equilibrium chemistry
-        # Make the abundance profile
-        pquench_c = None
-
-        if 'log_pquench' in parameters.keys():
-            pquench_c = 10 ** parameters['log_pquench'].value
-
-        # Interpolate chemical equilibrium
-        mass_fractions_chemical_table, mean_molar_mass, _ = \
-            pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
-                parameters['C/O'].value * jnp.ones_like(pressures),
-                parameters['Fe/H'].value * jnp.ones_like(pressures),
-                temperatures,
-                pressures,
-                carbon_pressure_quench=pquench_c,
-                full=True
-            )
-
-    # Add non-imposed mass fractions to mass fractions
-    m_sum_chemical_table_species = jnp.zeros(pressures.shape)
-
-    if mass_fractions_chemical_table is not None:
-        # Convert chemical table species names to line species names
-        line_species_simple = simplify_species_list(line_species)
-        for i, simple_species in enumerate(line_species_simple):
-            if simple_species in mass_fractions_chemical_table:
-                mass_fractions[line_species[i]] = mass_fractions_chemical_table[simple_species]
-                m_sum += mass_fractions[line_species[i]]
-
-    # Ensure that all line species are in mass_fractions
-    for species in line_species:
-        if species not in mass_fractions:
-            warnings.warn(
-                f"line species '{species}' initialised to {sys.float_info.min} ; "
-                f"to remove this warning set use_equilibrium_chemistry to True "
-                f"or add '{species}' and the desired mass mixing ratio to imposed_mass_fractions"
-            )
-            mass_fractions[species] = sys.float_info.min * jnp.ones(pressures.size)
-
-    # Ensure that filling species are initialized as an array
-    for species in filling_species:
-        if species not in mass_fractions:
-            mass_fractions[species] = jnp.zeros(pressures.size)
-
-    # Ensure that the sum of mass mixing ratios of all species is = 1
-    #m_sum_total = m_sum_chemical_table_species + m_sum_imposed_species
-
-    # TODO: error checking on presence of filling_species
-    mass_fractions = fill_atmosphere(
-            mass_fractions=mass_fractions,
-            filling_species=filling_species,
-            mass_fraction_sum=m_sum,
-        )
-
-    for i, m_sum in enumerate(m_sum):
-        if m_sum > 1:  # scale down the mass fractions, no filling species needed
-            if verbose:
-                warnings.warn(
-                    f"sum of species mass fraction "
-                    f"({m_sum_chemical_table_species[i]} + {m_sum[i]}) "
-                    f"is > 1, correcting..."
-                )
-
-            for species in mass_fractions.keys():
-                if species not in imposed_mass_fractions:
-                    if m_sum_chemical_table_species[i] > 0:
-                        mass_fractions[species] = mass_fractions[species].at[i].set(
-                            mass_fractions[species][i]
-                            * (1 - m_sum[i]) / m_sum_chemical_table_species[i]
-                        )
-                    else:
-                        mass_fractions[species] = mass_fractions[species].at[i].set(
-                            mass_fractions[species][i] / m_sum
-                        )
-        elif m_sum <= 0:
-            # TODO: Check if ValueError is JIT compatible
-            raise ValueError(
-                f"invalid total mass fraction at pressure level {i}: "
-                f"mass fraction must be > 0, but is {m_sum}\n"
-                f"If the sum is 0, add at least one species with non-zero imposed mass fractions "
-                f"or set equilibrium chemistry to True\n"
-                f"If the sum is < 0, check your imposed mass fractions and chemical model")
-
-    return mass_fractions, m_sum
-
-
 #@jit(static_argnames=['cloud_species', 'adaptive_mesh_refinement'])
-def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, c_o_ratio, cloud_species,
+def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, co_ratio, cloud_species,
                                     parameters, mass_fractions, mean_molar_mass,
                                     adaptive_mesh_refinement=False, use_easychem=False):
     clouds = {}
@@ -691,7 +423,7 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, c_o_rat
 
         def eq_scaling_case():
             if 'eq_scaling_' + cloud_name in parameter_key_list:
-                x_cloud = fc.return_cloud_mass_fraction(cloud, metallicity, c_o_ratio)
+                x_cloud = fc.return_cloud_mass_fraction(cloud, metallicity, co_ratio)
                 return 10 ** parameters['eq_scaling_' + cloud_name].value * x_cloud
             else:
                 return jnp.zeros_like(temperatures)
@@ -737,7 +469,7 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, c_o_rat
                     press=pressures,
                     temp=temperatures,
                     metallicity=metallicity,
-                    co_ratio=c_o_ratio,
+                    co_ratio=co_ratio,
                     mmw=jnp.mean(mean_molar_mass).astype(JAX_DTYPE)
                 ))
             return output.astype(JAX_DTYPE)
@@ -900,28 +632,68 @@ def get_abundances(pressures: typing.ArrayLike, temperatures: typing.ArrayLike,
         }
 
     line_species_no_resolution = tuple([species.split('.R')[0] for species in line_species])
-    mass_fractions, m_sum_total = calculate_line_species_mass_fractions_jit(
+
+    metallicity = None
+    co_ratio = None
+    carbon_quench_pressure = None
+    use_equilibrium_chemistry = False
+    exo_atmos = None
+    atomic_mass_fractions = None
+
+    if 'Fe/H' in parameters.keys():
+        metallicity = parameters['Fe/H'].value
+
+    if 'M/H' in parameters.keys():
+        metallicity = parameters['M/H'].value
+
+    if 'C/O' in parameters.keys():
+        co_ratio = parameters['C/O'].value
+
+    if 'log_Pquench' in parameters.keys():
+        carbon_quench_pressure = 10 ** parameters['log_Pquench'].value
+    elif 'Pquench' in parameters.keys():
+        carbon_quench_pressure = parameters['Pquench'].value
+
+    if 'use_easychem' in parameters.keys():
+        use_equilibrium_chemistry = parameters['use_exoatmos'].value
+        exo_atmos = parameters['exoatmos'].value
+        atomic_mass_fractions = {}
+        for atom_name in exo_atmos.atoms:
+            if atom_name in parameters.keys():
+                atomic_mass_fractions[atom_name] = parameters[atom_name].value
+
+    imposed_mass_fractions = {}
+    for species in line_species:
+        species_opacity = Opacity([species])
+        species_full_name = species_opacity.get_full_name().split('.R')[0]
+        species_basename = Opacity.get_species_base_name(species)
+
+        if species_full_name in parameters.keys():
+            imposed_mass_fractions[species_full_name] = parameters[species_full_name].value
+        elif species_basename in parameters.keys():
+            imposed_mass_fractions[species_basename] = parameters[species_basename].value
+
+    mass_fractions, m_sum_total = calculate_gas_mass_fractions(
         pressures=pressures,
         temperatures=temperatures,
-        parameters=parameters,
         line_species=line_species_no_resolution,
+        imposed_mass_fractions=imposed_mass_fractions,
         cloud_species=cloud_species,
         filling_species=filling_species,
+        metallicity=metallicity,
+        co_ratio=co_ratio,
+        carbon_quench_pressure=carbon_quench_pressure,
+        use_equilibrium_chemistry=use_equilibrium_chemistry,
+        exo_atmos=exo_atmos,
+        atomic_mass_fractions=atomic_mass_fractions,
         **kwargs
     )
     mean_molar_mass = compute_mean_molar_masses(mass_fractions)
 
-    if 'Fe/H' in parameters.keys():
-        metallicity = parameters['Fe/H'].value
-        c_o_ratio = parameters['C/O'].value
-    else:
+    if metallicity is None:
         metallicity, elemental_ratios = mass_fractions2metallicity(mass_fractions, mean_molar_mass)
         metallicity = jnp.mean(jnp.array(metallicity))
-        c_o_ratio = jnp.mean(elemental_ratios[6]['local'] / elemental_ratios[8]['local'])
-
-    use_easychem = False
-    if 'use_easychem' in parameters.keys():
-        use_easychem = True
+        co_ratio = jnp.mean(elemental_ratios[6]['local'] / elemental_ratios[8]['local'])
 
     p_bases, pressure_indices = INVALID_VALUE, jnp.zeros_like(pressures, dtype=int)
     if cloud_species:
@@ -929,13 +701,13 @@ def get_abundances(pressures: typing.ArrayLike, temperatures: typing.ArrayLike,
             pressures,
             temperatures,
             metallicity,
-            c_o_ratio,
+            co_ratio,
             tuple(cloud_species),
             parameters,
             mass_fractions,
             mean_molar_mass,
             adaptive_mesh_refinement=adaptive_mesh_refinement,
-            use_easychem=use_easychem
+            use_easychem=use_equilibrium_chemistry
         )
 
     # Adjust arrays for amr, and magic fix for FeH abundance.
@@ -1019,7 +791,7 @@ def get_abundances_old(pressures, temperatures, line_species, cloud_species, par
                 parameters['Fe/H'].value * jnp.ones_like(pressures),
                 temperatures,
                 pressures,
-                carbon_pressure_quench=pquench_c,
+                carbon_quench_pressure=pquench_c,
                 full=True
             )
         )

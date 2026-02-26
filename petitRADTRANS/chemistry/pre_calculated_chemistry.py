@@ -131,6 +131,7 @@ class PreCalculatedEquilibriumChemistryTable:
         self.co_ratios: jax.typing.ArrayLike = None
         self.temperatures: jax.typing.ArrayLike = None
         self.pressures: jax.typing.ArrayLike = None
+        self.species: tuple[str] = None
 
     @staticmethod
     def get_default_file(path_input_data: str = None) -> str:
@@ -167,7 +168,7 @@ class PreCalculatedEquilibriumChemistryTable:
         """
         if not self._loaded:
             (self.mass_fractions, self.mean_molar_masses, self.nabla_adiabatic, self.log10_metallicities,
-             self.co_ratios, self.temperatures, self.pressures) = self.load()
+             self.co_ratios, self.temperatures, self.pressures, self.species) = self.load()
             self._loaded = True
         co_ratios: ArrayLike = jnp.array(co_ratios).reshape(-1)
         log10_metallicities: ArrayLike = jnp.array(log10_metallicities).reshape(-1)
@@ -355,7 +356,8 @@ class PreCalculatedEquilibriumChemistryTable:
         pressures = jnp.array(pressures, dtype='d')
 
         print("Done.")
-        return mass_fractions, mean_molar_masses, nabla_adiabatic, log10_metallicities, co_ratios, temperatures, pressures
+        return (mass_fractions, mean_molar_masses, nabla_adiabatic,
+                log10_metallicities, co_ratios, temperatures, pressures, species)
 
 
 pre_calculated_equilibrium_chemistry_table = PreCalculatedEquilibriumChemistryTable()

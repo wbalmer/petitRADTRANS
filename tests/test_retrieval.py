@@ -5,6 +5,10 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 """
 import json
 import os
+import jax
+jax.config.update("jax_enable_x64", True)
+os.environ["DYLD_LIBRARY_PATH"] = "/Users/nasedkin/software/MultiNest/lib/:$DYLD_LIBRARY_PATH"
+os.environ["LD_LIBRARY_PATH"] = "/Users/nasedkin/software/MultiNest/lib/:$LD_LIBRARY_PATH"
 
 import numpy as np
 
@@ -152,10 +156,10 @@ def init_run():
     run_definition_simple.parameters['log_Pcloud'].corner_label = r"log P$_{\rm cloud}$"
     run_definition_simple.parameters['log_Pcloud'].corner_ranges = [-6, 2]
 
-    for spec in run_definition_simple.line_species:
-        spec = Opacity([spec]).get_full_name().split('.R')[0]  # deal with the naming scheme for binned down opacities
-        run_definition_simple.parameters[spec].plot_in_corner = True
-        run_definition_simple.parameters[spec].corner_ranges = [-6.0, 0.0]
+    #for spec in run_definition_simple.line_species:
+    #    spec = Opacity([spec]).get_full_name().split('.R')[0]  # deal with the naming scheme for binned down opacities
+    #    run_definition_simple.parameters[spec].plot_in_corner = True
+    #    run_definition_simple.parameters[spec].corner_ranges = [-6.0, 0.0]
 
     # Spectrum plot
     run_definition_simple.plot_kwargs["spec_xlabel"] = 'Wavelength [micron]'
@@ -176,7 +180,7 @@ def init_run():
 
 # Atmospheric model
 # noinspection PyUnusedLocal
-def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=False):
+def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, adaptive_mesh_refinement=False):
     """
     This model computes a transmission spectrum based on free retrieval chemistry
     and an isothermal temperature-pressure profile.

@@ -50,7 +50,8 @@ dependencies = [
     "requests",
     "skycalc-cli",
     "matplotlib",
-    "corner"
+    "corner",
+    "pooch"
 ]
 
 [project.urls]
