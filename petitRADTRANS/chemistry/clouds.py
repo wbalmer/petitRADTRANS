@@ -395,7 +395,7 @@ def return_cloud_mass_fraction(name, metallicity, co_ratio):
     return jnp.zeros_like(metallicity)
 
 
-def calculate_vapour_pressure(name, args):
+def calculate_vapour_pressure(name, pressure, args):
     """Return mass fraction for a cloud species using unified dispatch."""
     cloud_species_functions = {
         'Fe(l)': vapour_pressure_fe_liquid,
@@ -420,7 +420,7 @@ def calculate_vapour_pressure(name, args):
 
     base_name = _get_cloud_species_base_name(name)
     if base_name and base_name in cloud_species_functions:
-        return cloud_species_functions[base_name](*args)
+        vapour_pressure = cloud_species_functions[base_name](*args)
 
     warnings.warn(f"The condensation curve for {name} is not currently implemented.")
     return jnp.zeros_like(args[0])

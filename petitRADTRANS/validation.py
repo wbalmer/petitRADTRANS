@@ -1,24 +1,44 @@
+"""
+This module provides sanity checks on inputs for the Radtrans class.
+"""
 import os
+from typing import Union, Optional
+
 import jax.numpy as jnp
-from jax import lax, debug
-from jax.typing import ArrayLike
 import numpy as np
 import numpy.typing as npt
+from jax import lax, debug
+from jax.typing import ArrayLike
+
 import petitRADTRANS.physical_constants as cst
-from typing import Union, Tuple, Optional, List, Dict, Any, Callable, TypeVar
 
 
-def _check_anisotropic_cloud_scattering(mode):
+def _check_anisotropic_cloud_scattering(mode: Union[str, bool]):
+    """Check if the anisotropic cloud scattering mode is valid.
+
+    Args:
+        mode: The anisotropic cloud scattering mode.
+    """
     if mode not in ['auto', True, False]:
         raise ValueError(f"anisotropic cloud scattering must be 'auto'|True|False, but was '{mode}'")
 
 
-def _check_line_opacity_mode(mode):
+def _check_line_opacity_mode(mode: str):
+    """Check if the line opacity mode is valid.
+
+    Args:
+        mode: The line opacity mode.
+    """
     if mode not in ['c-k', 'lbl']:
         raise ValueError(f"opacity mode must be 'c-k'|'lbl', but was '{mode}'")
 
 
-def _check_input_data_file_existence(path):
+def _check_input_data_file_existence(path: str):
+    """Check if an input data file exists.
+
+    Args:
+        path: The path to the input data file.
+    """
     if not os.path.isfile(path):
         raise FileNotFoundError(
             f"no such file or directory: '{path}'\n"
@@ -37,7 +57,12 @@ def _check_input_data_file_existence(path):
         )
 
 
-def _check_path_input_data(path):
+def _check_path_input_data(path: str):
+    """Check if the input data path exists.
+
+    Args:
+        path: The path to the input data directory.
+    """
     if not os.path.isdir(path):
         raise FileNotFoundError(
             f"no such directory: '{path}'\n"
@@ -53,15 +78,30 @@ def _check_path_input_data(path):
         )
 
 
-def _check_pressures(pressures):
+def _check_pressures(pressures: ArrayLike):
+    """Check if the pressures are in increasing order.
+
+    Args:
+        pressures: The array of pressures.
+    """
     if not jnp.all(jnp.diff(pressures) > 0):
         raise ValueError("pressures must be an array in increasing order")
 
 
 def _check_return_clear_spectrum_relevance(
-    return_clear_spectrum, clouds_have_effect,
-    opaque_cloud_top_pressure, cloud_fraction
+    return_clear_spectrum: bool,
+    clouds_have_effect: bool,
+    opaque_cloud_top_pressure: Optional[float],
+    cloud_fraction: float
 ):
+    """Check if returning a clear spectrum is relevant and issue warnings if not.
+
+    Args:
+        return_clear_spectrum: If True, a clear spectrum will be returned in addition to the cloudy one.
+        clouds_have_effect: If True, clouds have an effect on the spectrum.
+        opaque_cloud_top_pressure: The pressure of the opaque cloud top.
+        cloud_fraction: The cloud fraction.
+    """
     lax.cond(  # TODO: revert to clearer pythonic statements
         jnp.logical_and(
             jnp.logical_and(return_clear_spectrum,
@@ -84,7 +124,12 @@ def _check_return_clear_spectrum_relevance(
     )
 
 
-def _check_wavelength_boundaries(boundaries):
+def _check_wavelength_boundaries(boundaries: ArrayLike):
+    """Check if the wavelength boundaries are valid.
+
+    Args:
+        boundaries: The wavelength boundaries.
+    """
     if jnp.size(boundaries) != 2:
         raise ValueError(f"wavelengths boundaries must be an array of 2 floats, but was {boundaries}")
 
@@ -97,7 +142,22 @@ def _handle_grid_misalignment(
     indices: npt.NDArray[bool],
     frequencies_reference: ArrayLike,
     frequencies_test: ArrayLike
-    ) -> npt.NDArray[bool]:
+) -> npt.NDArray[bool]:
+    """Handle frequency grid misalignment by extending the selection of indices.
+
+    This function is a workaround for cases where the frequency grid of the model does not perfectly align with the
+    frequency grid of the opacity data, even after selecting the closest frequencies. It extends the selection of
+    indices to include one more frequency to the left or right to ensure that the model's frequency range is
+    fully covered by the opacity data.
+
+    Args:
+        indices: The boolean array of indices selecting the frequencies from the opacity data.
+        frequencies_reference: The frequency grid of the model.
+        frequencies_test: The frequency grid of the opacity data.
+
+    Returns:
+        The updated boolean array of indices.
+    """
     _indices: npt.NDArray[np.signedinteger] = np.nonzero(indices)[0]
 
     if (

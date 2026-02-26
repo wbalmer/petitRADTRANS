@@ -131,8 +131,13 @@ class PreCalculatedEquilibriumChemistryTable:
     def __init__(self):
         self._loaded: bool = False
 
-        if not self._loaded:
-            self.load()
+        self.mass_fractions: jax.typing.ArrayLike = None
+        self.mean_molar_masses: jax.typing.ArrayLike = None
+        self.nabla_adiabatic: jax.typing.ArrayLike = None
+        self.log10_metallicities: jax.typing.ArrayLike = None
+        self.co_ratios: jax.typing.ArrayLike = None
+        self.temperatures: jax.typing.ArrayLike = None
+        self.pressures: jax.typing.ArrayLike = None
 
     @staticmethod
     def get_default_file(path_input_data: str = None) -> str:
@@ -168,8 +173,9 @@ class PreCalculatedEquilibriumChemistryTable:
                 respect to pressure in the adiabatic case (nabla_ad) in addition to the pre-calculated mass fractions
         """
         if not self._loaded:
-            self.load()
-
+            (self.mass_fractions, self.mean_molar_masses, self.nabla_adiabatic, self.log10_metallicities,
+             self.co_ratios, self.temperatures, self.pressures) = self.load()
+            self._loaded = True
         co_ratios: ArrayLike = jnp.array(co_ratios).reshape(-1)
         log10_metallicities: ArrayLike = jnp.array(log10_metallicities).reshape(-1)
         temperatures: ArrayLike = jnp.array(temperatures).reshape(-1)
@@ -334,29 +340,29 @@ class PreCalculatedEquilibriumChemistryTable:
         print(f"Loading chemical equilibrium chemistry table from file '{file}'... ", end='')
 
         with h5py.File(file, 'r') as f:
-            self.log10_metallicities = f['log10_metallicities'][()]
-            self.co_ratios = f['co_ratios'][()]
-            self.temperatures = f['temperatures'][()]
-            self.pressures = f['pressures'][()]
+            log10_metallicities = f['log10_metallicities'][()]
+            co_ratios = f['co_ratios'][()]
+            temperatures = f['temperatures'][()]
+            pressures = f['pressures'][()]
 
-            self.species = f['species'][()]
-            self.species = tuple([name.decode('utf-8') for name in self.species])
+            species = f['species'][()]
+            species = tuple([name.decode('utf-8') for name in species])
 
-            self.mass_fractions = f['mass_fractions'][()]
-            self.mean_molar_masses = f['mean_molar_masses'][()]
-            self.nabla_adiabatic = f['nabla_adiabatic'][()]
+            mass_fractions = f['mass_fractions'][()]
+            mean_molar_masses = f['mean_molar_masses'][()]
+            nabla_adiabatic = f['nabla_adiabatic'][()]
 
         # Change array ordering for more efficient fortran calculation (this takes time, so it is done during loading)
-        self.mass_fractions = jnp.array(self.mass_fractions, dtype='d')
-        self.mean_molar_masses = jnp.array(self.mean_molar_masses, dtype='d')
-        self.nabla_adiabatic = jnp.array(self.nabla_adiabatic, dtype='d')
-        self.log10_metallicities = jnp.array(self.log10_metallicities, dtype='d')
-        self.co_ratios = jnp.array(self.co_ratios, dtype='d')
-        self.temperatures = jnp.array(self.temperatures, dtype='d')
-        self.pressures = jnp.array(self.pressures, dtype='d')
-
-        self._loaded = True
+        mass_fractions = jnp.array(mass_fractions, dtype='d')
+        mean_molar_masses = jnp.array(mean_molar_masses, dtype='d')
+        nabla_adiabatic = jnp.array(nabla_adiabatic, dtype='d')
+        log10_metallicities = jnp.array(log10_metallicities, dtype='d')
+        co_ratios = jnp.array(co_ratios, dtype='d')
+        temperatures = jnp.array(temperatures, dtype='d')
+        pressures = jnp.array(pressures, dtype='d')
 
         print("Done.")
+        return mass_fractions, mean_molar_masses, nabla_adiabatic, log10_metallicities, co_ratios, temperatures, pressures
+
 
 pre_calculated_equilibrium_chemistry_table = PreCalculatedEquilibriumChemistryTable()

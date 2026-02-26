@@ -26,10 +26,10 @@ from petitRADTRANS.physics import (
     flux_hz2flux_cm,
     frequency2wavelength,
     hz2um,
-    rebin_spectrum,
-    rebin_spectrum_bin,
+
     temperature_profile_function_guillot_metallic
 )
+from petitRADTRANS.radtrans_core.spectrum_utils import rebin_spectrum, rebin_spectrum_bin
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
@@ -38,7 +38,7 @@ from petitRADTRANS.retrieval.preparing import polyfit
 from petitRADTRANS.retrieval.retrieval import Retrieval
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
-from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
+from petitRADTRANS.stellar_spectra.phoenix import PhoenixStarTable
 from petitRADTRANS.utils import (
     LockedDict,
     dict2hdf5,
@@ -48,6 +48,7 @@ from petitRADTRANS.utils import (
     remove_mask,
     topological_sort
 )
+phoenix_star_table = PhoenixStarTable()
 
 
 class SpectralModel(Radtrans):

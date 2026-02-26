@@ -2,7 +2,8 @@ import jax.numpy as jnp
 from jax import jit, config
 from jax.typing import ArrayLike
 
-def temperature_profile_function_ret_model(rad_trans_params):
+
+def spline_eddington_adiabatic_temperature_profile(rad_trans_params):
     """
     Self-luminous retrieval P-T model.
     # TODO find better name

@@ -12,12 +12,6 @@ from jax.scipy.special import erf, erfinv
 from scipy.special import lambertw
 from jax.scipy.signal import correlate
 
-# noinspection PyUnresolvedReferences
-from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
-
-
-# TODO: replace scipy and fortran functions with JAX
-
 
 def bayes_factor2sigma(bayes_factor: float) -> [float, ArrayLike]:
     """

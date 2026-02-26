@@ -2093,6 +2093,7 @@ class Radtrans:
                     _cloud_anisotropic_scattering_opacities = cloud_anisotropic_scattering_opacities[0]
                     _cloud_absorption_opacities = cloud_absorption_opacities[0]
 
+        # TODO separate out photosphere radius calculation
         if planet_radius is not None and return_photosphere_radius:
             photosphere_radius = self.calculate_photosphere_radius(
                 temperatures=temperatures,
@@ -2109,7 +2110,7 @@ class Radtrans:
                 optical_depths=optical_depths
             )
 
-        # TODO Check JIT shapes
+        # TODO separate out cloud contribution function
         if self._clouds_have_effect(mass_fractions, cloud_fraction) and return_cloud_contribution:
             cloud_contribution = clouds.compute_species_optical_depths(
                 reference_gravity=reference_gravity,
@@ -2119,6 +2120,7 @@ class Radtrans:
         else:
             cloud_contribution = None
 
+        # TODO: separate Rosseland Opacities into own function
         if sum_opacities and len(self._line_species) > 1:
             if sum_opacities and opacities_rosseland is not None:
                 optical_depths_rosseland = clouds.compute_species_optical_depths(

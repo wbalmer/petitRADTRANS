@@ -30,16 +30,18 @@ from species.util.dust_util import apply_ism_ext
 from petitRADTRANS.chemistry import clouds
 from petitRADTRANS.chemistry.core import get_abundances
 from petitRADTRANS.physics import (
-    cubic_spline_profile,
-    dtdp_temperature_profile,
     flux2irradiance,
-    linear_spline_profile,
-    madhu_seager_2009,
-    planck_function_cm,
+    planck_function_cm
+)
+from petitRADTRANS.profiles import (
+    cubic_spline_temperature_profile,
+    linear_spline_temperature_profile,
+    dtdp_temperature_profile,
+    madhusudhan_seager_temperature_profile,
     power_law_temperature_profile,
     temperature_profile_function_guillot_global,
     temperature_profile_function_isothermal,
-    temperature_profile_function_ret_model
+    spline_eddington_adiabatic_temperature_profile
 )
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.retrieval.utils import get_calculate_flux_return_values
@@ -69,10 +71,11 @@ def _compute_gravity(parameters):
     return gravity, planet_radius
 
 
-def emission_model_diseq(prt_object,
-                         parameters,
-                         pt_plot_mode=False,
-                         adaptive_mesh_refinement=True):
+def spline_eddington_adiabatic_emission(
+        prt_object,
+        parameters,
+        pt_plot_mode=False,
+        adaptive_mesh_refinement=True):
     """
     Disequilibrium Chemistry Emission Model
 
@@ -153,7 +156,7 @@ def emission_model_diseq(prt_object,
     elif "C" in parameters.keys():
         carbon_to_oxygen = parameters['C'].value / parameters['O'].value
 
-    temperatures = temperature_profile_function_ret_model(  # TODO weird way of calling the function
+    temperatures = spline_eddington_adiabatic_temperature_profile(  # TODO weird way of calling the function
         (
             temp_arr,
             delta,
@@ -219,13 +222,6 @@ def emission_model_diseq(prt_object,
         complete_coverage_clouds=complete_coverage_clouds,
         distribution=distribution
         )
-
-
-def emission_model_diseq_simple_patchy_clouds(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=True):
-    """
-    Deprecated, to be removed in future version
-    """
-    return emission_model_diseq(prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement)
 
 
 def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=True):
@@ -317,7 +313,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
         -parameters['alpha_clear'].value)
     gravity, planet_radius = _compute_gravity(parameters)
 
-    temperatures = temperature_profile_function_ret_model(  # TODO weird way of calling the function
+    temperatures = spline_eddington_adiabatic_temperature_profile(  # TODO weird way of calling the function
         (
             temp_arr,
             delta,
@@ -340,7 +336,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
         adaptive_mesh_refinement=adaptive_mesh_refinement
     )
 
-    t_clear = temperature_profile_function_ret_model(
+    t_clear = spline_eddington_adiabatic_temperature_profile(
         (  # TODO weird way of calling the function
             temps_clear,
             delta_clear,
@@ -760,12 +756,12 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, ad
 
     temp_arr = jnp.array([parameters[f"T{i}"].value for i in range(parameters['nnodes'].value + 2)])
     if "linear" in parameters.keys():
-        temperatures, log_prior_weight = linear_spline_profile(p_use,
+        temperatures, log_prior_weight = linear_spline_temperature_profile(p_use,
                                                                temp_arr,
                                                                parameters['gamma'].value,
                                                                parameters['nnodes'].value)
     else:
-        temperatures, log_prior_weight = cubic_spline_profile(p_use,
+        temperatures, log_prior_weight = cubic_spline_temperature_profile(p_use,
                                                               temp_arr,
                                                               parameters['gamma'].value,
                                                               parameters['nnodes'].value)
@@ -1305,7 +1301,7 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, ada
     if "beta" in parameters.keys():
         beta_points = [parameters["beta"].value, parameters["beta"].value]
 
-    temperatures = madhu_seager_2009(p_use,
+    temperatures = madhusudhan_seager_temperature_profile(p_use,
                                      pressure_points,
                                      parameters["T_set"].value,
                                      alpha_points,
@@ -1448,7 +1444,7 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
     if "beta" in parameters.keys():
         beta_points = [parameters["beta"].value, parameters["beta"].value]
 
-    temperatures = madhu_seager_2009(p_use,
+    temperatures = madhusudhan_seager_temperature_profile(p_use,
                                      pressure_points,
                                      parameters["T_set"].value,
                                      alpha_points,

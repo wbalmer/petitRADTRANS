@@ -1,6 +1,8 @@
 import jax.numpy as jnp
-from jax import jit, config
+from jax import Array
 from jax.typing import ArrayLike
+from typing import Optional
+
 
 def temperature_profile_function_guillot(
     pressures: ArrayLike,
@@ -10,30 +12,23 @@ def temperature_profile_function_guillot(
     intrinsic_temperature: float,
     equilibrium_temperature: float,
     redistribution_coefficient: float = 0.25
-) -> ArrayLike:
-    """ Returns a temperature array, in units of K,
-    of the same dimensions as the pressure P
-    (in bar).
+) -> Array:
+    """ Returns a temperature array, in units of K, of the same dimensions as the pressure P (in bar).
 
     For this the temperature model of Guillot (2010) is used (his Equation 29).
     Source: https://doi.org/10.1051/0004-6361/200913396
 
     Args:
-        pressures:
-            numpy array of floats, containing the input pressure in bars.
-        infrared_mean_opacity:
-            The infrared mean opacity in units of :math:`\\rm cm^2/s`.
-        gamma:
-            The ratio between the visual and infrared mean opacities.
-        gravities:
-            The planetary gravity at the given pressures in units of :math:`\\rm cm/s^2`.
-        intrinsic_temperature:
-            The planetary intrinsic temperature (in units of K).
-        equilibrium_temperature:
-            The planetary equilibrium temperature (in units of K).
-        redistribution_coefficient:
-            The redistribution coefficient of the irradiance. A value of 1 corresponds to the substellar point, 1/2 for
-            the day-side average and 1/4 for the global average.
+        pressures: Array of pressures in bar.
+        infrared_mean_opacity: The infrared mean opacity in units of cm^2/g.
+        gamma: The ratio between the visual and infrared mean opacities.
+        gravities: The planetary gravity at the given pressures in units of cm/s^2.
+        intrinsic_temperature: The planetary intrinsic temperature in K.
+        equilibrium_temperature: The planetary equilibrium temperature in K.
+        redistribution_coefficient: The redistribution coefficient of the irradiance. A value of 1 corresponds to the
+            substellar point, 1/2 for the day-side average and 1/4 for the global average.
+    Returns:
+        The temperature profile in K.
     """
     # Estimate tau from eq. 24: m is the column mass, dm = rho * dz, dP / dz = -g * rho, so m = P / g
     tau = infrared_mean_opacity * pressures * 1e6 / gravities
@@ -59,25 +54,21 @@ def temperature_profile_function_guillot_dayside(
     gravities: ArrayLike,
     intrinsic_temperature: float,
     equilibrium_temperature: float
-) -> ArrayLike:
-    """ Returns a temperature array, in units of K,
-    of the same dimensions as the pressure P
-    (in bar). For this the temperature model of Guillot (2010)
-    is used (his Equation 29), in the case of averaging the flux over the day side of the planet.
+) -> Array:
+    """ Returns a dayside temperature array, in units of K, using the Guillot (2010) model.
+
+    This is a wrapper for `temperature_profile_function_guillot` with `redistribution_coefficient` set to 0.5,
+    which corresponds to an average over the day side of the planet.
 
     Args:
-        pressures:
-            numpy array of floats, containing the input pressure in bars.
-        infrared_mean_opacity (float):
-            The infrared opacity in units of :math:`\\rm cm^2/s`.
-        gamma (float):
-            The ratio between the visual and infrared opacity.
-        gravities (float):
-            The planetary surface gravity in units of :math:`\\rm cm/s^2`.
-        intrinsic_temperature (float):
-            The planetary internal temperature (in units of K).
-        equilibrium_temperature (float):
-            The planetary equilibrium temperature (in units of K).
+        pressures: Array of pressures in bar.
+        infrared_mean_opacity: The infrared mean opacity in units of cm^2/g.
+        gamma: The ratio between the visual and infrared mean opacities.
+        gravities: The planetary gravity at the given pressures in units of cm/s^2.
+        intrinsic_temperature: The planetary intrinsic temperature in K.
+        equilibrium_temperature: The planetary equilibrium temperature in K.
+    Returns:
+        The temperature profile in K.
     """
     return temperature_profile_function_guillot(
         pressures=pressures,
@@ -97,25 +88,21 @@ def temperature_profile_function_guillot_global(
     gravities: ArrayLike,
     intrinsic_temperature: float,
     equilibrium_temperature: float
-) -> ArrayLike:
-    """ Returns a temperature array, in units of K,
-    of the same dimensions as the pressure P
-    (in bar). For this the temperature model of Guillot (2010)
-    is used (his Equation 29), in the case of averaging the flux over the whole planetary surface.
+) -> Array:
+    """ Returns a global average temperature array, in units of K, using the Guillot (2010) model.
+
+    This is a wrapper for `temperature_profile_function_guillot` with `redistribution_coefficient` set to 0.25,
+    which corresponds to an average over the whole planetary surface.
 
     Args:
-        pressures:
-            numpy array of floats, containing the input pressure in bars.
-        infrared_mean_opacity (float):
-            The infrared opacity in units of :math:`\\rm cm^2/s`.
-        gamma (float):
-            The ratio between the visual and infrared opacity.
-        gravities (float):
-            The planetary surface gravity in units of :math:`\\rm cm/s^2`.
-        intrinsic_temperature (float):
-            The planetary internal temperature (in units of K).
-        equilibrium_temperature (float):
-            The planetary equilibrium temperature (in units of K).
+        pressures: Array of pressures in bar.
+        infrared_mean_opacity: The infrared mean opacity in units of cm^2/g.
+        gamma: The ratio between the visual and infrared mean opacities.
+        gravities: The planetary gravity at the given pressures in units of cm/s^2.
+        intrinsic_temperature: The planetary intrinsic temperature in K.
+        equilibrium_temperature: The planetary equilibrium temperature in K.
+    Returns:
+        The temperature profile in K.
     """
     return temperature_profile_function_guillot(
         pressures=pressures,
@@ -134,9 +121,23 @@ def temperature_profile_function_guillot_global_ret(
     gamma: float,
     intrinsic_temperature: float,
     equilibrium_temperature: float
-) -> ArrayLike:
-    """Global Guillot P-T formula with kappa/gravity replaced by delta."""
-    # TODO what is delta?
+) -> Array:
+    """Global Guillot P-T formula for retrievals, with kappa/gravity replaced by delta.
+
+    This function is a variation of the Guillot (2010) temperature profile, where the ratio of the
+    mean infrared opacity to gravity (kappa/g) is replaced by a single parameter, delta.
+    This is useful for retrieval applications where gravity is fixed and opacity is a parameter.
+
+    Args:
+        pressures: Array of pressures in bar.
+        delta: Proportionality factor for optical depth, equal to kappa_ir / g, where kappa_ir is the
+               infrared mean opacity (cm^2/g) and g is the gravity (cm/s^2).
+        gamma: The ratio between the visual and infrared mean opacities.
+        intrinsic_temperature: The planetary intrinsic temperature in K.
+        equilibrium_temperature: The planetary equilibrium temperature in K.
+    Returns:
+        The temperature profile in K.
+    """
     delta = jnp.abs(delta)
     gamma = jnp.abs(gamma)
     intrinsic_temperature = jnp.abs(intrinsic_temperature)
@@ -158,22 +159,25 @@ def temperature_profile_function_guillot_metallic(
     intrinsic_temperature: float,
     equilibrium_temperature: float,
     infrared_mean_opacity_solar_metallicity: float,
-    metallicity: [float, None] = None
-) -> ArrayLike:
+    metallicity: Optional[float] = None
+) -> Array:
     """Get a Guillot temperature profile depending on metallicity.
 
-    Args:
-        pressures: (bar) pressures of the profile
-        gamma: ratio between visual and infrared opacity
-        reference_gravity: (cm.s-2) surface gravity
-        intrinsic_temperature: (K) intrinsic temperature
-        equilibrium_temperature: (K) equilibrium temperature
-        infrared_mean_opacity_solar_metallicity:
-            (cm2.s-1) infrared mean opacity for a solar metallicity (Z = 1) atmosphere
-        metallicity: ratio of heavy elements abundance over H abundance with respect to the solar ratio
+    This function calculates a global average Guillot temperature profile, where the infrared mean
+    opacity is scaled with metallicity.
 
+    Args:
+        pressures: Array of pressures in bar.
+        gamma: Ratio between visual and infrared opacity.
+        reference_gravity: Surface gravity in cm/s^2.
+        intrinsic_temperature: Intrinsic temperature in K.
+        equilibrium_temperature: Equilibrium temperature in K.
+        infrared_mean_opacity_solar_metallicity: Infrared mean opacity for a solar metallicity (Z=1)
+            atmosphere, in cm^2/g.
+        metallicity: Ratio of heavy elements abundance over H abundance with respect to the solar ratio.
+            If None, solar metallicity is assumed.
     Returns:
-        temperatures: (K) the temperature at each pressures of the atmosphere
+        The temperature profile in K.
     """
     if metallicity is not None:
         kappa_ir = infrared_mean_opacity_solar_metallicity * metallicity
@@ -200,12 +204,28 @@ def temperature_profile_function_guillot_modif(
     equilibrium_temperature: float,
     ptrans: float,
     alpha: float
-) -> ArrayLike:
-    """Modified Guillot P-T formula"""
-    # TODO how is it modified? Why for?
+) -> Array:
+    """Modified Guillot P-T formula for retrievals.
+
+    This function uses the `temperature_profile_function_guillot_global_ret` and applies a
+    modifying factor to the temperature profile. The modification is controlled by `alpha`
+    and `ptrans`, which can shape the profile around a transition pressure.
+
+    Args:
+        pressures: Array of pressures in bar.
+        delta: Proportionality factor for optical depth, equal to kappa_ir / g.
+        gamma: The ratio between the visual and infrared mean opacities.
+        intrinsic_temperature: The planetary intrinsic temperature in K.
+        equilibrium_temperature: The planetary equilibrium temperature in K.
+        ptrans: Transition pressure in bar, where the modification is centered.
+        alpha: A parameter controlling the strength and shape of the temperature modification.
+    Returns:
+        The modified temperature profile in K.
+    """
     return temperature_profile_function_guillot_global_ret(
-        pressures,
-        jnp.abs(delta),
-        jnp.abs(gamma),
-        jnp.abs(intrinsic_temperature), jnp.abs(equilibrium_temperature)
-    ) * (1. - alpha * (1. / (1. + pressures / ptrans)))
+            pressures,
+            jnp.abs(delta),
+            jnp.abs(gamma),
+            jnp.abs(intrinsic_temperature),
+            jnp.abs(equilibrium_temperature)
+            ) * (1. - alpha * (1. / (1. + pressures / ptrans)))

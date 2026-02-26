@@ -719,41 +719,41 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, c_o_rat
 
         def log_pbase_case():
             if 'log_Pbase_' + cloud_name in parameter_key_list:
-                output = 10 ** parameters['log_Pbase_' + cloud_name].value
+                output = jnp.array(10 ** parameters['log_Pbase_' + cloud_name].value)
             else:
                 output = INVALID_VALUE
             return output.astype(JAX_DTYPE)
 
         def pbase_case():
             if 'Pbase_' + cloud_name in parameter_key_list:
-                output = parameters['Pbase_' + cloud_name].value
+                output = jnp.array(parameters['Pbase_' + cloud_name].value)
             else:
                 output = INVALID_VALUE
             return output.astype(JAX_DTYPE)
 
         def eq_case():
-            output = fc.calculate_cloud_base_pressure(
+            output = jnp.array(fc.calculate_cloud_base_pressure(
                     name=cloud_name,
                     press=pressures,
                     temp=temperatures,
                     metallicity=metallicity,
                     co_ratio=c_o_ratio,
                     mmw=jnp.mean(mean_molar_mass).astype(JAX_DTYPE)
-                )
+                ))
             return output.astype(JAX_DTYPE)
 
         def free_case():
             if 'log_X_cb_' + cloud_name in parameter_key_list:
-                output = fc.calculate_cloud_base_pressure_free(
+                output = jnp.array(fc.calculate_cloud_base_pressure_free(
                     cloud_name,
                     pressures,
                     temperatures,
                     10 ** parameters['log_X_cb_' + cloud_name].value,
                     mean_molar_mass[0]
-                )
+                ))
             else:
                 output = INVALID_VALUE
-            return output
+            return output.astype(JAX_DTYPE)
 
         return lax.cond(
             'log_Pbase_' + cloud_name in parameter_key_list,
@@ -795,14 +795,14 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, c_o_rat
     def get_fsed(cloud_name, parameters):
         def fsed_cloud_case(_):
             if 'fsed_' + cloud_name in parameter_key_list:
-                output = parameters['fsed_' + cloud_name].value
+                output = jnp.array(parameters['fsed_' + cloud_name].value)
             else:
                 output = INVALID_VALUE
             return output.astype(JAX_DTYPE)
 
         def fsed_default_case(_):
             if 'fsed' in parameter_key_list:
-                output = parameters['fsed'].value
+                output = jnp.array(parameters['fsed'].value)
             else:
                 output = INVALID_VALUE
             return output.astype(JAX_DTYPE)

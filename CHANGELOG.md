@@ -21,6 +21,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Feature completion: Figure out how to implement additional_outputs in jax compatible way.
 - Feature completion: update log likelihoods for 2D, 3D data.
 - Feature completion: Multicolumn/time domain retrievals.
+- Add new cloud opacities to be compatible with new condensation curves.
 - Optimisation: make everything deeper than `calculate_flux` JIT-compileable.
 - Optimisation: replace for and fori_loops with scan or vmap.
 - Optimisation: Ensure consistent typing throughout (32 vs 64 bit). Add typing to function definitions.
@@ -39,6 +40,8 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Clean up comment blocks.
 
 ### Changed
+- Updated naming of temperature profile functions for consistency.
+- Moved temperature profile functions to petitRADTRANS/profiles.
 - a9 Added new condensation curves based on VIRGA.
 - a9 Refactored `radtrans.py` to move static methods to standalone files, mostly new dedicated files for calculating opacities.
 - a9 Further improvements for JIT compatibility in convolutions and spectrum utils.

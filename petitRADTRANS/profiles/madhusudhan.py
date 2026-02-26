@@ -1,8 +1,15 @@
 import jax.numpy as jnp
-from jax import jit, config
+from jax import jit, config, Array
 from jax.typing import ArrayLike
 
-def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_points):
+
+def madhusudhan_seager_temperature_profile(
+        pressures: ArrayLike,
+        log_pressure_points: tuple[float],
+        temperature_reference: float,
+        alpha_points: tuple[float],
+        beta_points: tuple[float]
+) -> Array:
     """
     Calculate temperatures based on the Madhusudhan and Seager (2009) parameterization.
 
@@ -17,13 +24,13 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
         pressures : (numpy.ndarray)
             An array of pressure values (in bar) at which to calculate temperatures.
         log_pressure_points : (list)
-            A list of log pressure breakpoints defining different temperature regimes.
+            A list of log10 pressure breakpoints defining different temperature regimes.
             The zeroth element is the minimum pressure, should be log10(press[0]).
             The first element is the 1-2 boundary
             The second element is the level of the inversion
             The third element is the 2-3 boundary.
             The fourth element is the pressure at which the temperature is set (P_set).
-        T_set : (float)
+        temperature_reference : (float)
             A temperature at log_pressure_points[4] used to constrain the temperature profile.
         alpha_points : (list)
             A list of alpha values used in the parameterization for different regimes.
@@ -45,6 +52,10 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
 
     # Set up masks for the different temperature regions
     pressure_points = 10**jnp.array(log_pressure_points)
+
+    # Change log10 pressure points to log pressure points as used in Madhusudhan and Seager (2009)
+    nat_log_pressure_points = jnp.log(pressure_points)
+
     mask_1 = pressures < pressure_points[1]
     mask_2 = (pressures >= pressure_points[1]) & (pressures < pressure_points[3])
     mask_3 = pressures >= pressure_points[3]
@@ -54,72 +65,69 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
     p_set_i = pressures[i_set]
 
     # Store logarithm of various pressure quantities
-    log_p = jnp.log10(pressures)
-    log_p_min = log_pressure_points[0]
-    log_p_set_i = jnp.log10(p_set_i)
+    nat_log_p = jnp.log(pressures)
+    nat_log_p_min = nat_log_pressure_points[0]
+    nat_log_p_set_i = jnp.log(p_set_i)
 
-    T0 = None
-    T2 = None
-    T3 = None
+    # Branch 1: P_set is in layer 3
+    t3_b1 = temperature_reference
+    t2_b1 = t3_b1 - ((1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])) ** (
+            1 / beta_points[1])
+    t1_b1 = t2_b1 + ((1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])) ** (
+            1 / beta_points[1])
+    t0_b1 = t1_b1 - ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (1 / beta_points[0])
 
-    # By default, (P_set = 10 bar), so T(P_set) should be in layer 3
-    # By default (P_set = 10 bar), so T(P_set) should be in layer 3
-    if log_pressure_points[4] >= log_pressure_points[3]:
-        T3 = T_set  # T_deep is the isothermal deep temperature T3 here
-
-        # Use the temperature parameter to compute boundary temperatures
-        T2 = T3 - (
-            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
-        ) ** (1 / beta_points[1])
-        T1 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
-        ) ** (1 / beta_points[1])
-        T0 = T1 - (
-            (1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)
-            ) ** (1 / beta_points[0])
-
-    # If a different P_deep has been chosen, solve equations for layer 2...
-    elif (
-        log_pressure_points[4] >= log_pressure_points[1]
-    ):  # Temperature parameter in layer 2
-        # Use the temperature parameter to compute the boundary temperatures
-        T2 = T_set - (
-            (1.0 / alpha_points[1]) * (log_p_set_i - log_pressure_points[2])
-        ) ** (1 / beta_points[1])
-        T1 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
-        ) ** (1 / beta_points[0])
-        T3 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
-        ) ** (1 / beta_points[1])
-        T0 = T1 - ((1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)) ** (
+    # Branch 2: P_set is in layer 2
+    t2_b2 = temperature_reference - (
+            (1.0 / alpha_points[1]) * (nat_log_p_set_i - nat_log_pressure_points[2])
+    ) ** (1 / beta_points[1])
+    t1_b2 = t2_b2 + (
+        # NOTE: there was a bug here, beta_points[0] was used instead of beta_points[1]
+        # This is corrected to follow the POSEIDON implementation and the Madhusudhan & Seager (2009) paper
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
+    ) ** (1 / beta_points[1])
+    t3_b2 = t2_b2 + (
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
+    ) ** (1 / beta_points[1])
+    t0_b2 = t1_b2 - ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
             1 / beta_points[0]
-        )
+    )
 
-    # ...or for layer 1
-    elif (
-        log_pressure_points[4] < log_pressure_points[1]
-    ):  # Temperature parameter in layer 1
-
-        # Use the temperature parameter to compute the boundary temperatures
-        T0 = T_set - ((1.0 / alpha_points[0]) * (log_p_set_i - log_p_min)) ** (
+    # Branch 3: P_set is in layer 1
+    t0_b3 = temperature_reference - ((1.0 / alpha_points[0]) * (nat_log_p_set_i - nat_log_p_min)) ** (
             1 / beta_points[0]
-        )
-        T1 = T0 + ((1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)) ** (
+    )
+    t1_b3 = t0_b3 + ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
             1 / beta_points[0]
-        )
-        T2 = T1 - (
-            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
-        ) ** (1 / beta_points[1])
-        T3 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
-        ) ** (1 / beta_points[1])
+    )
+    t2_b3 = t1_b3 - (
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
+    ) ** (1 / beta_points[1])
+    t3_b3 = t2_b3 + (
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
+    ) ** (1 / beta_points[1])
 
-    temperatures = temperatures.at[mask_1].set(T0 + (
-        (log_p[mask_1] - log_pressure_points[0]) / (alpha_points[0])
-    ) ** (1 / beta_points[0]))
-    temperatures = temperatures.at[mask_2].set(T2 + (
-        (log_p[mask_2] - log_pressure_points[2]) / (alpha_points[1])
-    ) ** (1 / beta_points[1]))
-    temperatures = temperatures.at[mask_3].set(T3)
+    # Select branch based on P_set
+    # Condition for branch 1
+    cond1 = nat_log_pressure_points[4] >= nat_log_pressure_points[3]
+    # Condition for branch 2
+    cond2 = nat_log_pressure_points[4] >= nat_log_pressure_points[1]
+
+    t0 = jnp.where(cond1, t0_b1, jnp.where(cond2, t0_b2, t0_b3))
+    #t1 = jnp.where(cond1, t1_b1, jnp.where(cond2, t1_b2, t1_b3))
+    t2 = jnp.where(cond1, t2_b1, jnp.where(cond2, t2_b2, t2_b3))
+    t3 = jnp.where(cond1, t3_b1, jnp.where(cond2, t3_b2, t3_b3))
+
+    temperatures = temperatures.at[mask_1].set(
+         t0
+         + ((nat_log_p[mask_1] - nat_log_pressure_points[0]) / (alpha_points[0]))
+         ** (1 / beta_points[0])
+         )
+    temperatures = temperatures.at[mask_2].set(
+         t2
+         + ((nat_log_p[mask_2] - nat_log_pressure_points[2]) / (alpha_points[1]))
+         ** (1 / beta_points[1])
+         )
+    temperatures = temperatures.at[mask_3].set(t3)
+
     return temperatures

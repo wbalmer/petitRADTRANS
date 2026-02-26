@@ -8,7 +8,8 @@ from jax import config
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS._input_data import find_input_file
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
-from petitRADTRANS.physics import wavelength2frequency, frequency2wavelength, rebin_spectrum
+from petitRADTRANS.physics import wavelength2frequency, frequency2wavelength
+from petitRADTRANS.radtrans_core.spectrum_utils import rebin_spectrum
 
 JAX_DTYPE = jnp.float32
 if config.jax_enable_x64:

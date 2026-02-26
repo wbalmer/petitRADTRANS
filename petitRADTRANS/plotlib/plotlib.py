@@ -14,16 +14,33 @@ from scipy.stats import binned_statistic
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.chemistry.clouds import (
-    return_t_cond_fe,
-    return_t_cond_fe_comb,
-    return_t_cond_fe_l,
-    return_t_cond_kcl,
-    return_t_cond_mgsio3,
-    return_t_cond_na2s,
-    simple_cdf_fe,
-    simple_cdf_kcl,
-    simple_cdf_mgsio3,
-    simple_cdf_na2s
+    condensation_temperature_fe,
+    condensation_temperature_fe_combined,
+    condensation_temperature_fe_liquid,
+    condensation_temperature_kcl,
+    condensation_temperature_mgsio3,
+    condensation_temperature_na2s,
+)
+
+from petitRADTRANS.chemistry.condensation_curves import (
+    vapour_pressure_fe_solid,
+    vapour_pressure_fe_liquid,
+    vapour_pressure_mgsio3,
+    vapour_pressure_mg2sio4,
+    vapour_pressure_na2s,
+    vapour_pressure_kcl,
+    vapour_pressure_sio,
+    vapour_pressure_tio2,
+    vapour_pressure_cr,
+    vapour_pressure_zns,
+    vapour_pressure_nh3,
+    vapour_pressure_mns,
+    vapour_pressure_h2o,
+    vapour_pressure_ch4,
+    vapour_pressure_al2o3,
+    vapour_pressure_catio3,
+    vapour_pressure_caal12o19,
+    vapour_pressure_sio2,
 )
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.opacities.opacities import Opacity
@@ -32,6 +49,7 @@ from petitRADTRANS.planet import Planet
 from petitRADTRANS.plotlib.style import default_color, get_species_color, update_figure_font_size
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
+from petitRADTRANS.retrieval.data import Data, PhotometryData
 from petitRADTRANS.spectral_model import SpectralModel
 from petitRADTRANS.utils import LockedDict
 
@@ -841,20 +859,25 @@ def nice_corner(samples,
 
 
 def plot_cloud_condensation_curves(metallicities, co_ratios, pressures=None, temperatures=None):
+    if pressures is None:
+        pressures = np.logspace(3, -4, 100)
+    if temperatures is None:
+        temperatures = np.linspace(50., 5000., 100)
+
     for metallicity in metallicities:
         for co_ratio in co_ratios:
-            p, t = return_t_cond_fe(metallicity, co_ratio)
-            plt.plot(t, p, label='Fe(c), [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio), color='black')
-            p, t = return_t_cond_fe_l(metallicity, co_ratio)
-            plt.plot(t, p, '--', label='Fe(l), [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
-            p, t = return_t_cond_fe_comb(metallicity, co_ratio)
-            plt.plot(t, p, ':', label='Fe(c+l), [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
-            p, t = return_t_cond_mgsio3(metallicity, co_ratio)
-            plt.plot(t, p, label='MgSiO3, [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
-            p, t = return_t_cond_na2s(metallicity, co_ratio)
-            plt.plot(t, p, label='Na2S, [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
-            p, t = return_t_cond_kcl(metallicity, co_ratio)
-            plt.plot(t, p, label='KCL, [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
+            condensation_pressure = condensation_temperature_fe(temperatures, metallicity, co_ratio)
+            plt.plot(temperatures, condensation_pressure, label='Fe(c), [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio), color='black')
+            condensation_pressure = condensation_temperature_fe_liquid(temperatures, metallicity, co_ratio)
+            plt.plot(temperatures, condensation_pressure, '--', label='Fe(l), [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
+            condensation_pressure = condensation_temperature_fe_combined(temperatures, metallicity, co_ratio)
+            plt.plot(temperatures, condensation_pressure, ':', label='Fe(c+l), [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
+            condensation_pressure = condensation_temperature_mgsio3(temperatures, metallicity, co_ratio)
+            plt.plot(temperatures, condensation_pressure, label='MgSiO3, [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
+            condensation_pressure = condensation_temperature_na2s(metallicity, co_ratio)
+            plt.plot(temperatures, condensation_pressure, label='Na2S, [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
+            condensation_pressure = condensation_temperature_kcl(metallicity, co_ratio)
+            plt.plot(temperatures, condensation_pressure, label='KCL, [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
 
     plt.yscale('log')
     plt.xlim([0., 2000.])
@@ -863,10 +886,10 @@ def plot_cloud_condensation_curves(metallicities, co_ratios, pressures=None, tem
     plt.show()
 
     if pressures is not None or temperatures is not None:
-        simple_cdf_fe(pressures, temperatures, 0., 0.55)
-        simple_cdf_mgsio3(pressures, temperatures, 0., 0.55)
-        simple_cdf_na2s(pressures, temperatures, 0., 0.55)
-        simple_cdf_kcl(pressures, temperatures, 0., 0.55)
+        vapour_pressure_fe_solid(temperatures)
+        vapour_pressure_mgsio3(temperatures)
+        vapour_pressure_na2s(temperatures, 0., 0.55)
+        vapour_pressure_kcl(temperatures)
 
 
 def plot_data(fig, ax, data, resolution=None, scaling=1.0):
