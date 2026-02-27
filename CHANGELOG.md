@@ -13,15 +13,14 @@ As of version 4.0.0a6 most functionality should "work". Tests still fail, but mo
 As of version 4.0.0a10 everything required for a retrieval should be JIT compilable.
 
 ### TODO
-- Feautrier is only accurate to 0.01% (relative). Should be better numerically?
-- Feature completion: Reimplement patchy clouds without using smart_clear_opacities.
-- Feature completion: Implement hansen cloud opacities.
+- Feature completion: Reimplement patchy clouds without using `smart_clear_opacities`.
+- Feature completion: Implement hansen cloud opacities in `cloud_core`.
 - Feature completion: Finish reimplementing contribution functions.
 - Feature completion: need to replace smart_clear_opacities with JAX based patchiness implementation.
 - Feature completion: Implement adaptive mesh refinement with constant size pressure array.
 - Feature completion: Figure out how to implement additional_outputs in jax compatible way.
 - Feature completion: update log likelihoods for 2D, 3D data.
-- Feature completion: Multicolumn/time domain retrievals.
+- Feature completion: Multicolumn/time domain retrievals - update TimeSeriesData class and calculate 2D models.
 - Add new cloud opacities to be compatible with new condensation curves.
 - Optimisation: make everything deeper than `calculate_flux` JIT-compileable.
 - Optimisation: replace for and fori_loops with scan or vmap.
@@ -37,11 +36,12 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Documentation: Add docstrings to all new JAX functions.
 - Documentation: Update tutorials to be v4 compatible.
 - Documentation: Reintroduce error checking where removed.
+- Documentation: Add typing throughout
 - Address all remaining TODOs in code.
 - Clean up comment blocks.
 
 ### Changed
-- Updated naming of temperature profile functions for consistency.
+- Updated naming of temperature profile functions for consistency, moved to petitRADTRANS/profiles.
 - Moved temperature profile functions to petitRADTRANS/profiles.
 - a9 Added new condensation curves based on VIRGA.
 - a9 Refactored `radtrans.py` to move static methods to standalone files, mostly new dedicated files for calculating opacities.
@@ -61,6 +61,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Moved transit radii calculations to `radtrans_core.radiative_transfer_core`, but using Radtrans implementation.
 - Added numpy compatibility flag to equilibrium chemistry table.
 - Functional pymultinest and JAXNS retrievals as of v4.0.a7.
+- Renamed functions beginning with `__` in Radtrans to only use a single underscore.
 
 ### Added
 - Reimplemented synthetic photometry calculations from `species` to avoid circular dependencies.

@@ -345,7 +345,7 @@ class RetrievalConfig:
 
         NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
         abundance limits were set from free_mass_fraction_limits[0] to (free_mass_fraction_limits[0] + free_mass_fraction_limits[1]). This has been changed
-        so that the limits of the prior range are from free_mass_fraction_limits[0] to abund_lim[1] (ie the actual boundaries).
+        so that the limits of the prior range are from free_mass_fraction_limits[0] to free_mass_fraction_limits[1] (ie the actual boundaries).
 
         Args:
             species : str
@@ -414,7 +414,7 @@ class RetrievalConfig:
             mode='linear',
             pressure_spacing='relative',
             n_nodes=3,
-            abund_lim=(-7.0, 0.0),
+            free_mass_fraction_limits=(-7.0, 0.0),
             log_pressure_range_prior=(0, 9),
             fixed_pressure_node_species=None
             ):
@@ -443,9 +443,9 @@ class RetrievalConfig:
                 to the pressure nodes set by fixed_pressure_node_species.
             n_nodes: int
                 The number of abundance nodes to use in the retrieval, including top and bottom nodes.
-            abund_lim : Tuple(float,float)
+            free_mass_fraction_limits : Tuple(float,float)
                 If free is True, this sets the boundaries of the uniform prior that will be applied the species given.
-                The range of the prior goes from abund_lim[0] to abund_lim[1]
+                The range of the prior goes from free_mass_fraction_limits[0] to free_mass_fraction_limits[1]
                 The abundance limits must be given in log10 units of the mass fraction.
             log_pressure_range_prior: Tuple(float,float)
                 The prior range on the log pressure of the pressure nodes in log bar, only used if pressure_spacing is
@@ -459,9 +459,9 @@ class RetrievalConfig:
         species_opacity = Opacity([species])
         species_full_name = species_opacity.get_full_name().split('.R')[0]
         # parameter passed through loglike is log10 abundance
-        if abund_lim[1] > 0.0:
+        if free_mass_fraction_limits[1] > 0.0:
             raise ValueError(
-                f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
+                f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! Please set abundance limits as (low, high)"
             )
 
         self.parameters[f"{species_full_name}_{mode}_abundance_profile"] = Parameter(
@@ -485,10 +485,10 @@ class RetrievalConfig:
             value=pressure_spacing
         )
 
-        self.line_species.append(species_full_name)
+        self.line_species = self.line_species + (species_full_name,)
 
         for i in range(n_nodes - 2):
-            if not pressure_spacing == 'fixed':
+            if pressure_spacing != 'fixed':
                 self.parameters[f"{species_full_name}_pressure_node_{i}"] = Parameter(
                     name=f"{species_full_name}_pressure_node_{i}",
                     is_free_parameter=True,
@@ -506,8 +506,8 @@ class RetrievalConfig:
             self.parameters[f"{species_full_name}_abundance_node_{i}"] = Parameter(
                 name=f"{species_full_name}_abundance_node_{i}",
                 is_free_parameter=True,
-                transform_prior_cube_coordinate=lambda x: abund_lim[0] +
-                (abund_lim[1] - abund_lim[0]) * x
+                transform_prior_cube_coordinate=lambda x: free_mass_fraction_limits[0] +
+                (free_mass_fraction_limits[1] - free_mass_fraction_limits[0]) * x
             )
 
     def remove_species_lines(self, species, free=False):
@@ -525,9 +525,9 @@ class RetrievalConfig:
         remove_opacity = Opacity([species])
         species_full_name = remove_opacity.get_full_name().split('.R')[0]
         if species in self.line_species:
-            self.line_species.remove(species)
+            self.line_species = filter(species, self.line_species)
         elif species_full_name in self.line_species:
-            self.line_species.remove(species_full_name)
+            self.line_species = filter(species_full_name, self.line_species)
         if free:
             self.parameters.pop(species, None)
             self.parameters.pop(species_full_name, None)
