@@ -473,6 +473,7 @@ def _compute_cloud_opacities(
 
     # Initialize cloud species mass fractions, densities, and mean radii
     for i_spec, cloud_name in enumerate(cloud_species_mass_fractions):
+        # TODO: standardize cloud naming
         cloud_opacity = CloudOpacity([cloud_name], natural_abundance=False)
         species_full_name = cloud_opacity.species_full_name
         cloud_short_name = species_full_name.split('_')[0]
@@ -500,7 +501,10 @@ def _compute_cloud_opacities(
                     cloud_particles_mean_radii[cloud_short_name]
                     )
         elif cloud_hansen_a is not None:
-            _cloud_particles_mean_radii = _cloud_particles_mean_radii.at[:, i_spec].set(cloud_hansen_a[cloud_name])
+            if cloud_name in cloud_hansen_a.keys():
+                _cloud_particles_mean_radii = _cloud_particles_mean_radii.at[:, i_spec].set(cloud_hansen_a[cloud_name])
+            elif cloud_short_name in cloud_hansen_a.keys():
+                _cloud_particles_mean_radii = _cloud_particles_mean_radii.at[:, i_spec].set(cloud_hansen_a[cloud_short_name])
 
     # Calculate cloud opacities
     if cloud_particles_mean_radii is not None or cloud_hansen_a is not None:
@@ -508,7 +512,7 @@ def _compute_cloud_opacities(
             (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                 cloud_scattering_reduction_factor) = \
                 cloud_core.compute_cloud_log_normal_particles_distribution_opacities_grid(
-                    atmosphere_densities=atmospheric_densities,
+                        atmosphere_densities=atmospheric_densities,
                         clouds_particles_densities=_cloud_particles_density,
                         clouds_mass_fractions=_cloud_species_mass_fractions,
                         cloud_particles_mean_radii=_cloud_particles_mean_radii,
@@ -523,25 +527,21 @@ def _compute_cloud_opacities(
                         target_pressure=target_pressure
                 )
         elif cloud_particles_radius_distribution == "custom":
-                (
-                    clouds_total_absorption_opacities,
-                    clouds_total_scattering_opacities,
-                    cloud_scattering_reduction_factor
-                ) = (
-                    cloud_core._compute_cloud_opacities_using_particle_size_grid(
-                        atmosphere_densities=atmospheric_densities,
-                        clouds_mass_fractions=cloud_species_mass_fractions,
-                        cloud_particle_number_density_grid=cloud_particle_number_density_grid,
-                        clouds_particles_densities=_cloud_particles_density,
-                        cloud_particles_radii_bins=clouds_loaded_opacities['particles_radii_bins'],
-                        cloud_particles_radii=clouds_loaded_opacities['particles_radii'],
-                        clouds_absorption_opacities=clouds_loaded_opacities['absorption_opacities'],
-                        clouds_scattering_opacities=clouds_loaded_opacities['scattering_opacities'],
-                        clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters'],
-                        pressures=pressures,
-                        target_particle_radii=target_particle_radii,
-                        target_pressure=target_pressure
-                    )
+            (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
+                cloud_scattering_reduction_factor) = \
+                cloud_core._compute_cloud_opacities_using_particle_size_grid(
+                    atmosphere_densities=atmospheric_densities,
+                    clouds_mass_fractions=cloud_species_mass_fractions,
+                    cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+                    clouds_particles_densities=_cloud_particles_density,
+                    cloud_particles_radii_bins=clouds_loaded_opacities['particles_radii_bins'],
+                    cloud_particles_radii=clouds_loaded_opacities['particles_radii'],
+                    clouds_absorption_opacities=clouds_loaded_opacities['absorption_opacities'],
+                    clouds_scattering_opacities=clouds_loaded_opacities['scattering_opacities'],
+                    clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters'],
+                    pressures=pressures,
+                    target_particle_radii=target_particle_radii,
+                    target_pressure=target_pressure
                 )
 
         else:

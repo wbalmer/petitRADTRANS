@@ -206,7 +206,7 @@ def calculate_ck_emission_contribution(
     return flux, contr_em
 
 
-@partial(jit, static_argnames=("return_contribution"))
+@jit
 def compute_ck_flux(
         frequencies: ArrayLike,
         temperatures: ArrayLike,
@@ -856,7 +856,7 @@ def compute_feautrier_radiative_transfer(
     return flux_f, emission_contribution_lf
 
 
-@partial(jit, static_argnames=("scattering_in_emission"))
+@jit
 def compute_optical_depths(
         reference_gravity,
         pressures,
@@ -974,7 +974,7 @@ def compute_planck_opacities_core(
     return kappa_planck / norm
 
 
-@partial(jit, static_argnames=("scattering_in_emission"))
+@jit
 def compute_planck_opacities(
         opacities,
         temperatures,

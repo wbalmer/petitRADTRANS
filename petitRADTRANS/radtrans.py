@@ -798,6 +798,7 @@ class Radtrans:
 
         if complete_coverage_clouds is None:
             complete_coverage_clouds = ()
+        complete_coverage_clouds = tuple(complete_coverage_clouds)
 
         # Initialization
         if len(self._line_species) > 0:

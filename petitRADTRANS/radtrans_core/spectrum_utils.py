@@ -77,7 +77,6 @@ def continuum_subtract_spectrum(
         return savgol_filter_spectrum(np.ndarray(spectrum), window_length=window_length, polyorder=polyorder)
 
 
-#@jit
 def convolve_constant_resolution(input_wavelength: ArrayLike, input_flux: ArrayLike, instrument_res: any) -> ArrayLike:
     sigma_lsf = input_wavelength / (2.0 * jnp.sqrt(2.0 * jnp.log(2.0)) * instrument_res)
     # Calculate the spacing of the wavelength array
@@ -92,7 +91,6 @@ def convolve_constant_resolution(input_wavelength: ArrayLike, input_flux: ArrayL
     return flux_lsf
 
 
-#@jit
 def convolve_variable_resolution(input_wavelength, input_flux, resolutions):
     """
     Convolve a spectrum with a variable with gaussian kernel.
@@ -436,6 +434,7 @@ def rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, re
     rebinned_spectrum = jnp.zeros(n_rebin)
     i_input = 0
 
+    # TODO: there has to be a more elegant way to structure this with vmap
     def rebin_step(i, carry):
         i_input, rebinned_spectrum = carry
 
@@ -460,7 +459,7 @@ def rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, re
             slope = (input_spectrum[i_input] - input_spectrum[i_input - 1]) / (input_wavelengths[i_input] - input_wavelengths[i_input - 1])
             y_ax = input_spectrum[i_input - 1]
 
-            add_fl = (y_ax - slope * input_wavelengths[i_input - 1]) * (nu2 - nu1) + slope * (nu2 - nu1) * (nu2 + nu1) / 2.0
+            add_fl = (y_ax - slope * input_wavelengths[i_input - 1]) * (nu2 - nu1) + slope * (nu2 - nu1) * (nu2 + nu1) * 0.5
             rebinned_spectrum = rebinned_spectrum.at[i].add(add_fl)
 
             del_nu_out = del_nu_in + ddel_nu
@@ -478,7 +477,7 @@ def rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, re
         slope = (input_spectrum[i_input] - input_spectrum[i_input - 1]) / (input_wavelengths[i_input] - input_wavelengths[i_input - 1])
         y_ax = input_spectrum[i_input - 1]
 
-        add_fl = (y_ax - slope * input_wavelengths[i_input - 1]) * (nu2 - nu1) + slope * (nu2 ** 2.0 - nu1 ** 2.0) / 2.0
+        add_fl = (y_ax - slope * input_wavelengths[i_input - 1]) * (nu2 - nu1) + slope * (nu2 ** 2.0 - nu1 ** 2.0) * 0.5
         rebinned_spectrum = rebinned_spectrum.at[i].add(add_fl)
 
         del_nu = del_nu + ddel_nu
@@ -498,13 +497,16 @@ def _raise_small_size(x):
 
 def _raise_incomplete_wavelength_range(args):
     input_array, output_array = args
-    half_bin_width = (output_array[1]-output_array[0])/2.0
-    if (input_array[0] >= (output_array[0]-half_bin_width)) or (input_array[-1] <= (output_array[-1]+half_bin_width)):
+    half_bin_width_low = (output_array[1] - output_array[0]) * 0.5
+    half_bin_width_high = (output_array[-1] - output_array[-2]) * 0.5
+
+    if (input_array[0] >= (output_array[0] - half_bin_width_low)) \
+       or (input_array[-1] <= (output_array[-1] + half_bin_width_high)):
         raise ValueError(f"Error: input wavelength array needs to extend at least half a bin width further "
                          f"than output wavelength array on both sides:\n"
                          f"input interval: {input_array[0]} -- {input_array[-1]}\n"
-                         f"required interval: {output_array[0]} -- {output_array[-1]}")
-
+                         f"required interval: {output_array[0]-half_bin_width_low} "
+                         f"-- {output_array[-1]+half_bin_width_high}")
 
 @jit
 def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
@@ -516,19 +518,26 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
     rebin_bin_low = jnp.zeros(n_rebin)
     rebin_bin_high = jnp.zeros(n_rebin)
 
-    rebin_bin_low = rebin_bin_low.at[0].set(rebinned_wavelengths[0] - (rebinned_wavelengths[1] - rebinned_wavelengths[0]) / 2.0)
-    rebin_bin_low = rebin_bin_low.at[1:].set(rebinned_wavelengths[1:] - (rebinned_wavelengths[1:] - rebinned_wavelengths[:-1]) / 2.0)
+    rebin_bin_low = rebin_bin_low.at[0].set(
+        rebinned_wavelengths[0] - (rebinned_wavelengths[1] - rebinned_wavelengths[0]) * 0.5
+        )
+    rebin_bin_low = rebin_bin_low.at[1:].set(
+        rebinned_wavelengths[1:] - (rebinned_wavelengths[1:] - rebinned_wavelengths[:-1]) * 0.5
+        )
 
     rebin_bin_high = rebin_bin_high.at[:-1].set(rebin_bin_low[1:])
-    rebin_bin_high = rebin_bin_high.at[-1].set(rebinned_wavelengths[-1] + (rebinned_wavelengths[-1] - rebinned_wavelengths[-2]) / 2.0)
+    rebin_bin_high = rebin_bin_high.at[-1].set(
+        rebinned_wavelengths[-1] + (rebinned_wavelengths[-1] - rebinned_wavelengths[-2]) * 0.5
+        )
 
-    jax.debug.callback(_raise_incomplete_wavelength_range, (input_wavelengths, rebin_bin_low))
+    jax.debug.callback(_raise_incomplete_wavelength_range, (input_wavelengths, rebinned_wavelengths))
 
-    rebinned_spectrum = rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin)
+    rebinned_spectrum = rebinning_interpolation(
+        input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin
+        )
     return rebinned_spectrum
 
 
-@jit
 def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths):
     n_rebin = rebinned_wavelengths.size
     rebinned_spectrum = jnp.zeros(n_rebin)
@@ -536,8 +545,8 @@ def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, 
     if n_rebin < 2:
         raise ValueError(f"Error: output wavelength array size must be >= 2, but is of size {n_rebin}")
 
-    rebin_bin_low = rebinned_wavelengths - (bin_widths / 2.0)
-    rebin_bin_high = rebinned_wavelengths + (bin_widths / 2.0)
+    rebin_bin_low = rebinned_wavelengths - (bin_widths * 0.5)
+    rebin_bin_high = rebinned_wavelengths + (bin_widths * 0.5)
 
     #if (input_wavelengths[0] >= rebin_bin_low[0]) or (input_wavelengths[-1] <= rebin_bin_high[-1]):
     #    raise ValueError(f"Error: input wavelength array needs to extend at least half a bin width further than output wavelength array on both sides:\n"
