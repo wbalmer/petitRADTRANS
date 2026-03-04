@@ -179,9 +179,9 @@ def get_base_opacities(
     _cloud_absorption_opacities = None
 
     if cloud_anisotropic_scattering_opacities is not None and cloud_absorption_opacities is not None:
-        if len(complete_coverage_clouds) > 0:  # return the opacities with all the clouds
-            _cloud_anisotropic_scattering_opacities = cloud_anisotropic_scattering_opacities
-            _cloud_absorption_opacities = cloud_absorption_opacities
+        #if len(complete_coverage_clouds) > 0:  # return the opacities with all the clouds
+        _cloud_anisotropic_scattering_opacities = cloud_anisotropic_scattering_opacities
+        _cloud_absorption_opacities = cloud_absorption_opacities
     elif cloud_anisotropic_scattering_opacities is None and cloud_absorption_opacities is None:
         pass
 

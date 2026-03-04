@@ -898,10 +898,6 @@ class Radtrans:
         (cloud_continuum_opacities, cloud_continuum_opacities_scattering,
          cloud_scattering_opacities, cloud_absorption_opacities,
          cloud_opacities, _cloud_particles_mean_radii,
-         complete_coverage_cloud_continuum_opacities,
-         complete_coverage_cloud_continuum_opacities_scattering,
-         complete_coverage_cloud_scattering_opacities,
-         complete_coverage_cloud_absorption_opacities,
          self.__scattering_in_transmission) = clouds.compute_cloud_continuum_opacities(
             frequencies=self._frequencies,
             frequency_bins_edges=self._frequency_bins_edges,
@@ -962,23 +958,25 @@ class Radtrans:
                 cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth
             )
         else:"""
-        additional_absorption_opacities = None
-        additional_scattering_opacities = None
-        _cloud_absorption_opacities = None
-        _cloud_scattering_opacities = None
+        #additional_scattering_opacities = None
+        #additional_absorption_opacities = None
+        #_cloud_absorption_opacities = None
+        #_cloud_scattering_opacities = None
 
-        if len(complete_coverage_clouds) > 0:
+        #cloud_absorption_opacities = _cloud_absorption_opacities
+        #cloud_scattering_opacities = _cloud_scattering_opacities
+        """if len(complete_coverage_clouds) > 0:
             # cloud_absorption_opacities is a list
             complete_coverage_cloud_absorption_opacities = _cloud_absorption_opacities
             complete_coverage_cloud_scattering_opacities = _cloud_scattering_opacities
         else:
             cloud_absorption_opacities = _cloud_absorption_opacities
             cloud_scattering_opacities = _cloud_scattering_opacities
+        """
+        #del _cloud_absorption_opacities
+        #del _cloud_scattering_opacities
 
-        del _cloud_absorption_opacities
-        del _cloud_scattering_opacities
-
-        _opacities_first_species = None
+        #_opacities_first_species = None
 
         # Line opacities (calculating them just before calculating the combined opacities reduces peak memory usage)
         opacities = interpolate_species_opacities(
@@ -995,6 +993,14 @@ class Radtrans:
         # TODO: figure out how to make this JIT compatible
         # Can we simplify the logic here?
         # Add cloud opacities
+        continuum_opacities += cloud_continuum_opacities
+        continuum_opacities_scattering += cloud_continuum_opacities_scattering
+
+        #if additional_absorption_opacities is not None:
+        #    continuum_opacities += additional_absorption_opacities
+
+        #if additional_scattering_opacities is not None:
+        #    continuum_opacities_scattering += additional_scattering_opacities
         """if cloud_fraction == 1 and not self.__use_smart_clear_opacities:
             continuum_opacities += cloud_continuum_opacities
             continuum_opacities_scattering += cloud_continuum_opacities_scattering
@@ -1094,10 +1100,7 @@ class Radtrans:
         return (
             opacities, continuum_opacities_scattering,
             cloud_scattering_opacities, cloud_absorption_opacities, cloud_opacities,
-            _cloud_particles_mean_radii, complete_coverage_cloud_continuum_opacities,
-            complete_coverage_cloud_continuum_opacities_scattering,
-            complete_coverage_cloud_scattering_opacities,
-            complete_coverage_cloud_absorption_opacities
+            _cloud_particles_mean_radii
         )
 
     def _calculate_transit_radii(
@@ -1950,9 +1953,7 @@ class Radtrans:
 
         # Cloudy opacities, nominally a list of opacity arrays, but not always
         (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-         cloud_opacities, cloud_particles_mean_radii, complete_coverage_cloud_continuum_opacities,
-         complete_coverage_cloud_continuum_opacities_scattering,
-         complete_coverage_cloud_scattering_opacities, complete_coverage_cloud_absorption_opacities) = (
+         cloud_opacities, cloud_particles_mean_radii) = (
             self._calculate_opacities(
                 temperatures=temperatures,
                 mass_fractions=mass_fractions,
@@ -2475,10 +2476,7 @@ class Radtrans:
         stellar_intensity_arg = stellar_intensities_norm if stellar_intensities_norm is not None else stellar_intensities
 
         (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-         cloud_opacities, cloud_particles_mean_radii, complete_coverage_cloud_continuum_opacities,
-            complete_coverage_cloud_continuum_opacities_scattering,
-            complete_coverage_cloud_scattering_opacities,
-            complete_coverage_cloud_absorption_opacities) = (
+         cloud_opacities, cloud_particles_mean_radii) = (
             self._calculate_opacities(
                 temperatures=temperatures,
                 mass_fractions=mass_fractions,
@@ -3086,10 +3084,7 @@ class Radtrans:
         #stellar_intensity_arg = stellar_intensities_norm if stellar_intensities_norm is not None else stellar_intensities
 
         (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-         cloud_opacities, cloud_particles_mean_radii, complete_coverage_cloud_continuum_opacities,
-            complete_coverage_cloud_continuum_opacities_scattering,
-            complete_coverage_cloud_scattering_opacities,
-            complete_coverage_cloud_absorption_opacities) = (
+         cloud_opacities, cloud_particles_mean_radii) = (
             self._calculate_opacities(
                 temperatures=temperatures,
                 mass_fractions=mass_fractions,

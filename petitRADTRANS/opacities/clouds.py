@@ -70,7 +70,7 @@ def init_clouds_particles_porosity_factor(clouds_particles_porosity_factor, clou
     return clouds_particles_porosity_factor
 
 
-@jit(static_argnames=['cloud_species', 'cloud_particles_radius_distribution'])
+@jit(static_argnames=['cloud_species', 'cloud_particles_radius_distribution', 'complete_coverage_clouds'])
 def compute_cloud_continuum_opacities( # TODO: revert to previous logic
     frequencies: ArrayLike,  # NOTE: use self
     frequency_bins_edges: ArrayLike, # NOTE: use self
@@ -319,10 +319,6 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
             cloud_continuum_opacities, cloud_continuum_opacities_scattering,
             cloud_scattering_opacities, cloud_absorption_opacities,
             cloud_opacities, _cloud_particles_mean_radii,
-            complete_coverage_cloud_continuum_opacities,
-            complete_coverage_cloud_continuum_opacities_scattering,
-            complete_coverage_cloud_scattering_opacities,
-            complete_coverage_cloud_absorption_opacities,
             scattering_in_transmission
         )
 
@@ -341,14 +337,10 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
                 cloud_absorption_opacities,
                 cloud_opacities,
                 jnp.zeros_like(_cloud_particles_mean_radii),
-                jnp.zeros_like(cloud_continuum_opacities),
-                jnp.zeros_like(cloud_continuum_opacities_scattering),
-                jnp.zeros_like(cloud_scattering_opacities),
-                jnp.zeros_like(cloud_absorption_opacities),
                 scattering_in_transmission)
 
     predicate = jnp.any(jnp.array([
-        clouds_have_effect, # This is probably good enough
+        clouds_have_effect,  # This is probably good enough
         len(complete_coverage_clouds) > 0,
         jnp.greater_equal(opaque_cloud_top_pressure, 0.0),
         clouds_loaded_opacities['particles_radii_bins'] is not None
@@ -357,10 +349,6 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
     (cloud_continuum_opacities, cloud_continuum_opacities_scattering,
         cloud_scattering_opacities, cloud_absorption_opacities,
         cloud_opacities, _cloud_particles_mean_radii,
-        complete_coverage_cloud_continuum_opacities,
-        complete_coverage_cloud_continuum_opacities_scattering,
-        complete_coverage_cloud_scattering_opacities,
-        complete_coverage_cloud_absorption_opacities,
         scattering_in_transmission) = lax.cond(
         predicate,
         process_cloud_case,
@@ -375,15 +363,17 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
         scattering_in_transmission
     )
 
+    debug.print("cloud_continuum_opacities {}", cloud_continuum_opacities)
+    debug.print("cloud_continuum_opacities_scattering {}", cloud_continuum_opacities_scattering)
+    debug.print("cloud_scattering_opacities {}", cloud_scattering_opacities)
+    debug.print("cloud_absorption_opacities {}", cloud_absorption_opacities)
+    debug.print("cloud_opacities {}", cloud_opacities)
+    debug.print("_cloud_particles_mean_radii {}",_cloud_particles_mean_radii)
     # TODO: fix outputs now that we aren't using smart_clear_opacities
     return (
         cloud_continuum_opacities, cloud_continuum_opacities_scattering,
         cloud_scattering_opacities, cloud_absorption_opacities,
         cloud_opacities, _cloud_particles_mean_radii,
-        complete_coverage_cloud_continuum_opacities,
-        complete_coverage_cloud_continuum_opacities_scattering,
-        complete_coverage_cloud_scattering_opacities,
-        complete_coverage_cloud_absorption_opacities,
         scattering_in_transmission
     )
 
