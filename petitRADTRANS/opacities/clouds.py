@@ -363,12 +363,6 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
         scattering_in_transmission
     )
 
-    debug.print("cloud_continuum_opacities {}", cloud_continuum_opacities)
-    debug.print("cloud_continuum_opacities_scattering {}", cloud_continuum_opacities_scattering)
-    debug.print("cloud_scattering_opacities {}", cloud_scattering_opacities)
-    debug.print("cloud_absorption_opacities {}", cloud_absorption_opacities)
-    debug.print("cloud_opacities {}", cloud_opacities)
-    debug.print("_cloud_particles_mean_radii {}",_cloud_particles_mean_radii)
     # TODO: fix outputs now that we aren't using smart_clear_opacities
     return (
         cloud_continuum_opacities, cloud_continuum_opacities_scattering,
