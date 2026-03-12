@@ -7,7 +7,7 @@ import json
 import os
 
 import numpy as np
-
+import jax.numpy as jnp
 from .context import petitRADTRANS
 
 version = petitRADTRANS.__version__  # version used to generate last tests

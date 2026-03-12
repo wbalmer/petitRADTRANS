@@ -6,6 +6,7 @@ import sys
 import jax.numpy as jnp
 from jax import config, jit, vmap, lax, ShapeDtypeStruct, pure_callback, debug
 from jax.typing import ArrayLike
+from interpax import interp1d
 
 import numpy as np
 from functools import partial
@@ -51,6 +52,7 @@ def combine_ck_opacities(opacities_fortran_order, g_gauss, weights_gauss):
 
     # g_presort calculation: flat array of weights_gauss(i) * weights_gauss(j)
     g_presort_flat = (weights_gauss[:, None] * weights_gauss[None, :]).ravel()
+    sum_g_presort = jnp.sum(g_presort_flat)
     # g_presort_flat shape: (n_g*n_g,) which is n_sample
 
     # Permute opacities for easier vmap/scan: (layers, frequencies, species, n_g)
@@ -81,7 +83,7 @@ def combine_ck_opacities(opacities_fortran_order, g_gauss, weights_gauss):
                 num_keys=1    # Sort based on the first operand (sampled_opa_weights_0)
             )
 
-            weights_normalized = weights_sorted / jnp.sum(weights_sorted)
+            weights_normalized = weights_sorted / sum_g_presort
 
             cum_sum_weights_normalized = jnp.cumsum(weights_normalized)
             # OPTIMIZATION: Explicit dtype for literals
@@ -92,13 +94,12 @@ def combine_ck_opacities(opacities_fortran_order, g_gauss, weights_gauss):
             g_x_vals = weights_normalized * 0.5 + prev_cum_sum
             g_x_coords = jnp.concatenate([g_x_vals, jnp.array([1.0], dtype=dtype)])
 
-            k_y_intermediate = k_sorted.at[0].set(opac_out_current_lf[0] + spec_opac_lf[0])
             k_y_coords = jnp.concatenate([
-                k_y_intermediate,
-                jnp.array([opac_out_current_lf[-1] + spec_opac_lf[-1]], dtype=dtype)
+                k_sorted,
+                jnp.array([k_sorted[-1]], dtype=dtype)
             ])
 
-            new_opac_out_lf = jnp.interp(g_gauss, g_x_coords, k_y_coords)
+            new_opac_out_lf = interp1d(g_gauss, g_x_coords, k_y_coords)
             return new_opac_out_lf
 
         def skip_combination():
@@ -325,7 +326,7 @@ def m_approximate_ng_source_layer_jax(tn, tn1, tn2, tn3, current_source_layer):
 
     A1 = jnp.minimum(jnp.dot(Q1, Q1), HUGE_SQRT)
     A2 = jnp.minimum(jnp.dot(Q2, Q1), HUGE_SQRT)
-    B1 = jnp.minimum(jnp.dot(Q1, Q2), HUGE_SQRT)
+    B1 = A2
     B2 = jnp.minimum(jnp.dot(Q2, Q2), HUGE_SQRT)
     C1 = jnp.minimum(jnp.dot(Q1, Q3), HUGE_SQRT)
     C2 = jnp.minimum(jnp.dot(Q2, Q3), HUGE_SQRT)
@@ -348,15 +349,6 @@ def m_approximate_ng_source_layer_jax(tn, tn1, tn2, tn3, current_source_layer):
     return lax.cond(cond_skip_ng, no_ng_update_func, ng_update_func)
 
 
-# Vmap over (g, freq) dimensions
-# Input source arrays will be (n_g, n_freq, n_layers)
-vmapped_m_approximate_ng_source = vmap(
-    vmap(
-        m_approximate_ng_source_layer_jax,
-        in_axes=(0, 0, 0, 0, 0)),  # vmap over freq
-    in_axes=(0, 0, 0, 0, 0))   # vmap over g
-
-
 # --- Main Feautrier Radiative Transfer JAX Function ---
 @jit(static_argnames=("emission_geometry_str"))
 def compute_feautrier_radiative_transfer(
@@ -376,7 +368,7 @@ def compute_feautrier_radiative_transfer(
         emission_geometry_str: str = "dayside_ave",
         return_contribution: bool = False,
         iter_scat_max: int = 1000,
-        convergence_threshold: float = 1e-3
+        convergence_threshold: float = 1e-2
         ):
     """Computes the atmospheric emission spectrum using the Feautrier method.
 
@@ -611,7 +603,6 @@ def compute_feautrier_radiative_transfer(
     # --- 5. Scattering Iteration Loop ---
     # State: (current_source_gfl, current_I_plus_surface_gfa, I_H_gfal_prev, J_planet_scat_gfl_prev,
     #         s_n_gfl, s_n1_gfl, s_n2_gfl, s_n3_gfl, iter_idx, converged_flag)
-    @jit
     def scattering_loop_body_func(loop_state_prev):
         (current_source_gfl, current_I_plus_surface_gfa, I_H_gfal_prev,
          s_n_gfl, s_n1_gfl, s_n2_gfl, s_n3_gfl, iter_idx, converged_flag) = loop_state_prev
@@ -619,7 +610,10 @@ def compute_feautrier_radiative_transfer(
         # --- 5a. Solve Feautrier System for each (g,f,a) ---
         # RHS for tridiagonal system: r_gfal (g,f,a,l)
         # Source part: current_source_gfl (g,f,l)
-        r_gfal = jnp.repeat(current_source_gfl[:, :, None, :], n_angles, axis=2)  # (g,f,a,l)
+        r_gfal = jnp.broadcast_to(
+            current_source_gfl[:, :, None, :],
+            (n_g, n_freq_bins, n_angles, n_layers)
+        )  # (g,f,a,l)
 
         reflection_term_gf = surf_refl_2[None, :] *\
             jnp.sum(current_I_plus_surface_gfa * mu_weight_a[None, None, :], axis=2)  # sum over angles
@@ -628,12 +622,24 @@ def compute_feautrier_radiative_transfer(
         r_gfal_surface = 0.5 * (current_I_plus_surface_gfa + I_minus_boundary_gf[:, :, None])  # (g,f,a)
         r_gfal = r_gfal.at[:, :, :, n_layers-1].set(r_gfal_surface)
 
-        # Vectorize solver: solve_tridiagonal_system(a_lower(l-1), b_main(l), c_upper(l-1), r_rhs(l))
-        # Inputs are (g,f,a,dims). Vmap over (g,f,a).
-        # I_J_gfal: (g,f,a,l)
-        I_J_gfal = vmap(vmap(vmap(linalg.solve_tridiagonal_system, in_axes=(0, 0, 0, 0))))(
-            a_lower_diags_gfal, b_main_diags_gfal, c_upper_diags_gfal, r_gfal
+        # Vectorize solver by flattening batch dimensions for a single vmap call.
+        # This improves clarity and may improve performance.
+        original_shape = a_lower_diags_gfal.shape
+        n_layers_dim = original_shape[-1]
+
+        # Flatten (g, f, a) dimensions into a single batch dimension
+        a_flat = a_lower_diags_gfal.reshape(-1, n_layers_dim)
+        b_flat = b_main_diags_gfal.reshape(-1, n_layers_dim)
+        c_flat = c_upper_diags_gfal.reshape(-1, n_layers_dim)
+        r_flat = r_gfal.reshape(-1, n_layers_dim)
+
+        # Solve the batched systems with a single vmap
+        I_J_flat = vmap(linalg.solve_tridiagonal_thomas, in_axes=(0, 0, 0, 0))(
+            a_flat, b_flat, c_flat, r_flat
         )
+
+        # Reshape the result back to the original 4D structure
+        I_J_gfal = I_J_flat.reshape(original_shape)
 
         # --- 5b. Calculate I_H_gfal_current and new I_plus_surface_gfa ---
         I_H_gfal_current = jnp.zeros_like(I_J_gfal)  # Renamed
@@ -678,11 +684,24 @@ def compute_feautrier_radiative_transfer(
         # Apply Ng (iter_idx is 0-based)
         # Fortran: mod(i_iter_scat, 4) == 0. Here: (iter_idx + 1) % 4 == 0
         def ng_accel_func():
-            # vmapped_m_approximate_ng_source expects (g,f,l) inputs
-            accelerated_s_gfl = vmapped_m_approximate_ng_source(
-                next_s_n_gfl, next_s_n1_gfl, next_s_n2_gfl, next_s_n3_gfl, source_after_ali_gfl
+            # Applies Ng acceleration using a single vmap over flattened dimensions.
+            original_shape = next_s_n_gfl.shape
+            n_layers_dim = original_shape[-1]
+
+            # Reshape from (g, f, l) to (g * f, l)
+            s_n_flat = next_s_n_gfl.reshape(-1, n_layers_dim)
+            s_n1_flat = next_s_n1_gfl.reshape(-1, n_layers_dim)
+            s_n2_flat = next_s_n2_gfl.reshape(-1, n_layers_dim)
+            s_n3_flat = next_s_n3_gfl.reshape(-1, n_layers_dim)
+            current_source_flat = source_after_ali_gfl.reshape(-1, n_layers_dim)
+
+            # Apply a single vmap over the flattened batch dimension
+            accelerated_flat = vmap(m_approximate_ng_source_layer_jax)(
+                s_n_flat, s_n1_flat, s_n2_flat, s_n3_flat, current_source_flat
             )
-            return accelerated_s_gfl
+
+            # Reshape the result back to the original (g, f, l) structure
+            return accelerated_flat.reshape(original_shape)
 
         final_updated_source_gfl = lax.cond(
             (iter_idx > 0) & ((iter_idx + 1) % 4 == 0),  # iter_idx is 0 to iter_scat_max-1
@@ -696,13 +715,6 @@ def compute_feautrier_radiative_transfer(
         max_rel_change = jnp.max(1 - total_I_H_top_prev / total_I_H_top_current)
         new_converged_flag = (iter_idx > n_iterations_min_convergence) &\
             (max_rel_change < convergence_threshold)
-
-        # TODO: delete debugging
-        #debug.print("Iteration {}", iter_idx)
-        #debug.print("r_gfal {}", r_gfal)
-        #debug.print("new_I_plus_surface_gfa {}", new_I_plus_surface_gfa)
-        #debug.print("total_I_H_top_current {}", total_I_H_top_current)
-        #debug.print("final_updated_source_gfl {}", final_updated_source_gfl)
 
         # Update loop state
         next_loop_state = (final_updated_source_gfl, new_I_plus_surface_gfa, I_H_gfal_current,
@@ -742,9 +754,11 @@ def compute_feautrier_radiative_transfer(
     # flux_f (n_freq_bins) = sum_g sum_a (-I_H_gfal(g,f,a,l=0) * pi_4 * w_gauss_g * mu_w_a)
     # I_H_gfal_final is (g,f,a,l). We need I_H at top (l=0).
     I_H_top_gfa = I_H_gfal_final[:, :, :, 0]  # (g,f,a)
-    flux_f = jnp.sum(
-        -I_H_top_gfa * pi_4 * weights_gauss[:, None, None] * mu_weight_a[None, None, :],
-        axis=(0, 2)  # Sum over g and angles
+    flux_f = -pi_4 * jnp.einsum(
+        'gfa,g,a->f',
+        I_H_top_gfa,
+        weights_gauss,
+        mu_weight_a
     )
 
     emission_contribution_lf = jnp.zeros((n_layers, n_freq_bins))

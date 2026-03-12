@@ -1,142 +1,168 @@
-"""
-JAX implementation of fortran_core.math
-"""
 import jax.numpy as jnp
-from jax import jit, vmap, lax
-#from  petitRADTRANS.fortran_radtrans_core import math as fmath
+from jax import lax, jit
 
-
-# TODO: delete old tridag call
-"""@jit
-def wrap_tridag(a, b, c, r, I_plus, I_minus):
-    # deprecated
-    # Set initial value of r
-    # freq, struct, glen, nmu
-    r_updated = jnp.zeros((r.shape[0], r.shape[1], r.shape[2], I_plus.shape[2]))
-    r_updated = r_updated.at[:, :, :, :].set(r[:, :, :, None])
-    r_updated = r_updated.at[:, -1, :, :].set(0.5 * (I_plus + I_minus[:, :, None]))
-    # Calculate I_J and I_H using vectorized computation
-    I_J = vmap(vmap(vmap(
-                wrap_callback,
-                in_axes=(1, 1, 1, 1)),
-            in_axes=(2, 2, 2, 2)),
-        in_axes=(0, 0, 0, 0))(a, b, c, r_updated)
-    return I_J
-
-def wrap_callback(a, b, c, r):
-    result_shape = ShapeDtypeStruct(r.shape, r.dtype)
-    return pure_callback(fmath.tridag_own, result_shape, a, b, c, r)"""
-
+HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float32).max)
 
 @jit
-def solve_tridiagonal_system(a, b, c, d):
-    '''
-    Solves a tridiagonal system of linear equations Ax = d using the Thomas algorithm (TDMA).
+def solve_tridiagonal_thomas(a, b, c, d):
+    """
+    Solves a tridiagonal system of equations using the Thomas algorithm.
+    The system is of the form Ax = d, where A is a tridiagonal matrix.
+    The inputs are Jax arrays.
+    The implementation is a Jax port of the naive implementation of the Thomas algorithm.
+    See https://en.wikipedia.org/wiki/Tridiagonal_matrix_algorithm
+    WARNING: This implementation is not stable for all matrices. It is recommended to use it only for
+    diagonally dominant matrices.
+    See https://en.wikipedia.org/wiki/Tridiagonal_matrix_algorithm#Numerical_stability
 
     Args:
-        a (jax.numpy.ndarray): The lower diagonal of matrix A. If length N, a[0] is ignored.
-        b (jax.numpy.ndarray): The main diagonal of matrix A. Length N.
-        c (jax.numpy.ndarray): The upper diagonal of matrix A. If length N, c[N-1] is ignored.
-        d (jax.numpy.ndarray): The right-hand side vector. Length N.
+        a (jnp.ndarray): The lower diagonal of the matrix A.
+        b (jnp.ndarray): The main diagonal of the matrix A.
+        c (jnp.ndarray): The upper diagonal of the matrix A.
+        d (jnp.ndarray): The right-hand side of the equation.
 
     Returns:
-        jax.numpy.ndarray: The solution vector x. Length N.
+        jnp.ndarray: The solution of the system.
+    """
+    n = b.shape[-1]
+    c_p = jnp.zeros_like(c)
+    d_p = jnp.zeros_like(d)
 
-    Notes:
-    - Assumes a, b, c, d are JAX arrays of equal length N.
-    - For the matrix A:
-        - A_ii = b_i
-        - A_{i,i-1} = a_i  (for i = 1 to N-1, effectively using a[1]...a[N-1] from input `a`)
-        - A_{i,i+1} = c_i  (for i = 0 to N-2, effectively using c[0]...c[N-2] from input `c`)
-    - Refer to http://en.wikipedia.org/wiki/Tridiagonal_matrix_algorithm
-    and to http://www.cfd-online.com/Wiki/Tridiagonal_matrix_algorithm_-_TDMA_(Thomas_algorithm)
-    '''
-    nf = len(d)  # number of equations
-    # Ensure inputs are JAX arrays. If they are already, this is a no-op.
-    ac, bc_fwd, cc, dc_fwd = map(jnp.array, (a, b, c, d))
+    # Forward sweep
+    c_p = c_p.at[..., 0].set(c[..., 0] / b[..., 0])
+    d_p = d_p.at[..., 0].set(d[..., 0] / b[..., 0])
 
-    # Forward elimination
-    # Original ac and cc are passed through, bc_fwd and dc_fwd are modified.
-    _, bc_fwd, _, dc_fwd = lax.fori_loop(
-        1,
-        nf,
-        _thomas_forward_elimination_body,
-        (ac, bc_fwd, cc, dc_fwd)  # cc is original upper diagonal
-    )
+    def forward_sweep(i, val):
+        c_p, d_p = val
+        denominator = b[..., i] - a[..., i] * c_p[..., i - 1]
+
+        # if jnp.any(jnp.abs(denominator) < 1e-10):
+        #     raise ValueError("The matrix is singular.")
+
+        c_p = c_p.at[..., i].set(c[..., i] / denominator)
+        d_p = d_p.at[..., i].set((d[..., i] - a[..., i] * d_p[..., i - 1]) / denominator)
+
+        return c_p, d_p
+
+    c_p, d_p = lax.fori_loop(1, n - 1, forward_sweep, (c_p, d_p))
+
+    # Handle the last element
+    denominator = b[..., n - 1] - a[..., n - 1] * c_p[..., n - 2]
+    d_p = d_p.at[..., n - 1].set((d[..., n - 1] - a[..., n - 1] * d_p[..., n - 2]) / denominator)
 
     # Backward substitution
-    x = jnp.zeros(nf, dtype=d.dtype)
-    x = x.at[-1].set(dc_fwd[-1] / bc_fwd[-1])
+    x = jnp.zeros_like(d)
+    x = x.at[..., -1].set(d_p[..., -1])
 
-    # Loop from nf-2 down to 0
-    # The loop variable `i` goes from 0 to nf-2.
-    # We calculate x[nf-2-i] in each iteration.
-    x = lax.fori_loop(
-        0,
-        nf - 1,  # Iterates nf-1 times, for i = 0, ..., nf-2
-        lambda i, x_carry: _thomas_backward_substitution_body(i, x_carry, nf, cc, bc_fwd, dc_fwd),
-        x
-    )
-    return x
+    def backward_substitution(i, x):
+        x = x.at[..., i].set(d_p[..., i] - c_p[..., i] * x[..., i + 1])
+        return x
 
+    x = lax.fori_loop(0, n - 1, lambda i, x: backward_substitution(n - 2 - i, x), x)
 
-def _thomas_forward_elimination_body(it, val):
-    ac, bc, cc, dc = val
-    # it ranges from 1 to nf-1
-    # ac[it] is a_i in standard notation (for row i)
-    # bc[it-1] is the modified b_{i-1}
-    # cc[it-1] is c_{i-1} in standard notation (for row i-1)
-    mc = ac[it] / bc[it-1]
-    bc_new_it = bc[it] - mc * cc[it-1]
-    dc_new_it = dc[it] - mc * dc[it-1]
-    bc = bc.at[it].set(bc_new_it)
-    dc = dc.at[it].set(dc_new_it)
-    return (ac, bc, cc, dc)
+    return jnp.clip(x, max=HUGE_SQRT)
 
-
-def _thomas_backward_substitution_body(i, x_carry, nf, cc, bc_fwd, dc_fwd):
-    # i iterates from 0 to nf-2 (for a total of nf-1 iterations)
-    # We are calculating x[idx] where idx goes from nf-2 down to 0.
-    idx = nf - 2 - i
-    # x_carry[idx+1] is x_{idx+1} which has been computed in the previous step (or initialized for x[nf-1])
-    # cc[idx] is the original upper diagonal element c_idx
-    # bc_fwd[idx] is the modified main diagonal element from forward elimination
-    # dc_fwd[idx] is the modified RHS element from forward elimination
-    x_val = (dc_fwd[idx] - cc[idx] * x_carry[idx+1]) / bc_fwd[idx]
-    x_carry = x_carry.at[idx].set(x_val)
-    return x_carry
 
 
 @jit
-def linear_fit(x, y):
+def solve_tridiagonal_pcr(a, b, c, d):
     """
-    Calculate slope and y-axis intercept of x,y data, assuming zero error on data.
-    Translated from Fortran linear_fit.
+    Solves a batch of tridiagonal systems using the parallel cyclic reduction (PCR) algorithm.
+
+    This implementation is based on a parallel CUDA implementation and is suitable for GPU execution.
+    For the method to be numerically stable, the matrix should be diagonally dominant.
+
+    The shapes of the input arrays should be (..., N), where (...) is one or more batch dimensions
+    and N is the size of each tridiagonal system.
+
+    Source:
+    https://github.com/tanim72/15418-final-project
 
     Args:
-        x: 1D array of x values.
-        y: 1D array of y values.
+        a (jnp.ndarray): The lower diagonal of the matrix A, shape (..., N).
+                         a[..., 0] should be 0.
+        b (jnp.ndarray): The main diagonal of the matrix A, shape (..., N).
+        c (jnp.ndarray): The upper diagonal of the matrix A, shape (..., N).
+                         c[..., -1] should be 0.
+        d (jnp.ndarray): The right-hand side of the equation, shape (..., N).
 
     Returns:
-        Tuple (a, b) where a is the y-intercept and b is the slope.
+        jnp.ndarray: The solution of the system, shape (..., N).
     """
-    ndata = x.shape[0]
-    sum_x = jnp.sum(x)
-    sum_y = jnp.sum(y)
-    sum_xy = jnp.sum(x * y)
-    sum_x_sq = jnp.sum(x**2)
+    original_shape = a.shape
+    N = original_shape[-1]
 
-    # Fortran: b = (sum(x)*sum(y)/dble(ndata) - sum(x*y))/ &
-    #             (sum(x)**2d0/dble(ndata) - sum(x**2d0))
-    denominator = sum_x**2 / ndata - sum_x_sq
-    # Handle potential division by zero if all x values are the same
-    b = lax.cond(
-        jnp.abs(denominator) < 1e-15,  # Use a small tolerance
-        lambda: 0.0,  # If denominator is zero, slope is effectively zero
-        lambda: (sum_x * sum_y / ndata - sum_xy) / denominator
+    if N == 0:
+        return jnp.zeros_like(d)
+
+    # Flatten batch dimensions to (M, N)
+    M = a.size // N
+    a_flat = a.reshape(M, N)
+    b_flat = b.reshape(M, N)
+    c_flat = c.reshape(M, N)
+    d_flat = d.reshape(M, N)
+
+    # --- Define shift operations for accessing neighbors ---
+    def shift_right(x, s):
+        """Shifts the array to the right, padding with zeros. Accesses x[i-s]."""
+        rolled = jnp.roll(x, shift=s, axis=-1)
+        mask = jnp.arange(x.shape[-1]) < s
+        return jnp.where(mask, 0.0, rolled)
+
+    def shift_left(x, s):
+        """Shifts the array to the left, padding with zeros. Accesses x[i+s]."""
+        rolled = jnp.roll(x, shift=-s, axis=-1)
+        mask = jnp.arange(x.shape[-1]) >= x.shape[-1] - s
+        return jnp.where(mask, 0.0, rolled)
+
+    # PCR is a loop that doubles the stride at each iteration
+    initial_val = (a_flat, b_flat, c_flat, d_flat, 1)
+
+    def pcr_body_fun(val):
+        """One step of the parallel cyclic reduction."""
+        a_pcr, b_pcr, c_pcr, d_pcr, stride = val
+
+        # --- Get values from neighbors at i-stride and i+stride ---
+        a_left = shift_right(a_pcr, stride)
+        b_left = shift_right(b_pcr, stride)
+        c_left = shift_right(c_pcr, stride)
+        d_left = shift_right(d_pcr, stride)
+
+        a_right = shift_left(a_pcr, stride)
+        b_right = shift_left(b_pcr, stride)
+        c_right = shift_left(c_pcr, stride)
+        d_right = shift_left(d_pcr, stride)
+
+        # --- Calculate reduction factors alpha and gamma ---
+        # Use jnp.where to avoid division by zero if b_left/b_right are zero
+        # This is safe for diagonally-dominant systems.
+        alpha = jnp.where(b_left != 0, -a_pcr / b_left, 0.)
+        gamma = jnp.where(b_right != 0, -c_pcr / b_right, 0.)
+
+        # --- Update the diagonals and the right-hand side ---
+        # The update corresponds to climinating off-diagonal elements
+        b_new = b_pcr + alpha * c_left + gamma * a_right
+        d_new = d_pcr + alpha * d_left + gamma * d_right
+        a_new = alpha * a_left
+        c_new = gamma * c_right
+
+        return a_new, b_new, c_new, d_new, stride * 2
+
+    def pcr_cond_fun(val):
+        """Loop until stride is equal to or greater than N."""
+        *_, stride = val
+        return stride < N
+
+    # --- Run the reduction loop ---
+    a_final, b_final, c_final, d_final, _ = lax.while_loop(
+        pcr_cond_fun, pcr_body_fun, initial_val
     )
 
-    # Fortran: a = sum(y-b*x)/dble(ndata)
-    a = jnp.sum(y - b * x) / ndata
+    # --- Final solve ---
+    # After reduction, the matrix is diagonal (a_final and c_final are zero)
+    # The solution is simply d / b
+    # Add epsilon to avoid division by zero in case of singular matrices.
+    x_flat = d_final / (b_final + 1e-12)
 
-    return a, b
+    # Reshape solution back to original batch dimensions
+    return x_flat.reshape(original_shape)

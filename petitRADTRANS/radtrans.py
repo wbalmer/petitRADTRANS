@@ -584,7 +584,7 @@ class Radtrans:
             return_clear_spectrum=return_clear_spectrum
         )
 
-        auto_anisotropic_cloud_scattering = False
+        auto_anisotropic_cloud_scattering = True
 
         if self._anisotropic_cloud_scattering == 'auto':
             self._anisotropic_cloud_scattering = is_emission
@@ -2507,8 +2507,8 @@ class Radtrans:
             ))
 
         # TODO: not sure if this is jittable
-        if auto_anisotropic_cloud_scattering:
-            self._anisotropic_cloud_scattering = 'auto'
+        #if auto_anisotropic_cloud_scattering:
+        self._anisotropic_cloud_scattering = auto_anisotropic_cloud_scattering
 
         # This basically just uses non complete_cloud_coverage cases
         (_opacities, _continuum_opacities_scattering,

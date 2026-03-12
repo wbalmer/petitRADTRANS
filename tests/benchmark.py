@@ -11,6 +11,9 @@ from typing import Callable
 
 import h5py
 from jax import config
+import jax.numpy as jnp
+import numpy as np
+
 config.update("jax_enable_x64", True)
 from .context import petitRADTRANS
 from .utils import tests_references_directory, tests_error_directory
@@ -398,8 +401,11 @@ class Benchmark:
                 raise KeyError(f"reference file output '{output_id}' not in test output dict")
 
             try:
+                comparison_output = test_outputs[output_id]
+                if isinstance(comparison_output, jnp.ndarray):
+                    comparison_output = np.array(comparison_output)
                 petitRADTRANS.utils.check_all_close(
-                    test_outputs[output_id],
+                    comparison_output,
                     reference_output,
                     atol=self._absolute_tolerance,
                     rtol=self._relative_tolerance

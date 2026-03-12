@@ -2,7 +2,7 @@ import copy
 import jax.numpy as jnp
 from jax import lax, debug, jit, config
 from jax.typing import ArrayLike
-#from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
+from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.radtrans_core import radiative_transfer_core, cloud_core
 from petitRADTRANS.opacities.opacities import CloudOpacity, Opacity
 from petitRADTRANS.opacities.rayleigh import compute_power_law_opacities
@@ -602,7 +602,7 @@ def _compute_cloud_opacities(
             )
 
             (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
-                 cloud_scattering_reduction_factor) = \
+                cloud_scattering_reduction_factor) = \
                     cloud_core.compute_cloud_log_normal_particles_distribution_opacities_grid(
                         atmosphere_densities=atmospheric_densities,
                         clouds_particles_densities=_cloud_particles_density,
@@ -664,17 +664,39 @@ def _compute_cloud_opacities(
                     target_pressure=target_pressure
                 )
 
+    #jnp.save("/Users/nasedkin/Documents/test_jax_prt/clouds_total_absorption_opacities.npy", clouds_total_absorption_opacities)
 
     # Take into account anisotropy (= 1 - asymmetry_parameter)
+    """(cloud_final_absorption_opacities, cloud_anisotropic_extinctions,
+        cloud_scattering_reduction_factor, cloud_isotropic_extinctions) = \
+        fcore.interpolate_cloud_opacities(
+            clouds_total_absorption_opacities,
+            clouds_total_scattering_opacities,
+            cloud_scattering_reduction_factor,
+            clouds_loaded_opacities['wavelengths'],
+            frequency_bins_edges
+        )"""
+
+    #jnp.save("/Users/nasedkin/Documents/test_jax_prt/fortran_cloud_final_absorption_opacities.npy", cloud_final_absorption_opacities)
+    #jnp.save("/Users/nasedkin/Documents/test_jax_prt/fortran_cloud_anisotropic_extinctions.npy", cloud_anisotropic_extinctions)
+    #jnp.save("/Users/nasedkin/Documents/test_jax_prt/fortran_cloud_scattering_reduction_factor.npy", cloud_scattering_reduction_factor)
+    #jnp.save("/Users/nasedkin/Documents/test_jax_prt/fortran_cloud_isotropic_extinctions.npy", cloud_isotropic_extinctions)
+
+
     (cloud_final_absorption_opacities, cloud_anisotropic_extinctions,
         cloud_scattering_reduction_factor, cloud_isotropic_extinctions) = \
         cloud_core.interpolate_cloud_opacities(
             clouds_total_absorption_opacities,
             clouds_total_scattering_opacities,
             cloud_scattering_reduction_factor,
-            clouds_loaded_opacities['wavelengths'],
+            clouds_loaded_opacities['wavelengths'], #cm
             frequency_bins_edges
         )
+
+    #jnp.save("/Users/nasedkin/Documents/test_jax_prt/jax_cloud_final_absorption_opacities.npy", cloud_final_absorption_opacities)
+    #jnp.save("/Users/nasedkin/Documents/test_jax_prt/jax_cloud_anisotropic_extinctions.npy", cloud_anisotropic_extinctions)
+    #jnp.save("/Users/nasedkin/Documents/test_jax_prt/jax_cloud_scattering_reduction_factor.npy", cloud_scattering_reduction_factor)
+    #jnp.save("/Users/nasedkin/Documents/test_jax_prt/jax_cloud_isotropic_extinctions.npy", cloud_isotropic_extinctions)
 
     continuum_opacities_scattering = lax.cond(
         anisotropic_cloud_scattering,
@@ -692,7 +714,7 @@ def _compute_cloud_opacities(
         return cloud_anisotropic_scattering_opacities, cloud_absorption_opacities
 
     cloud_anisotropic_scattering_opacities, cloud_absorption_opacities = lax.cond(
-        sum_opacities & jnp.logical_not(photospheric_cloud_optical_depths is None),
+        jnp.logical_and(sum_opacities, jnp.logical_not(photospheric_cloud_optical_depths is None)),
         sum_cloud_absorption_opacities,
         lambda a, b: (jnp.zeros_like(a), jnp.zeros_like(b)),
         cloud_anisotropic_extinctions,
@@ -705,8 +727,8 @@ def _compute_cloud_opacities(
     # This included scattering plus absorption
     # TODO: figure out cloud_opacities and how to return contribution
     #if return_cloud_contribution:
-    opacity_shape = (min_cloud_shape, frequency_bins_edges.size - 1, min_cloud_shape, pressures.size)
-    cloud_opacities = cloud_anisotropic_extinctions#.reshape(opacity_shape)
+    #opacity_shape = (min_cloud_shape, frequency_bins_edges.size - 1, min_cloud_shape, pressures.size)
+    cloud_opacities = cloud_anisotropic_extinctions  #.reshape(opacity_shape)
     #else:
     #    cloud_opacities = None
 

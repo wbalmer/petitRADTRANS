@@ -11,24 +11,24 @@ module math
     implicit none
 
     double precision, parameter :: cst_pi = 3.14159265359d0  ! TODO update 3.141592653589793d0
-    
+
     contains
         subroutine linear_fit(x, y, ndata, a, b)
             ! """
             ! Calculate slope and y-axis intercept of x,y data, assuming zero error on data.
             ! """
             implicit none
-            
+
             integer, intent(in) :: ndata
             double precision, intent(in) :: x(ndata), y(ndata)
             double precision, intent(out) :: a, b
-            
+
             b = (sum(x)*sum(y)/dble(ndata) - sum(x*y))/ &
                 (sum(x)**2d0/dble(ndata) - sum(x**2d0))
             a = sum(y-b*x)/dble(ndata)
         end subroutine  linear_fit
-        
-        
+
+
         subroutine linear_interpolate(x, y, x_out, input_len, output_len, y_out)
             ! """Implementation of linear interpolation function.
             !
@@ -57,35 +57,35 @@ module math
                 delta_x = x_out(i) - x(interp_ind(i))
                 y_out(i) = y(interp_ind(i)) + ((dy / dx) * delta_x)
             enddo
-            
+
             contains
                 subroutine find_interpolate_indices_(binbord,binbordlen,arr,arrlen,intpint)
                     ! """
                     ! Self-written? Too long ago... Check if not rather from numrep...
                     ! """
                   implicit none
-        
+
                   integer            :: binbordlen, arrlen, intpint(arrlen)
                   double precision   :: binbord(binbordlen),arr(arrlen)
                   integer            :: i_arr
                   integer            :: pivot, k0, km
-        
+
                   ! carry out a binary search for the interpolation bin borders
                   do i_arr = 1, arrlen
-        
+
                      if (arr(i_arr) >= binbord(binbordlen)) then
                         intpint(i_arr) = binbordlen - 1
                      else if (arr(i_arr) <= binbord(1)) then
                         intpint(i_arr) = 1
                 !!$        write(*,*) 'yes', arr(i_arr),binbord(1)
                      else
-        
+
                         k0 = 1
                         km = binbordlen
                         pivot = (km+k0)/2
-        
+
                         do while(km-k0>1)
-        
+
                            if (arr(i_arr) >= binbord(pivot)) then
                               k0 = pivot
                               pivot = (km+k0)/2
@@ -93,15 +93,15 @@ module math
                               km = pivot
                               pivot = (km+k0)/2
                            end if
-        
+
                         end do
-        
+
                         intpint(i_arr) = k0
-        
+
                      end if
-        
+
                   end do
-        
+
                 end subroutine find_interpolate_indices_
         end subroutine  linear_interpolate
 
@@ -120,14 +120,14 @@ module math
             integer, intent (in) :: arr_len
             double precision, intent (in) :: input_array(arr_len)
             integer, intent (out) :: sorted_indices(arr_len)
-            
+
             integer :: length_a, length_c, id_tmp_1, id_tmp_2
             integer :: n_indices, i, i0, i1, i1_a, i0_a, i_b
             integer, dimension(size(sorted_indices)) :: sorted_indices_tmp
             double precision :: value_a, value_b
 
             n_indices = min(size(input_array), size(sorted_indices))
-            
+
             select case (n_indices)
                 case (:0)
                     return
@@ -137,7 +137,7 @@ module math
                 case default
                     continue
             end select
-            
+
             ! Fill-in the index array, creating ordered couples
             do i = 2, n_indices, 2
                 if (input_array(i - 1) <= input_array(i)) then
@@ -148,11 +148,11 @@ module math
                     sorted_indices(i) = i - 1
                 end if
             end do
-            
+
             if (modulo(n_indices, 2) /= 0) then
                 sorted_indices(n_indices) = n_indices
             end if
-            
+
             ! We will now have ordered subsets A - B - A - B - ...
             ! and merge A and B couples into     C   -   C   - ...
             length_a = 2
@@ -163,7 +163,7 @@ module math
                 if (n_indices <= 2) then
                     exit
                 end if
-            
+
                 !   Loop on merges of A and B into C
                 do i = 0, n_indices - 1, 4
                     if ((i+4) > n_indices) then
@@ -175,7 +175,7 @@ module math
                         if (input_array(sorted_indices(i+2)) <= input_array(sorted_indices(i+3))) then
                             exit
                         end if
-                        
+
                         if (input_array(sorted_indices(i+1)) <= input_array(sorted_indices(i+3))) then
                             ! 1 3 2
                             id_tmp_2 = sorted_indices(i+2)
@@ -188,10 +188,10 @@ module math
                             sorted_indices(i+3) = sorted_indices(i+2)
                             sorted_indices(i+2) = id_tmp_1
                         end if
-                        
+
                         exit
                     end if
-                    
+
                     ! 1 2 3 4
                     if (input_array(sorted_indices(i+2)) <= input_array(sorted_indices(i+3))) then
                         cycle
@@ -201,7 +201,7 @@ module math
                     if (input_array(sorted_indices(i+1)) <= input_array(sorted_indices(i+3))) then
                         id_tmp_2 = sorted_indices(i+2)
                         sorted_indices(i+2) = sorted_indices(i+3)
-                        
+
                         if (input_array(id_tmp_2) <= input_array(sorted_indices(i+4))) then
                             ! 1 3 2 4
                             sorted_indices(i+3) = id_tmp_2
@@ -215,7 +215,7 @@ module math
                         id_tmp_1 = sorted_indices(i+1)
                         id_tmp_2 = sorted_indices(i+2)
                         sorted_indices(i+1) = sorted_indices(i+3)
-                        
+
                         if (input_array(id_tmp_1) <= input_array(sorted_indices(i+4))) then
                             sorted_indices(i+2) = id_tmp_1
                             if (input_array(id_tmp_2) <= input_array(sorted_indices(i+4))) then
@@ -246,7 +246,7 @@ module math
                 if (length_a >= n_indices) then
                     exit
                 end if
-                
+
                 i1 = 0
                 length_c = 2 * length_c
 
@@ -256,15 +256,15 @@ module math
                     i = i1 + 1
                     i1_a = i1 + length_a
                     i1 = i1 + length_c
-                    
+
                     if (i1 >= n_indices) then
                         if (i1_a >= n_indices) then
                             exit
                         end if
-                        
+
                         i1 = n_indices
                     end if
-                    
+
                     i0_a = 1
                     i_b = i1_a + 1
 
@@ -295,17 +295,17 @@ module math
                                 sorted_indices(i0+1:i1) = sorted_indices_tmp(i0_a:length_a)
                                 exit
                             end if
-                            
+
                             value_b = input_array (sorted_indices(i_b))
                         else
                             sorted_indices(i0) = sorted_indices_tmp(i0_a)
                             i0_a = i0_a + 1
-                            
+
                             if (i0_a > length_a) then
                                 ! Only B still with unprocessed values
                                 exit
                             end if
-                            
+
                             value_a = input_array (sorted_indices_tmp(i0_a))
                         end if
 
@@ -319,7 +319,7 @@ module math
             return
         end subroutine merge_sort
 
-        
+
         subroutine merge_sort_wrapper(length, array)
             implicit none
             integer, intent(in) :: length
@@ -331,8 +331,8 @@ module math
             array(:,1) = array(inds,1)
             array(:,2) = array(inds,2)
         end subroutine merge_sort_wrapper
-        
-        
+
+
         subroutine quicksort_swap_wrapper(length, array)
           implicit none
           integer, intent(in) :: length
@@ -346,7 +346,7 @@ module math
           array(:,2) = swapped_array(2,:)
         end subroutine quicksort_swap_wrapper
 
-        
+
         recursive subroutine quicksort_2d_swapped(length, array)
             implicit none
             integer, intent(in) :: length
@@ -357,23 +357,23 @@ module math
                ind_down_start
             double precision :: buffer(2), compare(2)
             logical :: found
-            
+
             found = .False.
-            
+
             partition_index = length
             compare = array(:, partition_index)
-            
+
             ind_down_start = length-1
-            
+
             do ind_up = 1, length-1
                  if (array(1,ind_up) > compare(1)) then
                     found = .True.
-                
+
                     do ind_down = ind_down_start, 1, -1
                        if (ind_down == ind_up) then
                           array(:,partition_index) = array(:,ind_down)
                           array(:,ind_down) = compare
-                
+
                           if ((length-ind_down) > 1) then
                              call quicksort_2d_swapped(length-ind_down, array(:,ind_down+1:length))
                           end if
@@ -391,7 +391,7 @@ module math
                     end do
                  end if
             end do
-            
+
             if (found .EQV. .FALSE.) then
                  if ((length-1) > 1 ) then
                     call quicksort_2d_swapped(length-1, array(:,1:length-1))
@@ -640,7 +640,7 @@ module cloud_utils
     ! Useful functions for cloud simulation.
     ! """
     implicit none
-    
+
     contains
         subroutine compute_turbulent_settling_speed(x, reference_gravity, rho, clouds_particles_densities,&
                                                     temperatures, mean_molar_masses, &
@@ -1564,7 +1564,7 @@ module fortran_radtrans_core
                     end do
 
                     if (adaptive_feautrier_iterations) then
-                        ! Minimum number of iterations per frequency based 
+                        ! Minimum number of iterations per frequency based
                         ! on the photon destruction probabilities
                         n_iterations_min(l, i) = &
                             1 + int(maxval(1d0/photon_destruction_probabilities_(:, l, i)))
@@ -1737,7 +1737,7 @@ module fortran_radtrans_core
 
                             I_H(n_layers, j) = 0d0
                         end do  ! emission_cos_angles
-                        
+
                         ! Test if the flux has converged
                         flux_tmp_old = flux_tmp
                         flux_tmp = 0d0
@@ -1843,7 +1843,7 @@ module fortran_radtrans_core
                         emission_contribution(:,i_freq)/sum(emission_contribution(:,i_freq))
                 end do
             end if
-                
+
         end subroutine compute_feautrier_radiative_transfer
 
         subroutine m_approximate_ng_source(source_n,source_n1,source_n2,source_n3,source, &
@@ -1923,7 +1923,7 @@ module fortran_radtrans_core
             ! Calculate tau_scat with 2nd order accuracy.
             ! """
             implicit none
-            
+
             ! I/O
             integer, parameter                           :: n_species = 1
             integer, intent(in)                          :: n_layers, n_frequencies, n_g
@@ -1940,12 +1940,12 @@ module fortran_radtrans_core
                kappa_im(n_g,n_frequencies,n_species), kappa_ip(n_g,n_frequencies,n_species)
             double precision                             :: opacities_(n_g,n_frequencies,n_species,n_layers)
             logical                                      :: second_order
-            
+
             optical_depths = 0d0
             second_order = .FALSE.
-            
+
             opacities_ = opacities
-            
+
             if (scattering_in_emission) then
                 do i_g = 1, n_g
                     opacities_(i_g,:,1,:) = opacities_(i_g,:,1,:) &
@@ -1953,12 +1953,12 @@ module fortran_radtrans_core
                     photon_destruction_probabilities(i_g,:,:) = &
                         continuum_opacities_scattering(:,:) / opacities_(i_g,:,1,:)
                 end do
-                
+
                 photon_destruction_probabilities = 1d0 - photon_destruction_probabilities
             else
                 photon_destruction_probabilities = 1d0
             end if
-            
+
             if (second_order) then
                 do i_struc = 2, n_layers
                     if (i_struc == n_layers) then
@@ -1975,7 +1975,7 @@ module fortran_radtrans_core
                         optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) &
                             + ((kappa_i+kappa_im)/2d0-gamma_second/6d0) &
                             /reference_gravity*(pressures(i_struc)-pressures(i_struc-1))
-                        
+
                         do i_spec = 1, n_species
                             do i_freq = 1, n_frequencies
                             do i_g = 1, n_g
@@ -1991,11 +1991,11 @@ module fortran_radtrans_core
                                             - optical_depths(i_g,i_freq,i_spec,i_struc-2))*0.01d0
                                     end if
                                 end if
-                                
+
                                 del_tau_lower_ord = (kappa_i(i_g,i_freq,i_spec)+ &
                                 kappa_im(i_g,i_freq,i_spec))/2d0/reference_gravity* &
                                 (pressures(i_struc)-pressures(i_struc-1))
-                                
+
                                 if ((optical_depths(i_g,i_freq,i_spec,i_struc) - &
                                         optical_depths(i_g,i_freq,i_spec,i_struc-1)) > del_tau_lower_ord) then
                                     optical_depths(i_g,i_freq,i_spec,i_struc) = &
@@ -2795,9 +2795,9 @@ module fortran_radtrans_core
             ! Calculate the contribution function of the transmission spectrum.
             ! """
             use physics, only: cst_amu, cst_k
-            
+
             implicit none
-            
+
             logical, intent(in)                         :: scattering_in_transmission
             logical, intent(in)                         :: variable_gravity
             integer, intent(in)                         :: n_frequencies, n_layers, n_g, n_species
@@ -2811,7 +2811,7 @@ module fortran_radtrans_core
             double precision, intent(in)                :: transit_radii_squared(n_frequencies)
             double precision, intent(out)               :: transmission_contribution(n_layers,n_frequencies), &
                 radius_hydrostatic_equilibrium(n_layers)
-            
+
             integer                                     :: i_str, i_freq,  i_spec, j_str, i_leave_str
             double precision                            :: P0_cgs, rho(n_layers)
             double precision                            :: alpha_t2(n_g,n_frequencies,n_species,n_layers-1)
@@ -2819,52 +2819,52 @@ module fortran_radtrans_core
                t_graze_wlen_int(n_layers,n_frequencies), alpha_t2_scat(n_frequencies,n_layers-1), &
                t_graze_scat(n_frequencies,n_layers), total_kappa_use(n_g,n_frequencies,n_species,n_layers), &
                continuum_opa_scat_use(n_frequencies,n_layers), transit_radii(n_frequencies)
-            
+
             ! Convert reference pressure to cgs
             P0_cgs = reference_pressure * 1d6
-            
+
             ! Calculate density
             rho = mean_molar_masses * cst_amu * pressures / cst_k / temperatures
-            
+
             ! Calculate planetary radius (in cm), assuming hydrostatic equilibrium
             call compute_radius_hydrostatic_equilibrium(&
                 pressures, reference_gravity, rho, P0_cgs, planet_radius, variable_gravity, n_layers, &
                 radius_hydrostatic_equilibrium &
             )
-            
+
             do i_leave_str = 1, n_layers
                 transit_radii = 0d0
                 t_graze = 0d0
                 t_graze_scat = 0d0
-                
+
                 continuum_opa_scat_use = continuum_opacities_scattering
                 total_kappa_use = opacities
                 total_kappa_use(:, :, :, i_leave_str) = 0d0
                 continuum_opa_scat_use(:, i_leave_str) = 0d0
-                
+
                 ! Calc. mean free paths across grazing distances
                 do i_str = 1, n_layers-1
                     alpha_t2(:, :, :, i_str) = &
                         total_kappa_use(:, :, :, i_str) * rho(i_str) &
                         + total_kappa_use(:, :, :, i_str + 1) * rho(i_str + 1)
                 end do
-                
+
                 if (scattering_in_transmission) then
                     do i_str = 1, n_layers - 1
                         alpha_t2_scat(:,i_str) = continuum_opa_scat_use(:, i_str) * rho(i_str) &
                             + continuum_opa_scat_use(:, i_str + 1) * rho(i_str + 1)
                     end do
                 end if
-                
+
                 ! Cacuclate grazing rays optical depths
                 do i_str = 2, n_layers
                     s_1 = sqrt(radius_hydrostatic_equilibrium(1) ** 2d0 - radius_hydrostatic_equilibrium(i_str) ** 2d0)
-                    
+
                     do j_str = 1, i_str-1
                         if (j_str > 1) then
                             s_1 = s_2
                         end if
-                       
+
                         if ((j_str+1) == i_str) then
                             s_2 = 0d0
                         else
@@ -2875,12 +2875,12 @@ module fortran_radtrans_core
                         t_graze(:, :, :, i_str) = t_graze(:, :, :, i_str) + alpha_t2(:, :, :, j_str) * (s_1 - s_2)
                     end do
                 end do
-                
+
                 if (scattering_in_transmission) then
                     do i_str = 2, n_layers
                         s_1 = sqrt(radius_hydrostatic_equilibrium(1) ** 2d0 &
                             - radius_hydrostatic_equilibrium(i_str) ** 2d0)
-                       
+
                         do j_str = 1, i_str - 1
                             if (j_str > 1) then
                                 s_1 = s_2
@@ -2897,23 +2897,23 @@ module fortran_radtrans_core
                         end do
                     end do
                 end if
-                
+
                 ! Calculate transmissions, update optical depths array to store these
                 t_graze = exp(-t_graze)
-                
+
                 if (scattering_in_transmission) then
                     t_graze_scat = exp(-t_graze_scat)
                 end if
-                
+
                 t_graze_wlen_int = 1d0
-                
+
                 ! Wlen (in g-space) integrate transmissions
                 do i_str = 2, n_layers ! i_str=1 t_grazes are 1 anyways
                     do i_spec = 1, n_species
                         do i_freq = 1, n_frequencies
                             t_graze_wlen_int(i_str,i_freq) = t_graze_wlen_int(i_str,i_freq)&
                                 * sum(t_graze(:, i_freq, i_spec, i_str) * weights_gauss)
-                          
+
                             if (scattering_in_transmission .and. (i_spec == 1)) then
                                 t_graze_wlen_int(i_str,i_freq) = t_graze_wlen_int(i_str, i_freq) &
                                     * t_graze_scat(i_freq, i_str)
@@ -2921,10 +2921,10 @@ module fortran_radtrans_core
                         end do
                     end do
                 end do
-                
+
                 ! Get effective area fraction from transmission
                 t_graze_wlen_int = 1d0 - t_graze_wlen_int
-                
+
                 ! Caculate planets effectice area (leaving out cst_pi, because we want the radius in the end)
                 do i_freq = 1, n_frequencies
                     do i_str = 2, n_layers
@@ -2942,7 +2942,7 @@ module fortran_radtrans_core
                 transit_radii = transit_radii+radius_hydrostatic_equilibrium(n_layers) ** 2d0
                 transmission_contribution(i_leave_str, :) = transit_radii_squared - transit_radii
             end do
-            
+
             do i_freq = 1, n_frequencies
                 transmission_contribution(:, i_freq) = transmission_contribution(:, i_freq) &
                     / sum(transmission_contribution(:, i_freq))
@@ -3155,7 +3155,7 @@ module fortran_radtrans_core
             ! TODO never used, keeping just in case
             use math, only: cst_pi
             use physics, only: compute_planck_function, compute_rosseland_opacities_core
-            
+
             implicit none
 
             logical, intent(in)             :: dayside_ave, planetary_ave
@@ -3204,22 +3204,22 @@ module fortran_radtrans_core
             double precision                :: I_plus(n_layers,n_angles), I_minus(n_layers,n_angles)
 
             fmt = '(I5.5)'
-            
+
             if (range_int < 0) then
                 range_int_use = n_layers
             else
                 range_int_use = range_int
             end if
-            
+
             if (range_write < 0) then
                 range_write_use = n_layers
             else
                 range_write_use = range_write
             end if
-            
+
             ! calculate how the stellar light is attenuated
             abs_S = 0d0
-            
+
             kappa_out_test = 0d0
             j_out_test = 0d0
             kappa_S = 0d0
@@ -3229,7 +3229,7 @@ module fortran_radtrans_core
 
             ! Guillot test
             gamma = 6d-1 * sqrt(T_irr / 2d3)
-            
+
             do i = 1, n_frequencies_bins-1
                 if (dayside_ave .or. planetary_ave) then
                     do i_mu = 1, n_angles
@@ -3280,17 +3280,17 @@ module fortran_radtrans_core
 
                 abs_S = abs_S + abs_S_nu*(frequencies_bin_edges(i)-frequencies_bin_edges(i+1))
             end do
-            
+
             kappa_S = kappa_S / H_tot_layer
 
             do i = 1, n_frequencies_bins-1
                 kappa_S_nu(:,i) = kappa_S_nu(:,i) / H_tot_layer
             end do
             ! ***0
-            
+
             ! do the full RT step
             K_bol = 0d0
-            
+
             do i = 1, n_frequencies_bins - 1
                 flux(i) = 0d0
                 j_deep(i) = 0d0
@@ -3478,7 +3478,7 @@ module fortran_radtrans_core
                         (frequencies_bin_edges(i)-frequencies_bin_edges(i+1))
                 end if
             end do
-            
+
             if (range_write_use == n_layers) then
                 kappa_J(1:range_write_use) = kappa_J(1:range_write_use) / J_bol(1:range_write_use)
                 kappa_H(1:range_write_use) = kappa_H(1:range_write_use) / H_bol(1:range_write_use)

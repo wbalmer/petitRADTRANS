@@ -302,8 +302,11 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
     #TODO: just read in wavelength centers
     #TODO Read in pressure coords
 
-    edges_wlen = cst.c/frequencies_bin_edges # cm
-    bin_centers = edges_wlen[1:] - jnp.diff(edges_wlen)/2.0  # nm
+    edges_wlen = cst.c/frequencies_bin_edges #* 1e4# cm
+    bin_centers = edges_wlen[1:] - jnp.diff(edges_wlen)/2.0
+
+    #n_layers_test
+    #transformed_wavelength_coords = (((edges_wlen - cloud_wavelengths[0])/cloud_wavelengths[-1]) * cloud_wavelengths.shape[0]).astype(int)[:-1]
 
     def interp_index(bin_center):
         idx = jnp.searchsorted(cloud_wavelengths, bin_center, side='left')
@@ -314,7 +317,11 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
         frac = (bin_center - x0) / (x1 - x0 + 1e-30)
         return (idx - 1) + frac
 
-    transformed_wavelength_coords = vmap(interp_index)(bin_centers)  # shape (n_bins,)
+    transformed_wavelength_coords = vmap(interp_index)(bin_centers)#.astype(int)  # shape (n_bins,)
+    #from jax import debug
+    #debug.print("transformed_wavelength_coords: {}", transformed_wavelength_coords)
+    #debug.print("transformed_wavelength_coords_test: {}", transformed_wavelength_coords_test)
+
     pressure_coords = jnp.linspace(
         0,
         cloud_absorption_opacities.shape[1]-1,
@@ -1062,8 +1069,7 @@ def compute_cloud_log_normal_particles_distribution_opacities_grid(
         target_particle_radii,
         target_pressure
     ):
-    r"""This function reimplements calc_cloud_opas from fortran_radtrans_core.f90.
-    For some reason it runs faster in python than in fortran, so we'll use this from now on.
+    r"""
     This function integrates the cloud opacity through the different layers of the atmosphere to get the total
     optical depth, scattering and anisotropic fraction.
 
