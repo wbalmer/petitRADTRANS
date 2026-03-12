@@ -298,10 +298,10 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
                 cloud_scattering_opacities,
                 cloud_absorption_opacities,
                 clouds_particles_porosity_factor):
-            return (jnp.zeros_like(cloud_continuum_opacities),
-                    jnp.zeros_like(cloud_continuum_opacities_scattering),
-                    jnp.zeros_like(cloud_scattering_opacities),
-                    jnp.zeros_like(cloud_absorption_opacities))
+            return (cloud_continuum_opacities,
+                    cloud_continuum_opacities_scattering,
+                    cloud_scattering_opacities,
+                    cloud_absorption_opacities)
 
         (complete_coverage_cloud_continuum_opacities, complete_coverage_cloud_continuum_opacities_scattering,
             complete_coverage_cloud_scattering_opacities, complete_coverage_cloud_absorption_opacities) = lax.cond(

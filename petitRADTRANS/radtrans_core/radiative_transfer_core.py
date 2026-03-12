@@ -344,7 +344,7 @@ def _ng_accelerated_batched(tn, tn1, tn2, tn3, current_source):
     Q2 = Q2.at[:, 0].set(0.0)
     Q3 = Q3.at[:, 0].set(0.0)
 
-    # O8: 5 explicit dot products instead of a full 3x3 Gram matmul.
+    # 5 explicit dot products instead of a full 3x3 Gram matmul.
     # Only G[0,0], G[1,0], G[1,1], G[0,2], G[1,2] are used; the other
     # four entries of the symmetric matrix are never read.
     A1 = jnp.minimum(jnp.einsum('bl,bl->b', Q1, Q1), HUGE_SQRT)
@@ -353,7 +353,7 @@ def _ng_accelerated_batched(tn, tn1, tn2, tn3, current_source):
     C1 = jnp.minimum(jnp.einsum('bl,bl->b', Q1, Q3), HUGE_SQRT)
     C2 = jnp.minimum(jnp.einsum('bl,bl->b', Q2, Q3), HUGE_SQRT)
 
-    AB_denom = A1 * B2 - A2 * A2
+    AB_denom = A1 * B2 - A2 * A2 # B1==A2
 
     skip = (
         (AB_denom < TINIEST)
@@ -607,7 +607,6 @@ def compute_feautrier_radiative_transfer(
         """
         Returns I_J_gfal (g,f,a,l), I_H_top (g,f,a), new_I_plus_surface (g,f,a).
         """
-        # O3: repeat (g*f, l-1) → (g*f*a, l-1) via a single XLA repeat op.
         r_inner_flat = jnp.repeat(
             source_gfl[:, :, :n_layers - 1].reshape(n_g * n_freq_bins, n_layers - 1),
             n_angles,
@@ -767,7 +766,7 @@ def compute_feautrier_radiative_transfer(
             mu_val        = emission_cos_angles[i_mu]
             mu_weight_val = emission_cos_angles_weights[i_mu]
 
-            # O6: no exp() here — just slice the precomputed array.
+            # no exp() here — just slice the precomputed array.
             transm_lf = transm_lfa[:, :, i_mu]   # (l, f)
 
             contrib_mid = (
