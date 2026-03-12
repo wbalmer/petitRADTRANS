@@ -162,7 +162,7 @@ def compute_planck_function_integral(temperatures, frequencies):
     TODO: possibly a faster integration method?
     """
     def reverse_frequencies(temperatures, frequencies):
-        warnings.warn("Frequencies are not in descending order. This may lead to incorrect results.")
+        #warnings.warn("Frequencies are not in descending order. This may lead to incorrect results.")
         return _compute_planck_function_integral(temperatures, jnp.flip(frequencies))
     return lax.cond(
         frequencies[1] < frequencies[0],

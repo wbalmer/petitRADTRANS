@@ -7,6 +7,7 @@ if config.jax_enable_x64:
     TINIEST = jnp.finfo(jnp.float64).tiny
     HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
 
+
 @jit
 def solve_tridiagonal_thomas(a, b, c, d):
     """
@@ -113,6 +114,133 @@ def solve_tridiagonal_thomas_batched(a, b, c, d):
     x_all = jnp.concatenate([x_rest[::-1, :], x_last[None, :]], axis=0)  # (n, batch)
 
     return x_all.T   # (batch, n)
+
+
+#@jit(static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
+def solve_tridiagonal_thomas_batched_fused(a, b, c, d, mu_weight_flat, n_g, n_freq_bins, n_angles, n_layers):
+    """
+    Solves n_batch independent tridiagonal systems simultaneously and fuses
+    three downstream post-processing steps into the backward substitution pass,
+    eliminating the full (batch, n_layers) solution array. More memory efficient,
+    but slowe on CPU.
+
+    Parameters
+    ----------
+    a, b, c, d : (batch, n_layers)
+        Lower diagonal (a[:,0] unused), main diagonal,
+        upper diagonal (c[:,-1] unused), RHS.
+    mu_weight_flat : (batch,)
+        Per-batch-element quadrature weight for J_bol accumulation.
+        Equals mu_weight_a[angle_index] for each batch element, tiled over
+        (g, f) so that mu_weight_flat[g*n_freq_bins*n_angles + f*n_angles + a]
+        = mu_weight_a[a].
+    n_g, n_freq_bins : int
+        Used to reshape the J_bol accumulator.
+
+    Returns
+    -------
+    I_H_top_flat      : (batch,)   = -x[0],   the top-boundary intensity.
+    x_nm1_flat        : (batch,)   = x[n-1],  solution at the surface layer.
+    x_nm2_flat        : (batch,)   = x[n-2],  solution at the penultimate layer.
+    J_bol_gfl         : (n_g, n_freq_bins, n_layers)
+                        Angle-quadrature-weighted mean intensity per (g,f,l):
+                        J_bol_gfl[g,f,l] = sum_a( x[g,f,a,l] * mu_weight_a[a] ).
+
+    Design
+    ------
+    Forward sweep  : identical to the original solver.
+    Backward pass  :
+      Rather than emitting x[k] at every scan step (which would materialise the
+      full (n-1, batch) solution), we carry only what is needed:
+        • x_next      (batch,)        — rolling solution value, used to compute x[k]
+        • J_bol_acc   (n_g*n_freq_bins, n_layers) — per-(g,f,l) weighted partial sum;
+                      updated at each step via a dynamic .at[:, k].add() scatter.
+
+      x[n-1] and x[n-2] are extracted before the scan; x[0] is the final
+      value of x_next in the carry after the scan.
+
+    Memory saved vs. the original solver + downstream uses
+    -------------------------------------------------------
+      Eliminated : I_J_flat  (batch, n_layers)  — full Thomas solution
+                   x_rest    (n-1, batch)        — backward scan output
+                   I_J_gfal  (g, f, a, l)        — reshape of I_J_flat
+                   Total ≈ 2 × n_g × n_freq_bins × n_angles × n_layers float64
+      Added      : J_bol_acc (n_g*n_freq_bins, n_layers) in backward scan carry
+                   ≈ n_g × n_freq_bins × n_layers float64  (factor n_angles smaller)
+      Net saving ≈ (2*n_angles − 1) × n_g × n_freq_bins × n_layers float64.
+    """
+    # n_g, n_freq_bins, n_angles, n_layers are all static (concrete Python ints).
+    # We never call b.shape for n or derive n_angles from a traced value, so
+    # jnp.zeros and jnp.arange receive concrete arguments throughout.
+    n    = n_layers
+    n_gf = n_g * n_freq_bins
+
+    # ----------------------------------------------------------------
+    # Forward sweep — identical to the original solver.
+    # Produces c_all (n, batch) and d_all (n, batch).
+    # ----------------------------------------------------------------
+    c0 = c[:, 0] / b[:, 0]   # (batch,)
+    d0 = d[:, 0] / b[:, 0]   # (batch,)
+
+    def fwd_step(carry, k):
+        c_prev, d_prev = carry
+        denom    = b[:, k] - a[:, k] * c_prev
+        safe_den = jnp.where(jnp.abs(denom) < TINIEST, TINIEST, denom)
+        c_k      = c[:, k] / safe_den
+        d_k      = (d[:, k] - a[:, k] * d_prev) / safe_den
+        return (c_k, d_k), (c_k, d_k)
+
+    _, (c_rest, d_rest) = lax.scan(fwd_step, (c0, d0), jnp.arange(1, n))
+    # c_all, d_all: (n, batch)
+    c_all = jnp.concatenate([c0[None, :], c_rest], axis=0)
+    d_all = jnp.concatenate([d0[None, :], d_rest], axis=0)
+
+    # ----------------------------------------------------------------
+    # Backward substitution — fused with J_bol accumulation.
+    #
+    # Extract x[n-1] and x[n-2] before the scan so they can be
+    # returned without being emitted as scan outputs.
+    # ----------------------------------------------------------------
+
+    # Helper: weighted reduction over the angle axis for J_bol accumulation.
+    # x_k: (batch,) = (n_gf, n_angles) flattened in C-order.
+    # weighted_k: (n_gf,) = sum over angles of x_k * mu_weight_flat.
+    def _weighted_gf(x_k):
+        # reshape (n_gf * n_angles,) → (n_gf, n_angles), then dot with mu_weight_a
+        return (x_k.reshape(n_gf, n_angles) * mu_weight_flat.reshape(n_gf, n_angles)).sum(axis=1)
+        # shape (n_gf,)
+
+    x_last = d_all[n - 1, :]                              # x[n-1], (batch,)
+    x_nm2  = d_all[n - 2, :] - c_all[n - 2, :] * x_last  # x[n-2], (batch,)
+
+    # Seed J_bol accumulator with contributions from layers n-1 and n-2.
+    J_bol_acc = jnp.zeros((n_gf, n))                      # (n_gf, n_layers)
+    J_bol_acc = J_bol_acc.at[:, n - 1].set(_weighted_gf(x_last))
+    J_bol_acc = J_bol_acc.at[:, n - 2].set(_weighted_gf(x_nm2))
+
+    # Backward scan over k = n-3 down to 0.
+    # Carry: (x_next, J_bol_acc)
+    # xs:    layer indices k in descending order
+    # No scan output (ys=None) — only the carry is used.
+    def bwd_step(carry, k):
+        x_next, J_bol = carry
+        x_k    = d_all[k, :] - c_all[k, :] * x_next      # (batch,)
+        J_bol  = J_bol.at[:, k].add(_weighted_gf(x_k))    # dynamic scatter
+        return (x_k, J_bol), None
+
+    (x_0, J_bol_acc), _ = lax.scan(
+        bwd_step,
+        (x_nm2, J_bol_acc),
+        jnp.arange(n - 3, -1, -1),
+    )
+
+    # ----------------------------------------------------------------
+    # Assemble outputs — no I_J_flat or I_J_gfal ever materialised.
+    # ----------------------------------------------------------------
+    I_H_top_flat = -x_0                                    # (batch,)
+    J_bol_gfl    = J_bol_acc.reshape(n_g, n_freq_bins, n)  # (g, f, l)
+
+    return I_H_top_flat, x_last, x_nm2, J_bol_gfl
 
 
 @jit
