@@ -345,3 +345,38 @@ def solve_tridiagonal_pcr(a, b, c, d):
 
     # Reshape solution back to original batch dimensions
     return x_flat.reshape(original_shape)
+
+
+@jit
+def linear_fit(x, y):
+    """
+    Calculate slope and y-axis intercept of x,y data, assuming zero error on data.
+    Translated from Fortran linear_fit.
+
+    Args:
+        x: 1D array of x values.
+        y: 1D array of y values.
+
+    Returns:
+        Tuple (a, b) where a is the y-intercept and b is the slope.
+    """
+    ndata = x.shape[0]
+    sum_x = jnp.sum(x)
+    sum_y = jnp.sum(y)
+    sum_xy = jnp.sum(x * y)
+    sum_x_sq = jnp.sum(x**2)
+
+    # Fortran: b = (sum(x)*sum(y)/dble(ndata) - sum(x*y))/ &
+    #             (sum(x)**2d0/dble(ndata) - sum(x**2d0))
+    denominator = sum_x**2 / ndata - sum_x_sq
+    # Handle potential division by zero if all x values are the same
+    b = lax.cond(
+        jnp.abs(denominator) < 1e-15,  # Use a small tolerance
+        lambda: 0.0,  # If denominator is zero, slope is effectively zero
+        lambda: (sum_x * sum_y / ndata - sum_xy) / denominator
+    )
+
+    # Fortran: a = sum(y-b*x)/dble(ndata)
+    a = jnp.sum(y - b * x) / ndata
+
+    return a, b
