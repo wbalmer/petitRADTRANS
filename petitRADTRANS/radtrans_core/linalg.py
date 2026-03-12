@@ -1,7 +1,11 @@
 import jax.numpy as jnp
-from jax import lax, jit
+from jax import lax, jit, config
 
+TINIEST = jnp.finfo(jnp.float32).tiny
 HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float32).max)
+if config.jax_enable_x64:
+    TINIEST = jnp.finfo(jnp.float64).tiny
+    HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
 
 @jit
 def solve_tridiagonal_thomas(a, b, c, d):
@@ -62,6 +66,53 @@ def solve_tridiagonal_thomas(a, b, c, d):
 
     return jnp.clip(x, max=HUGE_SQRT)
 
+
+@jit
+def solve_tridiagonal_thomas_batched(a, b, c, d):
+    """
+    Solves n independent tridiagonal systems simultaneously.
+
+    Parameters
+    ----------
+    a, b, c, d : (batch, n_layers)
+        Lower diagonal (a[:,0] unused), main diagonal,
+        upper diagonal (c[:,-1] unused), RHS.
+
+    Returns
+    -------
+    x : (batch, n_layers)
+    """
+    n = b.shape[1]
+
+    # ---- forward sweep: initialise with row 0 ----
+    c0 = c[:, 0] / b[:, 0]   # (batch,)
+    d0 = d[:, 0] / b[:, 0]   # (batch,)
+
+    def fwd_step(carry, k):
+        c_prev, d_prev = carry
+        denom    = b[:, k] - a[:, k] * c_prev
+        safe_den = jnp.where(jnp.abs(denom) < TINIEST, TINIEST, denom)
+        c_k = c[:, k] / safe_den
+        d_k = (d[:, k] - a[:, k] * d_prev) / safe_den
+        return (c_k, d_k), (c_k, d_k)
+
+    _, (c_rest, d_rest) = lax.scan(fwd_step, (c0, d0), jnp.arange(1, n))
+    # prepend layer-0 results  →  (n, batch) each
+    c_all = jnp.concatenate([c0[None, :], c_rest], axis=0)
+    d_all = jnp.concatenate([d0[None, :], d_rest], axis=0)
+
+    # ---- back substitution ----
+    x_last = d_all[n - 1, :]   # (batch,)
+
+    def bwd_step(x_next, k):
+        x_k = d_all[k, :] - c_all[k, :] * x_next
+        return x_k, x_k
+
+    _, x_rest = lax.scan(bwd_step, x_last, jnp.arange(n - 2, -1, -1))
+    # x_rest is (n-1, batch) in reverse order; rebuild full solution
+    x_all = jnp.concatenate([x_rest[::-1, :], x_last[None, :]], axis=0)  # (n, batch)
+
+    return x_all.T   # (batch, n)
 
 
 @jit

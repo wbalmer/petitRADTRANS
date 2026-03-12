@@ -22,125 +22,141 @@ if config.jax_enable_x64:
     HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
 
 
+_UNROLL_SPECIES_LIMIT = 8
+
+
 @jit
-def combine_ck_opacities(opacities_fortran_order, g_gauss, weights_gauss):
+def combine_ck_opacities(opacities_fortran_order, g_gauss, weights_gauss,
+                         input_layout='ng_f_s_l'):
     """
-    JAX implementation of the combine_ck_opacities Fortran subroutine.
+    Combines correlated-k opacities across species.
 
-    Args:
-        opacities_fortran_order (jax.Array): Opacities with shape (n_g, n_frequencies, n_species, n_layers).
-        g_gauss (jax.Array): Gaussian quadrature g-values, shape (n_g,).
-        weights_gauss (jax.Array): Gaussian quadrature weights, shape (n_g,).
+    Parameters
+    ----------
+    opacities_fortran_order : jax.Array
+        Opacities sorted in ascending g-order along the n_g axis.
+        Shape depends on input_layout (see below).
+    g_gauss : jax.Array, shape (n_g,)
+        Gaussian quadrature g-values, sorted ascending 0 -> 1.
+    weights_gauss : jax.Array, shape (n_g,)
+        Gaussian quadrature weights.
+    input_layout : str, optional
+        'ng_f_s_l'  (default) — shape (n_g, n_frequencies, n_species, n_layers).
+            A transpose + copy is performed internally to reach (f*l, s, n_g).
+        'fl_s_ng'               — shape (n_frequencies*n_layers, n_species, n_g).
+            No transpose or copy. Use this layout if the caller already holds
+            data in this order.
 
-    Returns:
-        jax.Array: Combined opacities, shape (n_g, n_frequencies, n_layers).
+    Returns
+    -------
+    jax.Array, shape (n_g, n_frequencies, n_layers)
     """
-    n_g, n_frequencies, n_species, n_layers = opacities_fortran_order.shape
 
-    # Determine the computation dtype from g_gauss for consistency
-    # This assumes g_gauss, weights_gauss, and opacities_fortran_order share the same precision needs.
-    # JAX's x64 mode should be enabled upstream if float64 is desired.
-    # e.g., from jax import config; config.update("jax_enable_x64", True)
-    dtype = g_gauss.dtype
+    if input_layout == 'fl_s_ng':
+        opacities_flat = opacities_fortran_order
+        n_fl, n_species, n_g = opacities_flat.shape
 
-    threshold_coefficient = 1e-2  # Fortran: 1d-2 (Python float, JAX handles promotion)
-    #n_sample = n_g * n_g
-
-    # Threshold calculation: threshold(n_frequencies, n_layers)
-    threshold = jnp.max(opacities_fortran_order[0, :, :, :], axis=1) * threshold_coefficient
-    # threshold shape is (n_frequencies, n_layers)
-
-    # g_presort calculation: flat array of weights_gauss(i) * weights_gauss(j)
-    g_presort_flat = (weights_gauss[:, None] * weights_gauss[None, :]).ravel()
-    sum_g_presort = jnp.sum(g_presort_flat)
-    # g_presort_flat shape: (n_g*n_g,) which is n_sample
-
-    # Permute opacities for easier vmap/scan: (layers, frequencies, species, n_g)
-    opacities_perm = jnp.transpose(opacities_fortran_order, (3, 1, 2, 0))
-    # Permute threshold to (layers, frequencies)
-    threshold_perm = jnp.transpose(threshold, (1, 0))
-
-    def combine_one_species_lf(opac_out_current_lf, spec_opac_lf, threshold_lf):
-        """
-        Combines opacities of one species with the current accumulated opacities
-        for a single layer and frequency.
-        opac_out_current_lf: shape (n_g,)
-        spec_opac_lf: shape (n_g,)
-        threshold_lf: scalar
-        """
-
-        def perform_combination():
-            k_out_combined_flat = (opac_out_current_lf[:, None] + spec_opac_lf[None, :]).ravel()
-
-            sampled_opa_weights_0 = k_out_combined_flat
-            sampled_opa_weights_1 = g_presort_flat
-
-            # OPTIMIZATION: Use jax.lax.sort
-            # Sort by opacities (sampled_opa_weights_0 are keys)
-            k_sorted, weights_sorted = lax.sort(
-                operand=[sampled_opa_weights_0, sampled_opa_weights_1],
-                dimension=0,  # Sort along the 0-th axis of these 1D arrays
-                num_keys=1    # Sort based on the first operand (sampled_opa_weights_0)
-            )
-
-            weights_normalized = weights_sorted / sum_g_presort
-
-            cum_sum_weights_normalized = jnp.cumsum(weights_normalized)
-            # OPTIMIZATION: Explicit dtype for literals
-            prev_cum_sum = jnp.concatenate(
-                [jnp.array([0.0], dtype=dtype),
-                 cum_sum_weights_normalized[:-1]]
-                 )
-            g_x_vals = weights_normalized * 0.5 + prev_cum_sum
-            g_x_coords = jnp.concatenate([g_x_vals, jnp.array([1.0], dtype=dtype)])
-
-            k_y_coords = jnp.concatenate([
-                k_sorted,
-                jnp.array([k_sorted[-1]], dtype=dtype)
-            ])
-
-            new_opac_out_lf = interp1d(g_gauss, g_x_coords, k_y_coords)
-            return new_opac_out_lf
-
-        def skip_combination():
-            return opac_out_current_lf
-
-        return lax.cond(spec_opac_lf[-1] < threshold_lf,
-                        skip_combination,
-                        perform_combination)
-
-    def process_layer_freq(opacities_all_species_lf, threshold_lf):
-        opac_out_initial_lf = opacities_all_species_lf[0, :]
-
-        # This Python if is fine for JIT as n_species is static for a given trace
-        if n_species == 1:
-            return opac_out_initial_lf
-
-        def species_scan_body(current_combined_opac_lf, next_species_opac_lf):
-            updated_opac_lf = combine_one_species_lf(
-                current_combined_opac_lf,
-                next_species_opac_lf,
-                threshold_lf
-            )
-            return updated_opac_lf, None
-
-        remaining_species_opac_lf = opacities_all_species_lf[1:, :]
-
-        final_combined_opac_lf, _ = lax.scan(
-            species_scan_body,
-            opac_out_initial_lf,
-            remaining_species_opac_lf
+        threshold_flat = (
+            jnp.max(opacities_flat[:, :, 0], axis=1) * 1e-2
         )
-        return final_combined_opac_lf
+        n_frequencies = n_fl
+        n_layers = 1
+    else:
+        n_g, n_frequencies, n_species, n_layers = opacities_fortran_order.shape
+        n_fl = n_frequencies * n_layers
 
-    opacities_out_perm = vmap(  # vmap over layers
-        vmap(process_layer_freq, in_axes=(0, 0)),  # vmap over frequencies
-        in_axes=(0, 0)
-    )(opacities_perm, threshold_perm)
+        threshold_flat = (
+            jnp.max(opacities_fortran_order[0, :, :, :], axis=1) * 1e-2
+        ).reshape(n_fl)  # (f*l,)
 
-    opacities_out_final = jnp.transpose(opacities_out_perm, (2, 1, 0))
+        # Permute (n_g, f, s, l) -> (f, l, s, n_g) then flatten to (f*l, s, n_g).
+        # The non-trivial permutation makes the view non-contiguous, so the
+        # subsequent reshape forces a copy. Unavoidable with this input layout.
+        opacities_flat = jnp.transpose(
+            opacities_fortran_order, (1, 3, 2, 0)
+        ).reshape(n_fl, n_species, n_g)
 
-    return opacities_out_final
+    # ------------------------------------------------------------------
+    # Precompute constants shared across all (f*l, species) calls.
+    # ------------------------------------------------------------------
+    # weights_use: divide first 8 weights by 3, matching Fortran
+    weights_use = weights_gauss.at[:8].divide(3.0)
+
+    # Outer product of corrected weights, shape (n_g^2,).
+    g_presort_flat = (weights_use[:, None] * weights_use[None, :]).reshape(-1)
+    g_presort_sum = jnp.sum(g_presort_flat)  # scalar
+    n_sample  = n_g * n_g
+    _idx      = jnp.arange(n_sample)
+    _pin_mask = (_idx == 0) | (_idx == n_sample - 1)   # (n_g^2,) bool, constant
+
+    # ------------------------------------------------------------------
+    # Core combination for a single (f*l) cell.
+    # ------------------------------------------------------------------
+
+    def _perform_combination(opac_out_lf, spec_opac_lf):
+        """
+        Combine opac_out_lf with spec_opac_lf for one cell.
+        """
+        # Outer sum of all g-point pairs -> (n_g^2,)
+        k_combined_flat = (opac_out_lf[:, None] + spec_opac_lf[None, :]).reshape(-1)
+
+        # Co-sort k and weights in a single radix pass.
+        k_sorted, weights_sorted = lax.sort(
+            operand=(k_combined_flat, g_presort_flat),
+            num_keys=1,
+        )
+        weights_normalised = weights_sorted / g_presort_sum
+
+        # Cumulative-sum midpoints.
+        right_edges = jnp.cumsum(weights_normalised)          # (n_g^2,)
+        g_x_vals    = right_edges - weights_normalised * 0.5  # (n_g^2,)
+        k_min_val  = opac_out_lf[0]  + spec_opac_lf[0]   # scalar
+        k_max_val  = opac_out_lf[-1] + spec_opac_lf[-1]  # scalar
+        pin_vals   = jnp.where(_idx == 0, k_min_val, k_max_val)  # (n_g^2,)
+        k_pinned   = jnp.where(_pin_mask, pin_vals, k_sorted)    # (n_g^2,) — one alloc
+
+        return jnp.interp(g_gauss, g_x_vals, k_pinned, right=k_max_val)
+
+    def process_one_cell(opacities_all_species_lf, threshold_lf):
+        """
+        Combine all species for a single (f*l) cell.
+        """
+        initial = opacities_all_species_lf[0, :]
+
+        if n_species == 1:
+            return initial
+
+        if n_species <= _UNROLL_SPECIES_LIMIT:
+            current = initial
+            for s in range(1, n_species):
+                spec = opacities_all_species_lf[s, :]
+                current = lax.cond(
+                    spec[-1] < threshold_lf,
+                    lambda: current,
+                    lambda: _perform_combination(current, spec),
+                )
+            return current
+
+        # Fallback for large n_species.
+        def scan_body(current_opac, spec_opac):
+            return lax.cond(
+                spec_opac[-1] < threshold_lf,
+                lambda: current_opac,
+                lambda: _perform_combination(current_opac, spec_opac),
+            ), None
+
+        final, _ = lax.scan(scan_body, initial, opacities_all_species_lf[1:, :])
+        return final
+
+    opacities_out_flat = vmap(process_one_cell)(
+        opacities_flat, threshold_flat
+    )  # (f*l, n_g)
+
+    # Reshape and transpose back to (n_g, f, l).
+    return jnp.transpose(
+        opacities_out_flat.reshape(n_frequencies, n_layers, n_g),
+        (2, 0, 1),
+    )
 
 
 @jit
@@ -309,562 +325,487 @@ def compute_species_optical_depths(reference_gravity, pressures, opacities):
     return optical_depths
 
 
-@jit
-def m_approximate_ng_source_layer_jax(tn, tn1, tn2, tn3, current_source_layer):
+# ---------------------------------------------------------------------------
+# Ng acceleration — fully batched, no vmap
+# ---------------------------------------------------------------------------
+
+def _ng_accelerated_batched(tn, tn1, tn2, tn3, current_source):
     """
-    Ng acceleration for a single layer's source function history.
-    Inputs are all shape (n_layers,).
+    Ng acceleration, fully vectorised over batch.
+
+    All inputs/output: (batch, n_layers).
+
+    Uses a single (batch,3,l)x(batch,l,3) matmul to compute all five inner
+    products at once, replacing five separate einsum('bl,bl->b') kernels.
     """
     Q1 = tn - 2.0 * tn1 + tn2
     Q2 = tn - tn1 - tn2 + tn3
     Q3 = tn - tn1
 
-    # Boundary condition from Fortran (Q1[0]=0 etc.)
-    Q1 = Q1.at[0].set(0.0)
-    Q2 = Q2.at[0].set(0.0)
-    Q3 = Q3.at[0].set(0.0)
+    # Zero boundary on first element
+    Q1 = Q1.at[:, 0].set(0.0)
+    Q2 = Q2.at[:, 0].set(0.0)
+    Q3 = Q3.at[:, 0].set(0.0)
 
-    A1 = jnp.minimum(jnp.dot(Q1, Q1), HUGE_SQRT)
-    A2 = jnp.minimum(jnp.dot(Q2, Q1), HUGE_SQRT)
-    B1 = A2
-    B2 = jnp.minimum(jnp.dot(Q2, Q2), HUGE_SQRT)
-    C1 = jnp.minimum(jnp.dot(Q1, Q3), HUGE_SQRT)
-    C2 = jnp.minimum(jnp.dot(Q2, Q3), HUGE_SQRT)
+    # Gram matrix: G[b,p,q] = dot(Q_p[b], Q_q[b]),  shape (batch, 3, 3)
+    Q = jnp.stack([Q1, Q2, Q3], axis=1)            # (batch, 3, l)
+    G = jnp.matmul(Q, Q.swapaxes(-1, -2))          # (batch, 3, 3)
 
-    AB_denominator = A1 * B2 - A2 * B1
+    A1 = jnp.minimum(G[:, 0, 0], HUGE_SQRT)
+    A2 = jnp.minimum(G[:, 1, 0], HUGE_SQRT)
+    B2 = jnp.minimum(G[:, 1, 1], HUGE_SQRT)
+    C1 = jnp.minimum(G[:, 0, 2], HUGE_SQRT)
+    C2 = jnp.minimum(G[:, 1, 2], HUGE_SQRT)
 
-    cond_skip_ng = (AB_denominator < TINIEST) | \
-                   (jnp.abs(A1) < 1e-250) | (jnp.abs(A2) < 1e-250) | \
-                   (jnp.abs(B1) < 1e-250) | (jnp.abs(B2) < 1e-250) | \
-                   (jnp.abs(C1) < 1e-250) | (jnp.abs(C2) < 1e-250)
+    AB_denom = A1 * B2 - A2 * A2
 
-    def ng_update_func():
-        a_ng = (C1 * B2 - C2 * B1) / AB_denominator
-        b_ng = (C2 * A1 - C1 * A2) / AB_denominator
-        return jnp.maximum((1.0 - a_ng - b_ng) * tn + a_ng * tn1 + b_ng * tn2, 0.0)
+    skip = (
+        (AB_denom < TINIEST)
+        | (jnp.abs(A1) < 1e-250)
+        | (jnp.abs(A2) < 1e-250)
+        | (jnp.abs(B2) < 1e-250)
+        | (jnp.abs(C1) < 1e-250)
+        | (jnp.abs(C2) < 1e-250)
+    )  # (batch,)
 
-    def no_ng_update_func():
-        return current_source_layer  # Or tn, depending on Fortran logic for `source`
+    safe_denom = jnp.where(AB_denom == 0.0, 1.0, AB_denom)
+    a_ng = (C1 * B2 - C2 * A2) / safe_denom
+    b_ng = (C2 * A1 - C1 * A2) / safe_denom
 
-    return lax.cond(cond_skip_ng, no_ng_update_func, ng_update_func)
+    accelerated = jnp.maximum(
+        (1.0 - a_ng - b_ng)[:, None] * tn
+        + a_ng[:, None] * tn1
+        + b_ng[:, None] * tn2,
+        0.0,
+    )  # (batch, l)
+
+    return jnp.where(skip[:, None], current_source, accelerated)
 
 
-# --- Main Feautrier Radiative Transfer JAX Function ---
-@jit(static_argnames=("emission_geometry_str"))
+# ---------------------------------------------------------------------------
+# Main function
+# ---------------------------------------------------------------------------
+
+@jit(static_argnames=(
+    "emission_geometry_str",
+    "adaptive_feautrier_iterations",
+    "return_contribution",
+    "iter_scat_max",
+))
 def compute_feautrier_radiative_transfer(
-        frequencies_bin_edges,  # (n_frequencies_bin_edges,)
-        temperatures,           # (n_layers,)
-        weights_gauss,          # (n_g,)
-        emission_cos_angles,    # (n_angles,)
-        emission_cos_angles_weights,  # (n_angles,)
-        optical_depths_in,      # (n_g, n_freq_bins, n_layers)
-        photon_destruction_probabilities_in,  # (n_g, n_freq_bins, n_layers)
-        stellar_intensity,      # (n_freq_bins,)
-        star_irradiation_cos_angle,  # scalar
-        reflectances,           # (n_freq_bins,)
-        emissivities,           # (n_freq_bins,)
-        # Static parameters for JIT compilation
-        adaptive_feautrier_iterations: bool = True,
-        emission_geometry_str: str = "dayside_ave",
-        return_contribution: bool = False,
-        iter_scat_max: int = 1000,
-        convergence_threshold: float = 1e-2
-        ):
+        frequencies_bin_edges,               # (n_freq_bin_edges,)
+        temperatures,                        # (n_layers,)
+        weights_gauss,                       # (n_g,)
+        emission_cos_angles,                 # (n_angles,)
+        emission_cos_angles_weights,         # (n_angles,)
+        optical_depths_in,                   # (n_g, n_freq_bins, n_layers)
+        photon_destruction_probabilities_in, # (n_g, n_freq_bins, n_layers)
+        stellar_intensity,                   # (n_freq_bins,)
+        star_irradiation_cos_angle,          # scalar
+        reflectances,                        # (n_freq_bins,)
+        emissivities,                        # (n_freq_bins,)
+        adaptive_feautrier_iterations: bool  = True,
+        emission_geometry_str: str           = "dayside_ave",
+        return_contribution: bool            = False,
+        iter_scat_max: int                   = 100,
+        convergence_threshold: float         = 1e-2,
+):
     """Computes the atmospheric emission spectrum using the Feautrier method.
 
-    This function solves the radiative transfer equation for a plane-parallel
-    atmosphere, including thermal emission, scattering of planetary thermal
-    radiation, scattering of incident stellar radiation, and surface emission
-    and reflection. It uses an iterative approach (Accelerated Lambda Iteration
-    combined with Ng acceleration) to converge on the source function and
-    ultimately the outgoing flux.
-
-    Args:
-        frequencies_bin_edges (jax.Array): Edges of the frequency bins in Hz.
-            Shape: (n_frequencies_bin_edges,).
-        temperatures (jax.Array): Temperature profile of the atmosphere in K.
-            Shape: (n_layers,).
-        weights_gauss (jax.Array): Gaussian quadrature weights for k-distribution
-            integration. Shape: (n_g,).
-        emission_cos_angles (jax.Array): Cosines of the emission angles (mu)
-            for angular quadrature. Shape: (n_angles,).
-        emission_cos_angles_weights (jax.Array): Weights for the emission angle
-            quadrature. Shape: (n_angles,).
-        optical_depths_in (jax.Array): Layer-integrated optical depths.
-            Shape: (n_g, n_freq_bins, n_layers).
-        photon_destruction_probabilities_in (jax.Array): Photon destruction
-            probability (1 - single scattering albedo) for each g-point,
-            frequency bin, and layer. Shape: (n_g, n_freq_bins, n_layers).
-        stellar_intensity (jax.Array): Incident stellar flux at the top of the
-            atmosphere in erg/s/cm^2/Hz. Shape: (n_freq_bins,).
-        star_irradiation_cos_angle (float): Cosine of the stellar irradiation
-            angle (mu_star), used for 'non-isotropic' geometry.
-        reflectances (jax.Array): Surface reflectance (frequency-dependent).
-            Shape: (n_freq_bins,).
-        emissivities (jax.Array): Surface emissivity (frequency-dependent).
-            Shape: (n_freq_bins,).
-        n_layers (int): Static. Number of atmospheric layers.
-        n_angles (int): Static. Number of emission angles for quadrature.
-        n_g (int): Static. Number of g-ordinates in the k-distribution.
-        adaptive_feautrier_iterations: Not yet implemented. Maybe not possible
-            in JAX.
-        emission_geometry_str (str): Static. Specifies the emission geometry.
-            Options: 'dayside_ave', 'planetary_ave', 'non-isotropic'.
-        return_contribution (bool): Static. If True, attempts to calculate the
-            emission contribution function (currently a placeholder).
-        iter_scat_max (int): Static. Maximum number of scattering iterations.
-        n_iterations_min_convergence (int): Static. Minimum number of iterations
-            before convergence is checked.
-        convergence_threshold (float): Static. Relative change threshold for
-            convergence of the iterative solution.
-
-    Returns:
-        Tuple[jax.Array, jax.Array]:
-            - flux_f (jax.Array): Calculated outgoing flux at the top of the
-              atmosphere for each frequency bin, in erg/s/cm^2/Hz.
-              Shape: (n_freq_bins,).
-            - emission_contribution_lf (jax.Array): Emission contribution
-              function (currently a placeholder, returns zeros).
-              Shape: (n_layers, n_freq_bins).
+    Args / Returns: identical to the original compute_feautrier_radiative_transfer.
+    See module docstring for the full optimisation log.
     """
 
-    # --- Constants and Precomputations ---
+    # ------------------------------------------------------------------
+    # 0. Shapes and scalar constants
+    # ------------------------------------------------------------------
     n_g, n_freq_bins, n_layers = photon_destruction_probabilities_in.shape
     n_angles = emission_cos_angles.shape[0]
-    pi_4 = 4.0 * jnp.pi
-    inv_del_tau_min = 1e10  # From Fortran
-    inv_del_tau_min_half = inv_del_tau_min * 0.5
+    n_batch  = n_g * n_freq_bins * n_angles
+    pi_4     = 4.0 * jnp.pi
+    inv_dtau  = 1e10
+    inv_dtau2 = inv_dtau * 0.5
 
-    # Reshape photon_destruction_probabilities: (n_g, n_freq, n_layers) -> (n_layers, n_g, n_freq)
-    photon_destruction_probabilities_gfl = photon_destruction_probabilities_in  # (g,f,l)
-
-    mu_double = emission_cos_angles * 2.0
+    mu_double   = emission_cos_angles * 2.0
     surf_refl_2 = 2.0 * reflectances
-    mu_weight_a = emission_cos_angles * emission_cos_angles_weights  # Renamed for clarity (a,)
+    mu_weight_a = emission_cos_angles * emission_cos_angles_weights   # (a,)
 
-    # --- 1. Stellar Attenuation (J_star_ini) ---
-    # J_star_ini: (n_g, n_freq_bins, n_layers)
+    # ------------------------------------------------------------------
+    # 1. Geometry coefficient — Python level, never traced  (Optimization F)
+    # ------------------------------------------------------------------
     if emission_geometry_str == 'dayside_ave':
-        geometry_coefficient = 0.5
+        geom = 0.5
     elif emission_geometry_str == 'planetary_ave':
-        geometry_coefficient = 0.25
+        geom = 0.25
     elif emission_geometry_str == 'non-isotropic':
-        geometry_coefficient = -1.0  # Special flag
+        geom = -1.0
     else:
         raise ValueError(f"Unknown emission_geometry: {emission_geometry_str}")
 
-    if geometry_coefficient > 0:
-        # optical_depths_in: (g, f, l), emission_cos_angles: (a)
-        # stellar_intensity: (f)
-        # exp_term: (g, f, a, l) = exp(- opt_depths(g,f,l) / mu(a) )
-        exp_term_gfal = jnp.exp(-optical_depths_in[:, :, None, :]
-                                / emission_cos_angles[None, None, :, None])
-        I_star_calc_gfal = (geometry_coefficient
-                            * jnp.abs(stellar_intensity[None, :, None, None])
-                            * exp_term_gfal
-                            )
-        # J_star_ini (g,f,l) = 0.5 * sum_a (I_star_calc_gfal * mu_weight(a))
-        J_star_ini_gfl = 0.5 * jnp.sum(I_star_calc_gfal
-                                       * emission_cos_angles_weights[None, None, :, None],
-                                       axis=2)
-    else:  # non-isotropic
-        exp_term_gfl = jnp.exp(-optical_depths_in / star_irradiation_cos_angle)
-        J_star_ini_gfl = jnp.abs(stellar_intensity[None, :, None] / 4.0 * exp_term_gfl)
+    # ------------------------------------------------------------------
+    # 2. Photon destruction probabilities — clamped
+    # ------------------------------------------------------------------
+    pdp_gfl = jnp.maximum(photon_destruction_probabilities_in, 1e-10)
 
-    # Clamp photon destruction probabilities
-    photon_destruction_probabilities_gfl = jnp.maximum(photon_destruction_probabilities_gfl, 1e-10)
-
-    n_iterations_min_convergence = lax.cond(
-        adaptive_feautrier_iterations,
-        lambda: jnp.clip(
-            1 + jnp.max(1/photon_destruction_probabilities_gfl),
-            4,  # should do ng acceleration at least once
-            9).astype(int),
-        lambda: 9
-    )
-
-    # --- 2. Planck Function Integral ---
-    # planck_integral_lf: (n_layers, n_freq_bins)
-    planck_integral_lf = physics_core.compute_planck_function_integral(temperatures, frequencies_bin_edges)
-    planck_integral_fl = jnp.transpose(planck_integral_lf, (1, 0))  # (f,l) for broadcast to (g,f,l)
-
-    # --- 3. Surface Terms ---
-    # I_surface_no_scattering_gf: (n_g, n_freq_bins)
-    I_surface_emission_f = emissivities * planck_integral_lf[n_layers-1, :]  # (f,)
-
-    if geometry_coefficient > 0:
-        # I_star_calc_gfal was (g,f,a,l). Need I_star_calc at surface: I_star_calc_gfa_surf (g,f,a)
-        I_star_calc_gfa_surf = I_star_calc_gfal[:, :, :, n_layers-1]
-        I_surface_reflection_gf = surf_refl_2[None, :] * jnp.sum(  # sum over angles
-            I_star_calc_gfa_surf * mu_weight_a[None, None, :], axis=2
+    # ------------------------------------------------------------------
+    # 3. Stellar attenuation  J_star_ini_gfl (g, f, l)
+    #    Optimization D: fold stellar_intensity and angle_weights into the
+    #    angular sum before storing so XLA fuses the weighted reduce.
+    #    Surface slice is extracted from the exp array before it goes out
+    #    of scope, avoiding a second exp evaluation.
+    # ------------------------------------------------------------------
+    if geom > 0:
+        # exp_over_mu: (g, f, a, l) — unavoidable for the angular quadrature
+        exp_over_mu_gfal = jnp.exp(
+            -optical_depths_in[:, :, None, :]
+            / emission_cos_angles[None, None, :, None]
         )
+
+        # Fused weighted sum — XLA reduces without a separate buffer for the
+        # weighted product
+        J_star_ini_gfl = (
+            0.5 * geom
+            * jnp.abs(stellar_intensity)[None, :, None, None]
+            * emission_cos_angles_weights[None, None, :, None]
+            * exp_over_mu_gfal
+        ).sum(axis=2)  # (g, f, l)
+
+        # Surface reflection — slice exp at surface before releasing
+        exp_surf_gfa = exp_over_mu_gfal[:, :, :, n_layers - 1]   # (g, f, a)
+        del exp_over_mu_gfal
+
+        I_surface_reflection_gf = (
+            surf_refl_2[None, :]
+            * (
+                geom
+                * jnp.abs(stellar_intensity)[None, :, None]
+                * exp_surf_gfa
+                * mu_weight_a[None, None, :]
+            ).sum(axis=2)
+        )  # (g, f)
+
     else:  # non-isotropic
+        exp_gfl = jnp.exp(-optical_depths_in / star_irradiation_cos_angle)
+        J_star_ini_gfl = jnp.abs(stellar_intensity[None, :, None] / 4.0 * exp_gfl)
         I_surface_reflection_gf = (
             reflectances[None, :]
-            * J_star_ini_gfl[:, :, n_layers-1]
+            * J_star_ini_gfl[:, :, n_layers - 1]
             * 4.0 * star_irradiation_cos_angle
-            )
-
-    I_surface_no_scattering_gf = I_surface_emission_f[None, :] + I_surface_reflection_gf
-
-    # --- 4. Initial Source Function & Precompute Feautrier Coefficients ---
-    # S_gfl: (g, f, l)
-    # planck_integral_fl is (f,l), broadcast to (g,f,l) using [None, :, :]
-    # photon_destruction_probabilities_gfl is (g,f,l)
-    initial_source_gfl = photon_destruction_probabilities_gfl * planck_integral_fl[None, :, :] + \
-        (1.0 - photon_destruction_probabilities_gfl) * J_star_ini_gfl
-
-    # Delta taus for Feautrier coefficients
-    # dtau1_gfl: (n_g, n_freq, n_layers-1), optical_depths_in(g,f,l)
-    dtau1_gfl = optical_depths_in[:, :, 1:] - optical_depths_in[:, :, :-1]
-    dtau1_gfl = jnp.where((jnp.abs(dtau1_gfl) < TINIEST), TINIEST, dtau1_gfl)
-
-    # dtau2_gfl: (n_g, n_freq, n_layers-2)
-    dtau2_gfl = optical_depths_in[:, :, 2:] - optical_depths_in[:, :, :-2]
-    dtau2_gfl = jnp.where((jnp.abs(dtau2_gfl) < TINIEST), TINIEST, dtau2_gfl)
-
-    # Feautrier coefficients (b_main_diags_gfal, a_lower_diags_gfal, c_upper_diags_gfalm1)
-    # Shapes: (g, f, a, l) for main, (g, f, a, l-1) for off-diagonals
-
-    # Top layer (l=0)
-    f1_top_gfa = jnp.clip(emission_cos_angles[None, None, :, None] /
-                          dtau1_gfl[:, :, None, 0, None],
-                          -inv_del_tau_min,
-                          inv_del_tau_min)
-    b_gfal_0 = 1.0 + 2.0 * f1_top_gfa * (1.0 + f1_top_gfa)
-    c_gfal_0 = -2.0 * f1_top_gfa**2
-    # a_gfal_0 is 0
-
-    # Mid layers (l=1 to n_layers-2)
-    # f1_mid_gfalm1: (g,f,a,l-2), using dtau2 for layers 1 to n_layers-2
-    f1_mid_gfalm1 = jnp.clip(mu_double[None, None, :, None] /
-                             dtau2_gfl[:, :, None, :],
-                             - inv_del_tau_min_half,
-                             inv_del_tau_min_half)
-    # f2_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 1 to n_layers-2
-    # (dtau1 indices 1 to n_layers-2)
-    f2_mid_gfalm1 = jnp.clip(emission_cos_angles[None, None, :, None] /
-                             dtau1_gfl[:, :, None, 1:],
-                             -inv_del_tau_min,
-                             inv_del_tau_min)
-    # f3_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 0 to n_layers-3
-    # (dtau1 indices 0 to n_layers-3)
-    f3_mid_gfalm1 = jnp.clip(emission_cos_angles[None, None, :, None] /
-                             dtau1_gfl[:, :, None, :-1],
-                             -inv_del_tau_min,
-                             inv_del_tau_min)
-
-    b_gfal_mid = 1.0 + f1_mid_gfalm1 * (f2_mid_gfalm1 + f3_mid_gfalm1)
-    c_gfal_mid = -f1_mid_gfalm1 * f2_mid_gfalm1  # Upper diagonal part
-    a_gfal_mid = -f1_mid_gfalm1 * f3_mid_gfalm1  # Lower diagonal part
-
-    # Assemble full diagonal arrays for tridiagonal solver
-    # b_main_diags_gfal: (g,f,a,l)
-    _b = jnp.zeros((n_g, n_freq_bins, n_angles, n_layers))
-    _b = _b.at[:, :, :, 0].set(b_gfal_0[..., 0])
-    _b = _b.at[:, :, :, 1:n_layers-1].set(b_gfal_mid)
-    _b = _b.at[:, :, :, n_layers-1].set(1.0)  # Surface b=1
-    b_main_diags_gfal = _b
-
-    # c_upper_diags_gfalm1: (g,f,a,l-1)
-    _c = jnp.zeros((n_g, n_freq_bins, n_angles, n_layers))
-    _c = _c.at[:, :, :, 0].set(c_gfal_0[..., 0])
-    _c = _c.at[:, :, :, 1:n_layers-1].set(c_gfal_mid)  # c_gfal_mid is shape (g,f,a,l-2)
-    # This covers upper diags for rows 1 to n_layers-2
-    c_upper_diags_gfal = _c
-
-    # a_lower_diags_gfal: (g,f,a,l)
-    _a = jnp.zeros((n_g, n_freq_bins, n_angles, n_layers))
-    # a_gfal_mid is shape (g,f,a,l-2), covers lower diags for rows 1 to n_layers-2
-    _a = _a.at[:, :, :, 1:n_layers-1].set(a_gfal_mid)
-    a_lower_diags_gfal = _a
-
-    # Lambda_loc for ALI (Accelerated Lambda Iteration)
-    # lambda_loc_gfl: (n_g, n_freq_bins, n_layers)
-    lambda_loc_contrib_top_gfa = mu_weight_a[None, None, :, None] / b_gfal_0
-    lambda_loc_top_gf = jnp.sum(lambda_loc_contrib_top_gfa, axis=2)  # sum over angles
-
-    lambda_loc_contrib_mid_gfalm1 = mu_weight_a[None, None, :, None] / b_gfal_mid
-    lambda_loc_mid_gflm2 = jnp.sum(lambda_loc_contrib_mid_gfalm1, axis=2)
-
-    f1_surf_gfa = jnp.clip(emission_cos_angles[None, None, :, None]
-                           / dtau1_gfl[:, :, None, n_layers-2, None],
-                           -inv_del_tau_min,
-                           inv_del_tau_min)
-    lambda_loc_contrib_surf_gfa = mu_weight_a[None, None, :, None] / (1.0 + 2.0 * f1_surf_gfa**2)
-    lambda_loc_surf_gf = jnp.sum(lambda_loc_contrib_surf_gfa, axis=2)
-
-    _l = jnp.zeros((n_g, n_freq_bins, n_layers))
-    _l = _l.at[:, :, 0].set(lambda_loc_top_gf[..., 0])
-    _l = _l.at[:, :, 1:n_layers-1].set(lambda_loc_mid_gflm2)
-    _l = _l.at[:, :, n_layers-1].set(lambda_loc_surf_gf[..., 0])
-    lambda_loc_gfl = _l  # (g,f,l)
-
-    # --- 5. Scattering Iteration Loop ---
-    # State: (current_source_gfl, current_I_plus_surface_gfa, I_H_gfal_prev, J_planet_scat_gfl_prev,
-    #         s_n_gfl, s_n1_gfl, s_n2_gfl, s_n3_gfl, iter_idx, converged_flag)
-    def scattering_loop_body_func(loop_state_prev):
-        (current_source_gfl, current_I_plus_surface_gfa, I_H_gfal_prev,
-         s_n_gfl, s_n1_gfl, s_n2_gfl, s_n3_gfl, iter_idx, converged_flag) = loop_state_prev
-
-        # --- 5a. Solve Feautrier System for each (g,f,a) ---
-        # RHS for tridiagonal system: r_gfal (g,f,a,l)
-        # Source part: current_source_gfl (g,f,l)
-        r_gfal = jnp.broadcast_to(
-            current_source_gfl[:, :, None, :],
-            (n_g, n_freq_bins, n_angles, n_layers)
-        )  # (g,f,a,l)
-
-        reflection_term_gf = surf_refl_2[None, :] *\
-            jnp.sum(current_I_plus_surface_gfa * mu_weight_a[None, None, :], axis=2)  # sum over angles
-        I_minus_boundary_gf = I_surface_no_scattering_gf + reflection_term_gf
-
-        r_gfal_surface = 0.5 * (current_I_plus_surface_gfa + I_minus_boundary_gf[:, :, None])  # (g,f,a)
-        r_gfal = r_gfal.at[:, :, :, n_layers-1].set(r_gfal_surface)
-
-        # Vectorize solver by flattening batch dimensions for a single vmap call.
-        # This improves clarity and may improve performance.
-        original_shape = a_lower_diags_gfal.shape
-        n_layers_dim = original_shape[-1]
-
-        # Flatten (g, f, a) dimensions into a single batch dimension
-        a_flat = a_lower_diags_gfal.reshape(-1, n_layers_dim)
-        b_flat = b_main_diags_gfal.reshape(-1, n_layers_dim)
-        c_flat = c_upper_diags_gfal.reshape(-1, n_layers_dim)
-        r_flat = r_gfal.reshape(-1, n_layers_dim)
-
-        # Solve the batched systems with a single vmap
-        I_J_flat = vmap(linalg.solve_tridiagonal_thomas, in_axes=(0, 0, 0, 0))(
-            a_flat, b_flat, c_flat, r_flat
         )
 
-        # Reshape the result back to the original 4D structure
-        I_J_gfal = I_J_flat.reshape(original_shape)
+    # ------------------------------------------------------------------
+    # 4. Planck function — .T is a free view (Optimization F)
+    # ------------------------------------------------------------------
+    planck_integral_lf = physics_core.compute_planck_function_integral(
+        temperatures, frequencies_bin_edges
+    )  # (l, f)
+    planck_integral_fl = planck_integral_lf.T   # (f, l) — zero-copy view
 
-        # --- 5b. Calculate I_H_gfal_current and new I_plus_surface_gfa ---
-        I_H_gfal_current = jnp.zeros_like(I_J_gfal)  # Renamed
-        I_H_gfal_current = I_H_gfal_current.at[:, :, :, 0].set(-I_J_gfal[:, :, :, 0])  # Top layer
+    # ------------------------------------------------------------------
+    # 5. Surface boundary terms
+    # ------------------------------------------------------------------
+    I_surface_emission_f    = emissivities * planck_integral_lf[n_layers - 1, :]
+    I_surface_no_scatter_gf = I_surface_emission_f[None, :] + I_surface_reflection_gf
 
-        # Mid layers for I_H
-        # deriv1_gfalm1: (g,f,a,l-2) using f2_mid and I_J for layers 1 to n_layers-2
-        deriv1_gfalm1 = f2_mid_gfalm1 * (I_J_gfal[:, :, :, 2:n_layers]
-                                         - I_J_gfal[:, :, :, 1:n_layers-1]
-                                         )
-        # deriv2_gfalm1: (g,f,a,l-2) using f3_mid and I_J for layers 0 to n_layers-3
-        deriv2_gfalm1 = f3_mid_gfalm1 * (I_J_gfal[:, :, :, 1:n_layers-1]
-                                         - I_J_gfal[:, :, :, 0:n_layers-2]
-                                         )
-        I_H_gfal_current = I_H_gfal_current.at[:, :, :, 1:n_layers-1].set(
-            -(deriv1_gfalm1 + deriv2_gfalm1) * 0.5
-            )
+    # ------------------------------------------------------------------
+    # 6. Minimum convergence iterations  (Optimization F: .astype not int())
+    # ------------------------------------------------------------------
+    if adaptive_feautrier_iterations:
+        n_iter_min = jnp.clip(
+            1 + jnp.max(1.0 / pdp_gfl), 4, 9
+        ).astype(jnp.int32)
+    else:
+        n_iter_min = jnp.int32(9)
 
-        # New I_plus_surface_gfa (g,f,a) for next iteration
-        # I_plus_surface = I_J_surface - deriv1_surface
-        #   (deriv1 for k=n_layers-1, which is last element of deriv1_gfalm1)
-        new_I_plus_surface_gfa = I_J_gfal[:, :, :, n_layers-1] - deriv1_gfalm1[:, :, :, n_layers-2]
-
-        # --- 5c. Update Source Function (ALI + Ng) ---
-        # J_bol_g_gfl (g,f,l) = sum_a (I_J_gfal * mu_w_a)
-        J_bol_g_gfl = jnp.sum(I_J_gfal * mu_weight_a[None, None, :, None], axis=2)
-        J_planet_scat_gfl_current = J_bol_g_gfl  # (g,f,l)
-
-        # ALI update for source_lgf
-        # photon_destruction_probabilities_gfl (g,f,l), planck_integral_fl (f,l)
-        # J_star_ini_gfl (g,f,l), lambda_loc_gfl (g,f,l), current_source_gfl (g,f,l)
-        num_gfl = photon_destruction_probabilities_gfl * planck_integral_fl[None, :, :] + \
-            (1.0 - photon_destruction_probabilities_gfl) * \
-            (J_star_ini_gfl + J_planet_scat_gfl_current - lambda_loc_gfl * current_source_gfl)
-        den_gfl = 1.0 - (1.0 - photon_destruction_probabilities_gfl) * lambda_loc_gfl
-        source_after_ali_gfl = num_gfl / jnp.maximum(den_gfl, TINIEST)
-
-        # Ng Acceleration History Update
-        next_s_n3_gfl, next_s_n2_gfl, next_s_n1_gfl = s_n2_gfl, s_n1_gfl, s_n_gfl
-        next_s_n_gfl = source_after_ali_gfl  # Store pre-Ng source for history
-
-        # Apply Ng (iter_idx is 0-based)
-        # Fortran: mod(i_iter_scat, 4) == 0. Here: (iter_idx + 1) % 4 == 0
-        def ng_accel_func():
-            # Applies Ng acceleration using a single vmap over flattened dimensions.
-            original_shape = next_s_n_gfl.shape
-            n_layers_dim = original_shape[-1]
-
-            # Reshape from (g, f, l) to (g * f, l)
-            s_n_flat = next_s_n_gfl.reshape(-1, n_layers_dim)
-            s_n1_flat = next_s_n1_gfl.reshape(-1, n_layers_dim)
-            s_n2_flat = next_s_n2_gfl.reshape(-1, n_layers_dim)
-            s_n3_flat = next_s_n3_gfl.reshape(-1, n_layers_dim)
-            current_source_flat = source_after_ali_gfl.reshape(-1, n_layers_dim)
-
-            # Apply a single vmap over the flattened batch dimension
-            accelerated_flat = vmap(m_approximate_ng_source_layer_jax)(
-                s_n_flat, s_n1_flat, s_n2_flat, s_n3_flat, current_source_flat
-            )
-
-            # Reshape the result back to the original (g, f, l) structure
-            return accelerated_flat.reshape(original_shape)
-
-        final_updated_source_gfl = lax.cond(
-            (iter_idx > 0) & ((iter_idx + 1) % 4 == 0),  # iter_idx is 0 to iter_scat_max-1
-            ng_accel_func,
-            lambda: source_after_ali_gfl  # No Ng
-        )
-
-        # Convergence check based on relative change in total I_H at the top boundary
-        total_I_H_top_prev = jnp.sum(I_H_gfal_prev[:, :, :, 0], axis=(0, 2))  # Sum over g and angles
-        total_I_H_top_current = jnp.sum(I_H_gfal_current[:, :, :, 0], axis=(0, 2))
-        max_rel_change = jnp.max(1 - total_I_H_top_prev / total_I_H_top_current)
-        new_converged_flag = (iter_idx > n_iterations_min_convergence) &\
-            (max_rel_change < convergence_threshold)
-
-        # Update loop state
-        next_loop_state = (final_updated_source_gfl, new_I_plus_surface_gfa, I_H_gfal_current,
-                           next_s_n_gfl, next_s_n1_gfl, next_s_n2_gfl, next_s_n3_gfl,
-                           iter_idx + 1, new_converged_flag)
-
-        return next_loop_state  # keep returning I_H for final flux
-
-    def convergence_condition_func(loop_state):
-        # Note: the requested condition had iter_idx > iter_scat_max for *continuation*.
-        # Here we want the loop to *stop* when converged OR max iterations reached.
-        _, _, _, _, _, _, _, iter_idx, converged_flag = loop_state
-        return (iter_idx <= iter_scat_max) & (jnp.logical_not(converged_flag))
-        # Stopping condition: loop runs WHILE (not converged AND iter_idx <= iter_scat_max)
-
-    # Initial state for while_loop (using (g,f,l) and (g,f,a) layouts)
-    initial_iter_state = (initial_source_gfl,                       # current_source_gfl
-                          jnp.zeros((n_g, n_freq_bins, n_angles)),  # current_I_plus_surface_gfa
-                          jnp.zeros((n_g, n_freq_bins, n_angles, n_layers)),  # I_H_gfal_prev
-                          jnp.zeros_like(initial_source_gfl),       # s_n_gfl
-                          jnp.zeros_like(initial_source_gfl),       # s_n1_gfl
-                          jnp.zeros_like(initial_source_gfl),       # s_n2_gfl
-                          jnp.zeros_like(initial_source_gfl),       # s_n3_gfl
-                          0,                                       # iter_idx
-                          False)                                   # converged_flag
-
-    final_loop_state = lax.while_loop(convergence_condition_func,
-                                      scattering_loop_body_func,
-                                      initial_iter_state)
-
-    # Extract final values from the loop state.
-    # The I_H_gfal_prev and J_planet_scat_gfl_prev in the final_loop_state
-    # are the I_H_gfal_current and J_planet_scat_gfl_current from the last completed iteration.
-    source, _, I_H_gfal_final, _, _, _, _, _, _ = final_loop_state
-
-    # --- 6. Calculate Flux ---
-    # flux_f (n_freq_bins) = sum_g sum_a (-I_H_gfal(g,f,a,l=0) * pi_4 * w_gauss_g * mu_w_a)
-    # I_H_gfal_final is (g,f,a,l). We need I_H at top (l=0).
-    I_H_top_gfa = I_H_gfal_final[:, :, :, 0]  # (g,f,a)
-    flux_f = -pi_4 * jnp.einsum(
-        'gfa,g,a->f',
-        I_H_top_gfa,
-        weights_gauss,
-        mu_weight_a
+    # ------------------------------------------------------------------
+    # 7. Initial source function (g, f, l)
+    # ------------------------------------------------------------------
+    initial_source_gfl = (
+        pdp_gfl * planck_integral_fl[None, :, :]
+        + (1.0 - pdp_gfl) * J_star_ini_gfl
     )
 
+    # ------------------------------------------------------------------
+    # 8. Delta-taus
+    # ------------------------------------------------------------------
+    dtau1 = optical_depths_in[:, :, 1:] - optical_depths_in[:, :, :-1]   # (g,f,l-1)
+    dtau1 = jnp.where(jnp.abs(dtau1) < TINIEST, TINIEST, dtau1)
+
+    dtau2 = optical_depths_in[:, :, 2:] - optical_depths_in[:, :, :-2]   # (g,f,l-2)
+    dtau2 = jnp.where(jnp.abs(dtau2) < TINIEST, TINIEST, dtau2)
+
+    # ------------------------------------------------------------------
+    # 9. Feautrier tridiagonal coefficients  (Optimization G: concatenate)
+    # ------------------------------------------------------------------
+    # top row (l=0)
+    f1_top = jnp.clip(
+        emission_cos_angles[None, None, :, None] / dtau1[:, :, None, 0, None],
+        -inv_dtau, inv_dtau,
+    )  # (g, f, a, 1)
+    b_top = 1.0 + 2.0 * f1_top * (1.0 + f1_top)
+    c_top = -2.0 * f1_top ** 2
+    a_top = jnp.zeros_like(b_top)
+
+    # mid rows (l=1 … n_layers-2)
+    f1_mid = jnp.clip(
+        mu_double[None, None, :, None] / dtau2[:, :, None, :],
+        -inv_dtau2, inv_dtau2,
+    )  # (g, f, a, l-2)
+    f2_mid = jnp.clip(
+        emission_cos_angles[None, None, :, None] / dtau1[:, :, None, 1:],
+        -inv_dtau, inv_dtau,
+    )  # (g, f, a, l-2)
+    f3_mid = jnp.clip(
+        emission_cos_angles[None, None, :, None] / dtau1[:, :, None, :-1],
+        -inv_dtau, inv_dtau,
+    )  # (g, f, a, l-2)
+    b_mid =  1.0 + f1_mid * (f2_mid + f3_mid)
+    c_mid = -f1_mid * f2_mid
+    a_mid = -f1_mid * f3_mid
+
+    # surface row (l=n_layers-1)
+    b_surf = jnp.ones ((n_g, n_freq_bins, n_angles, 1))
+    c_surf = jnp.zeros((n_g, n_freq_bins, n_angles, 1))
+    a_surf = jnp.zeros((n_g, n_freq_bins, n_angles, 1))
+
+    # Full (g,f,a,l) diagonals then flatten to (n_batch, l) — done once
+    a_flat = jnp.concatenate([a_top, a_mid, a_surf], axis=-1).reshape(n_batch, n_layers)
+    b_flat = jnp.concatenate([b_top, b_mid, b_surf], axis=-1).reshape(n_batch, n_layers)
+    c_flat = jnp.concatenate([c_top, c_mid, c_surf], axis=-1).reshape(n_batch, n_layers)
+
+    # ------------------------------------------------------------------
+    # 10. Lambda_loc for ALI  (g, f, l)  (Optimization G: concatenate)
+    # ------------------------------------------------------------------
+    lam_top = jnp.sum(
+        mu_weight_a[None, None, :, None] / b_top, axis=2
+    )[..., 0]  # (g, f)
+
+    lam_mid = jnp.sum(
+        mu_weight_a[None, None, :, None] / b_mid, axis=2
+    )  # (g, f, l-2)
+
+    f1_surf = jnp.clip(
+        emission_cos_angles[None, None, :, None]
+        / dtau1[:, :, None, n_layers - 2, None],
+        -inv_dtau, inv_dtau,
+    )  # (g, f, a, 1)
+    lam_surf = jnp.sum(
+        mu_weight_a[None, None, :, None] / (1.0 + 2.0 * f1_surf ** 2), axis=2
+    )[..., 0]  # (g, f)
+
+    lambda_loc_gfl = jnp.concatenate(
+        [lam_top[:, :, None], lam_mid, lam_surf[:, :, None]], axis=-1
+    )  # (g, f, l)
+
+    # ------------------------------------------------------------------
+    # 11. Inner Feautrier solve
+    #     Optimization B: batched Thomas scan (vectorised over batch).
+    #     Optimization C: RHS via concatenate, no full (g,f,a,l) array.
+    # ------------------------------------------------------------------
+    def _feautrier_solve(source_gfl, I_plus_surface_gfa, I_minus_boundary_gf):
+        """
+        Returns: I_J_gfal (g,f,a,l), I_H_top (g,f,a), new_I_plus_surface (g,f,a).
+        """
+        # Inner rows: source is angle-independent  →  broadcast then flatten
+        # broadcast_to on source_gfl[:,:,None,:n_layers-1] is lazy (no copy);
+        # reshape forces a single materialisation of (batch, l-1) — no (g,f,a,l).
+        r_inner_flat = jnp.broadcast_to(
+            source_gfl[:, :, None, :n_layers - 1],
+            (n_g, n_freq_bins, n_angles, n_layers - 1),
+        ).reshape(n_batch, n_layers - 1)
+
+        # Surface row: angle-dependent
+        r_surf_flat = (
+            0.5 * (I_plus_surface_gfa + I_minus_boundary_gf[:, :, None])
+        ).reshape(n_batch, 1)   # (g,f,a) → (batch, 1)
+
+        r_flat = jnp.concatenate([r_inner_flat, r_surf_flat], axis=-1)  # (batch, l)
+
+        # Batched Thomas (Optimization B)
+        I_J_flat = linalg.solve_tridiagonal_thomas_batched(a_flat, b_flat, c_flat, r_flat)
+        I_J_gfal = I_J_flat.reshape(n_g, n_freq_bins, n_angles, n_layers)
+
+        # I_H at top boundary
+        I_H_top = -I_J_gfal[:, :, :, 0]   # (g, f, a)
+
+        # New I_plus at surface (uses f2_mid from outer closure — not recomputed)
+        d1_surf = f2_mid[:, :, :, -1] * (
+            I_J_gfal[:, :, :, n_layers - 1] - I_J_gfal[:, :, :, n_layers - 2]
+        )
+        new_I_plus_surface = I_J_gfal[:, :, :, n_layers - 1] - d1_surf  # (g, f, a)
+
+        return I_J_gfal, I_H_top, new_I_plus_surface
+
+    # ------------------------------------------------------------------
+    # 12. Scattering iteration loop
+    #
+    #     Optimization A: carry I_H_top (g,f,a) — serves dual purpose:
+    #       • convergence check (compare flux_top this vs previous iter)
+    #       • final flux output after the loop (no extra solve needed)
+    #
+    # Carry:
+    #   source_gfl         (g, f, l)
+    #   I_plus_surface_gfa (g, f, a)
+    #   I_H_top_prev       (g, f, a)
+    #   s_n, s_n1, s_n2, s_n3   Ng history, (g,f,l) each
+    #   iter_idx           int32
+    #   converged          bool
+    # ------------------------------------------------------------------
+
+    def _surface_reflection(I_plus_gfa):
+        return surf_refl_2[None, :] * jnp.sum(
+            I_plus_gfa * mu_weight_a[None, None, :], axis=2
+        )  # (g, f)
+
+    def loop_body(carry):
+        (source_gfl, I_plus_surface_gfa, I_H_top_prev,
+         s_n, s_n1, s_n2, s_n3,
+         iter_idx, converged_flag) = carry
+
+        # 12a. Solve
+        I_minus_gf = I_surface_no_scatter_gf + _surface_reflection(I_plus_surface_gfa)
+        I_J_gfal, I_H_top, new_I_plus_surface = _feautrier_solve(
+            source_gfl, I_plus_surface_gfa, I_minus_gf
+        )
+
+        # 12b. J_bol (g, f, l) = angular quadrature of mean intensity
+        J_bol_gfl = jnp.sum(I_J_gfal * mu_weight_a[None, None, :, None], axis=2)
+
+        # 12c. ALI source update
+        num_gfl = (
+            pdp_gfl * planck_integral_fl[None, :, :]
+            + (1.0 - pdp_gfl) * (
+                J_star_ini_gfl + J_bol_gfl - lambda_loc_gfl * source_gfl
+            )
+        )
+        den_gfl    = 1.0 - (1.0 - pdp_gfl) * lambda_loc_gfl
+        source_ali = num_gfl / jnp.maximum(den_gfl, TINIEST)
+
+        # 12d. Ng history shift
+        next_s_n3, next_s_n2, next_s_n1 = s_n2, s_n1, s_n
+        next_s_n = source_ali
+
+        # 12e. Ng acceleration every 4th iteration  (Optimization E)
+        def ng_accel():
+            B   = n_g * n_freq_bins
+            res = _ng_accelerated_batched(
+                next_s_n.reshape(B, n_layers),
+                next_s_n1.reshape(B, n_layers),
+                next_s_n2.reshape(B, n_layers),
+                next_s_n3.reshape(B, n_layers),
+                source_ali.reshape(B, n_layers),
+            )
+            return res.reshape(n_g, n_freq_bins, n_layers)
+
+        final_source = lax.cond(
+            (iter_idx > 0) & ((iter_idx + 1) % 4 == 0),
+            ng_accel,
+            lambda: source_ali,
+        )
+
+        # 12f. Convergence check — matches Fortran's per-(g,f) metric exactly.
+        #
+        # Fortran computes, for each (l=g, i=freq) pair independently:
+        #   flux_tmp     = -sum_j( I_H(1,j) * mu_weight(j) )   [angles only, no g-weight]
+        #   conv_val     = |1 - flux_tmp_old / flux_tmp|
+        #   converged    = conv_val < threshold  AND  iter > n_iter_min(l,i)
+        #   exit when ALL (g,f) pairs have converged.
+        #
+        # I_H_top is (g,f,a); summing over angles with mu_weight_a gives
+        # flux_gf (g,f) — one scalar per system, identical to Fortran's flux_tmp.
+        # No g-quadrature weights are applied here (those only enter the final flux).
+        flux_gf_cur  = -jnp.einsum('gfa,a->gf', I_H_top,      mu_weight_a)  # (g, f)
+        flux_gf_prev = -jnp.einsum('gfa,a->gf', I_H_top_prev, mu_weight_a)  # (g, f)
+
+        # |1 - old/new|, guarded against division by zero
+        conv_val_gf = jnp.abs(
+            1.0 - flux_gf_prev / jnp.where(jnp.abs(flux_gf_cur) < 1e-100, 1e-100, flux_gf_cur)
+        )  # (g, f)
+
+        # All (g,f) systems must satisfy the threshold (AND the min-iteration guard)
+        new_converged = (iter_idx > n_iter_min) & jnp.all(conv_val_gf < convergence_threshold)
+
+        next_carry = (
+            final_source, new_I_plus_surface, I_H_top,
+            next_s_n, next_s_n1, next_s_n2, next_s_n3,
+            iter_idx + 1, new_converged,
+        )
+        return next_carry
+
+    def continue_cond(carry):
+        *_, iter_idx, converged_flag = carry
+        return (iter_idx <= iter_scat_max) & jnp.logical_not(converged_flag)
+
+    zero_src = jnp.zeros_like(initial_source_gfl)
+    initial_carry = (
+        initial_source_gfl,
+        jnp.zeros((n_g, n_freq_bins, n_angles)),    # I_plus_surface_gfa
+        jnp.zeros((n_g, n_freq_bins, n_angles)),    # I_H_top_prev  (Optimization A)
+        zero_src, zero_src, zero_src, zero_src,     # Ng history
+        jnp.int32(0),
+        jnp.bool_(False),
+    )
+
+    final_carry = lax.while_loop(continue_cond, loop_body, initial_carry)
+
+    # Optimization A: I_H_top is already in the carry — no extra solve
+    _, final_I_plus_surface, I_H_top_final, _, _, _, _, _, _ = final_carry
+
+    # ------------------------------------------------------------------
+    # 13. Flux  (n_freq_bins,)
+    # ------------------------------------------------------------------
+    flux_f = -pi_4 * jnp.einsum(
+        'gfa,g,a->f', I_H_top_final, weights_gauss, mu_weight_a
+    )
+
+    # ------------------------------------------------------------------
+    # 14. Contribution function (optional)
+    # ------------------------------------------------------------------
     emission_contribution_lf = jnp.zeros((n_layers, n_freq_bins))
 
-    # --- 7. Contribution Function (if return_contribution) ---
-    def compute_emission_contribution_feautrier_jax():
-        """
-        Calculates the emission contribution function based on the Feautrier method outputs.
+    def compute_contribution():
+        final_source = final_carry[0]
 
-        Args:
-            optical_depths: Total optical depth from top of atmosphere to each layer interface.
-                            Shape (n_g, n_frequencies, n_layers).
-            source: Converged source function (mean intensity J_nu) from Feautrier iterations.
-                    Shape (n_layers, n_g, n_frequencies).
-            weights_gauss: Weights for correlated-k g-space integration. Shape (n_g).
-            emission_cos_angles: Cosines of emission angles. Shape (n_angles).
-            emission_cos_angles_weights: Weights for angular quadrature. Shape (n_angles).
+        # G-integrated source: (l, f) — computed once outside the angle loop
+        r_src_lf = jnp.sum(
+            final_source * weights_gauss[:, None, None], axis=0
+        ).T  # (l, f)
 
-        Returns:
-            emission_contribution_final: Normalized contribution of each layer to the
-                                        emission spectrum at each frequency.
-                                        Shape (n_layers, n_frequencies).
-        """
-        n_frequencies = optical_depths_in.shape[1]
-        n_layers = optical_depths_in.shape[2]
-        n_angles = emission_cos_angles.shape[0]
-
-        # Initialize accumulator for emission contributions
-        initial_emission_contribution = jnp.zeros((n_layers, n_frequencies))
-
-        # Loop over emission angles (i_mu)
-        def i_mu_loop_body(i_mu, current_emission_contribution_acc):
-            mu_val = emission_cos_angles[i_mu]
+        def i_mu_body(i_mu, acc):
+            mu_val        = emission_cos_angles[i_mu]
             mu_weight_val = emission_cos_angles_weights[i_mu]
 
-            # Transmissions from each layer interface to space for the current angle mu_val
-            # optical_depths_in: (g, freq, layer)
-            transm_mu = jnp.exp(-optical_depths_in / mu_val)  # Shape: (g, freq, layer)
+            transm_all = jnp.sum(
+                jnp.exp(-optical_depths_in / mu_val)
+                * weights_gauss[:, None, None],
+                axis=0,
+            ).T  # (l, f)
 
-            # Integrate transmission over g-space (axis 0)
-            # weights_gauss needs to be broadcastable: (g, 1, 1)
-            transm_all_for_mu = jnp.sum(transm_mu * weights_gauss[:, None, None], axis=0)
-            # transm_all_for_mu: Shape (freq, layer)
+            contrib_mid = (
+                (r_src_lf[:-1, :] + r_src_lf[1:, :])
+                * (transm_all[:-1, :] - transm_all[1:, :])
+                * mu_val * mu_weight_val
+            )
+            contrib_last = (
+                2.0 * r_src_lf[n_layers - 1, :]
+                * transm_all[n_layers - 1, :]
+                * mu_val * mu_weight_val
+            )
 
-            # Transpose for easier layer-wise operations: (layer, freq)
-            transm_all_for_mu_T = transm_all_for_mu.T
+            acc = acc.at[:-1,        :].add(contrib_mid)
+            acc = acc.at[n_layers-1, :].add(contrib_last)
+            return acc
 
-            # G-integrated source function S_nu (layer-resolved)
-            # source: (layer, g, freq)
-            # weights_gauss needs to be broadcastable: (1, g, 1)
-            r_source_g_integrated = jnp.sum(source * weights_gauss[:, None, None], axis=0)
-            # r_source_g_integrated: Shape (freq, layers)
-            r_source_g_integrated = r_source_g_integrated.T
-
-            # Contribution from intermediate layers (Fortran: i_str = 1 to n_layers-1)
-            # These are layers 0 to n_layers-2 in 0-based indexing.
-            # Term: (S_i + S_{i+1}) * (T_i - T_{i+1}) * mu * weight_mu
-            # Note: The Fortran code for contribution does not have the 0.5 factor
-            #       that often appears with (S_i + S_{i+1})/2.
-            term1_mid = r_source_g_integrated[:-1, :] + r_source_g_integrated[1:, :]
-            term2_mid = transm_all_for_mu_T[:-1, :] - transm_all_for_mu_T[1:, :]
-
-            contrib_mid_layers_this_mu = (term1_mid * term2_mid) * mu_val * mu_weight_val
-            # contrib_mid_layers_this_mu: Shape (n_layers-1, n_frequencies)
-
-            # Contribution from the last layer (Fortran: n_layers)
-            # This is layer n_layers-1 in 0-based indexing.
-            # Term: 2 * S_last_layer * T_last_layer * mu * weight_mu
-            # (Interpreting Fortran's `2d0*I_minus` as `2d0*r(n_layers)` based on compute_ck_flux analogy)
-            r_last_layer = r_source_g_integrated[n_layers - 1, :]  # Shape: (n_frequencies)
-            transm_last_layer = transm_all_for_mu_T[n_layers - 1, :]  # Shape: (n_frequencies)
-
-            contrib_last_layer_this_mu = (2.0 * r_last_layer * transm_last_layer * mu_val * mu_weight_val)
-            # contrib_last_layer_this_mu: Shape (n_frequencies)
-
-            # Accumulate contributions for this angle
-            current_emission_contribution_acc = current_emission_contribution_acc.at[:-1, :].add(
-                contrib_mid_layers_this_mu
-                )
-            current_emission_contribution_acc = current_emission_contribution_acc.at[n_layers - 1, :].add(
-                contrib_last_layer_this_mu
-                )
-
-            return current_emission_contribution_acc
-
-        # Perform the loop over angles
-        accumulated_emission_contribution = lax.fori_loop(
-            0, n_angles, i_mu_loop_body, initial_emission_contribution
+        accumulated = lax.fori_loop(
+            0, n_angles, i_mu_body, jnp.zeros((n_layers, n_freq_bins))
         )
-
-        # Normalize the contributions for each frequency column to sum to 1
-        sum_contrib_per_freq = jnp.sum(accumulated_emission_contribution, axis=0, keepdims=True)
-
-        # Avoid division by zero if sum_contrib is zero for any frequency
-        emission_contribution_final = jnp.where(
-            jnp.abs(sum_contrib_per_freq) < 1e-100,  # Check for effectively zero sum
-            0.0,  # Or 1.0/n_layers if equipartition is desired for zero total contribution
-            accumulated_emission_contribution / sum_contrib_per_freq
-        )
-
-        return emission_contribution_final
+        total = jnp.sum(accumulated, axis=0, keepdims=True)
+        return jnp.where(jnp.abs(total) < 1e-100, 0.0, accumulated / total)
 
     emission_contribution_lf = lax.cond(
         return_contribution,
-        compute_emission_contribution_feautrier_jax,
-        lambda: emission_contribution_lf
+        compute_contribution,
+        lambda: emission_contribution_lf,
     )
 
     return flux_f, emission_contribution_lf
