@@ -154,8 +154,9 @@ def interpolate_cia(
     cia_temperature_interpolated = jnp.exp(cia_temperature_interpolated * jnp.log(10))
 
     # Interpolation on frequencies for each temperature point
+    # TODO do we want left/right=0 or extrapolate from boundary values?
     cia_frequency_interpolated = vmap(
-        lambda cia_opacity: jnp.interp(cst.c / frequencies, binned_wavelengths, cia_opacity)
+        lambda cia_opacity: jnp.interp(cst.c / frequencies, binned_wavelengths, cia_opacity, left=0.0, right=0.0)
     )(cia_temperature_interpolated.T).T
 
     # Ensure no values below sys.float_info.min
