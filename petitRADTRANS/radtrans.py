@@ -624,7 +624,6 @@ class Radtrans:
             sum_opacities = True
         return sum_opacities
 
-    @jit(static_argnames=['self', 'emission_geometry'])
     def _calculate_flux(
         self, temperatures, reference_gravity, opacities, continuum_opacities_scattering,
         emission_geometry, star_irradiation_cos_angle, stellar_intensity, reflectances, emissivities,

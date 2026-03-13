@@ -6,6 +6,8 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 Do not change the parameters used to generate the comparison files, including input_data files, when running the tests.
 """
 import copy
+from jax import config
+config.update("jax_enable_x64", True)
 
 import numpy as np
 
@@ -44,7 +46,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
     )
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.calculate_flux,
+        function=atmosphere_ck_scattering.simple_calculate_flux,
         relative_tolerance=relative_tolerance
     )
 
@@ -66,7 +68,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
     )
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.calculate_flux,
+        function=atmosphere_ck_scattering.simple_calculate_flux,
         relative_tolerance=relative_tolerance
     )
 
@@ -94,7 +96,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
     )
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.calculate_flux,
+        function=atmosphere_ck_scattering.simple_calculate_flux,
         relative_tolerance=relative_tolerance
     )
 
@@ -169,7 +171,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
     geometry = 'planetary_ave'
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.calculate_flux,
+        function=atmosphere_ck_scattering.simple_calculate_flux,
         relative_tolerance=relative_tolerance
     )
 
@@ -197,7 +199,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
     geometry = 'dayside_ave'
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.calculate_flux,
+        function=atmosphere_ck_scattering.simple_calculate_flux,
         relative_tolerance=relative_tolerance
     )
 
@@ -225,7 +227,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
     geometry = 'non-isotropic'
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.calculate_flux,
+        function=atmosphere_ck_scattering.simple_calculate_flux,
         relative_tolerance=relative_tolerance
     )
 
@@ -258,12 +260,12 @@ def test_correlated_k_emission_spectrum_complete_coverage_calculated_radius_stel
     geometry = 'non-isotropic'
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.calculate_flux,
+        function=atmosphere_ck_scattering.simple_calculate_flux,
         relative_tolerance=relative_tolerance
     )
 
     check_cloud_complete_coverage_consistency(
-        spectrum_function=atmosphere_ck_scattering.calculate_flux,
+        spectrum_function=atmosphere_ck_scattering.simple_calculate_flux,
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
         cloud_fraction=test_parameters['cloud_parameters']['cloud_fraction'],
@@ -295,12 +297,12 @@ def test_correlated_k_emission_spectrum_partial_cloud_calculated_radius_stellar_
     geometry = 'non-isotropic'
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.calculate_flux,
+        function=atmosphere_ck_scattering.simple_calculate_flux,
         relative_tolerance=relative_tolerance
     )
 
     check_partial_cloud_coverage_full_consistency(
-        spectrum_function=atmosphere_ck_scattering.calculate_flux,
+        spectrum_function=atmosphere_ck_scattering.simple_calculate_flux,
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
         cloud_fraction=test_parameters['cloud_parameters']['cloud_fraction'],
