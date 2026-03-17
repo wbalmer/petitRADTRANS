@@ -200,6 +200,10 @@ class Radtrans:
                 'temperature_grid_size': {},
                 'pressure_grid_size': {},
                 'opacity_grid': {},
+                'temperature_pressure_grid_stacked': jnp.zeros((0, 1, 1, 2), dtype=JAX_DTYPE),
+                'temperature_grid_size_array': jnp.zeros(0, dtype=jnp.int32),
+                'pressure_grid_size_array': jnp.zeros(0, dtype=jnp.int32),
+                'opacity_grid_stacked': jnp.zeros((0, 1, 1, 1), dtype=JAX_DTYPE),
                 'g_gauss': jnp.array(jnp.ones(1)),
                 'weights_gauss': jnp.array(jnp.ones(1))
             }
@@ -651,7 +655,11 @@ class Radtrans:
         if stellar_intensities is None:
             stellar_intensities = jnp.zeros_like(self._frequencies, dtype=JAX_DTYPE)
 
-            if star_effective_temperature is not None and orbit_semi_major_axis is not None:
+            if (
+                self._scattering_in_emission
+                and star_effective_temperature is not None
+                and orbit_semi_major_axis is not None
+            ):
                 stellar_intensities = compute_star_spectrum(
                     star_effective_temperature=star_effective_temperature,
                     orbit_semi_major_axis=orbit_semi_major_axis,
@@ -715,8 +723,11 @@ class Radtrans:
         power_law_opacity_coefficient,
         gray_opacity,
         cloud_photosphere_median_optical_depth,
+        cloud_particle_number_density_grid,
         additional_absorption_opacities_function,
         additional_scattering_opacities_function,
+        target_particle_radii,
+        target_pressure,
     ):
         if cloud_f_sed is None:
             cloud_f_sed_norm = {}
@@ -762,6 +773,9 @@ class Radtrans:
                 cloud_photosphere_median_optical_depth,
                 _MISSING_FLOAT,
             ),
+            'cloud_particle_number_density_grid': self._normalize_optional_mapping(
+                cloud_particle_number_density_grid
+            ),
             'additional_absorption_opacities_function': (
                 additional_absorption_opacities_function
                 if additional_absorption_opacities_function is not None
@@ -772,7 +786,91 @@ class Radtrans:
                 if additional_scattering_opacities_function is not None
                 else _noop_opacity_fn
             ),
+            'target_particle_radii': (
+                None if target_particle_radii is None else jnp.array(target_particle_radii, dtype=JAX_DTYPE)
+            ),
+            'target_pressure': (
+                None if target_pressure is None else jnp.array(target_pressure, dtype=JAX_DTYPE)
+            ),
         }
+
+    def _stack_loaded_line_opacities(self):
+        n_line_species = len(self._line_species)
+
+        if n_line_species == 0:
+            self._lines_loaded_opacities['temperature_pressure_grid_stacked'] = jnp.zeros((0, 1, 1, 2), dtype=JAX_DTYPE)
+            self._lines_loaded_opacities['temperature_grid_size_array'] = jnp.zeros(0, dtype=jnp.int32)
+            self._lines_loaded_opacities['pressure_grid_size_array'] = jnp.zeros(0, dtype=jnp.int32)
+            self._lines_loaded_opacities['opacity_grid_stacked'] = jnp.zeros((0, 1, self._frequencies.size, 1), dtype=JAX_DTYPE)
+            return
+
+        temperature_grid_sizes = np.array(
+            [self._lines_loaded_opacities['temperature_grid_size'][species] for species in self._line_species],
+            dtype=np.int32,
+        )
+        pressure_grid_sizes = np.array(
+            [self._lines_loaded_opacities['pressure_grid_size'][species] for species in self._line_species],
+            dtype=np.int32,
+        )
+        max_temperature_grid_size = int(np.max(temperature_grid_sizes))
+        max_pressure_grid_size = int(np.max(pressure_grid_sizes))
+        max_temperature_pressure_grid_size = int(np.max(temperature_grid_sizes * pressure_grid_sizes))
+        n_g = int(self._lines_loaded_opacities['g_gauss'].size)
+
+        temperature_pressure_grid_stacked = np.zeros(
+            (n_line_species, max_temperature_grid_size, max_pressure_grid_size, 2),
+            dtype=np.asarray(self._pressures).dtype,
+        )
+        opacity_grid_stacked = np.zeros(
+            (n_line_species, n_g, self._frequencies.size, max_temperature_pressure_grid_size),
+            dtype=np.asarray(self._frequencies).dtype,
+        )
+
+        for i_species, species in enumerate(self._line_species):
+            temperature_grid_size = int(temperature_grid_sizes[i_species])
+            pressure_grid_size = int(pressure_grid_sizes[i_species])
+            temperature_pressure_grid = np.asarray(
+                self._lines_loaded_opacities['temperature_pressure_grid'][species]
+            ).reshape(temperature_grid_size, pressure_grid_size, 2)
+            opacity_grid = np.asarray(self._lines_loaded_opacities['opacity_grid'][species])
+
+            if temperature_grid_size < max_temperature_grid_size or pressure_grid_size < max_pressure_grid_size:
+                temperature_pressure_grid = np.pad(
+                    temperature_pressure_grid,
+                    (
+                        (0, max_temperature_grid_size - temperature_grid_size),
+                        (0, max_pressure_grid_size - pressure_grid_size),
+                        (0, 0),
+                    ),
+                    mode='edge',
+                )
+
+            if opacity_grid.shape[-1] < max_temperature_pressure_grid_size:
+                opacity_grid = np.pad(
+                    opacity_grid,
+                    ((0, 0), (0, 0), (0, max_temperature_pressure_grid_size - opacity_grid.shape[-1])),
+                    mode='edge',
+                )
+
+            temperature_pressure_grid_stacked[i_species] = temperature_pressure_grid
+            opacity_grid_stacked[i_species] = opacity_grid
+
+        self._lines_loaded_opacities['temperature_pressure_grid_stacked'] = jnp.array(
+            temperature_pressure_grid_stacked,
+            dtype=JAX_DTYPE,
+        )
+        self._lines_loaded_opacities['temperature_grid_size_array'] = jnp.array(
+            temperature_grid_sizes,
+            dtype=jnp.int32,
+        )
+        self._lines_loaded_opacities['pressure_grid_size_array'] = jnp.array(
+            pressure_grid_sizes,
+            dtype=jnp.int32,
+        )
+        self._lines_loaded_opacities['opacity_grid_stacked'] = jnp.array(
+            opacity_grid_stacked,
+            dtype=JAX_DTYPE,
+        )
 
     @staticmethod
     def _set_sum_opacities(emission, line_opacity_mode, scattering_in_emission):
@@ -1007,6 +1105,7 @@ class Radtrans:
         return_cloud_contribution=False,
         additional_absorption_opacities_function=None,
         additional_scattering_opacities_function=None,
+        compute_clear_opacities=False,
         target_particle_radii=None,
         target_pressure=None
     ):
@@ -1104,50 +1203,6 @@ class Radtrans:
             )
         )
 
-        # Cloud opacities
-        # Normalize optional cloud inputs for JAX-friendly internal calls
-        opaque_cloud_top_pressure_norm = _MISSING_FLOAT if opaque_cloud_top_pressure is None else jnp.array(opaque_cloud_top_pressure, dtype=JAX_DTYPE)
-        cloud_particle_radius_distribution_std_norm = _MISSING_FLOAT if cloud_particle_radius_distribution_std is None else jnp.array(cloud_particle_radius_distribution_std, dtype=JAX_DTYPE)
-        power_law_opacity_350nm_norm = _MISSING_FLOAT if power_law_opacity_350nm is None else jnp.array(power_law_opacity_350nm, dtype=JAX_DTYPE)
-        power_law_opacity_coefficient_norm = _MISSING_FLOAT if power_law_opacity_coefficient is None else jnp.array(power_law_opacity_coefficient, dtype=JAX_DTYPE)
-        cloud_photosphere_median_optical_depth_norm = _MISSING_FLOAT if cloud_photosphere_median_optical_depth is None else jnp.array(cloud_photosphere_median_optical_depth, dtype=JAX_DTYPE)
-
-        clouds_particles_porosity_factor_norm = {s: _MISSING_NEG_INF for s in self._cloud_species}
-        if clouds_particles_porosity_factor is not None:
-            for _k, _v in list(clouds_particles_porosity_factor.items()):
-                clouds_particles_porosity_factor_norm[_k] = jnp.array(_v, dtype=JAX_DTYPE)
-
-        cloud_hansen_a_norm = {}
-        if cloud_hansen_a is not None:
-            for _k, _v in list(cloud_hansen_a.items()):
-                cloud_hansen_a_norm[_k] = jnp.array(_v, dtype=JAX_DTYPE)
-
-        cloud_hansen_b_norm = {}
-        if cloud_hansen_b is not None:
-            for _k, _v in list(cloud_hansen_b.items()):
-                cloud_hansen_b_norm[_k] = jnp.array(_v, dtype=JAX_DTYPE)
-
-        cloud_particles_mean_radii_norm = {}
-        if cloud_particles_mean_radii is not None:
-            for _k, _v in list(cloud_particles_mean_radii.items()):
-                cloud_particles_mean_radii_norm[_k] = jnp.array(_v, dtype=JAX_DTYPE)
-
-        cloud_f_sed_norm = {}
-        if cloud_f_sed is None:
-            cloud_f_sed_norm = {}
-        elif not isinstance(cloud_f_sed, dict):
-            cloud_f_sed_norm = {s: jnp.array(cloud_f_sed, dtype=JAX_DTYPE) for s in self._cloud_species}
-        else:
-            cloud_f_sed_norm = {k: jnp.array(v, dtype=JAX_DTYPE) for k, v in cloud_f_sed.items()}
-
-        eddy_diffusion_coefficients_norm = {}
-        if eddy_diffusion_coefficients is not None and isinstance(eddy_diffusion_coefficients, dict):
-            for _k, _v in list(eddy_diffusion_coefficients.items()):
-                eddy_diffusion_coefficients_norm[_k] = jnp.array(_v, dtype=JAX_DTYPE)
-
-        additional_absorption_opacities_function_norm = additional_absorption_opacities_function if additional_absorption_opacities_function is not None else _noop_opacity_fn
-        additional_scattering_opacities_function_norm = additional_scattering_opacities_function if additional_scattering_opacities_function is not None else _noop_opacity_fn
-
         complete_coverage_cloud_species = self._get_complete_coverage_cloud_species(complete_coverage_clouds)
 
         (cloudy_cloud_continuum_opacities, cloudy_cloud_continuum_opacities_scattering,
@@ -1165,11 +1220,11 @@ class Radtrans:
             reference_gravity=reference_gravity,
             scattering_in_transmission=self.__scattering_in_transmission,
             sum_opacities=self.__sum_opacities,
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure_norm,
-            power_law_opacity_350nm=power_law_opacity_350nm_norm,
-            power_law_opacity_coefficient=power_law_opacity_coefficient_norm,
+            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            power_law_opacity_350nm=power_law_opacity_350nm,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
             cloud_species=self._cloud_species,
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor_norm,
+            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
             clouds_loaded_opacities=self._clouds_loaded_opacities,
             anisotropic_cloud_scattering=self._anisotropic_cloud_scattering,
             cloud_particles_mean_radii=cloud_particles_mean_radii,
@@ -1178,11 +1233,12 @@ class Radtrans:
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             cloud_particles_radius_distribution=cloud_particles_radius_distribution,
-            cloud_hansen_a=cloud_hansen_a_norm,
-            cloud_hansen_b=cloud_hansen_b_norm,
-            cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth_norm,
+            cloud_hansen_a=cloud_hansen_a,
+            cloud_hansen_b=cloud_hansen_b,
+            cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
             complete_coverage_clouds=complete_coverage_cloud_species,
             return_cloud_contribution=return_cloud_contribution,
+            compute_clear_opacities=compute_clear_opacities,
             target_particle_radii=target_particle_radii,
             target_pressure=target_pressure
         )
@@ -1241,19 +1297,15 @@ class Radtrans:
             temperatures=temperatures,
             n_g=self._lines_loaded_opacities['g_gauss'].size,
             n_frequencies=self._frequencies.size,
-            line_opacities_grid=self._lines_loaded_opacities['opacity_grid'],
-            line_opacities_temperature_pressure_grid=self._lines_loaded_opacities['temperature_pressure_grid'],
-            line_opacities_temperature_grid_size=self._lines_loaded_opacities['temperature_grid_size'],
-            line_opacities_pressure_grid_size=self._lines_loaded_opacities['pressure_grid_size']
+            line_opacities_grid=self._lines_loaded_opacities['opacity_grid_stacked'],
+            line_opacities_temperature_pressure_grid=self._lines_loaded_opacities['temperature_pressure_grid_stacked'],
+            line_opacities_temperature_grid_size=self._lines_loaded_opacities['temperature_grid_size_array'],
+            line_opacities_pressure_grid_size=self._lines_loaded_opacities['pressure_grid_size_array']
         )
 
         cloudy_continuum_opacities = continuum_opacities + cloudy_cloud_continuum_opacities
         cloudy_continuum_opacities_scattering = (
             continuum_opacities_scattering + cloudy_cloud_continuum_opacities_scattering
-        )
-        clear_continuum_opacities = continuum_opacities + clear_cloud_continuum_opacities
-        clear_continuum_opacities_scattering = (
-            continuum_opacities_scattering + clear_cloud_continuum_opacities_scattering
         )
 
         # Combine line opacities with continuum opacities, combined opacities are stored in the 1st species slot
@@ -1268,15 +1320,31 @@ class Radtrans:
             weights_gauss=self._lines_loaded_opacities['weights_gauss']
         )
 
-        clear_opacities = continuum.compute_combined_opacities(
-            opacities=line_opacities,
-            continuum_opacities=clear_continuum_opacities,
-            line_species=self._line_species,
-            line_species_mass_fractions=line_species_mass_fractions,
-            line_opacity_mode=self._line_opacity_mode,
-            sum_opacities=self.__sum_opacities,
-            g_gauss=self._lines_loaded_opacities['g_gauss'],
-            weights_gauss=self._lines_loaded_opacities['weights_gauss']
+        def _build_clear_branch(_line_opacities):
+            clear_continuum_opacities = continuum_opacities + clear_cloud_continuum_opacities
+            clear_continuum_opacities_scattering = (
+                continuum_opacities_scattering + clear_cloud_continuum_opacities_scattering
+            )
+            clear_opacities = continuum.compute_combined_opacities(
+                opacities=_line_opacities,
+                continuum_opacities=clear_continuum_opacities,
+                line_species=self._line_species,
+                line_species_mass_fractions=line_species_mass_fractions,
+                line_opacity_mode=self._line_opacity_mode,
+                sum_opacities=self.__sum_opacities,
+                g_gauss=self._lines_loaded_opacities['g_gauss'],
+                weights_gauss=self._lines_loaded_opacities['weights_gauss']
+            )
+            return clear_opacities, clear_continuum_opacities_scattering
+
+        clear_opacities, clear_continuum_opacities_scattering = lax.cond(
+            compute_clear_opacities,
+            _build_clear_branch,
+            lambda _line_opacities: (
+                jnp.zeros_like(opacities),
+                jnp.zeros_like(continuum_opacities_scattering),
+            ),
+            line_opacities,
         )
 
         return (
@@ -2081,10 +2149,19 @@ class Radtrans:
             power_law_opacity_coefficient=power_law_opacity_coefficient,
             gray_opacity=gray_opacity,
             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function,
+            target_particle_radii=target_particle_radii,
+            target_pressure=target_pressure,
         )
-        partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(complete_coverage_clouds)
+        partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
+            sanitized_inputs['complete_coverage_clouds']
+        )
+        should_compute_clear_opacities = (
+            len(partial_coverage_cloud_species) > 0
+            and (return_clear_spectrum or cloud_fraction < 1)
+        )
 
         photosphere_radius = None
         flux_clear = None
@@ -2104,7 +2181,7 @@ class Radtrans:
                 cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                 cloud_hansen_a=sanitized_inputs['cloud_hansen_a'],
                 cloud_hansen_b=sanitized_inputs['cloud_hansen_b'],
-                cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+                cloud_particle_number_density_grid=sanitized_inputs['cloud_particle_number_density_grid'],
                 clouds_particles_porosity_factor=sanitized_inputs['clouds_particles_porosity_factor'],
                 cloud_f_sed=sanitized_inputs['cloud_f_sed'],
                 eddy_diffusion_coefficients=sanitized_inputs['eddy_diffusion_coefficients'],
@@ -2118,8 +2195,9 @@ class Radtrans:
                 return_cloud_contribution=return_cloud_contribution,
                 additional_absorption_opacities_function=sanitized_inputs['additional_absorption_opacities_function'],
                 additional_scattering_opacities_function=sanitized_inputs['additional_scattering_opacities_function'],
-                target_particle_radii=target_particle_radii,
-                target_pressure=target_pressure
+                compute_clear_opacities=should_compute_clear_opacities,
+                target_particle_radii=sanitized_inputs['target_particle_radii'],
+                target_pressure=sanitized_inputs['target_pressure']
             )
         )
 
@@ -2475,10 +2553,19 @@ class Radtrans:
             power_law_opacity_coefficient=power_law_opacity_coefficient,
             gray_opacity=gray_opacity,
             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
+            cloud_particle_number_density_grid=None,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function,
+            target_particle_radii=None,
+            target_pressure=None,
         )
-        partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(complete_coverage_clouds)
+        partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
+            sanitized_inputs['complete_coverage_clouds']
+        )
+        should_compute_clear_opacities = jnp.logical_and(
+            len(partial_coverage_cloud_species) > 0,
+            jnp.less(cloud_fraction, 1),
+        )
 
         (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
          cloud_opacities, cloud_particles_mean_radii,
@@ -2495,7 +2582,7 @@ class Radtrans:
                 cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                 cloud_hansen_a=sanitized_inputs['cloud_hansen_a'],
                 cloud_hansen_b=sanitized_inputs['cloud_hansen_b'],
-                cloud_particle_number_density_grid=None,
+                cloud_particle_number_density_grid=sanitized_inputs['cloud_particle_number_density_grid'],
                 clouds_particles_porosity_factor=sanitized_inputs['clouds_particles_porosity_factor'],
                 cloud_f_sed=sanitized_inputs['cloud_f_sed'],
                 eddy_diffusion_coefficients=sanitized_inputs['eddy_diffusion_coefficients'],
@@ -2509,8 +2596,9 @@ class Radtrans:
                 return_cloud_contribution=False,
                 additional_absorption_opacities_function=sanitized_inputs['additional_absorption_opacities_function'],
                 additional_scattering_opacities_function=sanitized_inputs['additional_scattering_opacities_function'],
-                target_particle_radii=None,
-                target_pressure=None
+                compute_clear_opacities=should_compute_clear_opacities,
+                target_particle_radii=sanitized_inputs['target_particle_radii'],
+                target_pressure=sanitized_inputs['target_pressure']
             ))
 
         if auto_anisotropic_cloud_scattering:
@@ -2750,6 +2838,27 @@ class Radtrans:
                           f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
                           f"set it to 'auto' to disable this warning")
 
+        sanitized_inputs = self._sanitize_flux_opacity_inputs(
+            complete_coverage_clouds=(),
+            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_hansen_a=cloud_hansen_a,
+            cloud_hansen_b=cloud_hansen_b,
+            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            cloud_f_sed=cloud_f_sed,
+            eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+            power_law_opacity_350nm=power_law_opacity_350nm,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
+            gray_opacity=gray_opacity,
+            cloud_photosphere_median_optical_depth=None,
+            cloud_particle_number_density_grid=None,
+            additional_absorption_opacities_function=None,
+            additional_scattering_opacities_function=None,
+            target_particle_radii=None,
+            target_pressure=None,
+        )
+
         # No photospheric cloud in Rosseland or Planck opacities
         (opacities, continuum_opacities_scattering, _, _, _, cloud_particles_mean_radii,
          _, _, _, _) = (
@@ -2758,28 +2867,29 @@ class Radtrans:
                 mass_fractions=mass_fractions,
                 mean_molar_masses=mean_molar_masses,
                 reference_gravity=reference_gravity,
-                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-                cloud_particles_mean_radii=cloud_particles_mean_radii,
-                cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+                opaque_cloud_top_pressure=sanitized_inputs['opaque_cloud_top_pressure'],
+                cloud_particles_mean_radii=sanitized_inputs['cloud_particles_mean_radii'],
+                cloud_particle_radius_distribution_std=sanitized_inputs['cloud_particle_radius_distribution_std'],
                 cloud_particles_radius_distribution=cloud_particles_radius_distribution,
-                cloud_hansen_a=cloud_hansen_a,
-                cloud_hansen_b=cloud_hansen_b,
-                cloud_particle_number_density_grid=None,
-                clouds_particles_porosity_factor=clouds_particles_porosity_factor,
-                cloud_f_sed=cloud_f_sed,
-                eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+                cloud_hansen_a=sanitized_inputs['cloud_hansen_a'],
+                cloud_hansen_b=sanitized_inputs['cloud_hansen_b'],
+                cloud_particle_number_density_grid=sanitized_inputs['cloud_particle_number_density_grid'],
+                clouds_particles_porosity_factor=sanitized_inputs['clouds_particles_porosity_factor'],
+                cloud_f_sed=sanitized_inputs['cloud_f_sed'],
+                eddy_diffusion_coefficients=sanitized_inputs['eddy_diffusion_coefficients'],
                 haze_factor=haze_factor,
-                power_law_opacity_350nm=power_law_opacity_350nm,
-                power_law_opacity_coefficient=power_law_opacity_coefficient,
-                gray_opacity=gray_opacity,
-                cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
-                cloud_fraction=cloud_fraction,
-                complete_coverage_clouds=complete_coverage_clouds,
-                return_cloud_contribution=return_cloud_contribution,
-                additional_absorption_opacities_function=additional_absorption_opacities_function,
-                additional_scattering_opacities_function=additional_scattering_opacities_function,
-                target_particle_radii=None,
-                target_pressure=None
+                power_law_opacity_350nm=sanitized_inputs['power_law_opacity_350nm'],
+                power_law_opacity_coefficient=sanitized_inputs['power_law_opacity_coefficient'],
+                gray_opacity=sanitized_inputs['gray_opacity'],
+                cloud_photosphere_median_optical_depth=sanitized_inputs['cloud_photosphere_median_optical_depth'],
+                cloud_fraction=1.0,
+                complete_coverage_clouds=sanitized_inputs['complete_coverage_clouds'],
+                return_cloud_contribution=False,
+                additional_absorption_opacities_function=sanitized_inputs['additional_absorption_opacities_function'],
+                additional_scattering_opacities_function=sanitized_inputs['additional_scattering_opacities_function'],
+                compute_clear_opacities=False,
+                target_particle_radii=sanitized_inputs['target_particle_radii'],
+                target_pressure=sanitized_inputs['target_pressure']
             )
         )
 
@@ -3003,11 +3113,18 @@ class Radtrans:
             power_law_opacity_coefficient=power_law_opacity_coefficient,
             gray_opacity=gray_opacity,
             cloud_photosphere_median_optical_depth=None,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function,
+            target_particle_radii=target_particle_radii,
+            target_pressure=target_pressure,
         )
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs['complete_coverage_clouds']
+        )
+        should_compute_clear_opacities = (
+            len(partial_coverage_cloud_species) > 0
+            and (return_clear_spectrum or cloud_fraction < 1)
         )
 
         (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
@@ -3025,7 +3142,7 @@ class Radtrans:
                 cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                 cloud_hansen_a=sanitized_inputs['cloud_hansen_a'],
                 cloud_hansen_b=sanitized_inputs['cloud_hansen_b'],
-                cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+                cloud_particle_number_density_grid=sanitized_inputs['cloud_particle_number_density_grid'],
                 clouds_particles_porosity_factor=sanitized_inputs['clouds_particles_porosity_factor'],
                 cloud_f_sed=sanitized_inputs['cloud_f_sed'],
                 eddy_diffusion_coefficients=sanitized_inputs['eddy_diffusion_coefficients'],
@@ -3039,8 +3156,9 @@ class Radtrans:
                 return_cloud_contribution=False,
                 additional_absorption_opacities_function=sanitized_inputs['additional_absorption_opacities_function'],
                 additional_scattering_opacities_function=sanitized_inputs['additional_scattering_opacities_function'],
-                target_particle_radii=target_particle_radii,
-                target_pressure=target_pressure
+                compute_clear_opacities=should_compute_clear_opacities,
+                target_particle_radii=sanitized_inputs['target_particle_radii'],
+                target_pressure=sanitized_inputs['target_pressure']
             ))
 
         # Start filling additional outputs here to get rid of unnecessary variables ASAP
@@ -3436,6 +3554,8 @@ class Radtrans:
                 # Convert into F-ordered array for more efficient processing in the Fortran modules
                 self._lines_loaded_opacities['opacity_grid'][species] = \
                     jnp.array(self._lines_loaded_opacities['opacity_grid'][species][:, :, 0, :], dtype=JAX_DTYPE)
+
+            self._stack_loaded_line_opacities()
 
             print(" Successfully loaded all line opacities")
 

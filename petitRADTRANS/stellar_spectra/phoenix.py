@@ -4,6 +4,7 @@ import os
 
 import h5py
 import jax.numpy as jnp
+import numpy as np
 from jax import config
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS._input_data import find_input_file
@@ -136,6 +137,23 @@ class PhoenixStarTable:
         print("Done.")
 
 
+_PHOENIX_STAR_TABLE = PhoenixStarTable()
+_STAR_SPECTRUM_CACHE = {}
+
+
+def _build_star_spectrum_cache_key(star_effective_temperature, orbit_semi_major_axis, frequencies, star_radius):
+    frequencies_array = np.asarray(frequencies)
+
+    return (
+        float(star_effective_temperature),
+        float(orbit_semi_major_axis),
+        None if star_radius is None else float(star_radius),
+        str(frequencies_array.dtype),
+        tuple(frequencies_array.shape),
+        frequencies_array.tobytes(),
+    )
+
+
 def compute_star_spectrum(star_effective_temperature, orbit_semi_major_axis, frequencies, star_radius=None):
     """Method to get the PHOENIX spectrum of the star and rebin it
     to the wavelength points. If t_star is not explicitly written, the
@@ -154,12 +172,26 @@ def compute_star_spectrum(star_effective_temperature, orbit_semi_major_axis, fre
                 if specified, uses this radius in cm
                 to scale the flux, otherwise it uses PHOENIX radius.
     """
-    phoenix_star_table = PhoenixStarTable()
+    cache_key = None
+
+    try:
+        cache_key = _build_star_spectrum_cache_key(
+            star_effective_temperature=star_effective_temperature,
+            orbit_semi_major_axis=orbit_semi_major_axis,
+            frequencies=frequencies,
+            star_radius=star_radius,
+        )
+    except Exception:
+        cache_key = None
+
+    if cache_key is not None and cache_key in _STAR_SPECTRUM_CACHE:
+        return _STAR_SPECTRUM_CACHE[cache_key]
+
     if star_radius is not None:
-        star_spectrum, _ = phoenix_star_table.compute_spectrum(star_effective_temperature)
+        star_spectrum, _ = _PHOENIX_STAR_TABLE.compute_spectrum(star_effective_temperature)
         _star_radius = star_radius
     else:
-        star_spectrum, _star_radius = phoenix_star_table.compute_spectrum(star_effective_temperature)
+        star_spectrum, _star_radius = _PHOENIX_STAR_TABLE.compute_spectrum(star_effective_temperature)
 
     stellar_intensity = rebin_star_spectrum(
         star_spectrum=star_spectrum[:, 1],
@@ -167,7 +199,10 @@ def compute_star_spectrum(star_effective_temperature, orbit_semi_major_axis, fre
         wavelengths=frequency2wavelength(frequencies)
     )
 
-    stellar_intensity = stellar_intensity / jnp.pi * (star_radius / orbit_semi_major_axis) ** 2
+    stellar_intensity = stellar_intensity / jnp.pi * (_star_radius / orbit_semi_major_axis) ** 2
+
+    if cache_key is not None:
+        _STAR_SPECTRUM_CACHE[cache_key] = stellar_intensity
 
     return stellar_intensity
 

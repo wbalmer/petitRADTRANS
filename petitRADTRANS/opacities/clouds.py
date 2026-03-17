@@ -120,11 +120,9 @@ def _init_cloud_background_continuum(
     opaque_cloud_top_pressure,
     power_law_opacity_350nm,
     power_law_opacity_coefficient,
+    compute_clear_opacities,
 ):
     cloudy_continuum_opacities, cloudy_continuum_opacities_scattering, _, _, _, _ = (
-        _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
-    )
-    clear_continuum_opacities, clear_continuum_opacities_scattering, _, _, _, _ = (
         _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
     )
 
@@ -133,12 +131,6 @@ def _init_cloud_background_continuum(
         pressures=pressures,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure
     )
-    clear_continuum_opacities = _maybe_add_opaque_cloud_deck(
-        cloud_continuum_opacities=clear_continuum_opacities,
-        pressures=pressures,
-        opaque_cloud_top_pressure=opaque_cloud_top_pressure
-    )
-
     scattering_in_transmission, cloudy_continuum_opacities_scattering = _maybe_add_power_law_cloud_scattering(
         scattering_in_transmission=scattering_in_transmission,
         cloud_continuum_opacities_scattering=cloudy_continuum_opacities_scattering,
@@ -147,13 +139,34 @@ def _init_cloud_background_continuum(
         power_law_opacity_350nm=power_law_opacity_350nm,
         power_law_opacity_coefficient=power_law_opacity_coefficient,
     )
-    _, clear_continuum_opacities_scattering = _maybe_add_power_law_cloud_scattering(
-        scattering_in_transmission=scattering_in_transmission,
-        cloud_continuum_opacities_scattering=clear_continuum_opacities_scattering,
-        frequencies=frequencies,
-        pressures=pressures,
-        power_law_opacity_350nm=power_law_opacity_350nm,
-        power_law_opacity_coefficient=power_law_opacity_coefficient,
+
+    def _build_clear_branch(_):
+        clear_continuum_opacities, clear_continuum_opacities_scattering, _, _, _, _ = (
+            _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
+        )
+        clear_continuum_opacities = _maybe_add_opaque_cloud_deck(
+            cloud_continuum_opacities=clear_continuum_opacities,
+            pressures=pressures,
+            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        )
+        _, clear_continuum_opacities_scattering = _maybe_add_power_law_cloud_scattering(
+            scattering_in_transmission=scattering_in_transmission,
+            cloud_continuum_opacities_scattering=clear_continuum_opacities_scattering,
+            frequencies=frequencies,
+            pressures=pressures,
+            power_law_opacity_350nm=power_law_opacity_350nm,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
+        )
+        return clear_continuum_opacities, clear_continuum_opacities_scattering
+
+    clear_continuum_opacities, clear_continuum_opacities_scattering = lax.cond(
+        compute_clear_opacities,
+        _build_clear_branch,
+        lambda _: (
+            jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE),
+            jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE),
+        ),
+        operand=None,
     )
 
     _validate_power_law_inputs(power_law_opacity_350nm, power_law_opacity_coefficient)
@@ -761,6 +774,7 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
     cloud_photosphere_median_optical_depth: float,
     complete_coverage_clouds: tuple[str],
     return_cloud_contribution: bool,
+    compute_clear_opacities,
     target_particle_radii,
     target_pressure
 
@@ -784,6 +798,7 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
         opaque_cloud_top_pressure=opaque_cloud_top_pressure,
         power_law_opacity_350nm=power_law_opacity_350nm,
         power_law_opacity_coefficient=power_law_opacity_coefficient,
+        compute_clear_opacities=compute_clear_opacities,
     )
 
     if len(cloud_species) > 0:
@@ -837,38 +852,54 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
     )
     scattering_in_transmission = jnp.logical_or(scattering_in_transmission, cloudy_branch_has_effect)
 
+    def _compute_clear_branch(_):
+        return _maybe_compute_cloud_branch(
+            selected_cloud_species=complete_coverage_clouds,
+            selected_clouds_have_effect=clear_clouds_have_effect,
+            base_continuum_opacities=clear_continuum_opacities,
+            base_continuum_opacities_scattering=clear_continuum_opacities_scattering,
+            cloud_scattering_opacities=clear_cloud_scattering_opacities,
+            cloud_absorption_opacities=clear_cloud_absorption_opacities,
+            cloud_opacities=cloud_opacities,
+            cloud_particles_mean_radii=_cloud_particles_mean_radii,
+            pressures=pressures,
+            temperatures=temperatures,
+            frequency_bins_edges=frequency_bins_edges,
+            mass_fractions=mass_fractions,
+            mean_molar_masses=mean_molar_masses,
+            reference_gravity=reference_gravity,
+            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+            clouds_loaded_opacities=clouds_loaded_opacities,
+            sum_opacities=sum_opacities,
+            anisotropic_cloud_scattering=anisotropic_cloud_scattering,
+            cloud_f_sed=cloud_f_sed,
+            eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+            input_cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_hansen_a=cloud_hansen_a,
+            cloud_hansen_b=cloud_hansen_b,
+            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
+            return_cloud_contribution=return_cloud_contribution,
+            target_particle_radii=target_particle_radii,
+            target_pressure=target_pressure,
+        )
+
     (clear_continuum_opacities, clear_continuum_opacities_scattering,
      clear_cloud_scattering_opacities, clear_cloud_absorption_opacities,
-     _, _, clear_branch_has_effect) = _maybe_compute_cloud_branch(
-        selected_cloud_species=complete_coverage_clouds,
-        selected_clouds_have_effect=clear_clouds_have_effect,
-        base_continuum_opacities=clear_continuum_opacities,
-        base_continuum_opacities_scattering=clear_continuum_opacities_scattering,
-        cloud_scattering_opacities=clear_cloud_scattering_opacities,
-        cloud_absorption_opacities=clear_cloud_absorption_opacities,
-        cloud_opacities=cloud_opacities,
-        cloud_particles_mean_radii=_cloud_particles_mean_radii,
-        pressures=pressures,
-        temperatures=temperatures,
-        frequency_bins_edges=frequency_bins_edges,
-        mass_fractions=mass_fractions,
-        mean_molar_masses=mean_molar_masses,
-        reference_gravity=reference_gravity,
-        cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-        clouds_loaded_opacities=clouds_loaded_opacities,
-        sum_opacities=sum_opacities,
-        anisotropic_cloud_scattering=anisotropic_cloud_scattering,
-        cloud_f_sed=cloud_f_sed,
-        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-        input_cloud_particles_mean_radii=cloud_particles_mean_radii,
-        cloud_particles_radius_distribution=cloud_particles_radius_distribution,
-        cloud_hansen_a=cloud_hansen_a,
-        cloud_hansen_b=cloud_hansen_b,
-        clouds_particles_porosity_factor=clouds_particles_porosity_factor,
-        cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
-        return_cloud_contribution=return_cloud_contribution,
-        target_particle_radii=target_particle_radii,
-        target_pressure=target_pressure,
+     _, _, clear_branch_has_effect) = lax.cond(
+        compute_clear_opacities,
+        _compute_clear_branch,
+        lambda _: (
+            clear_continuum_opacities,
+            clear_continuum_opacities_scattering,
+            clear_cloud_scattering_opacities,
+            clear_cloud_absorption_opacities,
+            cloud_opacities,
+            _cloud_particles_mean_radii,
+            False,
+        ),
+        operand=None,
     )
     scattering_in_transmission = jnp.logical_or(scattering_in_transmission, clear_branch_has_effect)
 

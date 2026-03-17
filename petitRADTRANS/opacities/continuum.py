@@ -96,12 +96,9 @@ def combine_ck_opacities(opacities, g_gauss, weights_gauss):
 
 
 def combine_opacities(line_species_mass_fractions, opacities, continuum_opacities):
-    # TODO can we simplify this?
-    # TODO maybe move to different file for organisation?
-    opacities *= line_species_mass_fractions.T  # (g, frequencies, species, layers)
-    opacities = jnp.swapaxes(opacities, 1, 2)  # (g, species, frequencies, layers)
-    opacities = opacities.at[:, 0].add(continuum_opacities)  # quirkiness: put total opacities in the opacities of species 0
-    opacities = jnp.swapaxes(opacities, 2, 1)  # back to default shape (g, frequencies, species, layers)
+    abundance_weights = line_species_mass_fractions.T[None, None, :, :]
+    opacities = opacities * abundance_weights
+    opacities = opacities.at[:, :, 0, :].add(continuum_opacities[None, :, :])
 
     return opacities
 
