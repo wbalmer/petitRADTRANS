@@ -887,7 +887,8 @@ class Radtrans:
         emission_geometry, star_irradiation_cos_angle, stellar_intensity, reflectances, emissivities,
         cloud_f_sed, photospheric_cloud_optical_depths, cloud_photosphere_wavelength_boundaries,
         cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-        adaptive_feautrier_iterations, return_contribution=False
+        adaptive_feautrier_iterations, return_contribution=False,
+        chunk_feautrier=False, feautrier_chunk_size=1024,
     ):
         """Calculate the flux.
         TODO complete docstring
@@ -952,7 +953,9 @@ class Radtrans:
                 emissivities=emissivities,
                 adaptive_feautrier_iterations=adaptive_feautrier_iterations,
                 emission_geometry_str=emission_geometry,
-                return_contribution=return_contribution
+                return_contribution=return_contribution,
+                chunk_feautrier=chunk_feautrier,
+                feautrier_chunk_size=feautrier_chunk_size,
             )
         else:
             # TODO jit to cond
@@ -1954,6 +1957,8 @@ class Radtrans:
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
         adaptive_feautrier_iterations: bool = False,
+        chunk_feautrier: bool = False,
+        feautrier_chunk_size: int = 1024,
         frequencies_to_wavelengths: bool = True,
         return_contribution: bool = False,
         return_clear_spectrum: bool = False,
@@ -2228,6 +2233,8 @@ class Radtrans:
                 cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities, # CLOUD
                 cloud_absorption_opacities=cloud_absorption_opacities, # CLOUD
                 adaptive_feautrier_iterations=adaptive_feautrier_iterations, # default
+                chunk_feautrier=chunk_feautrier,
+                feautrier_chunk_size=feautrier_chunk_size,
             )
         )
 
@@ -2250,6 +2257,8 @@ class Radtrans:
                     cloud_anisotropic_scattering_opacities=clear_cloud_anisotropic_scattering_opacities,
                     cloud_absorption_opacities=clear_cloud_absorption_opacities,
                     adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+                    chunk_feautrier=chunk_feautrier,
+                    feautrier_chunk_size=feautrier_chunk_size,
                 )
             )
 
@@ -2383,6 +2392,8 @@ class Radtrans:
             emissivities: ArrayLike = None,
             additional_absorption_opacities_function: callable = None,
             additional_scattering_opacities_function: callable = None,
+                chunk_feautrier: bool = False,
+                feautrier_chunk_size: int = 1024,
             frequencies_to_wavelengths: bool = True,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, any]]:
         """ Method to calculate the atmosphere's emitted flux (emission spectrum).
@@ -2622,6 +2633,8 @@ class Radtrans:
                 cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
                 cloud_absorption_opacities=cloud_absorption_opacities,
                 adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+                chunk_feautrier=chunk_feautrier,
+                feautrier_chunk_size=feautrier_chunk_size,
             )
         )
 
@@ -2644,6 +2657,8 @@ class Radtrans:
                     cloud_absorption_opacities=clear_cloud_absorption_opacities,
                     adaptive_feautrier_iterations=adaptive_feautrier_iterations,
                     return_contribution=False,
+                    chunk_feautrier=chunk_feautrier,
+                    feautrier_chunk_size=feautrier_chunk_size,
                 )
 
                 return (

@@ -390,7 +390,7 @@ def _ng_accelerated_batched(tn, tn1, tn2, tn3, current_source):
     "return_contribution",
     "iter_scat_max",
 ))
-def compute_feautrier_radiative_transfer(
+def _compute_feautrier_radiative_transfer_chunk(
         frequencies_bin_edges,               # (n_freq_bin_edges,)
         temperatures,                        # (n_layers,)
         weights_gauss,                       # (n_g,)
@@ -796,6 +796,155 @@ def compute_feautrier_radiative_transfer(
         compute_contribution,
         lambda: emission_contribution_lf,
     )
+
+    return flux_f, emission_contribution_lf
+
+
+@jit(static_argnames=(
+    "emission_geometry_str",
+    "adaptive_feautrier_iterations",
+    "return_contribution",
+    "iter_scat_max",
+    "chunk_feautrier",
+    "feautrier_chunk_size",
+))
+def compute_feautrier_radiative_transfer(
+        frequencies_bin_edges,
+        temperatures,
+        weights_gauss,
+        emission_cos_angles,
+        emission_cos_angles_weights,
+        optical_depths_in,
+        photon_destruction_probabilities_in,
+        stellar_intensity,
+        star_irradiation_cos_angle,
+        reflectances,
+        emissivities,
+        adaptive_feautrier_iterations: bool = True,
+        emission_geometry_str: str = "dayside_ave",
+        return_contribution: bool = False,
+        iter_scat_max: int = 100,
+        convergence_threshold: float = 1e-2,
+        chunk_feautrier: bool = True,
+        feautrier_chunk_size: int = 1024,
+):
+    n_g, n_freq_bins, n_layers = photon_destruction_probabilities_in.shape
+
+    if (not chunk_feautrier) or feautrier_chunk_size >= n_freq_bins:
+        return _compute_feautrier_radiative_transfer_chunk(
+            frequencies_bin_edges=frequencies_bin_edges,
+            temperatures=temperatures,
+            weights_gauss=weights_gauss,
+            emission_cos_angles=emission_cos_angles,
+            emission_cos_angles_weights=emission_cos_angles_weights,
+            optical_depths_in=optical_depths_in,
+            photon_destruction_probabilities_in=photon_destruction_probabilities_in,
+            stellar_intensity=stellar_intensity,
+            star_irradiation_cos_angle=star_irradiation_cos_angle,
+            reflectances=reflectances,
+            emissivities=emissivities,
+            adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+            emission_geometry_str=emission_geometry_str,
+            return_contribution=return_contribution,
+            iter_scat_max=iter_scat_max,
+            convergence_threshold=convergence_threshold,
+        )
+
+    if feautrier_chunk_size <= 0:
+        raise ValueError(f"feautrier_chunk_size must be > 0, but was {feautrier_chunk_size}")
+
+    n_chunks = (n_freq_bins + feautrier_chunk_size - 1) // feautrier_chunk_size
+    padded_n_freq_bins = n_chunks * feautrier_chunk_size
+    pad_freq_bins = padded_n_freq_bins - n_freq_bins
+
+    optical_depths_padded = jnp.pad(optical_depths_in, ((0, 0), (0, pad_freq_bins), (0, 0)))
+    photon_destruction_probabilities_padded = jnp.pad(
+        photon_destruction_probabilities_in,
+        ((0, 0), (0, pad_freq_bins), (0, 0)),
+    )
+    stellar_intensity_padded = jnp.pad(stellar_intensity, (0, pad_freq_bins))
+    reflectances_padded = jnp.pad(reflectances, (0, pad_freq_bins))
+    emissivities_padded = jnp.pad(emissivities, (0, pad_freq_bins))
+
+    if pad_freq_bins > 0:
+        last_bin_width = frequencies_bin_edges[-1] - frequencies_bin_edges[-2]
+        extra_frequency_edges = frequencies_bin_edges[-1] + last_bin_width * jnp.arange(1, pad_freq_bins + 1)
+        frequencies_bin_edges_padded = jnp.concatenate((frequencies_bin_edges, extra_frequency_edges))
+    else:
+        frequencies_bin_edges_padded = frequencies_bin_edges
+
+    optical_depths_chunks = jnp.moveaxis(
+        optical_depths_padded.reshape(n_g, n_chunks, feautrier_chunk_size, n_layers),
+        1,
+        0,
+    )
+    photon_destruction_probabilities_chunks = jnp.moveaxis(
+        photon_destruction_probabilities_padded.reshape(n_g, n_chunks, feautrier_chunk_size, n_layers),
+        1,
+        0,
+    )
+    stellar_intensity_chunks = stellar_intensity_padded.reshape(n_chunks, feautrier_chunk_size)
+    reflectances_chunks = reflectances_padded.reshape(n_chunks, feautrier_chunk_size)
+    emissivities_chunks = emissivities_padded.reshape(n_chunks, feautrier_chunk_size)
+    frequencies_bin_edges_chunks = jnp.stack(
+        [
+            frequencies_bin_edges_padded[
+                i_chunk * feautrier_chunk_size:(i_chunk + 1) * feautrier_chunk_size + 1
+            ]
+            for i_chunk in range(n_chunks)
+        ],
+        axis=0,
+    )
+
+    def _chunk_body(_, chunk_inputs):
+        (
+            chunk_frequency_bin_edges,
+            chunk_optical_depths,
+            chunk_photon_destruction_probabilities,
+            chunk_stellar_intensity,
+            chunk_reflectances,
+            chunk_emissivities,
+        ) = chunk_inputs
+
+        chunk_flux, chunk_emission_contribution = _compute_feautrier_radiative_transfer_chunk(
+            frequencies_bin_edges=chunk_frequency_bin_edges,
+            temperatures=temperatures,
+            weights_gauss=weights_gauss,
+            emission_cos_angles=emission_cos_angles,
+            emission_cos_angles_weights=emission_cos_angles_weights,
+            optical_depths_in=chunk_optical_depths,
+            photon_destruction_probabilities_in=chunk_photon_destruction_probabilities,
+            stellar_intensity=chunk_stellar_intensity,
+            star_irradiation_cos_angle=star_irradiation_cos_angle,
+            reflectances=chunk_reflectances,
+            emissivities=chunk_emissivities,
+            adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+            emission_geometry_str=emission_geometry_str,
+            return_contribution=return_contribution,
+            iter_scat_max=iter_scat_max,
+            convergence_threshold=convergence_threshold,
+        )
+
+        return None, (chunk_flux, chunk_emission_contribution)
+
+    _, (flux_chunks, emission_contribution_chunks) = lax.scan(
+        _chunk_body,
+        None,
+        (
+            frequencies_bin_edges_chunks,
+            optical_depths_chunks,
+            photon_destruction_probabilities_chunks,
+            stellar_intensity_chunks,
+            reflectances_chunks,
+            emissivities_chunks,
+        ),
+    )
+
+    flux_f = flux_chunks.reshape(padded_n_freq_bins)[:n_freq_bins]
+    emission_contribution_lf = jnp.transpose(emission_contribution_chunks, (1, 0, 2)).reshape(
+        n_layers,
+        padded_n_freq_bins,
+    )[:, :n_freq_bins]
 
     return flux_f, emission_contribution_lf
 
