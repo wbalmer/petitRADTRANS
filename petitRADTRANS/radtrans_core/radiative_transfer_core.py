@@ -447,9 +447,10 @@ def _compute_feautrier_radiative_transfer_chunk(
     inv_dtau  = 1e10
     inv_dtau2 = inv_dtau * 0.5
 
-    mu_double   = emission_cos_angles * 2.0
-    surf_refl_2 = 2.0 * reflectances
-    mu_weight_a = emission_cos_angles * emission_cos_angles_weights   # (a,)
+    mu_double      = emission_cos_angles * 2.0
+    surf_refl_2    = 2.0 * reflectances
+    angle_weight_a = emission_cos_angles_weights
+    mu_weight_a    = emission_cos_angles * emission_cos_angles_weights
 
     # ------------------------------------------------------------------
     # 1. Geometry coefficient — Python level, never traced
@@ -597,11 +598,11 @@ def _compute_feautrier_radiative_transfer_chunk(
     # 10. Lambda_loc for ALI  (g, f, l)
     # ------------------------------------------------------------------
     lam_top = jnp.sum(
-        mu_weight_a[None, None, :, None] / b_top, axis=2
+        angle_weight_a[None, None, :, None] / b_top, axis=2
     )[..., 0]  # (g, f)
 
     lam_mid = jnp.sum(
-        mu_weight_a[None, None, :, None] / b_mid, axis=2
+        angle_weight_a[None, None, :, None] / b_mid, axis=2
     )  # (g, f, l-2)
 
     f1_surf = jnp.clip(
@@ -610,7 +611,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         -inv_dtau, inv_dtau,
     )  # (g, f, a, 1)
     lam_surf = jnp.sum(
-        mu_weight_a[None, None, :, None] / (1.0 + 2.0 * f1_surf ** 2), axis=2
+        angle_weight_a[None, None, :, None] / (1.0 + 2.0 * f1_surf ** 2), axis=2
     )[..., 0]  # (g, f)
 
     lambda_loc_gfl = jnp.concatenate(
@@ -688,7 +689,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         )
 
         # 13b. J_bol (g, f, l) = angular quadrature of mean intensity
-        J_bol_gfl = jnp.sum(I_J_gfal * mu_weight_a[None, None, :, None], axis=2)
+        J_bol_gfl = jnp.sum(I_J_gfal * angle_weight_a[None, None, :, None], axis=2)
 
         # 13c. ALI source update using precomputed loop-invariant terms (O4).
         source_ali = (
