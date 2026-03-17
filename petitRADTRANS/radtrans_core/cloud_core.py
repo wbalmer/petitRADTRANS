@@ -246,21 +246,29 @@ def compute_cloud_log_normal_particles_distribution_opacities(
     Returns:
 
     """
+    radii_tiny = jnp.finfo(cloud_particles_mean_radii.dtype).tiny
+    log_std_floor = jnp.sqrt(jnp.finfo(cloud_particles_mean_radii.dtype).eps)
+    safe_mean_radii = jnp.maximum(cloud_particles_mean_radii, radii_tiny)
+    safe_log_std = jnp.maximum(
+        jnp.log(jnp.maximum(cloud_particles_distribution_std, 1.0 + log_std_floor)),
+        log_std_floor,
+    )
+
     n = (  # (n_layers, n_clouds)
             3.0
             * clouds_mass_fractions
             * atmosphere_densities[:, None]
-            / (4.0 * jnp.pi * clouds_particles_densities * (cloud_particles_mean_radii ** 3))
-            * jnp.exp(-4.5 * jnp.log(cloud_particles_distribution_std) ** 2)
+            / (4.0 * jnp.pi * clouds_particles_densities * (safe_mean_radii ** 3))
+            * jnp.exp(-4.5 * safe_log_std ** 2)
     )
 
-    diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(cloud_particles_mean_radii)
+    diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(safe_mean_radii)
     dn_dr = (  # (n_radii, n_layers, n_clouds)
         n / (
             cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi)
-            * jnp.log(cloud_particles_distribution_std)
+            * safe_log_std
         )
-        * jnp.exp(-diff ** 2 / (2.0 * jnp.log(cloud_particles_distribution_std) ** 2))
+        * jnp.exp(-diff ** 2 / (2.0 * safe_log_std ** 2))
     )
 
     integrand_scale = (  # (n_radii, n_layers, n_clouds)
@@ -279,14 +287,9 @@ def compute_cloud_log_normal_particles_distribution_opacities(
     _cloud_absorption_opacities = jnp.sum(integrand_absorption * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
     _cloud_scattering_opacities = jnp.sum(integrand_scattering * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
     cloud_anisotropic_fraction = jnp.sum(integrand_anisotropy * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
-    _cloud_scattering_opacities = jnp.where(
-        _cloud_scattering_opacities < 1e-200,
-        1e-200,
-        _cloud_scattering_opacities
-        )
-    cloud_anisotropic_fraction = jnp.true_divide(
-        cloud_anisotropic_fraction,
-        _cloud_scattering_opacities
+    _cloud_scattering_opacities, cloud_anisotropic_fraction = _compute_cloud_scattering_reduction_factor(
+        cloud_scattering_weighted_reduction=cloud_anisotropic_fraction,
+        cloud_scattering_opacities=_cloud_scattering_opacities,
     )
 
     _cloud_absorption_opacities = _cloud_absorption_opacities / atmosphere_densities
@@ -664,6 +667,7 @@ def _compute_mean_radius_single(
     layer and species values.
     """
     N_fit = 100
+    std_dev_clamped = jnp.maximum(std_dev, 1.0001)
 
     # H = cst_k*temperatures/(mean_molar_masses*cst_amu*reference_gravity)
     H_i = cst.kB * temp_i / (mean_molar_mass_i * cst.amu * ref_g)
@@ -679,7 +683,6 @@ def _compute_mean_radius_single(
     def compute_valid_radius(r_w_val):
         # if (f_seds(i_str,i_spec) > 1d0) then
         def f_sed_gt_1():
-            std_dev_clamped = jnp.maximum(std_dev, 1.0001)
             rad_start = r_w_val / std_dev_clamped
             rad_end = r_w_val
             # Generate N_fit points linearly between rad_start and rad_end
@@ -688,7 +691,6 @@ def _compute_mean_radius_single(
 
         # else
         def f_sed_le_1():
-            std_dev_clamped = jnp.maximum(std_dev, 1.0001)
             rad_start = r_w_val
             rad_end = r_w_val * std_dev_clamped
             # Generate N_fit points linearly between rad_start and rad_end
@@ -725,30 +727,14 @@ def _compute_mean_radius_single(
         # Handle potential division by zero for 1d0/alpha
         exponent = lax.cond(
              jnp.abs(alpha_ij) < 1e-15,
-             lambda: jnp.inf * jnp.sign(1.0),  # 1/0 -> inf, sign depends on sign of 1.0
+             lambda: 0.0,
              lambda: 1.0 / alpha_ij
         )
-        # Handle potential issues with f_sed_ij**inf
-        f_sed_term = lax.cond(
-            jnp.isinf(exponent),
-            lambda: lax.cond(
-                f_sed_ij > 1.0, lambda: jnp.inf,
-                lambda: lax.cond(f_sed_ij < 1.0, lambda: 0.0, lambda: 1.0) # 0**inf is 0, 1**inf is 1
-            ),
-            lambda: f_sed_ij**exponent
-        )
+        f_sed_term = f_sed_ij**exponent
+        log_std_dev_sq = jnp.log(std_dev_clamped) ** 2.0
 
-        # Handle potential log of non-positive std_dev
-        log_std_dev_sq = lax.cond(
-            std_dev > 0,
-            lambda: jnp.log(std_dev)**2.0,
-            lambda: jnp.nan  # Handle invalid std_dev
-        )
-
-        mean_radius_ij = lax.cond(
-            jnp.isnan(log_std_dev_sq),
-            lambda: jnp.nan,  # Propagate NaN
-            lambda: r_w_refined_ij * f_sed_term * jnp.exp(-(alpha_ij + 6.0) / 2.0 * log_std_dev_sq)
+        mean_radius_ij = r_w_refined_ij * f_sed_term * jnp.exp(
+            -(alpha_ij + 6.0) / 2.0 * log_std_dev_sq
         )
 
         return mean_radius_ij
@@ -766,11 +752,7 @@ def _compute_mean_radius_single(
     )
 
     # Handle potential NaN results from valid radius calculation
-    return lax.cond(
-        jnp.isnan(mean_radius_ij),
-        lambda: 1e-17,  # Default to small value if calculation failed
-        lambda: mean_radius_ij
-    )
+    return jnp.where(jnp.isfinite(mean_radius_ij), mean_radius_ij, 1e-17)
 
 @jit
 def _compute_mean_radius_hansen_single(
@@ -979,6 +961,45 @@ def compute_cloud_hansen_opacities():
     return
 
 
+def _compute_cloud_scattering_reduction_factor(
+        cloud_scattering_weighted_reduction,
+        cloud_scattering_opacities,
+):
+    peak_scattering_opacity = jnp.max(lax.stop_gradient(cloud_scattering_opacities))
+    min_scattering_opacity = jnp.maximum(
+        jnp.finfo(cloud_scattering_opacities.dtype).tiny,
+        jnp.finfo(cloud_scattering_opacities.dtype).eps * peak_scattering_opacity,
+    )
+    has_scattering_opacity = cloud_scattering_opacities > min_scattering_opacity
+    safe_cloud_scattering_opacities = jnp.where(
+        has_scattering_opacity,
+        cloud_scattering_opacities,
+        lax.stop_gradient(jnp.ones_like(cloud_scattering_opacities)),
+    )
+    safe_cloud_scattering_weighted_reduction = jnp.where(
+        has_scattering_opacity,
+        cloud_scattering_weighted_reduction,
+        lax.stop_gradient(jnp.zeros_like(cloud_scattering_weighted_reduction)),
+    )
+
+    cloud_scattering_reduction_factor = jnp.true_divide(
+        safe_cloud_scattering_weighted_reduction,
+        safe_cloud_scattering_opacities,
+    )
+    cloud_scattering_reduction_factor = jnp.where(
+        has_scattering_opacity,
+        cloud_scattering_reduction_factor,
+        0.0,
+    )
+    cloud_scattering_opacities = jnp.where(
+        has_scattering_opacity,
+        cloud_scattering_opacities,
+        0.0,
+    )
+
+    return cloud_scattering_opacities, cloud_scattering_reduction_factor
+
+
 def _integrate_cloud_opacities_from_dn_dr(
             dn_dr,
             atmosphere_densities,
@@ -1038,14 +1059,9 @@ def _integrate_cloud_opacities_from_dn_dr(
     _cloud_scattering_opacities = jnp.sum(integrand_scattering * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
     cloud_anisotropic_fraction = jnp.sum(integrand_anisotropy * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
 
-    _cloud_scattering_opacities = jnp.where(
-        _cloud_scattering_opacities < 1e-200,
-        1e-200,
-        _cloud_scattering_opacities
-        )
-    cloud_anisotropic_fraction = jnp.true_divide(
-        cloud_anisotropic_fraction,
-        _cloud_scattering_opacities
+    _cloud_scattering_opacities, cloud_anisotropic_fraction = _compute_cloud_scattering_reduction_factor(
+        cloud_scattering_weighted_reduction=cloud_anisotropic_fraction,
+        cloud_scattering_opacities=_cloud_scattering_opacities,
     )
 
     _cloud_absorption_opacities = _cloud_absorption_opacities / atmosphere_densities
@@ -1100,23 +1116,31 @@ def compute_cloud_log_normal_particles_distribution_opacities_grid(
     Returns:
 
     """
+    radii_tiny = jnp.finfo(cloud_particles_mean_radii.dtype).tiny
+    log_std_floor = jnp.sqrt(jnp.finfo(cloud_particles_mean_radii.dtype).eps)
+    safe_mean_radii = jnp.maximum(cloud_particles_mean_radii, radii_tiny)
+    safe_log_std = jnp.maximum(
+        jnp.log(jnp.maximum(cloud_particles_distribution_std, 1.0 + log_std_floor)),
+        log_std_floor,
+    )
+
     # Compute dn/dr from log-normal distribution
     n = (  # (n_layers, n_clouds)
             3.0
             * clouds_mass_fractions
             * atmosphere_densities[:, None]
-            / (4.0 * jnp.pi * clouds_particles_densities * (cloud_particles_mean_radii ** 3))
-            * jnp.exp(-4.5 * jnp.log(cloud_particles_distribution_std) ** 2)
+            / (4.0 * jnp.pi * clouds_particles_densities * (safe_mean_radii ** 3))
+            * jnp.exp(-4.5 * safe_log_std ** 2)
     )
 
-    diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(cloud_particles_mean_radii)
+    diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(safe_mean_radii)
 
     dn_dr = (  # (n_radii, n_layers, n_clouds)
         n / (
             cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi)
-            * jnp.log(cloud_particles_distribution_std)
+            * safe_log_std
         )
-        * jnp.exp(-diff ** 2 / (2.0 * jnp.log(cloud_particles_distribution_std) ** 2))
+        * jnp.exp(-diff ** 2 / (2.0 * safe_log_std ** 2))
     )
 
     # Delegate to shared integrator

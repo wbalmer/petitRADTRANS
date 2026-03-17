@@ -129,7 +129,7 @@ def compute_h_minus_opacities(
             wavelengths,
             temperatures[i_struct],
             p_e[i_struct]
-        ) / cst.amu * mass_fractions['H-'][i_struct]
+        ) / cst.amu * mass_fractions['H'][i_struct]
 
         ret_val = ret_val.at[:, i_struct].set(opacities_h_minus_bf * mass_fractions['H-'][i_struct] + opacities_h_minus_ff)
 

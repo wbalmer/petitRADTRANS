@@ -708,6 +708,23 @@ def _assemble_cloud_opacity_outputs(
 
 @jit(static_argnames=['cloud_species'])
 def init_clouds_particles_porosity_factor(clouds_particles_porosity_factor, cloud_species):
+    """Normalize and validate per-species cloud porosity factors.
+
+    The input mapping is adjusted to the defaults expected by each cloud
+    opacity source. DHS-based tables default to a porosity of ``0.25`` when no
+    finite value is supplied, while non-DHS sources default to ``0.0``. The
+    function also validates that all resulting porosity factors lie in the
+    interval $[0, 1)$.
+
+    Args:
+        clouds_particles_porosity_factor:
+            Mapping from cloud species name to porosity factor.
+        cloud_species:
+            Cloud species included in the current calculation.
+
+    Returns:
+        Updated porosity-factor mapping with defaults applied.
+    """
     # This check is done in _compute_opacities now
     #if (clouds_particles_porosity_factor is None) or (not bool(clouds_particles_porosity_factor)):
     #    clouds_particles_porosity_factor = {species: -jnp.inf for species in cloud_species}
@@ -791,6 +808,85 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
     target_pressure
 
 ):
+    """Compute cloud continuum opacity products for cloudy and optional clear branches.
+
+    This is the main cloud entry point used by ``Radtrans``. It builds the
+    cloud absorption and scattering continuum contributions, evaluates the
+    selected cloud species, and optionally computes a second branch containing
+    only the fully covering clouds for partial-cloud post-processing.
+
+    Args:
+        frequencies:
+            Frequency grid used for continuum outputs.
+        frequency_bins_edges:
+            Frequency-bin edges used for cloud opacity interpolation.
+        pressures:
+            Atmospheric pressure grid in cgs units.
+        temperatures:
+            Atmospheric temperature profile in K.
+        mass_fractions:
+            Species mass-fraction mapping for the current atmosphere.
+        mean_molar_masses:
+            Mean molecular mass profile in amu.
+        reference_gravity:
+            Reference gravity in cgs units.
+        scattering_in_transmission:
+            Whether scattering is already active in transmission before adding
+            cloud contributions.
+        sum_opacities:
+            Whether cloud opacities should be collapsed into a single absorber
+            channel.
+        opaque_cloud_top_pressure:
+            Optional pressure in bar for an opaque cloud deck.
+        power_law_opacity_350nm:
+            Optional reference opacity for the power-law cloud scattering model.
+        power_law_opacity_coefficient:
+            Wavelength exponent for the power-law cloud scattering model.
+        cloud_species:
+            Cloud species to include in the cloudy branch.
+        clouds_particles_porosity_factor:
+            Mapping of cloud species to particle porosity factors.
+        clouds_loaded_opacities:
+            Loaded cloud opacity tables and metadata.
+        anisotropic_cloud_scattering:
+            If ``True``, use anisotropic scattering when forming continuum
+            scattering opacities.
+        cloud_particles_mean_radii:
+            Optional prescribed particle mean radii.
+        cloud_particle_radius_distribution_std:
+            Width of the log-normal particle size distribution.
+        cloud_particle_number_density_grid:
+            Optional custom particle number density grid.
+        cloud_f_sed:
+            Cloud settling parameter, scalar or per-species mapping.
+        eddy_diffusion_coefficients:
+            Eddy diffusion coefficient profile or mapping.
+        cloud_particles_radius_distribution:
+            Particle size distribution model, such as ``"lognormal"``,
+            ``"hansen"``, or ``"custom"``.
+        cloud_hansen_a:
+            Optional Hansen ``a`` parameter or equivalent mean-radius input.
+        cloud_hansen_b:
+            Optional Hansen ``b`` width parameter.
+        cloud_photosphere_median_optical_depth:
+            Optional target cloud optical depth near the photosphere.
+        complete_coverage_clouds:
+            Cloud species that should remain in the clear branch.
+        return_cloud_contribution:
+            Whether to propagate cloud-only products required by contribution
+            diagnostics.
+        compute_clear_opacities:
+            If ``True``, also compute the clear branch.
+        target_particle_radii:
+            Optional target particle radii grid for cloud opacity evaluation.
+        target_pressure:
+            Optional pressure grid associated with ``target_particle_radii``.
+
+    Returns:
+        Tuple containing cloudy continuum absorption and scattering opacities,
+        cloud-only opacity diagnostics, particle radii, clear-branch cloud
+        products, and the updated transmission-scattering flag.
+    """
     n_clouds = len(cloud_species)
     cloudy_continuum_opacities, cloudy_continuum_opacities_scattering, cloud_scattering_opacities, \
         cloud_absorption_opacities, cloud_opacities, _cloud_particles_mean_radii = (
@@ -968,27 +1064,71 @@ def _compute_cloud_opacities(
     target_pressure=None
 
     ):
-    """Calculate cloud opacities for a defined atmospheric structure.
-    This specifically calculates the various cloud absorption and scattering opacities
-    for a physical cloud model, typically based on an Ackerman & Marley (2001) cloud, or similar.
-    # TODO complete docstring
+    """Calculate cloud opacity terms for a single cloud branch.
+
+    The function prepares cloud particle properties, evaluates the selected
+    particle size distribution against the loaded cloud tables, interpolates the
+    resulting opacities onto the model frequency grid, and separates the final
+    absorption and scattering products used by the radiative-transfer solvers.
 
     Args:
+        pressures:
+            Atmospheric pressure grid in cgs units.
         temperatures:
+            Atmospheric temperature profile in K.
+        cloud_species:
+            Cloud species included in this branch.
+        frequency_bins_edges:
+            Frequency-bin edges for interpolation of cloud opacity tables.
         cloud_species_mass_fractions:
+            Mapping of cloud species to mass-fraction profiles.
         mean_molar_masses:
+            Mean molecular mass profile in amu.
         reference_gravity:
+            Reference gravity in cgs units.
         cloud_particle_radius_distribution_std:
+            Width of the log-normal particle size distribution.
+        clouds_loaded_opacities:
+            Loaded cloud opacity tables and metadata.
+        sum_opacities:
+            Whether cloud opacity outputs should be collapsed into a single
+            absorber channel.
+        anisotropic_cloud_scattering:
+            Whether to use anisotropic scattering in the continuum output.
         cloud_f_sed:
+            Cloud settling parameter used when radii must be derived.
         eddy_diffusion_coefficients:
+            Eddy diffusion coefficient profile or mapping used for derived
+            particle radii.
         cloud_particles_mean_radii:
+            Optional prescribed cloud particle mean radii.
         cloud_particles_radius_distribution:
+            Particle size distribution model.
         cloud_hansen_a:
+            Optional Hansen ``a`` parameter or equivalent mean-radius input.
         cloud_hansen_b:
+            Optional Hansen ``b`` width parameter.
+        cloud_particle_number_density_grid:
+            Optional custom particle number density grid.
+        clouds_particles_porosity_factor:
+            Optional mapping of cloud species to particle porosity factors.
+        photospheric_cloud_optical_depths:
+            Optional target cloud optical depth near the photosphere.
+        continuum_opacities:
+            Seed continuum absorption opacities to which cloud absorption is
+            added.
         return_cloud_contribution:
+            Whether to retain cloud-only products needed for contribution
+            diagnostics.
+        target_particle_radii:
+            Optional target particle radii grid for cloud opacity evaluation.
+        target_pressure:
+            Optional pressure grid associated with ``target_particle_radii``.
 
     Returns:
-
+        Tuple ``(continuum_opacities, continuum_opacities_scattering,
+        cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
+        cloud_opacities, cloud_particles_mean_radii)``.
     """
     n_clouds = len(cloud_species)
     atmospheric_densities = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
@@ -1098,18 +1238,21 @@ def _compute_cloud_opacities(
 
 
 def compute_species_optical_depths(reference_gravity, pressures, cloud_opacities):
-    """Calculate the optical depth of the clouds as function of
-    frequency and pressure. The array with the optical depths is set to the
-    ``tau_cloud`` attribute. The optical depth is calculated from the top of
-    the atmosphere (i.e. the smallest pressure). Therefore, below the cloud
-    base, the optical depth is constant and equal to the value at the cloud
-    base.
-    # TODO complete docstring
-    # TODO rename to _compute_cloud_species_optical_depths
+    """Compute cloud optical depths from per-species cloud opacities.
 
-        Args:
-            reference_gravity (float):
-                Surface gravity in cgs. Vertically constant for emission
-                spectra.
+    Optical depths are integrated from the top of the atmosphere downward using
+    the atmospheric pressure grid and a vertically constant reference gravity.
+
+    Args:
+        reference_gravity:
+            Surface gravity in cgs units.
+        pressures:
+            Atmospheric pressure grid in cgs units.
+        cloud_opacities:
+            Cloud opacity array with dimensions
+            ``(n_g, n_frequencies, n_species, n_layers)``.
+
+    Returns:
+        Cloud optical depths with the same shape as ``cloud_opacities``.
     """
     return radiative_transfer_core.compute_species_optical_depths(reference_gravity, pressures, cloud_opacities)

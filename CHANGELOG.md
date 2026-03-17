@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a12] - 2026-03-17
+## [4.0.0a13] - 2026-03-17
 ### Summary
 pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs.
@@ -21,8 +21,6 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Feature completion: Multicolumn/time domain retrievals - update TimeSeriesData class and calculate 2D models.
 - Add new cloud opacities to be compatible with new condensation curves.
 - Optimisation: make everything deeper than `calculate_flux` JIT-compileable (done) and fast(still working on it).
-- Optimisation: replace for and fori_loops with scan or vmap.
-- Optimisation: Ensure consistent typing throughout (32 vs 64 bit). Add typing to function definitions.
 - Optimisation: profile code for new bottlenecks.
 - Testing: ensure compatibility of spectral_model.
 - Testing: gradient calculations.
@@ -30,7 +28,6 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Testing: test GPU functionality.
 - Architecture: refactor retrieval plotting into separate module.
 - Architecture: Make sure all chi2 calculations use LogLikelihood class.
-- Architecture: Fewer classes, more functional approach. Break up large functions. Separate static methods into clearer modules.
 - Documentation: Add docstrings to all new JAX functions.
 - Documentation: Update tutorials to be v4 compatible.
 - Documentation: Reintroduce error checking where removed.
@@ -39,6 +36,9 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Clean up comment blocks.
 
 ### Changed
+- a12 Optimised Feautrier and ensured consistency with Fortran implementation
+- Added sanitising of inputs to calculate_flux and calculate_transit_radii to ensure JAX compatibiltiy.
+- Added in patchy cloud implementation to replace smart_clear_opacities.
 - Updated naming of temperature profile functions for consistency, moved to petitRADTRANS/profiles.
 - Moved temperature profile functions to petitRADTRANS/profiles.
 - a9 Added new condensation curves based on VIRGA.
@@ -62,6 +62,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Renamed functions beginning with `__` in Radtrans to only use a single underscore.
 
 ### Added
+- a13: Added autodiff version of calculate_flux functions.
 - Reimplemented synthetic photometry calculations from `species` to avoid circular dependencies.
 - Implemented new `Sampler` package to allow easier selection of `pymultinest`, `jaxns` or `ultranest`
 - Implemented new `LogLikelihood` class to ensure consistent chi2 calculations.
