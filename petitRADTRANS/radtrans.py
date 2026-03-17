@@ -693,10 +693,10 @@ class Radtrans:
 
     @staticmethod
     def _normalize_optional_mapping(mapping):
-        normalized_mapping = {}
-
         if mapping is None:
-            return normalized_mapping
+            return None
+
+        normalized_mapping = {}
 
         for key, value in list(mapping.items()):
             normalized_mapping[key] = jnp.array(value, dtype=JAX_DTYPE)
@@ -743,10 +743,15 @@ class Radtrans:
             for key, value in list(clouds_particles_porosity_factor.items()):
                 clouds_particles_porosity_factor_norm[key] = jnp.array(value, dtype=JAX_DTYPE)
 
-        eddy_diffusion_coefficients_norm = {}
-        if eddy_diffusion_coefficients is not None and isinstance(eddy_diffusion_coefficients, dict):
-            for key, value in list(eddy_diffusion_coefficients.items()):
-                eddy_diffusion_coefficients_norm[key] = jnp.array(value, dtype=JAX_DTYPE)
+        if eddy_diffusion_coefficients is None:
+            eddy_diffusion_coefficients_norm = None
+        elif isinstance(eddy_diffusion_coefficients, dict):
+            eddy_diffusion_coefficients_norm = {
+                key: jnp.array(value, dtype=JAX_DTYPE)
+                for key, value in eddy_diffusion_coefficients.items()
+            }
+        else:
+            eddy_diffusion_coefficients_norm = jnp.array(eddy_diffusion_coefficients, dtype=JAX_DTYPE)
 
         return {
             'complete_coverage_clouds': () if complete_coverage_clouds is None else tuple(complete_coverage_clouds),
@@ -1202,7 +1207,7 @@ class Radtrans:
             gray_opacity=gray_opacity,
             #species_basenames=self._species_basenames
         )
-        continuum_opacities_scattering, self.__scattering_in_transmission = (
+        continuum_opacities_scattering, scattering_in_transmission = (
             continuum.compute_continuum_scattering_opacities(
                 frequencies=self._frequencies,
                 pressures=self._pressures,
@@ -1230,7 +1235,7 @@ class Radtrans:
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
             reference_gravity=reference_gravity,
-            scattering_in_transmission=self.__scattering_in_transmission,
+            scattering_in_transmission=scattering_in_transmission,
             sum_opacities=self.__sum_opacities,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
             power_law_opacity_350nm=power_law_opacity_350nm,
@@ -1254,7 +1259,6 @@ class Radtrans:
             target_particle_radii=target_particle_radii,
             target_pressure=target_pressure
         )
-        self.__scattering_in_transmission = cloud_scattering_in_transmission
 
         # TODO jitable for ValueError (jax.debug.callback)
         # TODO update conditional to not use None, instead check for _MISSING_FLOAT
@@ -1371,6 +1375,7 @@ class Radtrans:
             opacities, cloudy_continuum_opacities_scattering,
             cloud_scattering_opacities, cloud_absorption_opacities, cloud_opacities,
             _cloud_particles_mean_radii,
+            cloud_scattering_in_transmission,
             clear_opacities, clear_continuum_opacities_scattering,
             clear_cloud_scattering_opacities, clear_cloud_absorption_opacities
         )
@@ -2189,7 +2194,7 @@ class Radtrans:
         flux_clear = None
 
         (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-         cloud_opacities, cloud_particles_mean_radii,
+         cloud_opacities, cloud_particles_mean_radii, cloud_scattering_in_transmission,
          clear_opacities, clear_continuum_opacities_scattering,
          clear_cloud_anisotropic_scattering_opacities, clear_cloud_absorption_opacities) = (
             self._calculate_opacities(
@@ -2222,6 +2227,7 @@ class Radtrans:
                 target_pressure=sanitized_inputs['target_pressure']
             )
         )
+        self.__scattering_in_transmission = cloud_scattering_in_transmission
 
         if auto_anisotropic_cloud_scattering:
             self._anisotropic_cloud_scattering = 'auto'
@@ -2596,7 +2602,7 @@ class Radtrans:
         )
 
         (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-         cloud_opacities, cloud_particles_mean_radii,
+         cloud_opacities, cloud_particles_mean_radii, cloud_scattering_in_transmission,
          clear_opacities, clear_continuum_opacities_scattering,
          clear_cloud_anisotropic_scattering_opacities, clear_cloud_absorption_opacities) = (
             self._calculate_opacities(
@@ -2628,6 +2634,7 @@ class Radtrans:
                 target_particle_radii=sanitized_inputs['target_particle_radii'],
                 target_pressure=sanitized_inputs['target_pressure']
             ))
+        self.__scattering_in_transmission = cloud_scattering_in_transmission
 
         if auto_anisotropic_cloud_scattering:
             self._anisotropic_cloud_scattering = 'auto'
@@ -2893,7 +2900,7 @@ class Radtrans:
 
         # No photospheric cloud in Rosseland or Planck opacities
         (opacities, continuum_opacities_scattering, _, _, _, cloud_particles_mean_radii,
-         _, _, _, _) = (
+         cloud_scattering_in_transmission, _, _, _, _) = (
             self._calculate_opacities(
                 temperatures=temperatures,
                 mass_fractions=mass_fractions,
@@ -2924,6 +2931,7 @@ class Radtrans:
                 target_pressure=sanitized_inputs['target_pressure']
             )
         )
+        self.__scattering_in_transmission = cloud_scattering_in_transmission
 
         if auto_anisotropic_cloud_scattering:
             self._anisotropic_cloud_scattering = 'auto'
@@ -3160,7 +3168,7 @@ class Radtrans:
         )
 
         (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-         cloud_opacities, cloud_particles_mean_radii,
+         cloud_opacities, cloud_particles_mean_radii, cloud_scattering_in_transmission,
          clear_opacities, clear_continuum_opacities_scattering,
          clear_cloud_anisotropic_scattering_opacities, clear_cloud_absorption_opacities) = (
             self._calculate_opacities(
@@ -3192,6 +3200,7 @@ class Radtrans:
                 target_particle_radii=sanitized_inputs['target_particle_radii'],
                 target_pressure=sanitized_inputs['target_pressure']
             ))
+        self.__scattering_in_transmission = cloud_scattering_in_transmission
 
         # Start filling additional outputs here to get rid of unnecessary variables ASAP
         additional_outputs = {}

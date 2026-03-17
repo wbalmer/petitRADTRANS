@@ -1,5 +1,6 @@
 """Test petitRADTRANS utility functions.
 """
+import jax
 import numpy as np
 
 from .context import petitRADTRANS
@@ -57,9 +58,8 @@ def test_planck_function():
 
 
 def test_stellar_model():
-    stellar_spectrum, _ = petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.compute_spectrum(
-        test_parameters['stellar_parameters']['effective_temperature']
-    )
+    phoenix_star_table = petitRADTRANS.stellar_spectra.phoenix.PhoenixStarTable()
+    stellar_spectrum, _ = phoenix_star_table.compute_spectrum(test_parameters['stellar_parameters']['effective_temperature'])
 
     reference_spectral_radiosity = np.array([
         7.66275355e-114, 1.93595034e-058, 9.90294639e-023, 2.70611283e-008, 8.19891143e-005,
@@ -84,3 +84,19 @@ def test_stellar_model():
         rtol=relative_tolerance,
         atol=0
     )
+
+
+def test_stellar_model_jit():
+    phoenix_star_table_eager = petitRADTRANS.stellar_spectra.phoenix.PhoenixStarTable()
+    phoenix_star_table_jit = petitRADTRANS.stellar_spectra.phoenix.PhoenixStarTable()
+
+    @jax.jit
+    def compute_stellar_model(temperature):
+        return phoenix_star_table_jit.compute_spectrum(temperature)
+
+    temperature = test_parameters['stellar_parameters']['effective_temperature']
+    stellar_spectrum_eager, radius_eager = phoenix_star_table_eager.compute_spectrum(temperature)
+    stellar_spectrum_jit, radius_jit = compute_stellar_model(temperature)
+
+    assert np.allclose(stellar_spectrum_jit, stellar_spectrum_eager, rtol=relative_tolerance, atol=0)
+    assert np.allclose(radius_jit, radius_eager, rtol=relative_tolerance, atol=0)

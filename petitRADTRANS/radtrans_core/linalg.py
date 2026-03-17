@@ -1,3 +1,5 @@
+from functools import partial
+
 import jax.numpy as jnp
 from jax import lax, jit, config
 
@@ -114,6 +116,131 @@ def solve_tridiagonal_thomas_batched(a, b, c, d):
     x_all = jnp.concatenate([x_rest[::-1, :], x_last[None, :]], axis=0)  # (n, batch)
 
     return x_all.T   # (batch, n)
+
+
+@partial(jit, static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
+def solve_tridiagonal_thomas_batched_feautrier_fused(
+        a,
+        b,
+        c,
+        d_inner,
+        d_surf,
+        angle_weight_a,
+        n_g,
+        n_freq_bins,
+        n_angles,
+        n_layers,
+):
+    """
+    Solves Feautrier tridiagonal systems without materialising the full
+    (g, f, a, l) solution tensor.
+
+    Parameters
+    ----------
+    a, b, c : (batch, n_layers)
+        Tridiagonal coefficients where batch = n_g * n_freq_bins * n_angles.
+    d_inner : (n_g, n_freq_bins, n_layers - 1)
+        Angle-independent RHS entries for layers 0 .. n_layers-2.
+    d_surf : (n_g, n_freq_bins, n_angles)
+        Boundary RHS entry for the surface layer.
+    angle_weight_a : (n_angles,)
+        Angular quadrature weights for mean-intensity accumulation.
+
+    Returns
+    -------
+    I_H_top : (n_g, n_freq_bins, n_angles)
+    x_last : (n_g, n_freq_bins, n_angles)
+    x_nm2 : (n_g, n_freq_bins, n_angles)
+    J_bol_gfl : (n_g, n_freq_bins, n_layers)
+    """
+    n = n_layers
+    n_gf = n_g * n_freq_bins
+    batch = n_gf * n_angles
+
+    def _broadcast_rhs_layer(layer_idx):
+        return jnp.broadcast_to(
+            d_inner[:, :, layer_idx][:, :, None],
+            (n_g, n_freq_bins, n_angles),
+        ).reshape(batch)
+
+    def _weighted_gf(x_k):
+        return jnp.sum(
+            x_k.reshape(n_gf, n_angles) * angle_weight_a[None, :],
+            axis=1,
+        )
+
+    c0 = c[:, 0] / b[:, 0]
+    d0 = _broadcast_rhs_layer(0) / b[:, 0]
+
+    if n > 2:
+        def fwd_step(carry, k):
+            c_prev, d_prev = carry
+            denom = b[:, k] - a[:, k] * c_prev
+            safe_den = jnp.where(jnp.abs(denom) < TINIEST, TINIEST, denom)
+            rhs_k = _broadcast_rhs_layer(k)
+            c_k = c[:, k] / safe_den
+            d_k = (rhs_k - a[:, k] * d_prev) / safe_den
+            return (c_k, d_k), (c_k, d_k)
+
+        _, (c_mid, d_mid) = lax.scan(
+            fwd_step,
+            (c0, d0),
+            jnp.arange(1, n - 1),
+        )
+
+        c_nm2 = c_mid[-1, :]
+        d_nm2 = d_mid[-1, :]
+        c_upto_nm2 = jnp.concatenate([c0[None, :], c_mid], axis=0)
+        d_upto_nm2 = jnp.concatenate([d0[None, :], d_mid], axis=0)
+    else:
+        c_nm2 = c0
+        d_nm2 = d0
+        c_upto_nm2 = c0[None, :]
+        d_upto_nm2 = d0[None, :]
+
+    denom_last = b[:, n - 1] - a[:, n - 1] * c_nm2
+    safe_denom_last = jnp.where(jnp.abs(denom_last) < TINIEST, TINIEST, denom_last)
+    x_last_flat = (
+        d_surf.reshape(batch) - a[:, n - 1] * d_nm2
+    ) / safe_denom_last
+
+    if n == 1:
+        weighted_layers = _weighted_gf(x_last_flat)[None, :]
+        return (
+            (-x_last_flat).reshape(n_g, n_freq_bins, n_angles),
+            x_last_flat.reshape(n_g, n_freq_bins, n_angles),
+            x_last_flat.reshape(n_g, n_freq_bins, n_angles),
+            weighted_layers.T.reshape(n_g, n_freq_bins, n),
+        )
+
+    x_nm2_flat = d_upto_nm2[n - 2, :] - c_upto_nm2[n - 2, :] * x_last_flat
+    weighted_last = _weighted_gf(x_last_flat)
+    weighted_nm2 = _weighted_gf(x_nm2_flat)
+
+    if n > 2:
+        def bwd_step(x_next, k):
+            x_k = d_upto_nm2[k, :] - c_upto_nm2[k, :] * x_next
+            return x_k, _weighted_gf(x_k)
+
+        x0_flat, weighted_rest_desc = lax.scan(
+            bwd_step,
+            x_nm2_flat,
+            jnp.arange(n - 3, -1, -1),
+        )
+        weighted_layers = jnp.concatenate(
+            [weighted_rest_desc[::-1, :], weighted_nm2[None, :], weighted_last[None, :]],
+            axis=0,
+        )
+    else:
+        x0_flat = x_nm2_flat
+        weighted_layers = jnp.stack([weighted_nm2, weighted_last], axis=0)
+
+    I_H_top = (-x0_flat).reshape(n_g, n_freq_bins, n_angles)
+    x_last = x_last_flat.reshape(n_g, n_freq_bins, n_angles)
+    x_nm2 = x_nm2_flat.reshape(n_g, n_freq_bins, n_angles)
+    J_bol_gfl = weighted_layers.T.reshape(n_g, n_freq_bins, n)
+
+    return I_H_top, x_last, x_nm2, J_bol_gfl
 
 
 #@jit(static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))

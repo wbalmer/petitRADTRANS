@@ -302,6 +302,11 @@ def _maybe_compute_cloud_branch(
             False,
         )
 
+    selected_cloud_particles_mean_radii = jnp.zeros(
+        (pressures.size, max(len(selected_cloud_species), 1)),
+        dtype=cloud_particles_mean_radii.dtype,
+    )
+
     def _compute_branch(args):
         (_base_continuum_opacities, _base_continuum_opacities_scattering,
          _cloud_scattering_opacities, _cloud_absorption_opacities,
@@ -350,7 +355,14 @@ def _maybe_compute_cloud_branch(
      cloud_opacities, cloud_particles_mean_radii) = lax.cond(
         selected_clouds_have_effect,
         _compute_branch,
-        lambda args: args,
+        lambda args: (
+            args[0],
+            args[1],
+            args[2],
+            args[3],
+            args[4],
+            selected_cloud_particles_mean_radii,
+        ),
         (
             base_continuum_opacities,
             base_continuum_opacities_scattering,
@@ -429,7 +441,7 @@ def _initialize_cloud_species_inputs(
             )
         else:
             cloud_particles_density = cloud_particles_density.at[i_spec].set(
-                clouds_loaded_opacities['particles_densities']
+                    clouds_loaded_opacities['particles_densities'][i_spec]
             )
 
         if cloud_particles_mean_radii is not None:
@@ -853,7 +865,15 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
     scattering_in_transmission = jnp.logical_or(scattering_in_transmission, cloudy_branch_has_effect)
 
     def _compute_clear_branch(_):
-        return _maybe_compute_cloud_branch(
+        (
+            _clear_continuum_opacities,
+            _clear_continuum_opacities_scattering,
+            _clear_cloud_scattering_opacities,
+            _clear_cloud_absorption_opacities,
+            _clear_cloud_opacities,
+            _,
+            _clear_branch_has_effect,
+        ) = _maybe_compute_cloud_branch(
             selected_cloud_species=complete_coverage_clouds,
             selected_clouds_have_effect=clear_clouds_have_effect,
             base_continuum_opacities=clear_continuum_opacities,
@@ -883,6 +903,16 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
             return_cloud_contribution=return_cloud_contribution,
             target_particle_radii=target_particle_radii,
             target_pressure=target_pressure,
+        )
+
+        return (
+            _clear_continuum_opacities,
+            _clear_continuum_opacities_scattering,
+            _clear_cloud_scattering_opacities,
+            _clear_cloud_absorption_opacities,
+            _clear_cloud_opacities,
+            _cloud_particles_mean_radii,
+            _clear_branch_has_effect,
         )
 
     (clear_continuum_opacities, clear_continuum_opacities_scattering,

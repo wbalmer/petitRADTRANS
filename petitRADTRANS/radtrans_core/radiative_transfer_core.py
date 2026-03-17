@@ -632,31 +632,29 @@ def _compute_feautrier_radiative_transfer_chunk(
     # ------------------------------------------------------------------
     def _feautrier_solve(source_gfl, I_plus_surface_gfa, I_minus_boundary_gf):
         """
-        Returns I_J_gfal (g,f,a,l), I_H_top (g,f,a), new_I_plus_surface (g,f,a).
+        Returns J_bol_gfl (g,f,l), I_H_top (g,f,a), new_I_plus_surface (g,f,a).
         """
-        r_inner_flat = jnp.repeat(
-            source_gfl[:, :, :n_layers - 1].reshape(n_g * n_freq_bins, n_layers - 1),
-            n_angles,
-            axis=0,
-        )  # (batch, l-1)
-
-        r_surf_flat = (
+        r_surf_gfa = (
             0.5 * (I_plus_surface_gfa + I_minus_boundary_gf[:, :, None])
-        ).reshape(n_batch, 1)  # (batch, 1)
+        )  # (g, f, a)
 
-        r_flat = jnp.concatenate([r_inner_flat, r_surf_flat], axis=-1)  # (batch, l)
-
-        I_J_flat = linalg.solve_tridiagonal_thomas_batched(a_flat, b_flat, c_flat, r_flat)
-        I_J_gfal = I_J_flat.reshape(n_g, n_freq_bins, n_angles, n_layers)
-
-        I_H_top = -I_J_gfal[:, :, :, 0]   # (g, f, a)
-
-        d1_surf = f2_mid[:, :, :, -1] * (
-            I_J_gfal[:, :, :, n_layers - 1] - I_J_gfal[:, :, :, n_layers - 2]
+        I_H_top, x_last_gfa, x_nm2_gfa, J_bol_gfl = linalg.solve_tridiagonal_thomas_batched_feautrier_fused(
+            a_flat,
+            b_flat,
+            c_flat,
+            source_gfl[:, :, :n_layers - 1],
+            r_surf_gfa,
+            angle_weight_a,
+            n_g,
+            n_freq_bins,
+            n_angles,
+            n_layers,
         )
-        new_I_plus_surface = I_J_gfal[:, :, :, n_layers - 1] - d1_surf  # (g, f, a)
 
-        return I_J_gfal, I_H_top, new_I_plus_surface
+        d1_surf = f2_mid[:, :, :, -1] * (x_last_gfa - x_nm2_gfa)
+        new_I_plus_surface = x_last_gfa - d1_surf  # (g, f, a)
+
+        return J_bol_gfl, I_H_top, new_I_plus_surface
 
     # ------------------------------------------------------------------
     # 13. Scattering iteration loop
@@ -684,12 +682,9 @@ def _compute_feautrier_radiative_transfer_chunk(
 
         # 13a. Solve
         I_minus_gf_new = I_surface_no_scatter_gf + _surface_reflection(I_plus_surface_gfa)
-        I_J_gfal, I_H_top, new_I_plus_surface = _feautrier_solve(
+        J_bol_gfl, I_H_top, new_I_plus_surface = _feautrier_solve(
             source_gfl, I_plus_surface_gfa, I_minus_gf_new
         )
-
-        # 13b. J_bol (g, f, l) = angular quadrature of mean intensity
-        J_bol_gfl = jnp.sum(I_J_gfal * angle_weight_a[None, None, :, None], axis=2)
 
         # 13c. ALI source update using precomputed loop-invariant terms (O4).
         source_ali = (
