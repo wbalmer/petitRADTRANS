@@ -204,6 +204,8 @@ class Radtrans:
                 'temperature_grid_size_array': jnp.zeros(0, dtype=jnp.int32),
                 'pressure_grid_size_array': jnp.zeros(0, dtype=jnp.int32),
                 'opacity_grid_stacked': jnp.zeros((0, 1, 1, 1), dtype=JAX_DTYPE),
+                'ck_g_combination_weights': jnp.ones(1, dtype=JAX_DTYPE),
+                'ck_g_combination_weights_sum': jnp.array(1.0, dtype=JAX_DTYPE),
                 'g_gauss': jnp.array(jnp.ones(1)),
                 'weights_gauss': jnp.array(jnp.ones(1))
             }
@@ -797,6 +799,13 @@ class Radtrans:
     def _stack_loaded_line_opacities(self):
         n_line_species = len(self._line_species)
 
+        (self._lines_loaded_opacities['ck_g_combination_weights'],
+         self._lines_loaded_opacities['ck_g_combination_weights_sum']) = (
+            radiative_transfer_core.build_ck_combination_state(
+                self._lines_loaded_opacities['weights_gauss']
+            )
+        )
+
         if n_line_species == 0:
             self._lines_loaded_opacities['temperature_pressure_grid_stacked'] = jnp.zeros((0, 1, 1, 2), dtype=JAX_DTYPE)
             self._lines_loaded_opacities['temperature_grid_size_array'] = jnp.zeros(0, dtype=jnp.int32)
@@ -1295,6 +1304,7 @@ class Radtrans:
         #_opacities_first_species = None
 
         # Line opacities (calculating them just before calculating the combined opacities reduces peak memory usage)
+        ck_flattened_layout = self._line_opacity_mode == 'c-k' and self.__sum_opacities
         line_opacities = interpolate_species_opacities(
             pressures=self._pressures,
             temperatures=temperatures,
@@ -1303,7 +1313,8 @@ class Radtrans:
             line_opacities_grid=self._lines_loaded_opacities['opacity_grid_stacked'],
             line_opacities_temperature_pressure_grid=self._lines_loaded_opacities['temperature_pressure_grid_stacked'],
             line_opacities_temperature_grid_size=self._lines_loaded_opacities['temperature_grid_size_array'],
-            line_opacities_pressure_grid_size=self._lines_loaded_opacities['pressure_grid_size_array']
+            line_opacities_pressure_grid_size=self._lines_loaded_opacities['pressure_grid_size_array'],
+            output_layout='fl_s_ng' if ck_flattened_layout else 'ng_f_s_l'
         )
 
         cloudy_continuum_opacities = continuum_opacities + cloudy_cloud_continuum_opacities
@@ -1320,7 +1331,10 @@ class Radtrans:
             line_opacity_mode=self._line_opacity_mode,
             sum_opacities=self.__sum_opacities,
             g_gauss=self._lines_loaded_opacities['g_gauss'],
-            weights_gauss=self._lines_loaded_opacities['weights_gauss']
+            weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+            g_combination_weights=self._lines_loaded_opacities['ck_g_combination_weights'],
+            g_combination_weights_sum=self._lines_loaded_opacities['ck_g_combination_weights_sum'],
+            input_layout='fl_s_ng' if ck_flattened_layout else 'ng_f_s_l'
         )
 
         def _build_clear_branch(_line_opacities):
@@ -1336,7 +1350,10 @@ class Radtrans:
                 line_opacity_mode=self._line_opacity_mode,
                 sum_opacities=self.__sum_opacities,
                 g_gauss=self._lines_loaded_opacities['g_gauss'],
-                weights_gauss=self._lines_loaded_opacities['weights_gauss']
+                weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+                g_combination_weights=self._lines_loaded_opacities['ck_g_combination_weights'],
+                g_combination_weights_sum=self._lines_loaded_opacities['ck_g_combination_weights_sum'],
+                input_layout='fl_s_ng' if ck_flattened_layout else 'ng_f_s_l'
             )
             return clear_opacities, clear_continuum_opacities_scattering
 

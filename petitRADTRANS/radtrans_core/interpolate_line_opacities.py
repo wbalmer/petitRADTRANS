@@ -137,9 +137,42 @@ def _interpolate_stacked_species_opacities(
     return jnp.moveaxis(interpolated_species_opacities, 0, 2)
 
 
+@jit
+def _interpolate_stacked_species_opacities_flat(
+    pressures,
+    temperatures,
+    line_opacities_grid,
+    line_opacities_temperature_pressure_grid,
+    line_opacities_temperature_grid_size,
+    line_opacities_pressure_grid_size,
+):
+    def _interpolate_one_species(opacity_grid, temperature_pressure_grid, temperature_grid_size, pressure_grid_size):
+        species_opacity = interpolate_line_opacities(
+            pressures,
+            temperatures,
+            temperature_pressure_grid,
+            opacity_grid,
+            temperature_grid_size,
+            pressure_grid_size,
+        )
+
+        return jnp.moveaxis(species_opacity, 0, -1).reshape(-1, species_opacity.shape[0])
+
+    return vmap(
+        _interpolate_one_species,
+        in_axes=(0, 0, 0, 0),
+        out_axes=1,
+    )(
+        line_opacities_grid,
+        line_opacities_temperature_pressure_grid,
+        line_opacities_temperature_grid_size,
+        line_opacities_pressure_grid_size,
+    )
+
+
 def interpolate_species_opacities(
     pressures, temperatures, n_g, n_frequencies, line_opacities_grid, line_opacities_temperature_pressure_grid,
-    line_opacities_temperature_grid_size, line_opacities_pressure_grid_size
+    line_opacities_temperature_grid_size, line_opacities_pressure_grid_size, output_layout='ng_f_s_l'
 ):
     # Interpolate line opacities to given temperature structure.
     n_layers = pressures.size
@@ -173,6 +206,16 @@ def interpolate_species_opacities(
     n_line_species = line_opacities_grid.shape[0]
 
     if n_line_species > 0:
+        if output_layout == 'fl_s_ng':
+            return _interpolate_stacked_species_opacities_flat(
+                pressures=pressures,
+                temperatures=temperatures,
+                line_opacities_grid=line_opacities_grid,
+                line_opacities_temperature_pressure_grid=line_opacities_temperature_pressure_grid,
+                line_opacities_temperature_grid_size=line_opacities_temperature_grid_size,
+                line_opacities_pressure_grid_size=line_opacities_pressure_grid_size,
+            )
+
         return _interpolate_stacked_species_opacities(
             pressures=pressures,
             temperatures=temperatures,

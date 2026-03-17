@@ -59,25 +59,33 @@ def compute_continuum_opacities(
 def compute_combined_opacities(
     opacities, continuum_opacities,
     line_species, line_species_mass_fractions, line_opacity_mode,
-    sum_opacities, g_gauss, weights_gauss
+    sum_opacities, g_gauss, weights_gauss,
+    g_combination_weights=None, g_combination_weights_sum=None,
+    input_layout='ng_f_s_l'
     ):
+    if line_opacity_mode == 'c-k' and sum_opacities:
+        # Similar to the line-by-line case below, if sum_opacities is True, we will put the total opacity
+        # into the first species slot and then carry the remaining radiative transfer steps only over that 0 index
+        # In c-k mode, sum_opacities is True only in emission if scattering_in_emission is True
+        return combine_ck_opacities(
+            opacities=opacities,
+            continuum_opacities=continuum_opacities,
+            line_species_mass_fractions=line_species_mass_fractions,
+            g_gauss=g_gauss,
+            weights_gauss=weights_gauss,
+            g_combination_weights=g_combination_weights,
+            g_combination_weights_sum=g_combination_weights_sum,
+            input_layout=input_layout,
+        )
+
     # Combine line opacities with continuum opacities, apply line opacity mass fraction weighting
     opacities = combine_opacities(
         line_species_mass_fractions=line_species_mass_fractions,
         opacities=opacities,
         continuum_opacities=continuum_opacities  # added to the first species slot
     )
-    # TODO lax.cond - might need to check output shape
-    if line_opacity_mode == 'c-k' and sum_opacities:
-        # Similar to the line-by-line case below, if sum_opacities is True, we will put the total opacity
-        # into the first species slot and then carry the remaining radiative transfer steps only over that 0 index
-        # In c-k mode, sum_opacities is True only in emission if scattering_in_emission is True
-        opacities = combine_ck_opacities(
-            opacities=opacities,
-            g_gauss=g_gauss,
-            weights_gauss=weights_gauss
-        )
-    elif line_opacity_mode == 'lbl' and len(line_species) > 1:
+
+    if line_opacity_mode == 'lbl' and len(line_species) > 1:
         # In the line-by-line case we can simply add the opacities of different species in frequency space
         # All opacities are stored in the first species index slot
         opacities = opacities.at[:, :, 0, :].set(jnp.sum(opacities, axis=2))
@@ -85,14 +93,27 @@ def compute_combined_opacities(
     return opacities
 
 
-def combine_ck_opacities(opacities, g_gauss, weights_gauss):
-    opacities = opacities.at[:, :, 0, :].set(radiative_transfer_core.combine_ck_opacities(
+def combine_ck_opacities(
+        opacities,
+        continuum_opacities,
+        line_species_mass_fractions,
+        g_gauss,
+        weights_gauss,
+        g_combination_weights=None,
+        g_combination_weights_sum=None,
+        input_layout='ng_f_s_l'):
+    combined_opacities = radiative_transfer_core.combine_ck_opacities(
         opacities,
         g_gauss,
-        weights_gauss
-    ))
+        weights_gauss=weights_gauss,
+        line_species_mass_fractions=line_species_mass_fractions,
+        continuum_opacities=continuum_opacities,
+        g_combination_weights=g_combination_weights,
+        g_combination_weights_sum=g_combination_weights_sum,
+        input_layout=input_layout,
+    )
 
-    return opacities
+    return combined_opacities[:, :, None, :]
 
 
 def combine_opacities(line_species_mass_fractions, opacities, continuum_opacities):

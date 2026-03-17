@@ -25,9 +25,24 @@ if config.jax_enable_x64:
 _UNROLL_SPECIES_LIMIT = 8
 
 
-@jit
-def combine_ck_opacities(opacities_fortran_order, g_gauss, weights_gauss,
-                         input_layout='ng_f_s_l'):
+def build_ck_combination_state(weights_gauss):
+    weights_use = weights_gauss.at[:8].divide(3.0)
+    g_combination_weights = (weights_use[:, None] * weights_use[None, :]).reshape(-1)
+    g_combination_weights_sum = jnp.sum(g_combination_weights)
+
+    return g_combination_weights, g_combination_weights_sum
+
+
+@partial(jit, static_argnames=("input_layout",))
+def combine_ck_opacities(
+        opacities_fortran_order,
+        g_gauss,
+        weights_gauss=None,
+        line_species_mass_fractions=None,
+        continuum_opacities=None,
+        g_combination_weights=None,
+        g_combination_weights_sum=None,
+        input_layout='ng_f_s_l'):
     """
     Combines correlated-k opacities across species.
 
@@ -52,22 +67,21 @@ def combine_ck_opacities(opacities_fortran_order, g_gauss, weights_gauss,
     jax.Array, shape (n_g, n_frequencies, n_layers)
     """
 
+    if g_combination_weights is None or g_combination_weights_sum is None:
+        if weights_gauss is None:
+            raise ValueError("weights_gauss must be provided when precomputed c-k state is unavailable")
+        g_combination_weights, g_combination_weights_sum = build_ck_combination_state(weights_gauss)
+
+    if line_species_mass_fractions is None or continuum_opacities is None:
+        raise ValueError("line_species_mass_fractions and continuum_opacities are required")
+
     if input_layout == 'fl_s_ng':
         opacities_flat = opacities_fortran_order
         n_fl, n_species, n_g = opacities_flat.shape
-
-        threshold_flat = (
-            jnp.max(opacities_flat[:, :, 0], axis=1) * 1e-2
-        )
-        n_frequencies = n_fl
-        n_layers = 1
+        n_frequencies, n_layers = continuum_opacities.shape
     else:
         n_g, n_frequencies, n_species, n_layers = opacities_fortran_order.shape
         n_fl = n_frequencies * n_layers
-
-        threshold_flat = (
-            jnp.max(opacities_fortran_order[0, :, :, :], axis=1) * 1e-2
-        ).reshape(n_fl)  # (f*l,)
 
         # Permute (n_g, f, s, l) -> (f, l, s, n_g) then flatten to (f*l, s, n_g).
         # The non-trivial permutation makes the view non-contiguous, so the
@@ -76,18 +90,16 @@ def combine_ck_opacities(opacities_fortran_order, g_gauss, weights_gauss,
             opacities_fortran_order, (1, 3, 2, 0)
         ).reshape(n_fl, n_species, n_g)
 
+    abundance_weights_flat = jnp.broadcast_to(
+        line_species_mass_fractions[None, :, :],
+        (n_frequencies, n_layers, n_species),
+    ).reshape(n_fl, n_species)
+    continuum_flat = continuum_opacities.reshape(n_fl)
+
     # ------------------------------------------------------------------
     # Precompute constants shared across all (f*l, species) calls.
     # ------------------------------------------------------------------
-    # weights_use: divide first 8 weights by 3, matching Fortran
-    weights_use = weights_gauss.at[:8].divide(3.0)
-
-    # Outer product of corrected weights, shape (n_g^2,).
-    g_presort_flat = (weights_use[:, None] * weights_use[None, :]).reshape(-1)
-    g_presort_sum = jnp.sum(g_presort_flat)  # scalar
-    n_sample  = n_g * n_g
-    _idx      = jnp.arange(n_sample)
-    _pin_mask = (_idx == 0) | (_idx == n_sample - 1)   # (n_g^2,) bool, constant
+    n_sample = n_g * n_g
 
     # ------------------------------------------------------------------
     # Core combination for a single (f*l) cell.
@@ -102,26 +114,32 @@ def combine_ck_opacities(opacities_fortran_order, g_gauss, weights_gauss,
 
         # Co-sort k and weights in a single radix pass.
         k_sorted, weights_sorted = lax.sort(
-            operand=(k_combined_flat, g_presort_flat),
+            operand=(k_combined_flat, g_combination_weights),
             num_keys=1,
         )
-        weights_normalised = weights_sorted / g_presort_sum
+        weights_normalised = weights_sorted / g_combination_weights_sum
 
         # Cumulative-sum midpoints.
         right_edges = jnp.cumsum(weights_normalised)          # (n_g^2,)
         g_x_vals    = right_edges - weights_normalised * 0.5  # (n_g^2,)
         k_min_val  = opac_out_lf[0]  + spec_opac_lf[0]   # scalar
         k_max_val  = opac_out_lf[-1] + spec_opac_lf[-1]  # scalar
-        pin_vals   = jnp.where(_idx == 0, k_min_val, k_max_val)  # (n_g^2,)
-        k_pinned   = jnp.where(_pin_mask, pin_vals, k_sorted)    # (n_g^2,) — one alloc
+        k_pinned = k_sorted.at[0].set(k_min_val).at[n_sample - 1].set(k_max_val)
 
         return jnp.interp(g_gauss, g_x_vals, k_pinned, right=k_max_val)
 
-    def process_one_cell(opacities_all_species_lf, threshold_lf):
+    def process_one_cell(opacities_all_species_lf, abundance_weights_lf, continuum_lf):
         """
         Combine all species for a single (f*l) cell.
         """
-        initial = opacities_all_species_lf[0, :]
+        weighted_species = opacities_all_species_lf * abundance_weights_lf[:, None]
+        species_strength = jnp.max(weighted_species, axis=1)
+        species_order = jnp.argsort(-species_strength)
+        weighted_species_sorted = weighted_species[species_order, :]
+
+        initial = weighted_species_sorted[0, :] + continuum_lf
+        threshold_lf = jnp.max(initial) * 1e-2
+        active_mask_sorted = (species_strength[species_order] >= threshold_lf).at[0].set(True)
 
         if n_species == 1:
             return initial
@@ -129,27 +147,35 @@ def combine_ck_opacities(opacities_fortran_order, g_gauss, weights_gauss,
         if n_species <= _UNROLL_SPECIES_LIMIT:
             current = initial
             for s in range(1, n_species):
-                spec = opacities_all_species_lf[s, :]
+                spec = weighted_species_sorted[s, :]
+                is_active = active_mask_sorted[s]
                 current = lax.cond(
-                    spec[-1] < threshold_lf,
-                    lambda: current,
-                    lambda: _perform_combination(current, spec),
+                    is_active,
+                    lambda carry: _perform_combination(carry[0], carry[1]),
+                    lambda carry: carry[0],
+                    (current, spec),
                 )
             return current
 
         # Fallback for large n_species.
-        def scan_body(current_opac, spec_opac):
+        def scan_body(current_opac, species_entry):
+            weighted_spec, is_active = species_entry
             return lax.cond(
-                spec_opac[-1] < threshold_lf,
-                lambda: current_opac,
-                lambda: _perform_combination(current_opac, spec_opac),
+                is_active,
+                lambda carry: _perform_combination(carry[0], carry[1]),
+                lambda carry: carry[0],
+                (current_opac, weighted_spec),
             ), None
 
-        final, _ = lax.scan(scan_body, initial, opacities_all_species_lf[1:, :])
+        final, _ = lax.scan(
+            scan_body,
+            initial,
+            (weighted_species_sorted[1:, :], active_mask_sorted[1:]),
+        )
         return final
 
     opacities_out_flat = vmap(process_one_cell)(
-        opacities_flat, threshold_flat
+        opacities_flat, abundance_weights_flat, continuum_flat
     )  # (f*l, n_g)
 
     # Reshape and transpose back to (n_g, f, l).
