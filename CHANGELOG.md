@@ -13,16 +13,14 @@ As of version 4.0.0a6 most functionality should "work". Tests still fail, but mo
 As of version 4.0.0a10 everything required for a retrieval should be JIT compilable.
 
 ### TODO
-- Feature completion: Reimplement patchy clouds without using `smart_clear_opacities`.
 - Feature completion: Implement hansen cloud opacities in `cloud_core`.
 - Feature completion: Finish reimplementing contribution functions.
-- Feature completion: need to replace smart_clear_opacities with JAX based patchiness implementation.
 - Feature completion: Implement adaptive mesh refinement with constant size pressure array.
 - Feature completion: Figure out how to implement additional_outputs in jax compatible way.
 - Feature completion: update log likelihoods for 2D, 3D data.
 - Feature completion: Multicolumn/time domain retrievals - update TimeSeriesData class and calculate 2D models.
 - Add new cloud opacities to be compatible with new condensation curves.
-- Optimisation: make everything deeper than `calculate_flux` JIT-compileable.
+- Optimisation: make everything deeper than `calculate_flux` JIT-compileable (done) and fast(still working on it).
 - Optimisation: replace for and fori_loops with scan or vmap.
 - Optimisation: Ensure consistent typing throughout (32 vs 64 bit). Add typing to function definitions.
 - Optimisation: profile code for new bottlenecks.
