@@ -2809,8 +2809,18 @@ class Retrieval:
                 output_directory=self.output_directory,
                 retrieval_name=self.configuration.retrieval_name
             )
-            self.latest_sampler_results = sampler.run_sampler(**sampler_kwargs)
+            ultranest_kwargs = {
+                'parameter_names': sampler_kwargs.pop('parameter_names', self._free_parameter_names_cache),
+            }
+            ultranest_kwargs.update(sampler_kwargs)
+            self.latest_sampler_results = sampler.run_sampler(**ultranest_kwargs)
             sampler.pretty_print_results()
+            self.generate_retrieval_summary(
+                sampler_parameters={
+                    'sampler_type': sampler_type.lower(),
+                    'parameter_names': ultranest_kwargs['parameter_names'],
+                }
+            )
         elif sampler_type.lower() in {'blackjaxnuts', 'blackjax_nuts', 'nuts'}:
             free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
                 self._build_blackjax_logdensity_interface()
