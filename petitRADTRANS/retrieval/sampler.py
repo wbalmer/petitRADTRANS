@@ -1,6 +1,5 @@
 import abc
 import os
-os.environ["XLA_FLAGS"] = f"--xla_force_host_platform_device_count={os.cpu_count()}"
 import json
 import warnings
 import numpy as np
@@ -33,7 +32,6 @@ try:
     from jaxns import Model, NestedSampler, save_results, load_results, summary as jaxns_summary  # Renamed to avoid conflict
     from jaxns.nested_samplers import ShardedStaticNestedSampler
     from jaxns.samplers import UniformSampler
-    from jaxns.framework.jaxify import jaxify_likelihood
 except ImportError:
     jaxns = None  # Flag that jaxns is not available
 
@@ -397,13 +395,27 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
         self.results = self.sampler.to_results(state=state, termination_reason=termination_reason)
 
         results_out = tree.map(np.asarray, self.results)
-        save_results(results_out, os.path.join(
-            self.output_directory,
-            "out_JAXNS",
-            self.retrieval_name + "_jaxns_results.json"))
-
-        self.sampler.save_results(
+        save_results(
+            results=results_out,
+            save_file=os.path.join(
+                self.output_directory,
+                "out_JAXNS",
+                self.retrieval_name + "_jaxns_results.json")
             )
+
         self.pretty_print_results()
         return self.results
+
+    def get_results(self):
+        return self.results
+
+    def load_results(self):
+        self.results = load_results(os.path.join(
+            self.output_directory,
+            "out_JAXNS/",
+            self.retrieval_name + "_jaxns_results.json"))
+        return self.results
+
+    def pretty_print_results(self):
+        self.sampler.summary(self.results)
 

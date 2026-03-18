@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a13] - 2026-03-17
+## [4.0.0a14] - 2026-03-18
 ### Summary
 pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs.
@@ -26,7 +26,6 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Testing: gradient calculations.
 - Testing: write unit tests for new JAX functions.
 - Testing: test GPU functionality.
-- Architecture: refactor retrieval plotting into separate module.
 - Architecture: Make sure all chi2 calculations use LogLikelihood class.
 - Documentation: Add docstrings to all new JAX functions.
 - Documentation: Update tutorials to be v4 compatible.
@@ -36,7 +35,8 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Clean up comment blocks.
 
 ### Changed
-- a12 Optimised Feautrier and ensured consistency with Fortran implementation
+- a14 Moved retrieval plotting into RetrievalPlotter class, inheriting from Retrieval.
+- a12 Optimised Feautrier and ensured consistency with Fortran implementation.
 - Added sanitising of inputs to calculate_flux and calculate_transit_radii to ensure JAX compatibiltiy.
 - Added in patchy cloud implementation to replace smart_clear_opacities.
 - Updated naming of temperature profile functions for consistency, moved to petitRADTRANS/profiles.
@@ -62,6 +62,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Renamed functions beginning with `__` in Radtrans to only use a single underscore.
 
 ### Added
+- a14: Added autodiff version of calculate_transit_radii function.
 - a13: Added autodiff version of calculate_flux functions.
 - Reimplemented synthetic photometry calculations from `species` to avoid circular dependencies.
 - Implemented new `Sampler` package to allow easier selection of `pymultinest`, `jaxns` or `ultranest`
@@ -73,11 +74,22 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 ### Removed
 - `Data.get_chi2` has been removed and moved to `LogLikelihood`
 
-## [3.3.1a1] - 2026-02-01
+## [3.3.3] - 2026-03-13
+### Fixed
+- that the correct mass fraction is now used for H- free-free absorption (H instead of H-). This bug was introduced when moving from pRT version 2 to 3.
+
+## [3.3.2] - 2026-02-16
+### Fixed
+- An incorrect `reference_pressure` argument is passed to `calculate_emission_spectrum` in `models.py`, causing the function to compute emission spectra using the wrong pressure reference ([issue 124](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/124)).
+
+
+## [3.3.1] - 2026-02-01
 ### Fixed
 - Infinite recursive error checking when retrieving photometric data with the `Radtrans` retrieval workflow ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122)).
 - Fixed naming bug with CloudOpacity in retrieval package ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122))
 - Fixed uncertainty definition if covariance matrix exists in data.py ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122))
+
+
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.

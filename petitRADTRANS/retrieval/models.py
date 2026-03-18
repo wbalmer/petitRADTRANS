@@ -89,7 +89,7 @@ def spline_eddington_adiabatic_emission(
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -238,7 +238,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -395,7 +395,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
     spectrum_model_cloudy = flux2irradiance(
         f_lambda,
         planet_radius,
-        parameters['D_pl'].value
+        parameters['distance_to_system'].value
     )
 
     # Set the cloud abundances to 0 for clear case
@@ -417,7 +417,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
     spectrum_model_clear = flux2irradiance(
         f_lambda,
         planet_radius,
-        parameters['D_pl'].value
+        parameters['distance_to_system'].value
     )
 
     # Patchiness fraction
@@ -445,7 +445,7 @@ def guillot_emission(prt_object,
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -567,7 +567,7 @@ def guillot_emission_add_gaussian_temperature(prt_object,
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -703,7 +703,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, ad
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -753,17 +753,23 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, ad
 
     gravity, planet_radius = _compute_gravity(parameters)
 
-    temp_arr = jnp.array([parameters[f"T{i}"].value for i in range(parameters['nnodes'].value + 2)])
+    temp_arr = jnp.array(
+        [parameters[f"T{i}"].value for i in range(parameters['nnodes'].value + 2)]
+        )
     if "linear" in parameters.keys():
-        temperatures, log_prior_weight = linear_spline_temperature_profile(p_use,
-                                                               temp_arr,
-                                                               parameters['gamma'].value,
-                                                               parameters['nnodes'].value)
+        temperatures, log_prior_weight = linear_spline_temperature_profile(
+            p_use,
+            temp_arr,
+            parameters['gamma'].value,
+            parameters['nnodes'].value
+        )
     else:
-        temperatures, log_prior_weight = cubic_spline_temperature_profile(p_use,
-                                                              temp_arr,
-                                                              parameters['gamma'].value,
-                                                              parameters['nnodes'].value)
+        temperatures, log_prior_weight = cubic_spline_temperature_profile(
+            p_use,
+            temp_arr,
+            parameters['gamma'].value,
+            parameters['nnodes'].value
+        )
     parameters['log_prior_weight'].value = log_prior_weight
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
@@ -825,7 +831,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, adapti
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -957,7 +963,7 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, adapt
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -1083,7 +1089,7 @@ def guillot_transmission(prt_object,
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -1227,7 +1233,7 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, ada
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -1282,9 +1288,7 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, ada
             Only the clear atmosphere contribution is returned.
     """
     p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
-    reference_pressure = 100.0
-    if "reference_pressure" in parameters.keys():
-        reference_pressure = parameters["reference_pressure"].value
+
     # Calculate the spectrum
     gravity, planet_radius = _compute_gravity(parameters)
 
@@ -1300,11 +1304,13 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, ada
     if "beta" in parameters.keys():
         beta_points = [parameters["beta"].value, parameters["beta"].value]
 
-    temperatures = madhusudhan_seager_temperature_profile(p_use,
-                                     pressure_points,
-                                     parameters["T_set"].value,
-                                     alpha_points,
-                                     beta_points)
+    temperatures = madhusudhan_seager_temperature_profile(
+        p_use,
+        pressure_points,
+        parameters["T_set"].value,
+        alpha_points,
+        beta_points
+        )
 
     abundances, mmw, small_index, p_bases = get_abundances(
         pressures=p_use,
@@ -1343,7 +1349,6 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, ada
         gravity=gravity,
         mean_molar_masses=mmw,
         planet_radius=planet_radius,
-        reference_pressure=reference_pressure,
         sigma_lnorm=sigma_lnorm,
         cloud_particles_mean_radii=cloud_particles_mean_radii,
         cloud_f_sed=cloud_f_sed,
@@ -1369,7 +1374,7 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -1529,7 +1534,7 @@ def isothermal_transmission(prt_object,
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -1651,7 +1656,7 @@ def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, a
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
         parameters : dict
             Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
+                *  distance_to_system : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
@@ -1779,7 +1784,7 @@ def add_blackbody_cpd_model(parameters, wavelengths):
     """
     if "T_disk_blackbody" in parameters.keys():
         blackbody_spectrum = planck_function_cm(parameters["T_disk_blackbody"].value, wavelengths*1e-4)*1e-7
-        blackbody_spectrum = blackbody_spectrum * (parameters["disk_radius"].value/parameters['D_pl'].value)**2
+        blackbody_spectrum = blackbody_spectrum * (parameters["disk_radius"].value/parameters['distance_to_system'].value)**2
         return blackbody_spectrum
 
 
@@ -1827,21 +1832,22 @@ def set_pglobal(press, parameters):
         )
 
 
-def calculate_emission_spectrum(prt_object,
-                                parameters,
-                                temperatures,
-                                abundances,
-                                gravity,
-                                mean_molar_masses,
-                                planet_radius,
-                                sigma_lnorm,
-                                cloud_particles_mean_radii,
-                                cloud_f_sed,
-                                eddy_diffusion_coefficients,
-                                cloud_hansen_b,
-                                cloud_fraction,
-                                complete_coverage_clouds,
-                                distribution):
+def calculate_emission_spectrum(
+        prt_object,
+        parameters,
+        temperatures,
+        abundances,
+        gravity,
+        mean_molar_masses,
+        planet_radius,
+        sigma_lnorm,
+        cloud_particles_mean_radii,
+        cloud_f_sed,
+        eddy_diffusion_coefficients,
+        cloud_hansen_b,
+        cloud_fraction,
+        complete_coverage_clouds,
+        distribution):
     """
     Calls Radtrans.calculate_flux to compute the emission spectrum of an atmosphere.
     This function automatically checks if patchiness is included in the retrieval, and
@@ -1906,7 +1912,7 @@ def calculate_emission_spectrum(prt_object,
     spectrum_model = flux2irradiance(
         f_lambda,
         planet_radius,
-        parameters['D_pl'].value
+        parameters['distance_to_system'].value
     )
 
     if "T_disk_blackbody" in parameters.keys():
@@ -1924,27 +1930,28 @@ def calculate_emission_spectrum(prt_object,
         return wlen_model, spectrum_model
 
 
-def calculate_transmission_spectrum(prt_object,
-                                    parameters,
-                                    temperatures,
-                                    abundances,
-                                    gravity,
-                                    mean_molar_masses,
-                                    planet_radius,
-                                    reference_pressure,
-                                    opaque_cloud_top_pressure,
-                                    sigma_lnorm,
-                                    cloud_particles_mean_radii,
-                                    cloud_f_sed,
-                                    eddy_diffusion_coefficients,
-                                    haze_factor,
-                                    power_law_opacity_coefficient,
-                                    power_law_opacity_350nm,
-                                    cloud_hansen_b,
-                                    cloud_fraction,
-                                    complete_coverage_clouds,
-                                    distribution
-                                    ):
+def calculate_transmission_spectrum(
+        prt_object,
+        parameters,
+        temperatures,
+        abundances,
+        gravity,
+        mean_molar_masses,
+        planet_radius,
+        reference_pressure,
+        opaque_cloud_top_pressure,
+        sigma_lnorm,
+        cloud_particles_mean_radii,
+        cloud_f_sed,
+        eddy_diffusion_coefficients,
+        haze_factor,
+        power_law_opacity_coefficient,
+        power_law_opacity_350nm,
+        cloud_hansen_b,
+        cloud_fraction,
+        complete_coverage_clouds,
+        distribution
+        ):
     """_summary_
 
     Args:

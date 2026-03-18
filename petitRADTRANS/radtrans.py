@@ -2765,8 +2765,8 @@ class Radtrans:
             additional_scattering_opacities_function: callable = None,
             chunk_feautrier: bool = False,
             feautrier_chunk_size: int = 1024,
-                sum_opacities: bool = None,
-                anisotropic_cloud_scattering: bool = None,
+            sum_opacities: bool = None,
+            anisotropic_cloud_scattering: bool = None,
             frequencies_to_wavelengths: bool = True,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, any]]:
         """ Method to calculate the atmosphere's emitted flux (emission spectrum).
@@ -3650,6 +3650,98 @@ class Radtrans:
         )
         #else:
         #    return self._frequencies, transit_radii, additional_outputs
+
+    def calculate_transit_radii_autodiff(
+            self,
+            temperatures: ArrayLike,
+            mass_fractions: dict[str, ArrayLike],
+            mean_molar_masses: ArrayLike,
+            reference_gravity: float,
+            reference_pressure: float,
+            planet_radius: float,
+            *,
+            variable_gravity: bool = True,
+            cloud_parameters: dict[str, Any] | None = None,
+            additional_absorption_opacities_function: Callable = None,
+            additional_scattering_opacities_function: Callable = None,
+            frequencies_to_wavelengths: bool = True,
+    ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
+        r"""Autodiff-oriented transmission-spectrum API with grouped cloud controls.
+
+        The method mirrors calculate_transit_radii while collapsing cloud controls into a
+        single keyword argument and keeping the differentiated call surface small.
+
+        Example:
+            >>> cloud_parameters = {
+            ...     'cloud_f_sed': cloud_f_sed,
+            ...     'eddy_diffusion_coefficients': eddy_diffusion_coefficients,
+            ...     'cloud_particle_radius_distribution_std': 1.05,
+            ... }
+            >>> _, transit_radii, _ = atmosphere.calculate_transit_radii_autodiff(
+            ...     temperatures=temperatures,
+            ...     mass_fractions=mass_fractions,
+            ...     mean_molar_masses=mean_molar_masses,
+            ...     reference_gravity=reference_gravity,
+            ...     reference_pressure=reference_pressure,
+            ...     planet_radius=planet_radius,
+            ...     cloud_parameters=cloud_parameters,
+            ...     frequencies_to_wavelengths=False,
+            ... )
+            >>> temperature_gradient = jax.grad(
+            ...     lambda t: jnp.sum(
+            ...         atmosphere.calculate_transit_radii_autodiff(
+            ...             temperatures=t,
+            ...             mass_fractions=mass_fractions,
+            ...             mean_molar_masses=mean_molar_masses,
+            ...             reference_gravity=reference_gravity,
+            ...             reference_pressure=reference_pressure,
+            ...             planet_radius=planet_radius,
+            ...             cloud_parameters=cloud_parameters,
+            ...             frequencies_to_wavelengths=False,
+            ...         )[1]
+            ...     )
+            ... )(temperatures)
+        """
+        allowed_cloud_parameters = {
+            'opaque_cloud_top_pressure',
+            'cloud_particles_mean_radii',
+            'cloud_particle_radius_distribution_std',
+            'cloud_particles_radius_distribution',
+            'cloud_hansen_a',
+            'cloud_hansen_b',
+            'cloud_particle_number_density_grid',
+            'clouds_particles_porosity_factor',
+            'cloud_f_sed',
+            'eddy_diffusion_coefficients',
+            'haze_factor',
+            'power_law_opacity_350nm',
+            'power_law_opacity_coefficient',
+            'gray_opacity',
+            'cloud_fraction',
+            'complete_coverage_clouds',
+        }
+        cloud_parameters = {} if cloud_parameters is None else dict(cloud_parameters)
+        unsupported_cloud_parameters = sorted(set(cloud_parameters) - allowed_cloud_parameters)
+
+        if unsupported_cloud_parameters:
+            raise ValueError(
+                "unsupported calculate_transit_radii_autodiff cloud parameters: "
+                f"{', '.join(unsupported_cloud_parameters)}"
+            )
+
+        return self.calculate_transit_radii(
+            temperatures=temperatures,
+            mass_fractions=mass_fractions,
+            mean_molar_masses=mean_molar_masses,
+            reference_gravity=reference_gravity,
+            reference_pressure=reference_pressure,
+            planet_radius=planet_radius,
+            variable_gravity=variable_gravity,
+            additional_absorption_opacities_function=additional_absorption_opacities_function,
+            additional_scattering_opacities_function=additional_scattering_opacities_function,
+            frequencies_to_wavelengths=frequencies_to_wavelengths,
+            **cloud_parameters,
+        )
 
 
     def get_wavelengths(self):

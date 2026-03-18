@@ -47,7 +47,7 @@ def build_ck_combination_state(weights_gauss: ArrayLike) -> tuple[ArrayLike, Arr
     return g_combination_weights, g_combination_weights_sum
 
 
-@partial(jit, static_argnames=("input_layout",))
+@jit(static_argnames=("input_layout",))
 def combine_ck_opacities(
     opacities_fortran_order: ArrayLike,
     g_gauss: ArrayLike,
@@ -137,7 +137,7 @@ def combine_ck_opacities(
         # Cumulative-sum midpoints.
         right_edges = jnp.cumsum(weights_normalised)          # (n_g^2,)
         g_x_vals    = right_edges - weights_normalised * 0.5  # (n_g^2,)
-        k_min_val  = opac_out_lf[0]  + spec_opac_lf[0]   # scalar
+        k_min_val  = opac_out_lf[0] + spec_opac_lf[0]   # scalar
         k_max_val  = opac_out_lf[-1] + spec_opac_lf[-1]  # scalar
         k_pinned = k_sorted.at[0].set(k_min_val).at[n_sample - 1].set(k_max_val)
 
@@ -1360,7 +1360,31 @@ def integ_parab(
     return c1 * (b - a) + c2 * (b**2 - a**2) / 2 + c3 * (b**3 - a**3) / 3
 
 
-@partial(jit, static_argnames=("variable_gravity"))
+@jit
+def compute_hydrostatic_interval_integrals(
+    pressures: ArrayLike,
+    inv_rho: ArrayLike,
+) -> ArrayLike:
+    """Compute per-layer hydrostatic integrals over the pressure grid."""
+    core_integrals = integ_parab(
+        pressures[:-2],
+        pressures[1:-1],
+        pressures[2:],
+        inv_rho[:-2],
+        inv_rho[1:-1],
+        inv_rho[2:],
+        pressures[:-2],
+        pressures[1:-1],
+    )
+    tail_integral = (
+        (inv_rho[-2] + inv_rho[-1])
+        * (pressures[-1] - pressures[-2])
+        * 0.5
+    )
+    return jnp.concatenate((core_integrals, tail_integral[None]))
+
+
+@jit(static_argnames=("variable_gravity"))
 def compute_radius_hydrostatic_equilibrium(
     pressures: ArrayLike,
     reference_gravity: ArrayLike,
@@ -1396,61 +1420,33 @@ def compute_radius_hydrostatic_equilibrium(
     inv_rho = 1.0 / (atmosphere_densities + TINIEST)
     dtype = pressures.dtype
 
-    coefficient = lax.cond(
-        variable_gravity,
-        lambda: 1.0 / (reference_gravity * (planet_radius**2) + TINIEST),
-        lambda: -1.0 / (reference_gravity + TINIEST)
+    if variable_gravity:
+        coefficient = 1.0 / (reference_gravity * (planet_radius**2) + TINIEST)
+    else:
+        coefficient = -1.0 / (reference_gravity + TINIEST)
+
+    interval_integrals = compute_hydrostatic_interval_integrals(
+        pressures=pressures,
+        inv_rho=inv_rho,
+    )
+    radius_hydrostatic_equilibrium = -coefficient * jnp.cumsum(
+        interval_integrals[::-1],
+        dtype=dtype,
+    )[::-1]
+    radius_hydrostatic_equilibrium = jnp.concatenate(
+        (radius_hydrostatic_equilibrium, jnp.zeros(1, dtype=dtype))
     )
 
-    radius_hydrostatic_equilibrium = jnp.zeros(n_layers, dtype=dtype)
-
-    radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium.at[n_layers - 2].set(
-        radius_hydrostatic_equilibrium[n_layers - 1]
-        - (inv_rho[n_layers - 2] + inv_rho[n_layers - 1])
-        * (pressures[n_layers - 1] - pressures[n_layers - 2])
-        * coefficient
-        * 0.5
+    reference_layer_mask = (
+        (pressures[:-1] <= reference_pressure)
+        & (pressures[1:] > reference_pressure)
     )
+    reference_index = jnp.argmax(reference_layer_mask)
 
-    def condition(val: tuple[ArrayLike, ArrayLike]) -> ArrayLike:
-        i = val[0]
-        return i >= 0
+    def compute_reference_radius_offset() -> ArrayLike:
 
-    def body(val: tuple[ArrayLike, ArrayLike]) -> tuple[ArrayLike, ArrayLike]:
-        i = val[0]
-        radius_hydrostatic_equilibrium = val[1]
-        radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium.at[i].set(
-            radius_hydrostatic_equilibrium[i + 1]
-            - integ_parab(
-                pressures[i],
-                pressures[i + 1],
-                pressures[i + 2],
-                inv_rho[i],
-                inv_rho[i + 1],
-                inv_rho[i + 2],
-                pressures[i],
-                pressures[i + 1]
-            )
-            * coefficient
-        )
-        return (i-1, radius_hydrostatic_equilibrium,)
-    _, radius_hydrostatic_equilibrium = lax.while_loop(
-        condition,
-        body,
-        (n_layers - 3, radius_hydrostatic_equilibrium,)
-        )
-
-    reference_index = jnp.argmin(jnp.abs(pressures - reference_pressure))
-    reference_index = lax.cond(
-        pressures[reference_index] <= reference_pressure,
-        lambda: reference_index,
-        lambda: reference_index - 1
-    )
-
-    layer_condition = (reference_index <= n_layers - 3)
-
-    def layer_true() -> ArrayLike:
-        return radius_hydrostatic_equilibrium[reference_index + 1] - integ_parab(
+        def layer_true() -> ArrayLike:
+            return radius_hydrostatic_equilibrium[reference_index + 1] - integ_parab(
                 pressures[reference_index],
                 pressures[reference_index + 1],
                 pressures[reference_index + 2],
@@ -1458,41 +1454,35 @@ def compute_radius_hydrostatic_equilibrium(
                 inv_rho[reference_index + 1],
                 inv_rho[reference_index + 2],
                 reference_pressure,
-                pressures[reference_index + 1]
+                pressures[reference_index + 1],
             ) * coefficient
 
-    def layer_false() -> ArrayLike:
-        return (radius_hydrostatic_equilibrium[reference_index + 1]
-                - (inv_rho[reference_index] + inv_rho[reference_index + 1])
+        def layer_false() -> ArrayLike:
+            return radius_hydrostatic_equilibrium[reference_index + 1] - (
+                (inv_rho[reference_index] + inv_rho[reference_index + 1])
                 * (pressures[reference_index + 1] - reference_pressure)
                 * coefficient
-                * 0.5)
+                * 0.5
+            )
+
+        return lax.cond(reference_index <= n_layers - 3, layer_true, layer_false)
 
     R0 = lax.cond(
-            layer_condition,
-            layer_true,
-            layer_false
-        )
+        jnp.any(reference_layer_mask),
+        compute_reference_radius_offset,
+        lambda: jnp.zeros((), dtype=dtype),
+    )
 
-    def variable_gravity_radius(R0: ArrayLike, radius_hydrostatic_equilibrium: ArrayLike) -> ArrayLike:
+    if variable_gravity:
         R0 = (1.0 / planet_radius) - R0
         radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium + R0
-        radius_hydrostatic_equilibrium = 1.0 / (radius_hydrostatic_equilibrium + TINIEST)
-        return radius_hydrostatic_equilibrium
+        return 1.0 / (radius_hydrostatic_equilibrium + TINIEST)
 
-    def constant_gravity_radius(R0: ArrayLike, radius_hydrostatic_equilibrium: ArrayLike) -> ArrayLike:
-        R0 = planet_radius - R0
-        radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium + R0
-        return radius_hydrostatic_equilibrium
-
-    return lax.cond(variable_gravity,
-                    variable_gravity_radius,
-                    constant_gravity_radius,
-                    R0,
-                    radius_hydrostatic_equilibrium)
+    R0 = planet_radius - R0
+    return radius_hydrostatic_equilibrium + R0
 
 
-@partial(jit, static_argnames=("variable_gravity"))
+@jit(static_argnames=("variable_gravity"))
 def compute_transit_radii(
     opacities: ArrayLike,
     continuum_opacities_scattering: ArrayLike,
@@ -1538,6 +1528,15 @@ def compute_transit_radii(
         radius profile with shape ``(n_layers,)``.
     """
 
+    def _safe_sqrt_positive(values: ArrayLike) -> ArrayLike:
+        positive_values = values > 0.0
+        safe_values = jnp.where(
+            positive_values,
+            values,
+            lax.stop_gradient(jnp.ones_like(values)),
+        )
+        return jnp.where(positive_values, jnp.sqrt(safe_values), 0.0)
+
     # Calculate planetary radius in hydrostatic equilibrium, using the atmospheric structure
     # (temperature, pressure, mmw), gravity, reference pressure and radius.
     pressures_cgs = pressures * 1e6  # bar to cgs
@@ -1581,8 +1580,7 @@ def compute_transit_radii(
     # Calculate matrix of delta path lengths
     r_ik = (radius_hydrostatic_equilibrium.reshape(1, pressures.size) ** 2.
             - radius_hydrostatic_equilibrium.reshape(pressures.size, 1) ** 2.)
-    r_ik = jnp.where(r_ik < 0., 0., r_ik)
-    r_ik = jnp.sqrt(r_ik)
+    r_ik = _safe_sqrt_positive(r_ik)
     diff_s = diff_s.at[1:, 1:].set(- r_ik[1:, 1:] + r_ik[1:, :-1])
 
     # Calculate optical depths
@@ -1631,7 +1629,7 @@ def compute_transit_radii(
     return transit_radii, radius_hydrostatic_equilibrium
 
 
-@partial(jit, static_argnames=("variable_gravity"))
+@jit(static_argnames=("variable_gravity"))
 def compute_transit_radii_summed(
     opacities: ArrayLike,
     continuum_opacities_scattering: ArrayLike,
@@ -1676,6 +1674,16 @@ def compute_transit_radii_summed(
         Effective transit radii with shape ``(n_frequencies,)`` and the hydrostatic
         radius profile with shape ``(n_layers,)``.
     """
+
+    def _safe_sqrt_positive(values: ArrayLike) -> ArrayLike:
+        positive_values = values > 0.0
+        safe_values = jnp.where(
+            positive_values,
+            values,
+            lax.stop_gradient(jnp.ones_like(values)),
+        )
+        return jnp.where(positive_values, jnp.sqrt(safe_values), 0.0)
+
     # Calculate planetary radius in hydrostatic equilibrium, using the atmospheric structure
     # (temperature, pressure, mmw), gravity, reference pressure and radius.
     pressures_cgs = pressures * 1e6  # bar to cgs
@@ -1719,8 +1727,7 @@ def compute_transit_radii_summed(
     # Calculate matrix of delta path lengths
     r_ik = (radius_hydrostatic_equilibrium.reshape(1, pressures.size) ** 2.
             - radius_hydrostatic_equilibrium.reshape(pressures.size, 1) ** 2.)
-    r_ik = jnp.where(r_ik < 0., 0., r_ik)
-    r_ik = jnp.sqrt(r_ik)
+    r_ik = _safe_sqrt_positive(r_ik)
     diff_s = diff_s.at[1:, 1:].set(- r_ik[1:, 1:] + r_ik[1:, :-1])
 
     # Calculate optical depths (out is used for in-place calculations to reduce memory usage)
@@ -1768,7 +1775,7 @@ def compute_transit_radii_summed(
     return transit_radii, radius_hydrostatic_equilibrium
 
 
-@partial(jit, static_argnames=["scattering_in_transmission", "variable_gravity"])
+@jit(static_argnames=["scattering_in_transmission", "variable_gravity"])
 def compute_transit_radii_fortran(
     opacities: ArrayLike,
     temperatures: ArrayLike,
@@ -1938,7 +1945,7 @@ def compute_transit_radii_fortran(
     return transit_radii, radius_hydrostatic_equilibrium
 
 
-@partial(jit, static_argnames=["variable_gravity", "scattering_in_transmission"] )
+@jit(static_argnames=["variable_gravity", "scattering_in_transmission"] )
 def compute_transmission_spectrum_contribution(
     opacities: ArrayLike,  # (n_g, n_frequencies, n_species, n_layers)
     temperatures: ArrayLike,  # (n_layers)

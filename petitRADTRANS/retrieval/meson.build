@@ -2,6 +2,7 @@ py.install_sources([
     'data.py',
     'models.py',
     'parameter.py',
+    'plotting.py',
     'jax_parameter.py',
     'log_likelihood.py',
     'preparing.py',
