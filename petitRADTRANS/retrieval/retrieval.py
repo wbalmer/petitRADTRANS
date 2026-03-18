@@ -48,6 +48,10 @@ from petitRADTRANS.retrieval.sampler import (
     Sampler,
     PymultinestSampler,
     UltranestSampler,
+    BlackJAXHMCSampler,
+    BlackJAXNUTSSampler,
+    NumPyroHMCSampler,
+    NumPyroNUTSSampler,
     JAXNSSampler,
     JAXNSShardedStaticNestedSampler
     )
@@ -706,9 +710,14 @@ class Retrieval:
 
         Args:
             stats : dict
-                A Pymultinest stats dictionary, from Analyzer.get_stats().
-                This contains the evidence and best fit parameters.
+                Optional sampler-specific statistics object. If the active sampler exposes
+                a standardized summary payload, that is preferred.
         """
+        sampler_summary = self._collect_sampler_summary(
+            stats=stats,
+            sampler_parameters=sampler_parameters,
+        )
+
         with open(
                 os.path.join(
                     self.output_directory,
@@ -725,12 +734,7 @@ class Retrieval:
             summary.write(self.output_directory + '\n')
 
             summary.write("\n")
-            summary.write("Sampler Parameters\n")
-            if self.sampler is not None:
-                summary.write(f"    sampler = {self.sampler.__class__.__name__}\n")
-            if sampler_parameters is not None:
-                for key, value in sampler_parameters.items():
-                    summary.write(f"    {key} = {value}\n")
+            self._write_sampler_summary_section(summary=summary, sampler_summary=sampler_summary)
             summary.write("\n")
 
             summary.write("Fixed Parameters\n")
@@ -819,44 +823,6 @@ class Retrieval:
 
             summary.write('\n')
 
-            if stats and 'global evidence' in stats and 'marginals' in stats:
-                summary.write("Sampler Outputs (PyMultiNest-like)\n  marginal evidence:\n")
-                summary.write('  marginal evidence:\n')
-                summary.write('    log Z = %.1f +- %.1f\n' %
-                              (stats['global evidence'] / np.log(10), stats['global evidence error'] / np.log(10)))
-                summary.write('    ln Z = %.1f +- %.1f\n' % (stats['global evidence'],
-                                                             stats['global evidence error']))
-                summary.write("  Statistical Fit Parameters\n")
-
-                free_params = []
-                transforms = []
-
-                for key, value in self.configuration.parameters.items():
-                    if value.is_free_parameter:
-                        free_params.append(key)
-                        transforms.append(value.corner_transform)
-
-                for param, marginals, transform in zip(free_params, stats['marginals'], transforms):
-                    lo, hi = marginals['1sigma']
-                    med = marginals['median']
-                    if transform is not None:
-                        lo = transform(lo)
-                        hi = transform(hi)
-                        med = transform(med)
-
-                    sigma = (hi - lo) / 2
-
-                    if sigma == 0:
-                        i = 3
-                    else:
-                        i = max(0, int(-np.floor(np.log10(sigma))) + 1)
-
-                    fmt = '%%.%df' % i
-                    fmts = '\t'.join(['    %-15s' + fmt + " +- " + fmt])
-                    summary.write(fmts % (param, med, sigma) + '\n')
-
-                summary.write('\n')
-
             # TODO: Ultranest and JAXNS sampler output saving to file.
             if self.configuration.run_mode == 'evaluate':
                 summary.write("Best Fit Parameters\n")
@@ -883,10 +849,9 @@ class Retrieval:
                     sample=samples_use[:, best_fit_index],
                     subtract_n_parameters=True,
                     verbose=True,
-                    show_chi2=False  # show chi2 only once
+                    show_chi2=False
                 )
 
-                # Get best-fit index
                 summary.write(f"    𝛘^2/n_wlen = {chi2_wavelengths:.2f}\n")
                 summary.write(f"    𝛘^2/DoF = {chi2_d_o_f:.2f}\n")
 
@@ -906,6 +871,104 @@ class Retrieval:
                         summary.write(f"    {key} = {out:.3e}\n")
                     else:
                         summary.write(f"    {key} = {out}\n")
+
+    def _collect_sampler_summary(self, stats: dict = None, sampler_parameters: dict = None) -> dict:
+        sampler_summary = {
+            'sampler': self.sampler.__class__.__name__ if self.sampler is not None else None,
+            'parameters': {},
+            'diagnostics': {},
+            'evidence': {},
+            'posterior': [],
+        }
+
+        if self.sampler is not None and hasattr(self.sampler, 'get_summary'):
+            sampler_summary = self.sampler.get_summary(
+                free_parameter_names=self._free_parameter_names_cache
+            )
+
+        if sampler_parameters is not None:
+            sampler_summary.setdefault('parameters', {}).update(sampler_parameters)
+
+        if stats and isinstance(stats, dict) and 'global evidence' in stats and 'marginals' in stats:
+            sampler_summary.setdefault('evidence', {})
+            sampler_summary['evidence'].setdefault('ln_z', stats.get('global evidence'))
+            sampler_summary['evidence'].setdefault('ln_z_err', stats.get('global evidence error'))
+            if not sampler_summary.get('posterior'):
+                posterior = []
+                for param_name, marginal in zip(self._free_parameter_names_cache, stats['marginals']):
+                    lo, hi = marginal['1sigma']
+                    med = marginal['median']
+                    posterior.append({
+                        'name': param_name,
+                        'median': med,
+                        'lower_1sigma': lo,
+                        'upper_1sigma': hi,
+                    })
+
+                sampler_summary['posterior'] = posterior
+
+        return sampler_summary
+
+    def _write_sampler_summary_section(self, summary, sampler_summary: dict) -> None:
+        summary.write("Sampler\n")
+        if sampler_summary.get('sampler') is not None:
+            summary.write(f"    sampler = {sampler_summary['sampler']}\n")
+
+        if sampler_summary.get('parameters'):
+            summary.write("Sampler Parameters\n")
+            for key, value in sampler_summary['parameters'].items():
+                summary.write(f"    {key} = {value}\n")
+
+        if sampler_summary.get('diagnostics'):
+            summary.write("Sampler Diagnostics\n")
+            for key, value in sampler_summary['diagnostics'].items():
+                if value is None:
+                    continue
+                summary.write(f"    {key} = {value}\n")
+
+        evidence = sampler_summary.get('evidence', {})
+        if evidence:
+            summary.write("Posterior Summary\n")
+            if evidence.get('ln_z') is not None:
+                ln_z = evidence['ln_z']
+                ln_z_err = evidence.get('ln_z_err')
+                if ln_z_err is not None:
+                    summary.write(f"    ln Z = {ln_z:.6g} +- {ln_z_err:.6g}\n")
+                    summary.write(
+                        f"    log Z = {ln_z / np.log(10):.6g} +- {ln_z_err / np.log(10):.6g}\n"
+                    )
+                else:
+                    summary.write(f"    ln Z = {ln_z:.6g}\n")
+
+        if sampler_summary.get('posterior'):
+            if not evidence:
+                summary.write("Posterior Summary\n")
+            summary.write("    Statistical Fit Parameters\n")
+            for posterior_entry in sampler_summary['posterior']:
+                name = posterior_entry['name']
+                median = posterior_entry.get('median')
+                lo = posterior_entry.get('lower_1sigma')
+                hi = posterior_entry.get('upper_1sigma')
+
+                if name not in self.configuration.parameters or median is None or lo is None or hi is None:
+                    continue
+
+                transform = self.configuration.parameters[name].corner_transform
+                if transform is not None:
+                    median = transform(median)
+                    lo = transform(lo)
+                    hi = transform(hi)
+
+                sigma = (hi - lo) / 2
+                if sigma == 0:
+                    precision = 3
+                else:
+                    precision = max(0, int(-np.floor(np.log10(abs(sigma)))) + 1)
+
+                fmt = f"{{:.{precision}f}}"
+                summary.write(
+                    f"    {name:<15}{fmt.format(median)} +- {fmt.format(sigma)}\n"
+                )
 
     def get_pymultinest_analyzer(self, ret_name: str = ""):
         """
@@ -932,17 +995,14 @@ class Retrieval:
         if ret_name:
             try:
                 import pymultinest
+
                 n_params = self._n_free_params_total_retrieval
                 prefix = os.path.join(self.output_directory, 'out_PMN', ret_name + '_')
-                if not os.path.exists(os.path.join(self.output_directory, 'out_PMN',
-                                                   ret_name + '_params.json')):
-                    if is_current_retrieval and hasattr(self, 'latest_sampler_results') and \
-                       self.latest_sampler_results is None:
-                        warnings.warn(
-                            f"PyMultiNest output for current retrieval '{ret_name}' not found or run incomplete."
-                        )
-                    elif not is_current_retrieval:
-                        warnings.warn(f"PyMultiNest output for '{ret_name}' not found at '{prefix}'.")
+                if not os.path.exists(os.path.join(self.output_directory, 'out_PMN', ret_name + '_params.json')):
+                    warnings.warn(
+                        f"No params file found for retrieval '{ret_name}' in out_PMN. "
+                        "Cannot construct analyzer."
+                    )
                     return None
                 return pymultinest.Analyzer(n_params=n_params, outputfiles_basename=prefix)
             except ImportError:
@@ -1731,6 +1791,41 @@ class Retrieval:
                 param_dict[name] = parameters_read
             return samples, param_dict
 
+        sampler_type = self.configuration.sampler_type.lower()
+        if sampler_type in {
+            'blackjaxhmc', 'blackjax_hmc', 'hmc', 'blackjaxnuts', 'blackjax_nuts', 'nuts'
+        }:
+            for name in names:
+                params_file = os.path.join(output_directory, 'out_BlackJAX', name + '_params.json')
+                samples_file = os.path.join(output_directory, 'out_BlackJAX', name + '_samples.npz')
+
+                with open(params_file, 'r') as handle:
+                    parameters_read = json.load(handle)
+
+                chain = np.load(samples_file)
+                log_values = chain['model_log_likelihood'] if 'model_log_likelihood' in chain.files else chain['logdensity']
+                samples[name] = np.vstack((chain['samples'].T, log_values[np.newaxis, :]))
+                param_dict[name] = parameters_read
+
+            return samples, param_dict
+
+        if sampler_type in {
+            'numpyrohmc', 'numpyro_hmc', 'numpyronuts', 'numpyro_nuts'
+        }:
+            for name in names:
+                params_file = os.path.join(output_directory, 'out_NumPyro', name + '_params.json')
+                samples_file = os.path.join(output_directory, 'out_NumPyro', name + '_samples.npz')
+
+                with open(params_file, 'r') as handle:
+                    parameters_read = json.load(handle)
+
+                chain = np.load(samples_file)
+                log_values = chain['model_log_likelihood'] if 'model_log_likelihood' in chain.files else chain['logdensity']
+                samples[name] = np.vstack((chain['samples'].T, log_values[np.newaxis, :]))
+                param_dict[name] = parameters_read
+
+            return samples, param_dict
+
         # pymultinest
         for name in names:
             samples_ = get_pymultinest_sample_dict(
@@ -2516,6 +2611,95 @@ class Retrieval:
             parameter.value = yield parameter.set_prior()
         return self.configuration.parameters
 
+    def _build_blackjax_logdensity_interface(self):
+        free_parameter_names = [
+            parameter_name
+            for parameter_name, parameter in self.configuration.parameters.items()
+            if parameter.is_free_parameter
+        ]
+
+        if len(free_parameter_names) < 1:
+            raise ValueError("BlackJAX samplers require at least one free parameter.")
+
+        free_parameters = [self.configuration.parameters[name] for name in free_parameter_names]
+        for parameter_name, parameter in zip(free_parameter_names, free_parameters):
+            if parameter.distribution is None and parameter.transform_prior_cube_coordinate is None:
+                raise ValueError(
+                    f"Free parameter '{parameter_name}' has neither a JAX distribution nor a prior transform."
+                )
+
+        cube_epsilon = jnp.asarray(1e-7 if JAX_DTYPE == jnp.float32 else 1e-12, dtype=JAX_DTYPE)
+
+        def cube_from_unconstrained(unconstrained_position):
+            return jnp.clip(jax.nn.sigmoid(unconstrained_position), cube_epsilon, 1.0 - cube_epsilon)
+
+        def transform_cube_to_physical(cube_position):
+            transformed = []
+            for i, parameter in enumerate(free_parameters):
+                if parameter.distribution is not None:
+                    transformed_value = parameter.distribution.quantile(cube_position[i])
+                else:
+                    transformed_value = parameter.transform_prior_cube_coordinate(cube_position[i])
+                transformed.append(jnp.asarray(transformed_value, dtype=JAX_DTYPE))
+
+            return jnp.stack(transformed)
+
+        def transform_single(unconstrained_position):
+            return transform_cube_to_physical(cube_from_unconstrained(unconstrained_position))
+
+        def transform_positions(unconstrained_positions):
+            if jnp.ndim(unconstrained_positions) == 1:
+                return transform_single(unconstrained_positions)
+
+            return jax.vmap(transform_single)(unconstrained_positions)
+
+        def log_jacobian_single(unconstrained_position):
+            return jnp.sum(
+                -jax.nn.softplus(-unconstrained_position) - jax.nn.softplus(unconstrained_position)
+            )
+
+        def log_jacobian(unconstrained_positions):
+            if jnp.ndim(unconstrained_positions) == 1:
+                return log_jacobian_single(unconstrained_positions)
+
+            return jax.vmap(log_jacobian_single)(unconstrained_positions)
+
+        def logdensity(unconstrained_position):
+            physical_position = transform_single(unconstrained_position)
+
+            updated_parameters = {}
+            i_free = 0
+            for parameter_name, parameter in self.configuration.parameters.items():
+                if parameter.is_free_parameter:
+                    updated_parameters[parameter_name] = parameter.__class__(
+                        name=parameter.name,
+                        is_free_parameter=parameter.is_free_parameter,
+                        value=physical_position[i_free],
+                        distribution=parameter.distribution,
+                        transform_prior_cube_coordinate=parameter.transform_prior_cube_coordinate,
+                        plot_in_corner=parameter.plot_in_corner,
+                        corner_ranges=parameter.corner_ranges,
+                        corner_transform=parameter.corner_transform,
+                        corner_label=parameter.corner_label,
+                    )
+                    i_free += 1
+                else:
+                    updated_parameters[parameter_name] = parameter
+
+            return self.log_likelihood_jax(
+                parameters=updated_parameters,
+                configuration=self.configuration,
+                log_l_per_datapoint_dict=None,
+                return_model=False,
+                uncertainties_mode=self.uncertainties_mode,
+                generate_mock_data=self.generate_mock_data,
+                print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging
+            ) + log_jacobian_single(unconstrained_position)
+
+        initial_position = jnp.zeros(len(free_parameter_names), dtype=JAX_DTYPE)
+
+        return free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian
+
     def run(self, sampler_object: Sampler = None, **sampler_kwargs):
         """
         Run mode for the class. Uses pynultinest to sample parameter space
@@ -2527,6 +2711,10 @@ class Retrieval:
             sampler_type : str
                 The type of sampler to use. Can be one of the following:
                     pymultinest - requires Multinest installation.
+                    blackjaxnuts - requires BlackJAX and runs NUTS with window adaptation.
+                    blackjaxhmc - requires BlackJAX and runs HMC with window adaptation.
+                    numpyronuts - requires NumPyro and runs NUTS with warmup adaptation.
+                    numpyrohmc - requires NumPyro and runs HMC with warmup adaptation.
                     jaxns - Requires JAXNS. Default choice for JAXNS
                     jaxnsshardedstaticsestedsampler - Requires JAXNS. Advanced option for JAXNS
                     ultranest - Requires ultranest. Implements.
@@ -2535,6 +2723,7 @@ class Retrieval:
         print(f"Starting retrieval {self.configuration.retrieval_name} with {sampler_type}")
         if MPI is None and sampler_type == 'pymultinest':
             print("Unable to import mpi4py, using slow (single process) mode for pymultinest.")
+        sampler = self.sampler
         error_checking = sampler_kwargs.pop('error_checking', True)
         force_serial_error_checking = sampler_kwargs.pop('force_serial_error_checking', False)
         # any_error_checking = comm.allreduce(error_checking, op=MPI.LOR)
@@ -2622,6 +2811,178 @@ class Retrieval:
             )
             self.latest_sampler_results = sampler.run_sampler(**sampler_kwargs)
             sampler.pretty_print_results()
+        elif sampler_type.lower() in {'blackjaxnuts', 'blackjax_nuts', 'nuts'}:
+            free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
+                self._build_blackjax_logdensity_interface()
+            )
+            blackjax_kwargs = {
+                'initial_position': sampler_kwargs.pop('initial_position', initial_position),
+                'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
+                'num_samples': sampler_kwargs.pop('num_samples', 1000),
+                'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
+                'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
+                'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
+                'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
+                'progress_bar': sampler_kwargs.pop('progress_bar', False),
+                'seed': sampler_kwargs.pop('seed', 42654),
+                'jit': sampler_kwargs.pop('jit', True),
+                'log_jacobian_fn': log_jacobian,
+            }
+            blackjax_kwargs.update(sampler_kwargs)
+
+            sampler = BlackJAXNUTSSampler(
+                log_likelihood_func=logdensity,
+                prior_func=transform_positions,
+                output_directory=self.output_directory,
+                retrieval_name=self.configuration.retrieval_name
+            )
+            self.latest_sampler_results = sampler.run_sampler(**blackjax_kwargs)
+            sampler.pretty_print_results()
+            self.generate_retrieval_summary(
+                sampler_parameters={
+                    'sampler_type': sampler_type.lower(),
+                    'num_samples': blackjax_kwargs['num_samples'],
+                    'num_warmup': blackjax_kwargs['num_warmup'],
+                    'initial_step_size': blackjax_kwargs['initial_step_size'],
+                    'target_acceptance_rate': blackjax_kwargs['target_acceptance_rate'],
+                    'is_mass_matrix_diagonal': blackjax_kwargs['is_mass_matrix_diagonal'],
+                    'seed': blackjax_kwargs['seed'],
+                    'jit': blackjax_kwargs['jit'],
+                }
+            )
+        elif sampler_type.lower() in {'blackjaxhmc', 'blackjax_hmc', 'hmc'}:
+            free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
+                self._build_blackjax_logdensity_interface()
+            )
+            blackjax_kwargs = {
+                'initial_position': sampler_kwargs.pop('initial_position', initial_position),
+                'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
+                'num_samples': sampler_kwargs.pop('num_samples', 1000),
+                'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
+                'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
+                'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
+                'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
+                'progress_bar': sampler_kwargs.pop('progress_bar', False),
+                'seed': sampler_kwargs.pop('seed', 42654),
+                'jit': sampler_kwargs.pop('jit', True),
+                'log_jacobian_fn': log_jacobian,
+                'num_integration_steps': sampler_kwargs.pop('num_integration_steps', 20),
+            }
+            blackjax_kwargs.update(sampler_kwargs)
+
+            sampler = BlackJAXHMCSampler(
+                log_likelihood_func=logdensity,
+                prior_func=transform_positions,
+                output_directory=self.output_directory,
+                retrieval_name=self.configuration.retrieval_name
+            )
+            self.latest_sampler_results = sampler.run_sampler(**blackjax_kwargs)
+            sampler.pretty_print_results()
+            self.generate_retrieval_summary(
+                sampler_parameters={
+                    'sampler_type': sampler_type.lower(),
+                    'num_samples': blackjax_kwargs['num_samples'],
+                    'num_warmup': blackjax_kwargs['num_warmup'],
+                    'initial_step_size': blackjax_kwargs['initial_step_size'],
+                    'target_acceptance_rate': blackjax_kwargs['target_acceptance_rate'],
+                    'is_mass_matrix_diagonal': blackjax_kwargs['is_mass_matrix_diagonal'],
+                    'num_integration_steps': blackjax_kwargs['num_integration_steps'],
+                    'seed': blackjax_kwargs['seed'],
+                    'jit': blackjax_kwargs['jit'],
+                }
+            )
+        elif sampler_type.lower() in {'numpyronuts', 'numpyro_nuts'}:
+            free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
+                self._build_blackjax_logdensity_interface()
+            )
+            numpyro_kwargs = {
+                'initial_position': sampler_kwargs.pop('initial_position', initial_position),
+                'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
+                'num_samples': sampler_kwargs.pop('num_samples', 1000),
+                'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
+                'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
+                'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
+                'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
+                'progress_bar': sampler_kwargs.pop('progress_bar', False),
+                'seed': sampler_kwargs.pop('seed', 42654),
+                'jit': sampler_kwargs.pop('jit', True),
+                'log_jacobian_fn': log_jacobian,
+                'num_chains': sampler_kwargs.pop('num_chains', 1),
+                'thinning': sampler_kwargs.pop('thinning', 1),
+                'chain_method': sampler_kwargs.pop('chain_method', 'parallel'),
+            }
+            numpyro_kwargs.update(sampler_kwargs)
+
+            sampler = NumPyroNUTSSampler(
+                log_likelihood_func=logdensity,
+                prior_func=transform_positions,
+                output_directory=self.output_directory,
+                retrieval_name=self.configuration.retrieval_name
+            )
+            self.latest_sampler_results = sampler.run_sampler(**numpyro_kwargs)
+            sampler.pretty_print_results()
+            self.generate_retrieval_summary(
+                sampler_parameters={
+                    'sampler_type': sampler_type.lower(),
+                    'num_samples': numpyro_kwargs['num_samples'],
+                    'num_warmup': numpyro_kwargs['num_warmup'],
+                    'initial_step_size': numpyro_kwargs['initial_step_size'],
+                    'target_acceptance_rate': numpyro_kwargs['target_acceptance_rate'],
+                    'is_mass_matrix_diagonal': numpyro_kwargs['is_mass_matrix_diagonal'],
+                    'num_chains': numpyro_kwargs['num_chains'],
+                    'thinning': numpyro_kwargs['thinning'],
+                    'chain_method': numpyro_kwargs['chain_method'],
+                    'seed': numpyro_kwargs['seed'],
+                    'jit': numpyro_kwargs['jit'],
+                }
+            )
+        elif sampler_type.lower() in {'numpyrohmc', 'numpyro_hmc'}:
+            free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
+                self._build_blackjax_logdensity_interface()
+            )
+            numpyro_kwargs = {
+                'initial_position': sampler_kwargs.pop('initial_position', initial_position),
+                'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
+                'num_samples': sampler_kwargs.pop('num_samples', 1000),
+                'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
+                'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
+                'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
+                'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
+                'progress_bar': sampler_kwargs.pop('progress_bar', False),
+                'seed': sampler_kwargs.pop('seed', 42654),
+                'jit': sampler_kwargs.pop('jit', True),
+                'log_jacobian_fn': log_jacobian,
+                'num_chains': sampler_kwargs.pop('num_chains', 1),
+                'thinning': sampler_kwargs.pop('thinning', 1),
+                'chain_method': sampler_kwargs.pop('chain_method', 'parallel'),
+                'num_steps': sampler_kwargs.pop('num_integration_steps', sampler_kwargs.pop('num_steps', 20)),
+            }
+            numpyro_kwargs.update(sampler_kwargs)
+
+            sampler = NumPyroHMCSampler(
+                log_likelihood_func=logdensity,
+                prior_func=transform_positions,
+                output_directory=self.output_directory,
+                retrieval_name=self.configuration.retrieval_name
+            )
+            self.latest_sampler_results = sampler.run_sampler(**numpyro_kwargs)
+            sampler.pretty_print_results()
+            self.generate_retrieval_summary(
+                sampler_parameters={
+                    'sampler_type': sampler_type.lower(),
+                    'num_samples': numpyro_kwargs['num_samples'],
+                    'num_warmup': numpyro_kwargs['num_warmup'],
+                    'initial_step_size': numpyro_kwargs['initial_step_size'],
+                    'target_acceptance_rate': numpyro_kwargs['target_acceptance_rate'],
+                    'is_mass_matrix_diagonal': numpyro_kwargs['is_mass_matrix_diagonal'],
+                    'num_integration_steps': numpyro_kwargs['num_steps'],
+                    'num_chains': numpyro_kwargs['num_chains'],
+                    'thinning': numpyro_kwargs['thinning'],
+                    'chain_method': numpyro_kwargs['chain_method'],
+                    'seed': numpyro_kwargs['seed'],
+                    'jit': numpyro_kwargs['jit'],
+                }
+            )
         elif (sampler_type.lower() == 'jaxnestedsampler') or (sampler_type.lower() == 'jaxns'):
             if tfp is None:
                 raise ImportError("TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed.")

@@ -35,6 +35,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Clean up comment blocks.
 
 ### Changed
+- a14 Added BlackJAX and Numpyro HMC and NUTS samplers. Integrated samplers into retrieval summary.
 - a14 Moved retrieval plotting into RetrievalPlotter class, inheriting from Retrieval.
 - a12 Optimised Feautrier and ensured consistency with Fortran implementation.
 - Added sanitising of inputs to calculate_flux and calculate_transit_radii to ensure JAX compatibiltiy.
