@@ -852,7 +852,6 @@ class UltranestSampler(Sampler):
         if ultranest is None:  # Should have been caught by __init__
             warnings.warn("Ultranest module not found, cannot run UltranestSampler.", RuntimeWarning)
             return None
-        warnings.warn("Ultranest mode is still in development.", UserWarning)
         log_dir = os.path.join(self.output_directory, "out_" +
                                self.retrieval_name + "_ultranest")
         os.makedirs(log_dir, exist_ok=True)
