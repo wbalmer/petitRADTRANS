@@ -728,6 +728,11 @@ class PymultinestSampler(Sampler):
 
         self.seed = -1
         self.analyzer = None
+        self.outputfiles_basename = os.path.join(
+            self.output_directory,
+            "out_PMN",
+            f"{self.retrieval_name}_"
+        )
 
     def run_sampler(self, n_dims, **kwargs):
         """
@@ -769,6 +774,8 @@ class PymultinestSampler(Sampler):
         Returns:
             analyzer
         """
+        outputfiles_basename = kwargs.get('outputfiles_basename', self.outputfiles_basename)
+
         pymultinest.run(
             LogLikelihood=self.log_likelihood_func,
             Prior=self.prior_func,
@@ -777,7 +784,11 @@ class PymultinestSampler(Sampler):
         )
 
         if rank == 0:
-            self.analyzer = pymultinest.Analyzer(outputfiles_basename=f"{self.retrieval_name}_", n_params=n_dims)
+            self.outputfiles_basename = outputfiles_basename
+            self.analyzer = pymultinest.Analyzer(
+                outputfiles_basename=self.outputfiles_basename,
+                n_params=n_dims
+            )
         return self.analyzer
 
     def pretty_print(self, free_parameter_names, prefix):

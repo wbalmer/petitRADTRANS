@@ -64,6 +64,28 @@ def test_prior_ultranest_supports_transform_and_distribution_priors():
     np.testing.assert_allclose(transformed, np.array([1.75, 11.5]))
 
 
+def test_set_free_parameter_values_updates_non_pymultinest_retrievals():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval.configuration = SimpleNamespace(
+        parameters={
+            'free_parameter': Parameter(
+                name='free_parameter',
+                is_free_parameter=True,
+            ),
+            'fixed_parameter': Parameter(
+                name='fixed_parameter',
+                is_free_parameter=False,
+                value=7.0,
+            ),
+        }
+    )
+
+    retrieval._set_free_parameter_values(np.array([3.5]))
+
+    assert retrieval.configuration.parameters['free_parameter'].value == 3.5
+    assert retrieval.configuration.parameters['fixed_parameter'].value == 7.0
+
+
 def test_numpyro_hmc_kernel_kwargs_prefer_trajectory_length_over_num_steps():
     kernel_kwargs = NumPyroSampler._prepare_kernel_kwargs(
         algorithm_name='hmc',

@@ -1987,14 +1987,8 @@ class Retrieval:
         if isinstance(log_l_per_datapoint_dict, dict):
             per_datapoint = True
 
-        # Update model parameters with the retrieval cube drawn values
-        i = 0  # free parameters enumerator
-
-        if self.configuration.sampler_type == 'pymultinest':
-            for parameter in self.configuration.parameters:
-                if self.configuration.parameters[parameter].is_free_parameter:
-                    self.configuration.parameters[parameter].set_param(cube[i])
-                    i += 1
+        # Update model parameters with the sampled free-parameter values.
+        self._set_free_parameter_values(cube)
 
         for data_name, data in self.configuration.data.items():
             data_spectrum = data.spectrum
@@ -2265,6 +2259,28 @@ class Retrieval:
             return log_likelihood + log_prior
         else:
             return log_likelihood + log_prior, wavelengths_models, spectrum_models, beta, additional_log_ls
+
+    def _set_free_parameter_values(self, values: npt.ArrayLike) -> None:
+        """Copy sampled free-parameter values into the active retrieval configuration."""
+        flat_values = np.asarray(values).reshape(-1)
+        index = 0
+
+        for parameter in self.configuration.parameters.values():
+            if not parameter.is_free_parameter:
+                continue
+
+            if index >= flat_values.size:
+                raise ValueError(
+                    f"Expected at least {index + 1} free-parameter values, got {flat_values.size}"
+                )
+
+            parameter.set_param(flat_values[index])
+            index += 1
+
+        if index != flat_values.size:
+            raise ValueError(
+                f"Expected {index} free-parameter values, got {flat_values.size}"
+            )
 
     @staticmethod
     def log_likelihood_jax(
