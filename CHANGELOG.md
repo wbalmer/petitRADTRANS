@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a14] - 2026-03-18
+## [4.0.0a15] - 2026-03-19
 ### Summary
 pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs.
@@ -35,6 +35,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Clean up comment blocks.
 
 ### Changed
+- a15 Reverse-mode differentiation changes to rebinning and particle radius functions.
 - a14 Added BlackJAX and Numpyro HMC and NUTS samplers. Integrated samplers into retrieval summary.
 - a14 Moved retrieval plotting into RetrievalPlotter class, inheriting from Retrieval.
 - a12 Optimised Feautrier and ensured consistency with Fortran implementation.

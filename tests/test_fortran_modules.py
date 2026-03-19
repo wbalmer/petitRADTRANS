@@ -1,5 +1,6 @@
 """Test the spectrum_utility modules.
 """
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -24,6 +25,25 @@ def test_rebin_spectrum():
         input_spectrum=reference_data['spectrum'],
         rebinned_wavelengths=reference_data['rebin_wavelengths']
     )
+
+
+def test_rebin_spectrum_reverse_mode_differentiable():
+    input_wavelengths = jnp.linspace(0.95, 2.05, 16)
+    input_spectrum = jnp.sin(input_wavelengths) + 0.2 * input_wavelengths
+    rebinned_wavelengths = jnp.linspace(1.05, 1.95, 8)
+
+    def loss_fn(spectrum):
+        rebinned = petitRADTRANS.radtrans_core.spectrum_utils.rebin_spectrum(
+            input_wavelengths,
+            spectrum,
+            rebinned_wavelengths,
+        )
+        return jnp.sum(rebinned ** 2)
+
+    gradient = jax.grad(loss_fn)(input_spectrum)
+
+    assert gradient.shape == input_spectrum.shape
+    assert jnp.all(jnp.isfinite(gradient))
 
 
 def test_compute_radius_hydrostatic_equilibrium_reference_pressure_below_grid():

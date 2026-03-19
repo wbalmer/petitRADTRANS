@@ -826,7 +826,7 @@ class UltranestSampler(Sampler):
             'wrapped_params': kwargs.pop('wrapped_params', None),
             'resume': kwargs.pop('resume', 'subfolder'),
             'run_num': kwargs.pop('run_num', None),
-            'log_dir': kwargs.pop('log_dir', None),
+            'log_dir': kwargs.pop('log_dir', log_dir),
             'num_test_samples': kwargs.pop('num_test_samples', 2),
             'draw_multiple': kwargs.pop('draw_multiple', True),
             'num_bootstraps': kwargs.pop('num_bootstraps', 30),
@@ -841,7 +841,6 @@ class UltranestSampler(Sampler):
             param_names=parameter_names,
             loglike=self.log_likelihood_func,
             transform=self.prior_func,
-            log_dir=log_dir,
             **reactive_kwargs
         )
         if self.enable_step_sampling:

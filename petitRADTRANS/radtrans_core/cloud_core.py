@@ -567,8 +567,8 @@ def particle_radius(
     Returns:
         Particle radius (cm) or 1e-17 if root not bracketed or max iterations reached.
     """
-    ITMAX = 1000  # Maximum number of iterations
-    TOLERANCE = 1e-9 # Convergence tolerance for 'del'
+    ITMAX = 128
+    TOLERANCE = 1e-9
 
     a = x1
     b = x2
@@ -587,27 +587,35 @@ def particle_radius(
 
     root_not_bracketed = ((fa > 0.0) & (fb > 0.0)) | ((fa < 0.0) & (fb < 0.0))
 
-    # Store particle parameters for the loop
-    particle_params = (reference_gravity, rho, clouds_particles_densities, temperatures, mean_molar_masses)
-
-    # Initial state for the while loop
-    # iter_count, a, b, fa, fb, w_star, del_val, max_iter, particle_params
-    initial_val = (0, a, b, fa, fb, w_star, 1.0, ITMAX, particle_params)
-
-    def condition_fun(val):
-        iter_count, _, _, _, _, _, del_val, max_iter, _ = val
-        return (jnp.abs(del_val) >= TOLERANCE) & (iter_count < max_iter)
-
-    final_val = lax.while_loop(condition_fun, particle_radius_bisection_iteration, initial_val)
-
-    iter_count_final, a_final, b_final, fa_final, fb_final, _, _, _, _ = final_val
-
-    # Recalculate c from the final a and b, as it would be in the Fortran code's scope
-    c_final = lax.cond(
-        jnp.abs(jnp.log10(a_final / b_final)) > 1.0,
-        lambda: 10.0**(jnp.log10(a_final * b_final) / 2.0),
-        lambda: (a_final + b_final) / 2.0
+    particle_params = (
+        reference_gravity,
+        rho,
+        clouds_particles_densities,
+        temperatures,
+        mean_molar_masses,
     )
+
+    initial_state = (a, b, fa, fb, jnp.inf, False)
+
+    def iteration_body(_, state):
+        *_, done = state
+
+        def do_iteration(active_state):
+            a_active, b_active, fa_active, fb_active, _, _ = active_state
+            new_a, new_b, new_fa, new_fb, new_del = particle_radius_bisection_iteration(
+                (a_active, b_active, fa_active, fb_active, w_star, particle_params)
+            )
+            new_done = jnp.abs(new_del) < TOLERANCE
+
+            return new_a, new_b, new_fa, new_fb, new_del, new_done
+
+        def keep_state(active_state):
+            return active_state
+
+        return lax.cond(done, keep_state, do_iteration, state)
+
+    a_final, b_final, _, _, _, _ = lax.fori_loop(0, ITMAX, iteration_body, initial_state)
+    c_final = particle_radius_midpoint(a_final, b_final)
 
     # Handle the case where the root was not bracketed initially
     result_radius = lax.cond(
@@ -620,20 +628,24 @@ def particle_radius(
 
 
 @jit
-def particle_radius_bisection_iteration(val):
-    """
-    Performs one iteration of the bisection method for particle_radius.
-    Needed for lax.while_loop.
-    """
-    iter_count, a, b, fa, fb, w_star, tol, max_iter, particle_params = val
-    reference_gravity, rho, clouds_particles_densities, temperatures, mean_molar_masses = particle_params
-
-    # Choose c based on the log-midpoint or arithmetic midpoint
-    c = lax.cond(
+def particle_radius_midpoint(a, b):
+    return lax.cond(
         jnp.abs(jnp.log10(a / b)) > 1.0,
         lambda: 10.0**(jnp.log10(a * b) / 2.0),
         lambda: (a + b) / 2.0
     )
+
+
+@jit
+def particle_radius_bisection_iteration(val):
+    """
+    Performs one iteration of the bisection method for particle_radius.
+    Needed for the fixed-iteration root solve.
+    """
+    a, b, fa, fb, w_star, particle_params = val
+    reference_gravity, rho, clouds_particles_densities, temperatures, mean_molar_masses = particle_params
+
+    c = particle_radius_midpoint(a, b)
 
     fc_val = compute_turbulent_settling_speed(
         c, reference_gravity, rho, clouds_particles_densities,
@@ -654,7 +666,7 @@ def particle_radius_bisection_iteration(val):
         lambda: 2.0 * jnp.abs(b - c) / (a + b)   # b was updated
     )
 
-    return iter_count + 1, new_a, new_b, new_fa, new_fb, w_star, del_val, max_iter, particle_params
+    return new_a, new_b, new_fa, new_fb, del_val
 
 
 # --- Core Functions for Vmapping ---

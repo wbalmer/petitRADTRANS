@@ -11,8 +11,8 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "4.0.0a14"
-description = "Exoplanet spectral synthesis tool for retrievals"
+version = "4.0.0a15"
+description = "Exopanet spectral synthesis tool for retrievals"
 authors = [
     {name = "Paul Mollière", email = "molliere@mpia.de"},
 ]

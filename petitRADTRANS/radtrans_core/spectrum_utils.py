@@ -431,63 +431,34 @@ def median_filter_spectrum(spectrum, size=10, mode='nearest'):
 
 
 def rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin):
-    rebinned_spectrum = jnp.zeros(n_rebin)
-    i_input = 0
+    del n_rebin  # inferred from the output bin arrays
 
-    # TODO: there has to be a more elegant way to structure this with vmap
-    def rebin_step(i, carry):
-        i_input, rebinned_spectrum = carry
+    segment_low = input_wavelengths[:-1]
+    segment_high = input_wavelengths[1:]
+    segment_width = segment_high - segment_low
+    segment_slope = (input_spectrum[1:] - input_spectrum[:-1]) / segment_width
+    segment_intercept = input_spectrum[:-1] - segment_slope * segment_low
+    bin_widths = rebin_bin_high - rebin_bin_low
 
-        def while_input_count_initialisation(carry):
-            i_input = carry
-            return i_input + 1
+    def accumulate_bin_integrals(integrals, segment_data):
+        low, high, slope, intercept = segment_data
+        overlap_low = jnp.maximum(low, rebin_bin_low)
+        overlap_high = jnp.minimum(high, rebin_bin_high)
+        overlap_width = jnp.maximum(overlap_high - overlap_low, 0.0)
 
-        def while_cond_initialisation(carry):
-            i_input = carry
-            return input_wavelengths[i_input] < rebin_bin_low[i]
+        segment_integral = (
+            intercept * overlap_width
+            + 0.5 * slope * (overlap_high ** 2.0 - overlap_low ** 2.0)
+        )
+        segment_integral = jnp.where(overlap_width > 0.0, segment_integral, 0.0)
 
-        def while_cond(carry):
-            i_input, _, _ = carry
-            return input_wavelengths[i_input] < rebin_bin_high[i]
+        return integrals + segment_integral, None
 
-        def while_body(carry):
-            i_input, rebinned_spectrum, del_nu_in = carry
-            nu1 = jnp.maximum(input_wavelengths[i_input - 1], rebin_bin_low[i])
-            nu2 = jnp.minimum(input_wavelengths[i_input], rebin_bin_high[i])
-            ddel_nu = nu2 - nu1
+    initial_integrals = jnp.zeros_like(rebin_bin_low)
+    scan_inputs = (segment_low, segment_high, segment_slope, segment_intercept)
+    integrated_flux, _ = lax.scan(accumulate_bin_integrals, initial_integrals, scan_inputs)
 
-            slope = (input_spectrum[i_input] - input_spectrum[i_input - 1]) / (input_wavelengths[i_input] - input_wavelengths[i_input - 1])
-            y_ax = input_spectrum[i_input - 1]
-
-            add_fl = (y_ax - slope * input_wavelengths[i_input - 1]) * (nu2 - nu1) + slope * (nu2 - nu1) * (nu2 + nu1) * 0.5
-            rebinned_spectrum = rebinned_spectrum.at[i].add(add_fl)
-
-            del_nu_out = del_nu_in + ddel_nu
-            i_input = i_input + 1
-            return i_input, rebinned_spectrum, del_nu_out
-
-        del_nu = 0.0
-        i_input = lax.while_loop(while_cond_initialisation, while_input_count_initialisation, (i_input))
-        i_input, rebinned_spectrum, del_nu = lax.while_loop(while_cond, while_body, (i_input, rebinned_spectrum, del_nu))
-
-        nu1 = jnp.maximum(input_wavelengths[i_input - 1], rebin_bin_low[i])
-        nu2 = jnp.minimum(input_wavelengths[i_input], rebin_bin_high[i])
-        ddel_nu = nu2 - nu1
-
-        slope = (input_spectrum[i_input] - input_spectrum[i_input - 1]) / (input_wavelengths[i_input] - input_wavelengths[i_input - 1])
-        y_ax = input_spectrum[i_input - 1]
-
-        add_fl = (y_ax - slope * input_wavelengths[i_input - 1]) * (nu2 - nu1) + slope * (nu2 ** 2.0 - nu1 ** 2.0) * 0.5
-        rebinned_spectrum = rebinned_spectrum.at[i].add(add_fl)
-
-        del_nu = del_nu + ddel_nu
-        rebinned_spectrum = rebinned_spectrum.at[i].set(rebinned_spectrum[i] / del_nu)
-
-        return i_input, rebinned_spectrum
-
-    _, rebinned_spectrum = lax.fori_loop(0, n_rebin, rebin_step, (i_input, rebinned_spectrum))
-
-    return rebinned_spectrum
+    return integrated_flux / bin_widths
 
 
 def _raise_small_size(x):
