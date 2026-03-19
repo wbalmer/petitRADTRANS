@@ -725,7 +725,7 @@ def test_run_legacy_model_adapter_reproduces_builtin_emission_model_output():
             eddy_diffusion_coefficients=None,
             cloud_hansen_b=None,
             cloud_fraction=None,
-            complete_coverage_clouds=(),
+            complete_coverage_clouds=None,
             distribution=None,
         )
 
@@ -767,7 +767,7 @@ def test_run_legacy_model_adapter_reproduces_builtin_transmission_model_output()
             power_law_opacity_350nm=None,
             cloud_hansen_b=None,
             cloud_fraction=None,
-            complete_coverage_clouds=(),
+            complete_coverage_clouds=None,
             distribution=None,
         )
 

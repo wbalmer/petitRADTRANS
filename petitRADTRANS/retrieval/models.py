@@ -2166,7 +2166,7 @@ def calculate_emission_spectrum(
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=tuple(complete_coverage_clouds),
+        complete_coverage_clouds=complete_coverage_clouds,
         cloud_particles_radius_distribution=distribution,
         distance_to_system=parameters['distance_to_system'].value,
         disk_blackbody_temperature=(
@@ -2258,7 +2258,7 @@ def calculate_transmission_spectrum(
         power_law_opacity_350nm=power_law_opacity_350nm,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=tuple(complete_coverage_clouds),
+        complete_coverage_clouds=complete_coverage_clouds,
         cloud_particles_radius_distribution=distribution,
         stellar_radius=parameters['stellar_radius'].value,
     )

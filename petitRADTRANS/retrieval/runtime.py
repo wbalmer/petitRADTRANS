@@ -198,6 +198,22 @@ class ModelInputs:
     v_band_reddening: Any = None
     additional_inputs: Mapping[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self):
+        if self.complete_coverage_clouds is None:
+            normalized_complete_coverage_clouds = ()
+        elif isinstance(self.complete_coverage_clouds, tuple):
+            normalized_complete_coverage_clouds = self.complete_coverage_clouds
+        elif isinstance(self.complete_coverage_clouds, (str, bytes)):
+            normalized_complete_coverage_clouds = (self.complete_coverage_clouds,)
+        else:
+            normalized_complete_coverage_clouds = tuple(self.complete_coverage_clouds)
+
+        object.__setattr__(
+            self,
+            'complete_coverage_clouds',
+            normalized_complete_coverage_clouds,
+        )
+
     def tree_flatten(self):
         children = (
             self.pressures,
