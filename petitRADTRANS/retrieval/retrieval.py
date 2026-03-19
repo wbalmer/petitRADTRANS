@@ -33,9 +33,10 @@ from petitRADTRANS.physics import wavelength2frequency, shift_wavelengths_by_rad
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
-from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
+from petitRADTRANS.retrieval.jax_parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.plotting import RetrievalPlotter
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
+from petitRADTRANS.retrieval.runtime import ParameterLayout, PhysicalParams, RetrievalRuntime
 from petitRADTRANS.retrieval.utils import (
     get_pymultinest_sample_dict,
     unpack_model_output,
@@ -199,13 +200,14 @@ class Retrieval:
 
         # Setup pRT Objects for each data structure.
         self.initialise_radtrans_objects()
-        self._n_free_params_total_retrieval = 0
-        free_param_names_list = []
-        for p_name, p_obj in self.configuration.parameters.items():
-            if p_obj.is_free_parameter:
-                self._n_free_params_total_retrieval += 1
-                free_param_names_list.append(p_name)
-        self._free_parameter_names_cache = free_param_names_list
+        self.parameter_layout = ParameterLayout.from_configuration(self.configuration)
+        self._n_free_params_total_retrieval = self.parameter_layout.n_free_parameters
+        self._free_parameter_names_cache = list(self.parameter_layout.free_parameter_names)
+        self.runtime = RetrievalRuntime.from_configuration(
+            self.configuration,
+            parameter_layout=self.parameter_layout,
+            n_free_parameters=self._n_free_params_total_retrieval,
+        )
         self.latest_sampler_results = None
         if self.configuration.run_mode == 'evaluate':
             sample_dict, parameters_dict = self.get_samples(output_directory=self.output_directory)
@@ -1909,7 +1911,6 @@ class Retrieval:
 
         return volume_mixing_ratios, mean_molar_masses
 
-    # TODO [4.0.0] remove unused parameters ndim and nparam
     def log_likelihood(
         self,
         cube: npt.NDArray[np.floating],
@@ -1918,36 +1919,39 @@ class Retrieval:
         log_l_per_datapoint_dict: dict = None,
         return_model: bool = False
     ):
+        """Sampler-facing log-likelihood entry point.
+
+        The normal scalar retrieval path now executes through ``RetrievalRuntime``.
+        Less common debug and per-datapoint modes still fall back to the legacy
+        implementation until the entire retrieval stack has been migrated.
         """
-        pyMultiNest required likelihood function.
+        if isinstance(log_l_per_datapoint_dict, dict) or return_model:
+            return self._log_likelihood_legacy(
+                cube,
+                ndim=ndim,
+                nparam=nparam,
+                log_l_per_datapoint_dict=log_l_per_datapoint_dict,
+                return_model=return_model,
+            )
 
-        This function wraps the model computation and log-likelihood calculations
-        for pyMultiNest to sample. If PT_plot_mode is True, it will return
-        only the pressure and temperature arrays rather than the wavelength
-        and flux. If run_mode is 'evaluate', it will save the provided sample to the
-        best-fit spectrum file, and add it to the best_fit_specs dictionary.
-        If evaluate_sample_spectra is true, it will store the spectrum in
-        posterior_sample_specs.
+        physical_params = self.parameter_layout.physical_params_from_vector(cube)
+        return self.runtime.evaluate_scalar(
+            configuration=self.configuration,
+            physical_params=physical_params,
+            uncertainties_mode=self.uncertainties_mode,
+            print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging,
+        )
 
-        Args:
-            cube : numpy.ndarray
-                The transformed unit hypercube, providing the parameter values
-                to be passed to the model_generating_function.
-            ndim : int
-                The number of dimensions of the problem
-            nparam : int
-                The number of parameters in the fit.
-            log_l_per_datapoint_dict : dict
-                Dictionary with instrument-entries. If provided, log likelihood
-                per datapoint is appended to existing list.
-            return_model : bool
-                If True, return the generated model in addition to the log-likelihood.
-                This is intended for debugging purposes, and should stay False in a normal retrieval.
-
-        Returns:
-            log_likelihood : float
-                The (negative) log likelihood of the model given the data.
-        """
+    # TODO [4.0.0] remove unused parameters ndim and nparam
+    def _log_likelihood_legacy(
+        self,
+        cube: npt.NDArray[np.floating],
+        ndim: int = 0,
+        nparam: int = 0,
+        log_l_per_datapoint_dict: dict = None,
+        return_model: bool = False
+    ):
+        """Legacy scalar likelihood implementation retained for fallback modes."""
         invalid_value = -1e99
         tiny = 1e-99
         log_likelihood = 0.
@@ -2300,9 +2304,74 @@ class Retrieval:
                 return np.array(converted_values, dtype=float).reshape(-1)
 
         try:
-            return np.array([values[index] for index in range(len(values))], dtype=float)
-        except TypeError:
-            return np.array([values], dtype=float)
+            return np.array(values, dtype=float)
+        except ValueError:
+            return values
+
+    def _get_parameter_layout(self) -> ParameterLayout:
+        parameter_layout = getattr(self, 'parameter_layout', None)
+
+        if parameter_layout is None:
+            parameter_layout = ParameterLayout.from_configuration(self.configuration)
+            self.parameter_layout = parameter_layout
+
+        return parameter_layout
+
+    def _get_runtime(self) -> RetrievalRuntime:
+        runtime = getattr(self, 'runtime', None)
+
+        if runtime is None:
+            parameter_layout = self._get_parameter_layout()
+            runtime = RetrievalRuntime.from_configuration(
+                self.configuration,
+                parameter_layout=parameter_layout,
+                n_free_parameters=parameter_layout.n_free_parameters,
+            )
+            self.runtime = runtime
+
+        return runtime
+
+    def _has_only_legacy_model_groups(self) -> bool:
+        runtime = self._get_runtime()
+        return bool(runtime.model_groups) and all(
+            group.model_contract != 'runtime_native'
+            for group in runtime.model_groups
+        )
+
+    def _ensure_jax_sampler_model_support(self, sampler_name: str) -> None:
+        if self._has_only_legacy_model_groups():
+            raise ValueError(
+                f"{sampler_name} requires at least one runtime-native model group; legacy-only retrievals are not supported."
+            )
+
+    def _get_ultranest_vectorization_disable_reason(self) -> str | None:
+        runtime = self._get_runtime()
+
+        if any(group.model_contract != 'runtime_native' for group in runtime.model_groups):
+            return 'the retrieval contains legacy model groups'
+
+        if any(
+            getattr(observation.spectrum, 'dtype', None) == 'O'
+            for observation in runtime.observations.values()
+        ):
+            return 'the retrieval contains ragged observation groups'
+
+        return None
+
+    def _resolve_ultranest_vectorized_mode(self, requested: bool) -> bool:
+        if not requested:
+            return False
+
+        disable_reason = self._get_ultranest_vectorization_disable_reason()
+
+        if disable_reason is not None:
+            warnings.warn(
+                f"UltraNest vectorized mode disabled because {disable_reason}.",
+                RuntimeWarning,
+            )
+            return False
+
+        return True
 
     @staticmethod
     def log_likelihood_jax(
@@ -2343,6 +2412,44 @@ class Retrieval:
             float or dict
                 Log likelihood value, or per-datapoint dictionary if log_l_per_datapoint_dict provided
         """
+        if isinstance(log_l_per_datapoint_dict, dict) or return_model or generate_mock_data:
+            return Retrieval._log_likelihood_jax_legacy(
+                parameters=parameters,
+                configuration=configuration,
+                log_l_per_datapoint_dict=log_l_per_datapoint_dict,
+                return_model=return_model,
+                uncertainties_mode=uncertainties_mode,
+                generate_mock_data=generate_mock_data,
+                print_log_likelihood_for_debugging=print_log_likelihood_for_debugging,
+            )
+
+        parameter_layout = ParameterLayout.from_configuration(configuration)
+        physical_params = PhysicalParams.from_mapping({
+            parameter_name: parameter.value if hasattr(parameter, 'value') else parameter
+            for parameter_name, parameter in parameters.items()
+        })
+        runtime = RetrievalRuntime.from_configuration(
+            configuration,
+            parameter_layout=parameter_layout,
+            n_free_parameters=parameter_layout.n_free_parameters,
+        )
+        return runtime.evaluate_jax(
+            configuration=configuration,
+            physical_params=physical_params,
+            uncertainties_mode=uncertainties_mode,
+            print_log_likelihood_for_debugging=print_log_likelihood_for_debugging,
+        )
+
+    @staticmethod
+    def _log_likelihood_jax_legacy(
+        parameters,
+        configuration,
+        log_l_per_datapoint_dict: dict = None,
+        return_model: bool = False,
+        uncertainties_mode: str = 'default',
+        generate_mock_data: bool = False,
+        print_log_likelihood_for_debugging: bool = False
+    ):
         # === Constants and Configuration ===
         invalid_value = -1e99
         tiny = 1e-99
@@ -2627,43 +2734,89 @@ class Retrieval:
         """
         pyMultinest Prior function. Transforms unit hypercube into physical space.
         """
-        i_p = 0
-        for pp in self.configuration.parameters:
-            if self.configuration.parameters[pp].is_free_parameter:
-                cube[i_p] = self.configuration.parameters[pp].get_param_uniform(cube[i_p])
-                i_p += 1
-        return cube
+        del ndim, nparams
+        return self._get_parameter_layout().prior_transform_inplace(cube)
 
     def prior_ultranest(self, cube: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
         """
         UltraNest prior function. Transforms unit hypercube into physical space.
         """
-        params = cube.copy()
-        i_p = 0
-
-        for pp in self.configuration.parameters:
-            if self.configuration.parameters[pp].is_free_parameter:
-                params[i_p] = self.configuration.parameters[pp].get_param_uniform(cube[i_p])
-                i_p += 1
-
-        return params
+        return self._get_parameter_layout().prior_transform_numpy(cube)
 
     def prior_model_jaxns(self):
-        for key, parameter in self.configuration.parameters.items():
-            if not parameter.is_free_parameter:
-                continue
-            parameter.value = yield parameter.set_prior()
-        return self.configuration.parameters
+        _, prior_model, _ = self._build_jaxns_sampler_interface()
+        return (yield from prior_model())
 
-    def _build_blackjax_logdensity_interface(self):
-        free_parameter_names = [
-            parameter_name
-            for parameter_name, parameter in self.configuration.parameters.items()
-            if parameter.is_free_parameter
-        ]
+    def _build_ultranest_sampler_interface(self, vectorized: bool = False):
+        if not vectorized:
+            return self.log_likelihood, self.prior_ultranest
+
+        parameter_layout = self._get_parameter_layout()
+        runtime = self._get_runtime()
+
+        def prior_transform(cube):
+            return parameter_layout.prior_transform_numpy(cube)
+
+        def log_likelihood_batch(physical_positions):
+            return np.asarray(
+                runtime.evaluate_vectorized_jax(
+                    configuration=self.configuration,
+                    free_parameter_values=physical_positions,
+                    uncertainties_mode=self.uncertainties_mode,
+                    print_log_likelihood_for_debugging=False,
+                )
+            )
+
+        return log_likelihood_batch, prior_transform
+
+    def _build_jaxns_sampler_interface(self):
+        self._ensure_jax_sampler_model_support('JAXNS')
+        parameter_layout = self._get_parameter_layout()
+        free_parameter_names = list(parameter_layout.free_parameter_names)
 
         if len(free_parameter_names) < 1:
-            raise ValueError("BlackJAX samplers require at least one free parameter.")
+            raise ValueError("JAXNS samplers require at least one free parameter.")
+
+        priors = []
+        for parameter_name in free_parameter_names:
+            parameter = self.configuration.parameters[parameter_name]
+            if parameter.distribution is None:
+                raise ValueError(
+                    f"JAXNS samplers require distribution-backed free parameters; '{parameter_name}' has no distribution."
+                )
+            priors.append(parameter.set_prior())
+
+        priors = tuple(priors)
+
+        def prior_model():
+            values = []
+            for prior in priors:
+                value = yield prior
+                values.append(value)
+            return tuple(values)
+
+        def log_likelihood_wrapper(*args):
+            physical_params = parameter_layout.physical_params_from_free_values(args)
+            updated_parameters = parameter_layout.build_legacy_parameter_dict(physical_params)
+            return self.log_likelihood_jax(
+                parameters=updated_parameters,
+                configuration=self.configuration,
+                log_l_per_datapoint_dict=None,
+                return_model=False,
+                uncertainties_mode=self.uncertainties_mode,
+                generate_mock_data=self.generate_mock_data,
+                print_log_likelihood_for_debugging=False
+            )
+
+        return free_parameter_names, prior_model, log_likelihood_wrapper
+
+    def _build_unconstrained_mcmc_interface(self):
+        self._ensure_jax_sampler_model_support('Gradient-based JAX samplers')
+        parameter_layout = self._get_parameter_layout()
+        free_parameter_names = list(parameter_layout.free_parameter_names)
+
+        if len(free_parameter_names) < 1:
+            raise ValueError("Gradient-based samplers require at least one free parameter.")
 
         free_parameters = [self.configuration.parameters[name] for name in free_parameter_names]
         for parameter_name, parameter in zip(free_parameter_names, free_parameters):
@@ -2672,24 +2825,8 @@ class Retrieval:
                     f"Free parameter '{parameter_name}' has neither a JAX distribution nor a prior transform."
                 )
 
-        cube_epsilon = jnp.asarray(1e-7 if JAX_DTYPE == jnp.float32 else 1e-12, dtype=JAX_DTYPE)
-
-        def cube_from_unconstrained(unconstrained_position):
-            return jnp.clip(jax.nn.sigmoid(unconstrained_position), cube_epsilon, 1.0 - cube_epsilon)
-
-        def transform_cube_to_physical(cube_position):
-            transformed = []
-            for i, parameter in enumerate(free_parameters):
-                if parameter.distribution is not None:
-                    transformed_value = parameter.distribution.quantile(cube_position[i])
-                else:
-                    transformed_value = parameter.transform_prior_cube_coordinate(cube_position[i])
-                transformed.append(jnp.asarray(transformed_value, dtype=JAX_DTYPE))
-
-            return jnp.stack(transformed)
-
         def transform_single(unconstrained_position):
-            return transform_cube_to_physical(cube_from_unconstrained(unconstrained_position))
+            return parameter_layout.transform_unconstrained(unconstrained_position)
 
         def transform_positions(unconstrained_positions):
             if jnp.ndim(unconstrained_positions) == 1:
@@ -2698,37 +2835,15 @@ class Retrieval:
             return jax.vmap(transform_single)(unconstrained_positions)
 
         def log_jacobian_single(unconstrained_position):
-            return jnp.sum(
-                -jax.nn.softplus(-unconstrained_position) - jax.nn.softplus(unconstrained_position)
-            )
+            return parameter_layout.log_jacobian_single(unconstrained_position)
 
         def log_jacobian(unconstrained_positions):
-            if jnp.ndim(unconstrained_positions) == 1:
-                return log_jacobian_single(unconstrained_positions)
-
-            return jax.vmap(log_jacobian_single)(unconstrained_positions)
+            return parameter_layout.log_jacobian(unconstrained_positions)
 
         def logdensity(unconstrained_position):
             physical_position = transform_single(unconstrained_position)
-
-            updated_parameters = {}
-            i_free = 0
-            for parameter_name, parameter in self.configuration.parameters.items():
-                if parameter.is_free_parameter:
-                    updated_parameters[parameter_name] = parameter.__class__(
-                        name=parameter.name,
-                        is_free_parameter=parameter.is_free_parameter,
-                        value=physical_position[i_free],
-                        distribution=parameter.distribution,
-                        transform_prior_cube_coordinate=parameter.transform_prior_cube_coordinate,
-                        plot_in_corner=parameter.plot_in_corner,
-                        corner_ranges=parameter.corner_ranges,
-                        corner_transform=parameter.corner_transform,
-                        corner_label=parameter.corner_label,
-                    )
-                    i_free += 1
-                else:
-                    updated_parameters[parameter_name] = parameter
+            physical_params = parameter_layout.physical_params_from_free_values(tuple(physical_position))
+            updated_parameters = parameter_layout.build_legacy_parameter_dict(physical_params)
 
             return self.log_likelihood_jax(
                 parameters=updated_parameters,
@@ -2740,9 +2855,148 @@ class Retrieval:
                 print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging
             ) + log_jacobian_single(unconstrained_position)
 
-        initial_position = jnp.zeros(len(free_parameter_names), dtype=JAX_DTYPE)
+        initial_position = jnp.zeros(parameter_layout.n_free_parameters, dtype=JAX_DTYPE)
 
         return free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian
+
+    def _build_blackjax_logdensity_interface(self):
+        return self._build_unconstrained_mcmc_interface()
+
+    def _build_blackjax_sampler_kwargs(
+        self,
+        sampler_kwargs: dict,
+        *,
+        free_parameter_names: list[str],
+        initial_position,
+        log_jacobian,
+        algorithm_name: str,
+    ) -> dict:
+        blackjax_kwargs = {
+            'initial_position': sampler_kwargs.pop('initial_position', initial_position),
+            'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
+            'num_samples': sampler_kwargs.pop('num_samples', 1000),
+            'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
+            'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
+            'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
+            'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
+            'progress_bar': sampler_kwargs.pop('progress_bar', False),
+            'seed': sampler_kwargs.pop('seed', 42654),
+            'jit': sampler_kwargs.pop('jit', True),
+            'log_jacobian_fn': log_jacobian,
+        }
+        if algorithm_name == 'hmc':
+            blackjax_kwargs['num_integration_steps'] = sampler_kwargs.pop('num_integration_steps', 20)
+        blackjax_kwargs.update(sampler_kwargs)
+        return blackjax_kwargs
+
+    def _build_numpyro_sampler_kwargs(
+        self,
+        sampler_kwargs: dict,
+        *,
+        free_parameter_names: list[str],
+        initial_position,
+        log_jacobian,
+        algorithm_name: str,
+    ) -> dict:
+        numpyro_kwargs = {
+            'initial_position': sampler_kwargs.pop('initial_position', initial_position),
+            'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
+            'num_samples': sampler_kwargs.pop('num_samples', 1000),
+            'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
+            'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
+            'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
+            'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
+            'progress_bar': sampler_kwargs.pop('progress_bar', False),
+            'seed': sampler_kwargs.pop('seed', 42654),
+            'jit': sampler_kwargs.pop('jit', True),
+            'log_jacobian_fn': log_jacobian,
+            'num_chains': sampler_kwargs.pop('num_chains', 1),
+            'thinning': sampler_kwargs.pop('thinning', 1),
+            'chain_method': sampler_kwargs.pop('chain_method', 'parallel'),
+        }
+
+        if algorithm_name == 'hmc':
+            numpyro_num_steps = sampler_kwargs.pop('num_integration_steps', None)
+            if numpyro_num_steps is None:
+                numpyro_num_steps = sampler_kwargs.pop('num_steps', None)
+            if numpyro_num_steps is None and 'trajectory_length' not in sampler_kwargs:
+                numpyro_num_steps = 20
+            if numpyro_num_steps is not None:
+                numpyro_kwargs['num_steps'] = numpyro_num_steps
+
+        numpyro_kwargs.update(sampler_kwargs)
+        return numpyro_kwargs
+
+    @staticmethod
+    def _build_ultranest_summary_parameters(
+        *,
+        sampler_type: str,
+        parameter_names: list[str],
+        vectorized: bool,
+    ) -> dict:
+        return {
+            'sampler_type': sampler_type,
+            'parameter_names': parameter_names,
+            'vectorized': vectorized,
+        }
+
+    @staticmethod
+    def _build_blackjax_summary_parameters(
+        *,
+        sampler_type: str,
+        sampler_kwargs: dict,
+    ) -> dict:
+        summary_parameters = {
+            'sampler_type': sampler_type,
+            'num_samples': sampler_kwargs['num_samples'],
+            'num_warmup': sampler_kwargs['num_warmup'],
+            'initial_step_size': sampler_kwargs['initial_step_size'],
+            'target_acceptance_rate': sampler_kwargs['target_acceptance_rate'],
+            'is_mass_matrix_diagonal': sampler_kwargs['is_mass_matrix_diagonal'],
+            'seed': sampler_kwargs['seed'],
+            'jit': sampler_kwargs['jit'],
+        }
+        if 'num_integration_steps' in sampler_kwargs:
+            summary_parameters['num_integration_steps'] = sampler_kwargs['num_integration_steps']
+        return summary_parameters
+
+    @staticmethod
+    def _build_numpyro_summary_parameters(
+        *,
+        sampler_type: str,
+        sampler_kwargs: dict,
+    ) -> dict:
+        summary_parameters = {
+            'sampler_type': sampler_type,
+            'num_samples': sampler_kwargs['num_samples'],
+            'num_warmup': sampler_kwargs['num_warmup'],
+            'initial_step_size': sampler_kwargs['initial_step_size'],
+            'target_acceptance_rate': sampler_kwargs['target_acceptance_rate'],
+            'is_mass_matrix_diagonal': sampler_kwargs['is_mass_matrix_diagonal'],
+            'num_chains': sampler_kwargs['num_chains'],
+            'thinning': sampler_kwargs['thinning'],
+            'chain_method': sampler_kwargs['chain_method'],
+            'seed': sampler_kwargs['seed'],
+            'jit': sampler_kwargs['jit'],
+        }
+        if 'num_steps' in sampler_kwargs:
+            summary_parameters['num_integration_steps'] = sampler_kwargs['num_steps']
+        if 'trajectory_length' in sampler_kwargs:
+            summary_parameters['trajectory_length'] = sampler_kwargs['trajectory_length']
+        return summary_parameters
+
+    @staticmethod
+    def _build_jaxns_summary_parameters(
+        *,
+        sampler_type: str,
+        sampler_kwargs: dict,
+        parameter_names: list[str],
+    ) -> dict:
+        return {
+            **sampler_kwargs,
+            'sampler_type': sampler_type,
+            'parameter_names': parameter_names,
+        }
 
     def run(self, sampler_object: Sampler = None, **sampler_kwargs):
         """
@@ -2764,8 +3018,9 @@ class Retrieval:
                     ultranest - Requires ultranest. Implements.
         """
         sampler_type = self.configuration.sampler_type
+        sampler_type_normalized = sampler_type.lower()
         print(f"Starting retrieval {self.configuration.retrieval_name} with {sampler_type}")
-        if MPI is None and sampler_type == 'pymultinest':
+        if MPI is None and sampler_type_normalized == 'pymultinest':
             print("Unable to import mpi4py, using slow (single process) mode for pymultinest.")
         sampler = self.sampler
         error_checking = sampler_kwargs.pop('error_checking', True)
@@ -2788,7 +3043,7 @@ class Retrieval:
             self.sampler = sampler_object
             self.latest_sampler_results = sampler_object.run_sampler(**sampler_kwargs)
 
-        elif sampler_type.lower() == 'pymultinest':
+        elif sampler_type_normalized == 'pymultinest':
             prefix = os.path.join(self.output_directory, 'out_PMN', self.configuration.retrieval_name + '_')
             if len(prefix) > 100 - 21 and rank == 0:
                 warnings.warn("The path to the output files is very long. "
@@ -2846,43 +3101,44 @@ class Retrieval:
                     warnings.warn("PymultinestSampler did not return a standard analyzer. Cannot generate summary.")
             self.latest_sampler_results = analyzer
 
-        elif sampler_type.lower() == 'ultranest':
+        elif sampler_type_normalized == 'ultranest':
+            ultranest_vectorized = self._resolve_ultranest_vectorized_mode(
+                sampler_kwargs.pop('vectorized', False)
+            )
+            ultranest_log_likelihood, ultranest_prior = self._build_ultranest_sampler_interface(
+                vectorized=ultranest_vectorized
+            )
             sampler = UltranestSampler(
-                log_likelihood_func=self.log_likelihood,
-                prior_func=self.prior_ultranest,
+                log_likelihood_func=ultranest_log_likelihood,
+                prior_func=ultranest_prior,
                 output_directory=self.output_directory,
                 retrieval_name=self.configuration.retrieval_name
             )
             ultranest_kwargs = {
                 'parameter_names': sampler_kwargs.pop('parameter_names', self._free_parameter_names_cache),
+                'vectorized': ultranest_vectorized,
             }
             ultranest_kwargs.update(sampler_kwargs)
             self.latest_sampler_results = sampler.run_sampler(**ultranest_kwargs)
             sampler.pretty_print_results()
             self.generate_retrieval_summary(
-                sampler_parameters={
-                    'sampler_type': sampler_type.lower(),
-                    'parameter_names': ultranest_kwargs['parameter_names'],
-                }
+                sampler_parameters=self._build_ultranest_summary_parameters(
+                    sampler_type=sampler_type_normalized,
+                    parameter_names=ultranest_kwargs['parameter_names'],
+                    vectorized=ultranest_vectorized,
+                )
             )
-        elif sampler_type.lower() in {'blackjaxnuts', 'blackjax_nuts', 'nuts'}:
+        elif sampler_type_normalized in {'blackjaxnuts', 'blackjax_nuts', 'nuts'}:
             free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
-                self._build_blackjax_logdensity_interface()
+                self._build_unconstrained_mcmc_interface()
             )
-            blackjax_kwargs = {
-                'initial_position': sampler_kwargs.pop('initial_position', initial_position),
-                'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
-                'num_samples': sampler_kwargs.pop('num_samples', 1000),
-                'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
-                'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
-                'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
-                'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
-                'progress_bar': sampler_kwargs.pop('progress_bar', False),
-                'seed': sampler_kwargs.pop('seed', 42654),
-                'jit': sampler_kwargs.pop('jit', True),
-                'log_jacobian_fn': log_jacobian,
-            }
-            blackjax_kwargs.update(sampler_kwargs)
+            blackjax_kwargs = self._build_blackjax_sampler_kwargs(
+                sampler_kwargs,
+                free_parameter_names=free_parameter_names,
+                initial_position=initial_position,
+                log_jacobian=log_jacobian,
+                algorithm_name='nuts',
+            )
 
             sampler = BlackJAXNUTSSampler(
                 log_likelihood_func=logdensity,
@@ -2893,36 +3149,22 @@ class Retrieval:
             self.latest_sampler_results = sampler.run_sampler(**blackjax_kwargs)
             sampler.pretty_print_results()
             self.generate_retrieval_summary(
-                sampler_parameters={
-                    'sampler_type': sampler_type.lower(),
-                    'num_samples': blackjax_kwargs['num_samples'],
-                    'num_warmup': blackjax_kwargs['num_warmup'],
-                    'initial_step_size': blackjax_kwargs['initial_step_size'],
-                    'target_acceptance_rate': blackjax_kwargs['target_acceptance_rate'],
-                    'is_mass_matrix_diagonal': blackjax_kwargs['is_mass_matrix_diagonal'],
-                    'seed': blackjax_kwargs['seed'],
-                    'jit': blackjax_kwargs['jit'],
-                }
+                sampler_parameters=self._build_blackjax_summary_parameters(
+                    sampler_type=sampler_type_normalized,
+                    sampler_kwargs=blackjax_kwargs,
+                )
             )
-        elif sampler_type.lower() in {'blackjaxhmc', 'blackjax_hmc', 'hmc'}:
+        elif sampler_type_normalized in {'blackjaxhmc', 'blackjax_hmc', 'hmc'}:
             free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
-                self._build_blackjax_logdensity_interface()
+                self._build_unconstrained_mcmc_interface()
             )
-            blackjax_kwargs = {
-                'initial_position': sampler_kwargs.pop('initial_position', initial_position),
-                'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
-                'num_samples': sampler_kwargs.pop('num_samples', 1000),
-                'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
-                'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
-                'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
-                'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
-                'progress_bar': sampler_kwargs.pop('progress_bar', False),
-                'seed': sampler_kwargs.pop('seed', 42654),
-                'jit': sampler_kwargs.pop('jit', True),
-                'log_jacobian_fn': log_jacobian,
-                'num_integration_steps': sampler_kwargs.pop('num_integration_steps', 20),
-            }
-            blackjax_kwargs.update(sampler_kwargs)
+            blackjax_kwargs = self._build_blackjax_sampler_kwargs(
+                sampler_kwargs,
+                free_parameter_names=free_parameter_names,
+                initial_position=initial_position,
+                log_jacobian=log_jacobian,
+                algorithm_name='hmc',
+            )
 
             sampler = BlackJAXHMCSampler(
                 log_likelihood_func=logdensity,
@@ -2933,39 +3175,22 @@ class Retrieval:
             self.latest_sampler_results = sampler.run_sampler(**blackjax_kwargs)
             sampler.pretty_print_results()
             self.generate_retrieval_summary(
-                sampler_parameters={
-                    'sampler_type': sampler_type.lower(),
-                    'num_samples': blackjax_kwargs['num_samples'],
-                    'num_warmup': blackjax_kwargs['num_warmup'],
-                    'initial_step_size': blackjax_kwargs['initial_step_size'],
-                    'target_acceptance_rate': blackjax_kwargs['target_acceptance_rate'],
-                    'is_mass_matrix_diagonal': blackjax_kwargs['is_mass_matrix_diagonal'],
-                    'num_integration_steps': blackjax_kwargs['num_integration_steps'],
-                    'seed': blackjax_kwargs['seed'],
-                    'jit': blackjax_kwargs['jit'],
-                }
+                sampler_parameters=self._build_blackjax_summary_parameters(
+                    sampler_type=sampler_type_normalized,
+                    sampler_kwargs=blackjax_kwargs,
+                )
             )
-        elif sampler_type.lower() in {'numpyronuts', 'numpyro_nuts'}:
+        elif sampler_type_normalized in {'numpyronuts', 'numpyro_nuts'}:
             free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
-                self._build_blackjax_logdensity_interface()
+                self._build_unconstrained_mcmc_interface()
             )
-            numpyro_kwargs = {
-                'initial_position': sampler_kwargs.pop('initial_position', initial_position),
-                'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
-                'num_samples': sampler_kwargs.pop('num_samples', 1000),
-                'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
-                'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
-                'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
-                'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
-                'progress_bar': sampler_kwargs.pop('progress_bar', False),
-                'seed': sampler_kwargs.pop('seed', 42654),
-                'jit': sampler_kwargs.pop('jit', True),
-                'log_jacobian_fn': log_jacobian,
-                'num_chains': sampler_kwargs.pop('num_chains', 1),
-                'thinning': sampler_kwargs.pop('thinning', 1),
-                'chain_method': sampler_kwargs.pop('chain_method', 'parallel'),
-            }
-            numpyro_kwargs.update(sampler_kwargs)
+            numpyro_kwargs = self._build_numpyro_sampler_kwargs(
+                sampler_kwargs,
+                free_parameter_names=free_parameter_names,
+                initial_position=initial_position,
+                log_jacobian=log_jacobian,
+                algorithm_name='nuts',
+            )
 
             sampler = NumPyroNUTSSampler(
                 log_likelihood_func=logdensity,
@@ -2976,49 +3201,22 @@ class Retrieval:
             self.latest_sampler_results = sampler.run_sampler(**numpyro_kwargs)
             sampler.pretty_print_results()
             self.generate_retrieval_summary(
-                sampler_parameters={
-                    'sampler_type': sampler_type.lower(),
-                    'num_samples': numpyro_kwargs['num_samples'],
-                    'num_warmup': numpyro_kwargs['num_warmup'],
-                    'initial_step_size': numpyro_kwargs['initial_step_size'],
-                    'target_acceptance_rate': numpyro_kwargs['target_acceptance_rate'],
-                    'is_mass_matrix_diagonal': numpyro_kwargs['is_mass_matrix_diagonal'],
-                    'num_chains': numpyro_kwargs['num_chains'],
-                    'thinning': numpyro_kwargs['thinning'],
-                    'chain_method': numpyro_kwargs['chain_method'],
-                    'seed': numpyro_kwargs['seed'],
-                    'jit': numpyro_kwargs['jit'],
-                }
+                sampler_parameters=self._build_numpyro_summary_parameters(
+                    sampler_type=sampler_type_normalized,
+                    sampler_kwargs=numpyro_kwargs,
+                )
             )
-        elif sampler_type.lower() in {'numpyrohmc', 'numpyro_hmc'}:
+        elif sampler_type_normalized in {'numpyrohmc', 'numpyro_hmc'}:
             free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
-                self._build_blackjax_logdensity_interface()
+                self._build_unconstrained_mcmc_interface()
             )
-            numpyro_num_steps = sampler_kwargs.pop('num_integration_steps', None)
-            if numpyro_num_steps is None:
-                numpyro_num_steps = sampler_kwargs.pop('num_steps', None)
-            if numpyro_num_steps is None and 'trajectory_length' not in sampler_kwargs:
-                numpyro_num_steps = 20
-
-            numpyro_kwargs = {
-                'initial_position': sampler_kwargs.pop('initial_position', initial_position),
-                'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
-                'num_samples': sampler_kwargs.pop('num_samples', 1000),
-                'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
-                'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
-                'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
-                'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
-                'progress_bar': sampler_kwargs.pop('progress_bar', False),
-                'seed': sampler_kwargs.pop('seed', 42654),
-                'jit': sampler_kwargs.pop('jit', True),
-                'log_jacobian_fn': log_jacobian,
-                'num_chains': sampler_kwargs.pop('num_chains', 1),
-                'thinning': sampler_kwargs.pop('thinning', 1),
-                'chain_method': sampler_kwargs.pop('chain_method', 'parallel'),
-            }
-            if numpyro_num_steps is not None:
-                numpyro_kwargs['num_steps'] = numpyro_num_steps
-            numpyro_kwargs.update(sampler_kwargs)
+            numpyro_kwargs = self._build_numpyro_sampler_kwargs(
+                sampler_kwargs,
+                free_parameter_names=free_parameter_names,
+                initial_position=initial_position,
+                log_jacobian=log_jacobian,
+                algorithm_name='hmc',
+            )
 
             sampler = NumPyroHMCSampler(
                 log_likelihood_func=logdensity,
@@ -3028,27 +3226,13 @@ class Retrieval:
             )
             self.latest_sampler_results = sampler.run_sampler(**numpyro_kwargs)
             sampler.pretty_print_results()
-            summary_parameters = {
-                'sampler_type': sampler_type.lower(),
-                'num_samples': numpyro_kwargs['num_samples'],
-                'num_warmup': numpyro_kwargs['num_warmup'],
-                'initial_step_size': numpyro_kwargs['initial_step_size'],
-                'target_acceptance_rate': numpyro_kwargs['target_acceptance_rate'],
-                'is_mass_matrix_diagonal': numpyro_kwargs['is_mass_matrix_diagonal'],
-                'num_chains': numpyro_kwargs['num_chains'],
-                'thinning': numpyro_kwargs['thinning'],
-                'chain_method': numpyro_kwargs['chain_method'],
-                'seed': numpyro_kwargs['seed'],
-                'jit': numpyro_kwargs['jit'],
-            }
-            if 'num_steps' in numpyro_kwargs:
-                summary_parameters['num_integration_steps'] = numpyro_kwargs['num_steps']
-            if 'trajectory_length' in numpyro_kwargs:
-                summary_parameters['trajectory_length'] = numpyro_kwargs['trajectory_length']
             self.generate_retrieval_summary(
-                sampler_parameters=summary_parameters
+                sampler_parameters=self._build_numpyro_summary_parameters(
+                    sampler_type=sampler_type_normalized,
+                    sampler_kwargs=numpyro_kwargs,
+                )
             )
-        elif (sampler_type.lower() == 'jaxnestedsampler') or (sampler_type.lower() == 'jaxns'):
+        elif sampler_type_normalized in {'jaxnestedsampler', 'jaxns'}:
             if tfp is None:
                 raise ImportError("TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed.")
             jaxns_kwargs = {
@@ -3067,41 +3251,7 @@ class Retrieval:
                 'seed': sampler_kwargs.pop('seed', 42654)
             }
             jit = sampler_kwargs.pop('jit', True)
-
-            parameters = self.configuration.parameters
-            from jax import debug
-
-            priors = []
-            for key, parameter in self.configuration.parameters.items():
-                if not parameter.is_free_parameter:
-                    #parameters[key] = parameter
-                    continue
-                priors.append(parameter.set_prior())
-            priors = tuple(priors)
-
-            def prior_model():
-                values = []
-                for prior in priors:
-                    value = yield prior
-                    values.append(value)
-                return tuple(values)
-
-            def log_likelihood_wrapper(*args):
-                counter = 0
-                for value in self.configuration.parameters.values():
-                    if value.is_free_parameter:
-                        value.value = args[counter].astype(JAX_DTYPE)
-                        counter += 1
-                #self.configuration.parameters = parameters
-                return self.log_likelihood_jax(
-                    parameters=self.configuration.parameters,
-                    configuration=self.configuration,
-                    log_l_per_datapoint_dict=None,
-                    return_model=False,
-                    uncertainties_mode=self.uncertainties_mode,
-                    generate_mock_data=self.generate_mock_data,
-                    print_log_likelihood_for_debugging=False
-                )
+            free_parameter_names, prior_model, log_likelihood_wrapper = self._build_jaxns_sampler_interface()
 
             sampler = JAXNSSampler(
                 log_likelihood_func=log_likelihood_wrapper,
@@ -3113,9 +3263,13 @@ class Retrieval:
             self.latest_sampler_results = sampler.get_results()
             self.generate_retrieval_summary(
                 self.latest_sampler_results,
-                sampler_parameters=jaxns_kwargs
+                sampler_parameters=self._build_jaxns_summary_parameters(
+                    sampler_type=sampler_type_normalized,
+                    sampler_kwargs=jaxns_kwargs,
+                    parameter_names=free_parameter_names,
+                )
             )
-        elif sampler_type.lower() == 'jaxnsshardedstaticsestedsampler':
+        elif sampler_type_normalized == 'jaxnsshardedstaticsestedsampler':
             if tfp is None:
                 raise ImportError("TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed.")
 
@@ -3135,9 +3289,10 @@ class Retrieval:
                 'verbose': sampler_kwargs.pop('verbose', False),
                 'seed': sampler_kwargs.pop('seed', 42654)
             }
+            free_parameter_names, prior_model, log_likelihood_wrapper = self._build_jaxns_sampler_interface()
             sampler = JAXNSShardedStaticNestedSampler(
-                log_likelihood_func=self.log_likelihood,
-                prior_func=self.prior_model_jaxns,
+                log_likelihood_func=log_likelihood_wrapper,
+                prior_func=prior_model,
                 output_directory=self.output_directory,
                 retrieval_name=self.configuration.retrieval_name
             )
@@ -3145,7 +3300,11 @@ class Retrieval:
             self.latest_sampler_results = sampler.get_results()
             self.generate_retrieval_summary(
                 self.latest_sampler_results,
-                sampler_parameters=jaxns_kwargs
+                sampler_parameters=self._build_jaxns_summary_parameters(
+                    sampler_type=sampler_type_normalized,
+                    sampler_kwargs=jaxns_kwargs,
+                    parameter_names=free_parameter_names,
+                )
             )
         else:
             raise ValueError(f"Unknown sampler_type: {sampler_type}")

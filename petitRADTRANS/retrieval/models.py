@@ -24,6 +24,8 @@ All models must take the same set of inputs:
         For example, using the fixed_length_adaptive_mesh_refinement function defined below.
 """
 # TODO replace by SpectralModel function
+from numbers import Number
+from types import SimpleNamespace
 import jax.numpy as jnp
 
 from petitRADTRANS.chemistry import clouds
@@ -43,6 +45,7 @@ from petitRADTRANS.profiles import (
     spline_eddington_adiabatic_temperature_profile
 )
 from petitRADTRANS.planet import Planet
+from petitRADTRANS.retrieval.runtime import ModelContext, ModelInputs, ModelResult, PhysicalParams
 from petitRADTRANS.retrieval.utils import get_calculate_flux_return_values
 # Global constants to reduce calculations and initializations.
 #PGLOBAL = jnp.logspace(-6, 3, 1000)
@@ -1832,6 +1835,277 @@ def set_pglobal(press, parameters):
         )
 
 
+def _as_runtime_auxiliary_outputs(outputs):
+    if outputs is None:
+        return {}
+
+    if isinstance(outputs, dict):
+        return dict(outputs)
+
+    return {'runtime_output': outputs}
+
+
+def _is_scalar_like(value):
+    if isinstance(value, Number):
+        return True
+
+    if isinstance(value, (dict, list, tuple, str, bytes)):
+        return False
+
+    try:
+        return jnp.ndim(value) == 0
+    except TypeError:
+        return False
+
+
+def _build_model_context_from_parameters(name, mode, prt_object, parameters, adaptive_mesh_refinement=False):
+    (return_contribution,
+     return_opacities,
+     return_photosphere_radius,
+     return_rosseland_optical_depths,
+     return_radius_hydrostatic_equilibrium,
+     return_cloud_contribution,
+     return_abundances,
+     _return_any) = get_calculate_flux_return_values(parameters)
+
+    return ModelContext(
+        name=name,
+        mode=mode,
+        radtrans=prt_object,
+        adaptive_mesh_refinement=adaptive_mesh_refinement,
+        return_contribution=return_contribution,
+        return_opacities=return_opacities,
+        return_photosphere_radius=return_photosphere_radius,
+        return_rosseland_optical_depths=return_rosseland_optical_depths,
+        return_radius_hydrostatic_equilibrium=return_radius_hydrostatic_equilibrium,
+        return_cloud_contribution=return_cloud_contribution,
+        return_abundances=return_abundances,
+    )
+
+
+def _minimal_legacy_parameter_dict(physical_params: PhysicalParams):
+    return {
+        name: SimpleNamespace(value=value)
+        for name, value in physical_params.ordered_items()
+    }
+
+
+def _normalize_model_output(model_output, pt_plot_mode=False):
+    if isinstance(model_output, ModelResult):
+        return model_output
+
+    if model_output is None:
+        return ModelResult(kind='invalid')
+
+    if not isinstance(model_output, (tuple, list)):
+        raise TypeError(f"unsupported model output type '{type(model_output)}'")
+
+    if len(model_output) < 2:
+        raise ValueError('model output must contain at least two elements')
+
+    first = model_output[0]
+    second = model_output[1]
+
+    if first is None or second is None:
+        return ModelResult(kind='invalid')
+
+    if pt_plot_mode:
+        return ModelResult(kind='pt_profile', pressures=first, temperatures=second)
+
+    additional_log_likelihood = 0.0
+    atmospheric_column_fluxes = None
+    auxiliary_outputs = {}
+
+    if len(model_output) >= 3:
+        third = model_output[2]
+        if _is_scalar_like(third):
+            additional_log_likelihood = third
+        else:
+            auxiliary_outputs['legacy_output_2'] = third
+
+    if len(model_output) >= 4:
+        fourth = model_output[3]
+        if atmospheric_column_fluxes is None and not _is_scalar_like(fourth):
+            atmospheric_column_fluxes = fourth
+        else:
+            auxiliary_outputs['legacy_output_3'] = fourth
+
+    if len(model_output) > 4:
+        auxiliary_outputs['legacy_extra_outputs'] = tuple(model_output[4:])
+
+    return ModelResult(
+        kind='spectrum',
+        wavelengths=first,
+        spectrum=second,
+        additional_log_likelihood=additional_log_likelihood,
+        auxiliary_outputs=auxiliary_outputs,
+        atmospheric_column_fluxes=atmospheric_column_fluxes,
+    )
+
+
+def _model_result_to_legacy_output(model_result: ModelResult):
+    if model_result.kind == 'invalid':
+        return None, None
+
+    if model_result.kind == 'pt_profile':
+        return model_result.pressures, model_result.temperatures
+
+    if model_result.atmospheric_column_fluxes is not None:
+        return (
+            model_result.wavelengths,
+            model_result.spectrum,
+            model_result.additional_log_likelihood,
+            model_result.atmospheric_column_fluxes,
+        )
+
+    if model_result.auxiliary_outputs:
+        return model_result.wavelengths, model_result.spectrum, model_result.auxiliary_outputs
+
+    if model_result.additional_log_likelihood not in (0, 0.0, None):
+        return (
+            model_result.wavelengths,
+            model_result.spectrum,
+            model_result.additional_log_likelihood,
+        )
+
+    return model_result.wavelengths, model_result.spectrum
+
+
+def run_legacy_model_adapter(
+        model_function,
+        model_context: ModelContext,
+        physical_params: PhysicalParams,
+        *,
+        pt_plot_mode: bool = False,
+) -> ModelResult:
+    legacy_parameters = _minimal_legacy_parameter_dict(physical_params)
+    model_output = model_function(
+        model_context.radtrans,
+        legacy_parameters,
+        pt_plot_mode=pt_plot_mode,
+        adaptive_mesh_refinement=model_context.adaptive_mesh_refinement,
+    )
+    return _normalize_model_output(model_output, pt_plot_mode=pt_plot_mode)
+
+
+def run_runtime_model_adapter(
+        model_function,
+        model_context: ModelContext,
+        physical_params: PhysicalParams,
+        *,
+        pt_plot_mode: bool = False,
+) -> ModelResult:
+    model_output = model_function(
+        model_context,
+        physical_params,
+        pt_plot_mode=pt_plot_mode,
+    )
+    return _normalize_model_output(model_output, pt_plot_mode=pt_plot_mode)
+
+
+def calculate_emission_spectrum_runtime(
+        model_context: ModelContext,
+        model_inputs: ModelInputs,
+) -> ModelResult:
+    results = model_context.radtrans.simple_calculate_flux(
+        temperatures=model_inputs.temperatures,
+        mass_fractions=model_inputs.abundances,
+        reference_gravity=model_inputs.gravity,
+        mean_molar_masses=model_inputs.mean_molar_masses,
+        cloud_f_sed=model_inputs.cloud_f_sed,
+        eddy_diffusion_coefficients=model_inputs.eddy_diffusion_coefficients,
+        cloud_particle_radius_distribution_std=model_inputs.sigma_lnorm,
+        cloud_hansen_b=model_inputs.cloud_hansen_b,
+        cloud_particles_mean_radii=model_inputs.cloud_particles_mean_radii,
+        cloud_fraction=model_inputs.cloud_fraction,
+        complete_coverage_clouds=model_inputs.complete_coverage_clouds,
+        cloud_particles_radius_distribution=model_inputs.cloud_particles_radius_distribution,
+    )
+
+    wavelengths_model, flux, additional_outputs = results
+    wavelengths_model = wavelengths_model * 1e4
+    flux_lambda = flux * 1e-7
+
+    if model_inputs.distance_to_system is None:
+        raise ValueError('distance_to_system is required for emission spectrum evaluation')
+
+    spectrum_model = flux2irradiance(
+        flux_lambda,
+        model_inputs.planet_radius,
+        model_inputs.distance_to_system,
+    )
+
+    if model_inputs.disk_blackbody_temperature is not None and model_inputs.disk_radius is not None:
+        blackbody_spectrum = (
+            planck_function_cm(model_inputs.disk_blackbody_temperature, wavelengths_model * 1e-4) * 1e-7
+        )
+        blackbody_spectrum = blackbody_spectrum * (
+            model_inputs.disk_radius / model_inputs.distance_to_system
+        ) ** 2
+        spectrum_model = spectrum_model + blackbody_spectrum
+
+    if model_inputs.v_band_extinction is not None and model_inputs.v_band_reddening is not None:
+        spectrum_model = apply_ism_ext(
+            wavelengths_model,
+            spectrum_model,
+            model_inputs.v_band_extinction,
+            model_inputs.v_band_reddening,
+        )
+
+    return ModelResult(
+        kind='spectrum',
+        wavelengths=wavelengths_model,
+        spectrum=spectrum_model,
+        auxiliary_outputs=_as_runtime_auxiliary_outputs(additional_outputs),
+    )
+
+
+def calculate_transmission_spectrum_runtime(
+        model_context: ModelContext,
+        model_inputs: ModelInputs,
+) -> ModelResult:
+    results = model_context.radtrans.calculate_transit_radii(
+        temperatures=model_inputs.temperatures,
+        mass_fractions=model_inputs.abundances,
+        reference_gravity=model_inputs.gravity,
+        mean_molar_masses=model_inputs.mean_molar_masses,
+        planet_radius=model_inputs.planet_radius,
+        reference_pressure=model_inputs.reference_pressure,
+        opaque_cloud_top_pressure=model_inputs.opaque_cloud_top_pressure,
+        cloud_particle_radius_distribution_std=model_inputs.sigma_lnorm,
+        cloud_particles_mean_radii=model_inputs.cloud_particles_mean_radii,
+        cloud_f_sed=model_inputs.cloud_f_sed,
+        eddy_diffusion_coefficients=model_inputs.eddy_diffusion_coefficients,
+        haze_factor=model_inputs.haze_factor,
+        power_law_opacity_coefficient=model_inputs.power_law_opacity_coefficient,
+        power_law_opacity_350nm=model_inputs.power_law_opacity_350nm,
+        cloud_hansen_b=model_inputs.cloud_hansen_b,
+        cloud_fraction=model_inputs.cloud_fraction,
+        complete_coverage_clouds=model_inputs.complete_coverage_clouds,
+        cloud_particles_radius_distribution=model_inputs.cloud_particles_radius_distribution,
+        return_contribution=model_context.return_contribution,
+        return_cloud_contribution=model_context.return_cloud_contribution,
+        return_radius_hydrostatic_equilibrium=model_context.return_radius_hydrostatic_equilibrium,
+        return_abundances=model_context.return_abundances,
+        return_opacities=model_context.return_opacities,
+    )
+
+    wavelengths_model, transit_radii, additional_outputs = results
+    wavelengths_model = wavelengths_model * 1e4
+
+    if model_inputs.stellar_radius is None:
+        raise ValueError('stellar_radius is required for transmission spectrum evaluation')
+
+    spectrum_model = (transit_radii / model_inputs.stellar_radius) ** 2.
+
+    return ModelResult(
+        kind='spectrum',
+        wavelengths=wavelengths_model,
+        spectrum=spectrum_model,
+        auxiliary_outputs=_as_runtime_auxiliary_outputs(additional_outputs),
+    )
+
+
 def calculate_emission_spectrum(
         prt_object,
         parameters,
@@ -1873,61 +2147,43 @@ def calculate_emission_spectrum(
         complete_coverage_clouds (list(str)) : Which clouds are NOT patchy
         distribution (string): Which cloud particle size distribution to use
     """
-    (return_contribution,
-     return_opacities,
-     return_photosphere_radius,
-     return_rosseland_optical_depths,
-     return_radius_hydrostatic_equilibrium,
-     return_cloud_contribution,
-     return_abundances,
-     return_any) = get_calculate_flux_return_values(parameters)
-
-    results = prt_object.simple_calculate_flux(
+    model_context = _build_model_context_from_parameters(
+        name='legacy_emission_spectrum',
+        mode='emission',
+        prt_object=prt_object,
+        parameters=parameters,
+    )
+    model_inputs = ModelInputs(
+        pressures=getattr(prt_object, 'pressures', None),
         temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
+        abundances=abundances,
         mean_molar_masses=mean_molar_masses,
+        gravity=gravity,
+        planet_radius=planet_radius,
+        sigma_lnorm=sigma_lnorm,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
         cloud_hansen_b=cloud_hansen_b,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        complete_coverage_clouds=tuple(complete_coverage_clouds),
         cloud_particles_radius_distribution=distribution,
-        #return_contribution=return_contribution,
-        #return_photosphere_radius=return_photosphere_radius,
-        #return_rosseland_optical_depths=return_rosseland_optical_depths,
-        #return_cloud_contribution=return_cloud_contribution,
-        #return_abundances=return_abundances,
-        #return_opacities=return_opacities
+        distance_to_system=parameters['distance_to_system'].value,
+        disk_blackbody_temperature=(
+            parameters['T_disk_blackbody'].value if 'T_disk_blackbody' in parameters.keys() else None
+        ),
+        disk_radius=parameters['disk_radius'].value if 'disk_radius' in parameters.keys() else None,
+        v_band_extinction=(
+            parameters['v_band_extinction'].value if 'v_band_extinction' in parameters.keys() else None
+        ),
+        v_band_reddening=(
+            parameters['v_band_reddening'].value if 'v_band_reddening' in parameters.keys() else None
+        ),
     )
 
-    wlen_model, flux, additional_outputs = results
-
-    # Getting the model into correct units
-    wlen_model *= 1e4  # cm to um
-    f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-
-    spectrum_model = flux2irradiance(
-        f_lambda,
-        planet_radius,
-        parameters['distance_to_system'].value
+    return _model_result_to_legacy_output(
+        calculate_emission_spectrum_runtime(model_context, model_inputs)
     )
-
-    if "T_disk_blackbody" in parameters.keys():
-        spectrum_model += add_blackbody_cpd_model(parameters, wlen_model)
-
-    if "v_band_extinction" in parameters.keys():
-        spectrum_model = apply_ism_ext(
-            wlen_model,
-            spectrum_model,
-            parameters["v_band_extinction"].value,
-            parameters["v_band_reddening"].value)
-    if return_any:
-        return wlen_model, spectrum_model, additional_outputs
-    else:
-        return wlen_model, spectrum_model
 
 
 def calculate_transmission_spectrum(
@@ -1978,24 +2234,22 @@ def calculate_transmission_spectrum(
     Returns:
         _type_: _description_
     """
-    (return_contribution,
-     return_opacities,
-     return_photosphere_radius,
-     return_rosseland_optical_depths,
-     return_radius_hydrostatic_equilibrium,
-     return_cloud_contribution,
-     return_abundances,
-     return_any) = get_calculate_flux_return_values(parameters)
-
-    results = prt_object.calculate_transit_radii(
+    model_context = _build_model_context_from_parameters(
+        name='legacy_transmission_spectrum',
+        mode='transmission',
+        prt_object=prt_object,
+        parameters=parameters,
+    )
+    model_inputs = ModelInputs(
+        pressures=getattr(prt_object, 'pressures', None),
         temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
+        abundances=abundances,
         mean_molar_masses=mean_molar_masses,
+        gravity=gravity,
         planet_radius=planet_radius,
         reference_pressure=reference_pressure,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
+        sigma_lnorm=sigma_lnorm,
         cloud_particles_mean_radii=cloud_particles_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
@@ -2004,21 +2258,14 @@ def calculate_transmission_spectrum(
         power_law_opacity_350nm=power_law_opacity_350nm,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        complete_coverage_clouds=tuple(complete_coverage_clouds),
         cloud_particles_radius_distribution=distribution,
-        return_contribution=return_contribution,
-        return_cloud_contribution=return_cloud_contribution,
-        return_radius_hydrostatic_equilibrium=return_radius_hydrostatic_equilibrium,
-        return_abundances=return_abundances,
-        return_opacities=return_opacities,
+        stellar_radius=parameters['stellar_radius'].value,
     )
-    wlen_model, transit_radii, additional_outputs = results
 
-    wlen_model *= 1e4
-    spectrum_model = (transit_radii / parameters['stellar_radius'].value) ** 2.
-    if return_any:
-        return wlen_model, spectrum_model, additional_outputs
-    return wlen_model, spectrum_model
+    return _model_result_to_legacy_output(
+        calculate_transmission_spectrum_runtime(model_context, model_inputs)
+    )
 
 
 def pglobal_check(press, shape, scaling):

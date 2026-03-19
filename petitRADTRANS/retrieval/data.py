@@ -10,6 +10,7 @@ from jax.typing import ArrayLike
 from astropy.io import fits
 
 import petitRADTRANS.physical_constants as cst
+from petitRADTRANS.retrieval.runtime import LikelihoodState, ObservationState
 
 
 class Data:
@@ -519,10 +520,62 @@ class Data:
         b_val = -jnp.inf
         if parameters is not None:
             if f'{self.name}_b' in parameters.keys():
-                b_val = parameters[f'{self.name}_b'].value
+                parameter_value = parameters[f'{self.name}_b']
+                b_val = parameter_value.value if hasattr(parameter_value, 'value') else parameter_value
             elif 'uncertainty_scaling_b' in parameters.keys():
-                b_val = parameters['uncertainty_scaling_b'].value
+                parameter_value = parameters['uncertainty_scaling_b']
+                b_val = parameter_value.value if hasattr(parameter_value, 'value') else parameter_value
         return b_val
+
+    def to_observation_state(self, model_contract: str = 'legacy') -> ObservationState:
+        return ObservationState(
+            name=self.name,
+            wavelengths=self.wavelengths,
+            spectrum=self.spectrum,
+            mask=self.mask,
+            radtrans_object=self.radtrans_object,
+            model_generating_function=self.model_generating_function,
+            model_resolution=self.model_resolution,
+            data_resolution=self.data_resolution,
+            wavelength_bin_widths=self.wavelength_bin_widths,
+            photometry=self.photometry,
+            external_radtrans_reference=self.external_radtrans_reference,
+            line_opacity_mode=self.line_opacity_mode,
+            model_contract=model_contract,
+            metadata={
+                'system_distance': self.system_distance,
+                'fit_instrumental_resolution': self.fit_instrumental_resolution,
+                'subtract_continuum': self.subtract_continuum,
+                'scale': self.scale,
+                'scale_err': self.scale_err,
+                'offset_bool': self.offset_bool,
+                'radtrans_grid': self.radtrans_grid,
+                'photometric_transformation_function': self.photometric_transformation_function,
+                'photometric_bin_edges': self.photometric_bin_edges,
+                'wavelength_boundaries': self.wavelength_boundaries,
+                'atmospheric_column_flux_mixer': self.atmospheric_column_flux_mixer,
+                'concatenate_flux_epochs_variability': self.concatenate_flux_epochs_variability,
+                'variability_atmospheric_column_model_flux_return_mode': (
+                    self.variability_atmospheric_column_model_flux_return_mode
+                ),
+            },
+        )
+
+    def to_likelihood_state(self, n_free_parameters: int = 0) -> LikelihoodState:
+        return LikelihoodState(
+            data_uncertainties=self.uncertainties,
+            data_covariance=self.covariance,
+            mask=self.mask,
+            inv_covariance=self.inv_cov,
+            log_covariance_determinant=self.log_covariance_determinant,
+            n_free_parameters=n_free_parameters,
+            metadata={
+                'name': self.name,
+                'has_covariance': self.covariance is not None,
+                'photometry': self.photometry,
+                'data_resolution': self.data_resolution,
+            },
+        )
 
     def scale_flux(self, input_spectrum, parameters_dict: dict) -> ArrayLike:
         """
@@ -569,22 +622,21 @@ class Data:
 
         # Additive error inflation term (log10(error_val_to_add_in_variance))
         raw_b_val = self.line_b_uncertainty_scaling(parameters_dict)
-
-        additive_variance_term = 0.0
-        if raw_b_val != -jnp.inf:
-            additive_variance_term = 10**raw_b_val
+        additive_variance_term = jnp.where(
+            jnp.isfinite(raw_b_val),
+            10 ** raw_b_val,
+            0.0,
+        )
 
         if self.covariance is not None:
-            scaled_covariance = self.covariance.copy()
-            scaled_covariance = scaled_covariance * (err_scale_factor**2)
-            if additive_variance_term > 0:
-                # Add to diagonal (variances)
-                jnp.fill_diagonal(scaled_covariance, jnp.diag(scaled_covariance) + additive_variance_term)
+            scaled_covariance = self.covariance * (err_scale_factor ** 2)
+            scaled_covariance = scaled_covariance + additive_variance_term * jnp.eye(
+                scaled_covariance.shape[0],
+                dtype=scaled_covariance.dtype,
+            )
         elif self.uncertainties is not None:
-            scaled_uncertainties = self.uncertainties.copy()
-            scaled_uncertainties = scaled_uncertainties * err_scale_factor
-            if additive_variance_term > 0:
-                scaled_uncertainties = jnp.sqrt(scaled_uncertainties**2 + additive_variance_term)
+            scaled_uncertainties = self.uncertainties * err_scale_factor
+            scaled_uncertainties = jnp.sqrt(scaled_uncertainties ** 2 + additive_variance_term)
         else:
             # Should not happen if __init__ ensures either uncertainties or covariance exists
             raise ValueError("Data object has neither uncertainties nor covariance.")

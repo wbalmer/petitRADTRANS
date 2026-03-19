@@ -319,10 +319,12 @@ def process_spectrum_pipeline(
 
     # Rebin to data wavelengths if not already done
     if model_spectrum_rebinned is None:
-        # Check if already on same wavelength grid
-        if (jnp.size(wavelengths_model_shifted) == jnp.size(data.wavelengths) and
-            jnp.allclose(wavelengths_model_shifted, data.wavelengths)):
-            model_spectrum_rebinned = model_spectrum_convolved
+        if data.wavelength_bin_widths is None:
+            model_spectrum_rebinned = jnp.interp(
+                data.wavelengths,
+                wavelengths_model_shifted,
+                model_spectrum_convolved,
+            )
         else:
             model_spectrum_rebinned = rebin_spectrum_bin(
                 wavelengths_model_shifted,

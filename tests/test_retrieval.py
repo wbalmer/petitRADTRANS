@@ -3,20 +3,44 @@
 Essentially go through a simplified version of the tutorial, and compare the results with previous ones.
 C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_started.html).
 """
+import ctypes
 import json
 import os
 from types import SimpleNamespace
 import jax
+import jax.numpy as jnp
+import pytest
+import tensorflow_probability.substrates.jax as tfp
 jax.config.update("jax_enable_x64", True)
 os.environ["DYLD_LIBRARY_PATH"] = "/Users/nasedkin/software/MultiNest/lib/:$DYLD_LIBRARY_PATH"
 os.environ["LD_LIBRARY_PATH"] = "/Users/nasedkin/software/MultiNest/lib/:$LD_LIBRARY_PATH"
 
 import numpy as np
 
+tfpd = tfp.distributions
+
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
 from petitRADTRANS.opacities.opacities import Opacity, CorrelatedKOpacity
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.jax_parameter import Parameter
+from petitRADTRANS.retrieval.models import (
+    calculate_emission_spectrum,
+    calculate_emission_spectrum_runtime,
+    calculate_transmission_spectrum,
+    calculate_transmission_spectrum_runtime,
+    run_legacy_model_adapter,
+    run_runtime_model_adapter,
+)
+from petitRADTRANS.retrieval.runtime import ParameterLayout, RetrievalRuntime
+from petitRADTRANS.retrieval.runtime import (
+    LikelihoodState,
+    ModelContext,
+    ModelGroupState,
+    ModelInputs,
+    ModelResult,
+    ObservationState,
+    PhysicalParams,
+)
 from petitRADTRANS.retrieval.sampler import NumPyroSampler
 from petitRADTRANS.retrieval.utils import gaussian_prior
 
@@ -34,6 +58,405 @@ class _DummyDistribution:
     @staticmethod
     def quantile(x):
         return 10.0 + 2.0 * x
+
+
+class _DummyRadtrans:
+    def simple_calculate_flux(self, **kwargs):
+        return (
+            jnp.array([1.0e-4, 2.0e-4]),
+            jnp.array([2.0, 4.0]),
+            {'source': 'emission'},
+        )
+
+    def calculate_transit_radii(self, **kwargs):
+        return (
+            jnp.array([1.0e-4, 2.0e-4]),
+            jnp.array([3.0, 6.0]),
+            {'source': 'transmission'},
+        )
+
+
+class _RecordingUltranestSampler:
+    last_instance = None
+
+    def __init__(self, log_likelihood_func, prior_func, output_directory, retrieval_name, enable_step_sampling=False):
+        del output_directory, retrieval_name, enable_step_sampling
+        self.log_likelihood_func = log_likelihood_func
+        self.prior_func = prior_func
+        self.run_kwargs = None
+        type(self).last_instance = self
+
+    def run_sampler(self, **kwargs):
+        self.run_kwargs = kwargs
+        return {'status': 'ok', 'run_kwargs': kwargs}
+
+    def pretty_print_results(self):
+        return None
+
+
+def _build_runtime_native_runtime(configuration, model_function, source_name='simple', observation_names=None):
+    if observation_names is None:
+        observation_names = (source_name,)
+
+    parameter_layout = ParameterLayout.from_parameters(configuration.parameters)
+
+    observations = {}
+    likelihoods = {}
+    for name in observation_names:
+        data = configuration.data[name]
+        observations[name] = data.to_observation_state(model_contract='runtime_native')
+        likelihoods[name] = data.to_likelihood_state(n_free_parameters=parameter_layout.n_free_parameters)
+
+    source_data = configuration.data[source_name]
+    return RetrievalRuntime(
+        parameter_layout=parameter_layout,
+        observations=observations,
+        likelihoods=likelihoods,
+        model_groups=(
+            ModelGroupState(
+                source_name=source_name,
+                observation_names=tuple(observation_names),
+                model_contract='runtime_native',
+                model_generating_function=model_function,
+                radtrans_object=source_data.radtrans_object,
+                metadata={'line_opacity_mode': source_data.line_opacity_mode, 'has_external_references': len(observation_names) > 1},
+            ),
+        ),
+    )
+
+
+def test_parameter_layout_supports_ordered_prior_transforms_and_legacy_adapter():
+    parameters = {
+        'transform_parameter': Parameter(
+            name='transform_parameter',
+            is_free_parameter=True,
+            transform_prior_cube_coordinate=lambda x: 1.0 + 3.0 * x,
+        ),
+        'distribution_parameter': Parameter(
+            name='distribution_parameter',
+            is_free_parameter=True,
+            distribution=_DummyDistribution(),
+        ),
+        'fixed_string_parameter': Parameter(
+            name='fixed_string_parameter',
+            is_free_parameter=False,
+            value='runtime-static',
+        ),
+        'fixed_numeric_parameter': Parameter(
+            name='fixed_numeric_parameter',
+            is_free_parameter=False,
+            value=7.0,
+        ),
+    }
+
+    layout = ParameterLayout.from_parameters(parameters)
+
+    assert layout.free_parameter_names == ('transform_parameter', 'distribution_parameter')
+    np.testing.assert_array_equal(layout.free_parameter_indices, np.array([0, 1]))
+    np.testing.assert_allclose(layout.prior_transform_numpy(np.array([0.25, 0.75])), np.array([1.75, 11.5]))
+
+    physical_params = layout.physical_params_from_vector(np.array([3.5, 4.5]))
+    assert physical_params.ordered_names == (
+        'transform_parameter',
+        'distribution_parameter',
+        'fixed_string_parameter',
+        'fixed_numeric_parameter',
+    )
+    assert physical_params.get('fixed_string_parameter') == 'runtime-static'
+    assert physical_params.get('fixed_numeric_parameter') == 7.0
+
+    legacy_parameters = layout.build_legacy_parameter_dict(physical_params)
+    assert legacy_parameters['transform_parameter'].value == 3.5
+    assert legacy_parameters['distribution_parameter'].value == 4.5
+    assert legacy_parameters['fixed_string_parameter'].value == 'runtime-static'
+    assert legacy_parameters['fixed_numeric_parameter'].value == 7.0
+
+
+def test_parameter_layout_supports_unconstrained_transforms_and_log_jacobian():
+    layout = ParameterLayout.from_parameters({
+        'transform_parameter': Parameter(
+            name='transform_parameter',
+            is_free_parameter=True,
+            transform_prior_cube_coordinate=lambda x: 2.0 * x - 1.0,
+        ),
+        'distribution_parameter': Parameter(
+            name='distribution_parameter',
+            is_free_parameter=True,
+            distribution=_DummyDistribution(),
+        ),
+    })
+
+    unconstrained_position = jnp.array([0.0, jnp.log(3.0)], dtype=jnp.float64)
+    cube_position = layout.cube_from_unconstrained(unconstrained_position)
+    transformed = layout.transform_unconstrained(unconstrained_position)
+    expected_cube_position = jnp.array([0.5, 0.75], dtype=jnp.float64)
+
+    np.testing.assert_allclose(np.asarray(cube_position), np.asarray(expected_cube_position))
+    np.testing.assert_allclose(np.asarray(transformed), np.array([0.0, 11.5]))
+
+    expected_log_jacobian = np.sum(
+        -jax.nn.softplus(-np.asarray(unconstrained_position)) - jax.nn.softplus(np.asarray(unconstrained_position))
+    )
+    np.testing.assert_allclose(layout.log_jacobian_single(unconstrained_position), expected_log_jacobian)
+
+
+def test_data_materializes_observation_and_likelihood_state():
+    data = Data(
+        name='test_dataset',
+        model_generating_function=lambda *args, **kwargs: None,
+        radtrans_object=SimpleNamespace(name='radtrans'),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([0.1, 0.2]),
+        uncertainties=jnp.array([0.01, 0.02]),
+        mask=jnp.array([False, True]),
+        scale=True,
+        offset_bool=True,
+    )
+
+    observation_state = data.to_observation_state(model_contract='runtime_native')
+    likelihood_state = data.to_likelihood_state(n_free_parameters=3)
+
+    assert observation_state.name == 'test_dataset'
+    assert observation_state.model_contract == 'runtime_native'
+    assert observation_state.model_generating_function is data.model_generating_function
+    assert observation_state.metadata['scale'] is True
+    np.testing.assert_array_equal(observation_state.mask, jnp.array([False, True]))
+
+    assert likelihood_state.n_free_parameters == 3
+    np.testing.assert_array_equal(likelihood_state.data_uncertainties, jnp.array([0.01, 0.02]))
+    np.testing.assert_array_equal(likelihood_state.mask, jnp.array([False, True]))
+    assert likelihood_state.metadata['has_covariance'] is False
+
+
+def test_retrieval_runtime_groups_external_radtrans_references():
+    source_data = Data(
+        name='source',
+        model_generating_function=lambda *args, **kwargs: None,
+        radtrans_object=SimpleNamespace(name='source_radtrans'),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([0.1, 0.2]),
+        uncertainties=jnp.array([0.01, 0.02]),
+    )
+    shared_data = Data(
+        name='shared',
+        model_generating_function=lambda *args, **kwargs: None,
+        radtrans_object=SimpleNamespace(name='shared_radtrans'),
+        external_radtrans_reference='source',
+        wavelengths=jnp.array([1.5, 2.5]),
+        spectrum=jnp.array([0.3, 0.4]),
+        uncertainties=jnp.array([0.03, 0.04]),
+    )
+    independent_data = Data(
+        name='independent',
+        model_generating_function=lambda *args, **kwargs: None,
+        radtrans_object=SimpleNamespace(name='independent_radtrans'),
+        wavelengths=jnp.array([3.0, 4.0]),
+        spectrum=jnp.array([0.5, 0.6]),
+        uncertainties=jnp.array([0.05, 0.06]),
+    )
+
+    config = SimpleNamespace(
+        parameters={
+            'free_parameter': Parameter(name='free_parameter', is_free_parameter=True),
+        },
+        data={
+            'source': source_data,
+            'shared': shared_data,
+            'independent': independent_data,
+        },
+    )
+
+    runtime = RetrievalRuntime.from_configuration(config)
+
+    assert set(runtime.observations.keys()) == {'source', 'shared', 'independent'}
+    assert set(runtime.likelihoods.keys()) == {'source', 'shared', 'independent'}
+    assert len(runtime.model_groups) == 2
+
+    groups_by_source = {group.source_name: group for group in runtime.model_groups}
+    assert set(groups_by_source['source'].observation_names) == {'source', 'shared'}
+    assert groups_by_source['source'].metadata['has_external_references'] is True
+    assert groups_by_source['source'].radtrans_object is source_data.radtrans_object
+    assert groups_by_source['independent'].observation_names == ('independent',)
+
+
+def test_run_legacy_model_adapter_normalizes_legacy_outputs():
+    model_context = ModelContext(
+        name='legacy_model',
+        mode='emission',
+        radtrans=SimpleNamespace(),
+        adaptive_mesh_refinement=False,
+    )
+    physical_params = PhysicalParams.from_mapping({'alpha': 1.2, 'label': 'fixed'})
+
+    def legacy_model(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+        assert parameters['alpha'].value == 1.2
+        assert parameters['label'].value == 'fixed'
+        return jnp.array([1.0, 2.0]), jnp.array([3.0, 4.0]), 0.5
+
+    result = run_legacy_model_adapter(legacy_model, model_context, physical_params)
+
+    assert result.kind == 'spectrum'
+    np.testing.assert_array_equal(result.wavelengths, jnp.array([1.0, 2.0]))
+    np.testing.assert_array_equal(result.spectrum, jnp.array([3.0, 4.0]))
+    assert result.additional_log_likelihood == 0.5
+
+
+def test_run_runtime_model_adapter_accepts_model_result():
+    model_context = ModelContext(
+        name='runtime_model',
+        mode='transmission',
+        radtrans=SimpleNamespace(),
+        adaptive_mesh_refinement=False,
+    )
+    physical_params = PhysicalParams.from_mapping({'alpha': 1.2})
+
+    def runtime_model(context, params, pt_plot_mode=False):
+        assert context.name == 'runtime_model'
+        assert params.get('alpha') == 1.2
+        return ModelResult(kind='spectrum', wavelengths=jnp.array([1.0]), spectrum=jnp.array([2.0]))
+
+    result = run_runtime_model_adapter(runtime_model, model_context, physical_params)
+
+    assert result.kind == 'spectrum'
+    np.testing.assert_array_equal(result.wavelengths, jnp.array([1.0]))
+    np.testing.assert_array_equal(result.spectrum, jnp.array([2.0]))
+
+
+def test_calculate_emission_spectrum_runtime_returns_model_result():
+    model_context = ModelContext(
+        name='emission',
+        mode='emission',
+        radtrans=_DummyRadtrans(),
+        adaptive_mesh_refinement=False,
+    )
+    model_inputs = ModelInputs(
+        pressures=jnp.array([1.0]),
+        temperatures=jnp.array([1000.0]),
+        abundances={'H2O': jnp.array([1e-3])},
+        mean_molar_masses=jnp.array([2.3]),
+        gravity=jnp.array(1e3),
+        planet_radius=jnp.array(2.0),
+        distance_to_system=jnp.array(4.0),
+    )
+
+    result = calculate_emission_spectrum_runtime(model_context, model_inputs)
+
+    assert result.kind == 'spectrum'
+    np.testing.assert_allclose(result.wavelengths, jnp.array([1.0, 2.0]))
+    assert result.auxiliary_outputs['source'] == 'emission'
+
+
+def test_calculate_transmission_spectrum_runtime_returns_model_result():
+    model_context = ModelContext(
+        name='transmission',
+        mode='transmission',
+        radtrans=_DummyRadtrans(),
+        adaptive_mesh_refinement=False,
+        return_contribution=True,
+    )
+    model_inputs = ModelInputs(
+        pressures=jnp.array([1.0]),
+        temperatures=jnp.array([1000.0]),
+        abundances={'H2O': jnp.array([1e-3])},
+        mean_molar_masses=jnp.array([2.3]),
+        gravity=jnp.array(1e3),
+        planet_radius=jnp.array(2.0),
+        stellar_radius=jnp.array(2.0),
+    )
+
+    result = calculate_transmission_spectrum_runtime(model_context, model_inputs)
+
+    assert result.kind == 'spectrum'
+    np.testing.assert_allclose(result.wavelengths, jnp.array([1.0, 2.0]))
+    np.testing.assert_allclose(result.spectrum, jnp.array([2.25, 9.0]))
+    assert result.auxiliary_outputs['source'] == 'transmission'
+
+
+def test_log_likelihood_routes_normal_scalar_path_through_runtime():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    parameter = Parameter(
+        name='amplitude',
+        is_free_parameter=True,
+        value=0.0,
+        transform_prior_cube_coordinate=lambda x: 4.0 * x,
+    )
+
+    def simple_model(_prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+        del pt_plot_mode, adaptive_mesh_refinement
+        amplitude = parameters['amplitude'].value
+        return jnp.array([1.0, 2.0]), jnp.array([amplitude, amplitude + 1.0])
+
+    data = Data(
+        name='simple',
+        model_generating_function=simple_model,
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+
+    retrieval.configuration = SimpleNamespace(
+        parameters={'amplitude': parameter},
+        data={'simple': data},
+        adaptive_mesh_refinement=False,
+    )
+    retrieval.parameter_layout = ParameterLayout.from_parameters(retrieval.configuration.parameters)
+    retrieval.runtime = RetrievalRuntime.from_configuration(
+        retrieval.configuration,
+        parameter_layout=retrieval.parameter_layout,
+        n_free_parameters=retrieval.parameter_layout.n_free_parameters,
+    )
+    retrieval.uncertainties_mode = 'default'
+    retrieval.print_log_likelihood_for_debugging = False
+    retrieval._n_free_params_total_retrieval = retrieval.parameter_layout.n_free_parameters
+
+    runtime_value = retrieval.log_likelihood(np.array([2.0]))
+    legacy_value = retrieval._log_likelihood_legacy(np.array([2.0]))
+
+    np.testing.assert_allclose(runtime_value, legacy_value)
+
+
+def test_log_likelihood_jax_routes_normal_path_through_runtime():
+    parameter = Parameter(
+        name='amplitude',
+        is_free_parameter=True,
+        value=0.0,
+        transform_prior_cube_coordinate=lambda x: 4.0 * x,
+    )
+
+    def simple_model(_prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+        del pt_plot_mode, adaptive_mesh_refinement
+        amplitude = parameters['amplitude'].value
+        return jnp.array([1.0, 2.0]), jnp.array([amplitude, amplitude + 1.0])
+
+    data = Data(
+        name='simple',
+        model_generating_function=simple_model,
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+    configuration = SimpleNamespace(
+        parameters={'amplitude': parameter},
+        data={'simple': data},
+        adaptive_mesh_refinement=False,
+    )
+    parameters = {'amplitude': Parameter(name='amplitude', is_free_parameter=True, value=jnp.array(2.0))}
+
+    runtime_value = petitRADTRANS.retrieval.retrieval.Retrieval.log_likelihood_jax(
+        parameters=parameters,
+        configuration=configuration,
+        uncertainties_mode='default',
+    )
+    legacy_value = petitRADTRANS.retrieval.retrieval.Retrieval._log_likelihood_jax_legacy(
+        parameters=parameters,
+        configuration=configuration,
+        uncertainties_mode='default',
+    )
+
+    np.testing.assert_allclose(runtime_value, legacy_value)
 
 
 def test_prior_ultranest_supports_transform_and_distribution_priors():
@@ -64,6 +487,754 @@ def test_prior_ultranest_supports_transform_and_distribution_priors():
     np.testing.assert_allclose(transformed, np.array([1.75, 11.5]))
 
 
+def test_prior_ultranest_supports_vectorized_cube_transforms():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval.configuration = SimpleNamespace(
+        parameters={
+            'transform_parameter': Parameter(
+                name='transform_parameter',
+                is_free_parameter=True,
+                transform_prior_cube_coordinate=lambda x: 1.0 + 3.0 * x,
+            ),
+            'distribution_parameter': Parameter(
+                name='distribution_parameter',
+                is_free_parameter=True,
+                distribution=_DummyDistribution(),
+            ),
+        }
+    )
+
+    cube = np.array([[0.25, 0.75], [0.5, 0.5]], dtype=float)
+    transformed = retrieval.prior_ultranest(cube)
+
+    np.testing.assert_allclose(transformed, np.array([[1.75, 11.5], [2.5, 11.0]]))
+
+
+def test_build_ultranest_sampler_interface_vectorized_routes_through_runtime():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    parameter = Parameter(
+        name='amplitude',
+        is_free_parameter=True,
+        value=0.0,
+        transform_prior_cube_coordinate=lambda x: 4.0 * x,
+    )
+
+    def simple_model(_prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+        del pt_plot_mode, adaptive_mesh_refinement
+        amplitude = parameters['amplitude'].value
+        return jnp.array([1.0, 2.0]), jnp.array([amplitude, amplitude + 1.0])
+
+    data = Data(
+        name='simple',
+        model_generating_function=simple_model,
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+
+    retrieval.configuration = SimpleNamespace(
+        parameters={'amplitude': parameter},
+        data={'simple': data},
+        adaptive_mesh_refinement=False,
+    )
+    retrieval.parameter_layout = ParameterLayout.from_parameters(retrieval.configuration.parameters)
+    retrieval.runtime = RetrievalRuntime.from_configuration(
+        retrieval.configuration,
+        parameter_layout=retrieval.parameter_layout,
+        n_free_parameters=retrieval.parameter_layout.n_free_parameters,
+    )
+    retrieval.uncertainties_mode = 'default'
+    retrieval.print_log_likelihood_for_debugging = False
+    retrieval._n_free_params_total_retrieval = retrieval.parameter_layout.n_free_parameters
+
+    log_likelihood_batch, prior_transform = retrieval._build_ultranest_sampler_interface(vectorized=True)
+
+    np.testing.assert_allclose(prior_transform(np.array([[0.25], [0.5]])), np.array([[1.0], [2.0]]))
+
+    batched = log_likelihood_batch(np.array([[2.0], [1.0]], dtype=float))
+    expected = np.array([
+        retrieval.log_likelihood(np.array([2.0])),
+        retrieval.log_likelihood(np.array([1.0])),
+    ])
+    np.testing.assert_allclose(batched, expected)
+
+
+def test_build_blackjax_sampler_kwargs_adds_hmc_steps():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    kwargs = retrieval._build_blackjax_sampler_kwargs(
+        {'num_integration_steps': 17, 'seed': 7},
+        free_parameter_names=['alpha'],
+        initial_position=jnp.array([0.0]),
+        log_jacobian=lambda position: position,
+        algorithm_name='hmc',
+    )
+
+    assert kwargs['parameter_names'] == ['alpha']
+    assert kwargs['num_integration_steps'] == 17
+    assert kwargs['seed'] == 7
+
+
+def test_build_numpyro_sampler_kwargs_prefers_trajectory_length_for_hmc():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    kwargs = retrieval._build_numpyro_sampler_kwargs(
+        {'trajectory_length': 3.5, 'num_steps': 20},
+        free_parameter_names=['alpha'],
+        initial_position=jnp.array([0.0]),
+        log_jacobian=lambda position: position,
+        algorithm_name='hmc',
+    )
+
+    assert kwargs['parameter_names'] == ['alpha']
+    assert kwargs['trajectory_length'] == 3.5
+    assert kwargs['num_steps'] == 20
+
+
+def test_sampler_summary_helpers_build_expected_payloads():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    ultranest_summary = retrieval._build_ultranest_summary_parameters(
+        sampler_type='ultranest',
+        parameter_names=['alpha'],
+        vectorized=True,
+    )
+    assert ultranest_summary == {
+        'sampler_type': 'ultranest',
+        'parameter_names': ['alpha'],
+        'vectorized': True,
+    }
+
+    blackjax_summary = retrieval._build_blackjax_summary_parameters(
+        sampler_type='nuts',
+        sampler_kwargs={
+            'num_samples': 100,
+            'num_warmup': 50,
+            'initial_step_size': 0.1,
+            'target_acceptance_rate': 0.9,
+            'is_mass_matrix_diagonal': True,
+            'seed': 7,
+            'jit': True,
+        },
+    )
+    assert blackjax_summary['sampler_type'] == 'nuts'
+    assert blackjax_summary['num_samples'] == 100
+
+    numpyro_summary = retrieval._build_numpyro_summary_parameters(
+        sampler_type='numpyrohmc',
+        sampler_kwargs={
+            'num_samples': 100,
+            'num_warmup': 50,
+            'initial_step_size': 0.1,
+            'target_acceptance_rate': 0.9,
+            'is_mass_matrix_diagonal': True,
+            'num_chains': 2,
+            'thinning': 1,
+            'chain_method': 'parallel',
+            'seed': 7,
+            'jit': True,
+            'num_steps': 15,
+        },
+    )
+    assert numpyro_summary['sampler_type'] == 'numpyrohmc'
+    assert numpyro_summary['num_integration_steps'] == 15
+
+    jaxns_summary = retrieval._build_jaxns_summary_parameters(
+        sampler_type='jaxns',
+        sampler_kwargs={'num_live_points': 64},
+        parameter_names=['alpha'],
+    )
+    assert jaxns_summary == {
+        'num_live_points': 64,
+        'sampler_type': 'jaxns',
+        'parameter_names': ['alpha'],
+    }
+
+
+def test_parameter_layout_free_parameter_ordering_matches_all_sampler_interfaces():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    parameters = {
+        'alpha': Parameter(name='alpha', is_free_parameter=True, distribution=tfpd.Uniform(low=0.0, high=1.0)),
+        'beta': Parameter(name='beta', is_free_parameter=True, distribution=tfpd.Uniform(low=1.0, high=2.0)),
+        'fixed': Parameter(name='fixed', is_free_parameter=False, value=7.0),
+    }
+
+    data = Data(
+        name='simple',
+        model_generating_function=lambda context, params, pt_plot_mode=False: ModelResult(
+            kind='spectrum',
+            wavelengths=jnp.array([1.0, 2.0]),
+            spectrum=jnp.array([params.get('alpha') + params.get('beta'), params.get('alpha') + params.get('beta')]),
+        ),
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 2.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+    configuration = SimpleNamespace(parameters=parameters, data={'simple': data}, adaptive_mesh_refinement=False)
+
+    retrieval.configuration = configuration
+    retrieval.parameter_layout = ParameterLayout.from_parameters(parameters)
+    retrieval.runtime = _build_runtime_native_runtime(
+        configuration,
+        model_function=data.model_generating_function,
+    )
+    retrieval._free_parameter_names_cache = list(retrieval.parameter_layout.free_parameter_names)
+    retrieval.uncertainties_mode = 'default'
+    retrieval.generate_mock_data = False
+    retrieval.print_log_likelihood_for_debugging = False
+
+    pymultinest_names = tuple(retrieval._free_parameter_names_cache)
+    ultranest_names = tuple(retrieval._free_parameter_names_cache)
+    blackjax_names, *_ = retrieval._build_unconstrained_mcmc_interface()
+    numpyro_names, *_ = retrieval._build_unconstrained_mcmc_interface()
+    jaxns_names, *_ = retrieval._build_jaxns_sampler_interface()
+
+    assert pymultinest_names == ('alpha', 'beta')
+    assert ultranest_names == pymultinest_names
+    assert tuple(blackjax_names) == pymultinest_names
+    assert tuple(numpyro_names) == pymultinest_names
+    assert tuple(jaxns_names) == pymultinest_names
+
+
+def test_run_legacy_model_adapter_reproduces_builtin_emission_model_output():
+    model_context = ModelContext(
+        name='legacy_emission_builtin',
+        mode='emission',
+        radtrans=_DummyRadtrans(),
+        adaptive_mesh_refinement=False,
+    )
+    physical_params = PhysicalParams.from_mapping({'distance_to_system': jnp.array(4.0)})
+
+    def legacy_emission_model(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+        del pt_plot_mode, adaptive_mesh_refinement
+        return calculate_emission_spectrum(
+            prt_object=prt_object,
+            parameters=parameters,
+            temperatures=jnp.array([1000.0]),
+            abundances={'H2O': jnp.array([1e-3])},
+            gravity=jnp.array(1e3),
+            mean_molar_masses=jnp.array([2.3]),
+            planet_radius=jnp.array(2.0),
+            sigma_lnorm=None,
+            cloud_particles_mean_radii=None,
+            cloud_f_sed=None,
+            eddy_diffusion_coefficients=None,
+            cloud_hansen_b=None,
+            cloud_fraction=None,
+            complete_coverage_clouds=(),
+            distribution=None,
+        )
+
+    direct_output = legacy_emission_model(_DummyRadtrans(), {'distance_to_system': SimpleNamespace(value=jnp.array(4.0))})
+    adapter_result = run_legacy_model_adapter(legacy_emission_model, model_context, physical_params)
+
+    np.testing.assert_allclose(adapter_result.wavelengths, direct_output[0])
+    np.testing.assert_allclose(adapter_result.spectrum, direct_output[1])
+    assert adapter_result.auxiliary_outputs['legacy_output_2']['source'] == direct_output[2]['source']
+
+
+def test_run_legacy_model_adapter_reproduces_builtin_transmission_model_output():
+    model_context = ModelContext(
+        name='legacy_transmission_builtin',
+        mode='transmission',
+        radtrans=_DummyRadtrans(),
+        adaptive_mesh_refinement=False,
+    )
+    physical_params = PhysicalParams.from_mapping({'stellar_radius': jnp.array(2.0)})
+
+    def legacy_transmission_model(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+        del pt_plot_mode, adaptive_mesh_refinement
+        return calculate_transmission_spectrum(
+            prt_object=prt_object,
+            parameters=parameters,
+            temperatures=jnp.array([1000.0]),
+            abundances={'H2O': jnp.array([1e-3])},
+            gravity=jnp.array(1e3),
+            mean_molar_masses=jnp.array([2.3]),
+            planet_radius=jnp.array(2.0),
+            reference_pressure=None,
+            opaque_cloud_top_pressure=None,
+            sigma_lnorm=None,
+            cloud_particles_mean_radii=None,
+            cloud_f_sed=None,
+            eddy_diffusion_coefficients=None,
+            haze_factor=None,
+            power_law_opacity_coefficient=None,
+            power_law_opacity_350nm=None,
+            cloud_hansen_b=None,
+            cloud_fraction=None,
+            complete_coverage_clouds=(),
+            distribution=None,
+        )
+
+    direct_output = legacy_transmission_model(_DummyRadtrans(), {'stellar_radius': SimpleNamespace(value=jnp.array(2.0))})
+    adapter_result = run_legacy_model_adapter(legacy_transmission_model, model_context, physical_params)
+
+    np.testing.assert_allclose(adapter_result.wavelengths, direct_output[0])
+    np.testing.assert_allclose(adapter_result.spectrum, direct_output[1])
+    assert adapter_result.auxiliary_outputs['legacy_output_2']['source'] == direct_output[2]['source']
+
+
+def test_runtime_native_builtin_models_expose_stable_model_result_fields():
+    emission_context = ModelContext(
+        name='emission',
+        mode='emission',
+        radtrans=_DummyRadtrans(),
+        adaptive_mesh_refinement=False,
+    )
+    transmission_context = ModelContext(
+        name='transmission',
+        mode='transmission',
+        radtrans=_DummyRadtrans(),
+        adaptive_mesh_refinement=False,
+    )
+    emission_inputs = ModelInputs(
+        pressures=jnp.array([1.0]),
+        temperatures=jnp.array([1000.0]),
+        abundances={'H2O': jnp.array([1e-3])},
+        mean_molar_masses=jnp.array([2.3]),
+        gravity=jnp.array(1e3),
+        planet_radius=jnp.array(2.0),
+        distance_to_system=jnp.array(4.0),
+    )
+    transmission_inputs = ModelInputs(
+        pressures=jnp.array([1.0]),
+        temperatures=jnp.array([1000.0]),
+        abundances={'H2O': jnp.array([1e-3])},
+        mean_molar_masses=jnp.array([2.3]),
+        gravity=jnp.array(1e3),
+        planet_radius=jnp.array(2.0),
+        stellar_radius=jnp.array(2.0),
+    )
+
+    emission_result = calculate_emission_spectrum_runtime(emission_context, emission_inputs)
+    transmission_result = calculate_transmission_spectrum_runtime(transmission_context, transmission_inputs)
+
+    for result, source_name in ((emission_result, 'emission'), (transmission_result, 'transmission')):
+        assert isinstance(result, ModelResult)
+        assert result.kind == 'spectrum'
+        assert result.additional_log_likelihood == 0.0
+        assert result.pressures is None
+        assert result.temperatures is None
+        assert result.atmospheric_column_fluxes is None
+        assert result.auxiliary_outputs == {'source': source_name}
+
+
+def test_model_group_evaluation_is_reused_across_external_references():
+    call_counter = {'count': 0}
+
+    def shared_model(_prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+        del pt_plot_mode, adaptive_mesh_refinement
+        call_counter['count'] += 1
+        amplitude = parameters['amplitude'].value
+        return jnp.array([1.0, 2.0]), jnp.array([amplitude, amplitude + 1.0])
+
+    source_data = Data(
+        name='source',
+        model_generating_function=shared_model,
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+    shared_data = Data(
+        name='shared',
+        model_generating_function=shared_model,
+        radtrans_object=SimpleNamespace(),
+        external_radtrans_reference='source',
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+    configuration = SimpleNamespace(
+        parameters={'amplitude': Parameter(name='amplitude', is_free_parameter=True, value=0.0)},
+        data={'source': source_data, 'shared': shared_data},
+        adaptive_mesh_refinement=False,
+    )
+    runtime = RetrievalRuntime.from_configuration(configuration)
+    physical_params = ParameterLayout.from_parameters(configuration.parameters).physical_params_from_vector(np.array([2.0]))
+
+    log_likelihood = runtime.evaluate_scalar(configuration, physical_params, uncertainties_mode='default')
+
+    assert np.isfinite(log_likelihood)
+    assert call_counter['count'] == 1
+
+
+def test_log_likelihood_routes_external_reference_setup_through_runtime():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    def shared_model(_prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+        del pt_plot_mode, adaptive_mesh_refinement
+        amplitude = parameters['amplitude'].value
+        return jnp.array([1.0, 2.0]), jnp.array([amplitude, amplitude + 1.0])
+
+    source_data = Data(
+        name='source',
+        model_generating_function=shared_model,
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+    shared_data = Data(
+        name='shared',
+        model_generating_function=shared_model,
+        radtrans_object=SimpleNamespace(),
+        external_radtrans_reference='source',
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+
+    retrieval.configuration = SimpleNamespace(
+        parameters={'amplitude': Parameter(name='amplitude', is_free_parameter=True, value=0.0)},
+        data={'source': source_data, 'shared': shared_data},
+        adaptive_mesh_refinement=False,
+    )
+    retrieval.parameter_layout = ParameterLayout.from_parameters(retrieval.configuration.parameters)
+    retrieval.runtime = RetrievalRuntime.from_configuration(
+        retrieval.configuration,
+        parameter_layout=retrieval.parameter_layout,
+        n_free_parameters=retrieval.parameter_layout.n_free_parameters,
+    )
+    retrieval.uncertainties_mode = 'default'
+    retrieval.print_log_likelihood_for_debugging = False
+    retrieval._n_free_params_total_retrieval = retrieval.parameter_layout.n_free_parameters
+
+    runtime_value = retrieval.log_likelihood(np.array([2.0]))
+    legacy_value = retrieval._log_likelihood_legacy(np.array([2.0]))
+
+    np.testing.assert_allclose(runtime_value, legacy_value)
+
+
+def test_log_likelihood_jax_routes_external_reference_setup_through_runtime():
+    def shared_model(_prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+        del pt_plot_mode, adaptive_mesh_refinement
+        amplitude = parameters['amplitude'].value
+        return jnp.array([1.0, 2.0]), jnp.array([amplitude, amplitude + 1.0])
+
+    source_data = Data(
+        name='source',
+        model_generating_function=shared_model,
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+    shared_data = Data(
+        name='shared',
+        model_generating_function=shared_model,
+        radtrans_object=SimpleNamespace(),
+        external_radtrans_reference='source',
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+    configuration = SimpleNamespace(
+        parameters={'amplitude': Parameter(name='amplitude', is_free_parameter=True, value=0.0)},
+        data={'source': source_data, 'shared': shared_data},
+        adaptive_mesh_refinement=False,
+    )
+    parameters = {'amplitude': Parameter(name='amplitude', is_free_parameter=True, value=jnp.array(2.0))}
+
+    runtime_value = petitRADTRANS.retrieval.retrieval.Retrieval.log_likelihood_jax(
+        parameters=parameters,
+        configuration=configuration,
+        uncertainties_mode='default',
+    )
+    legacy_value = petitRADTRANS.retrieval.retrieval.Retrieval._log_likelihood_jax_legacy(
+        parameters=parameters,
+        configuration=configuration,
+        uncertainties_mode='default',
+    )
+
+    np.testing.assert_allclose(runtime_value, legacy_value)
+
+
+def test_build_jaxns_sampler_interface_routes_through_runtime_jax_likelihood():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    parameter = Parameter(
+        name='amplitude',
+        is_free_parameter=True,
+        value=0.0,
+        distribution=tfpd.Uniform(low=0.0, high=4.0),
+    )
+
+    def simple_model(_prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+        del pt_plot_mode, adaptive_mesh_refinement
+        amplitude = parameters['amplitude'].value
+        return jnp.array([1.0, 2.0]), jnp.array([amplitude, amplitude + 1.0])
+
+    data = Data(
+        name='simple',
+        model_generating_function=simple_model,
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+
+    retrieval.configuration = SimpleNamespace(
+        parameters={'amplitude': parameter},
+        data={'simple': data},
+        adaptive_mesh_refinement=False,
+    )
+    retrieval.parameter_layout = ParameterLayout.from_parameters(retrieval.configuration.parameters)
+    retrieval.runtime = _build_runtime_native_runtime(
+        retrieval.configuration,
+        model_function=lambda context, params, pt_plot_mode=False: ModelResult(
+            kind='spectrum',
+            wavelengths=jnp.array([1.0, 2.0]),
+            spectrum=jnp.array([params.get('amplitude'), params.get('amplitude') + 1.0]),
+        ),
+    )
+    retrieval.uncertainties_mode = 'default'
+    retrieval.generate_mock_data = False
+
+    free_parameter_names, _prior_model, log_likelihood_wrapper = retrieval._build_jaxns_sampler_interface()
+
+    assert free_parameter_names == ['amplitude']
+    expected = petitRADTRANS.retrieval.retrieval.Retrieval.log_likelihood_jax(
+        parameters={'amplitude': Parameter(name='amplitude', is_free_parameter=True, value=jnp.array(2.0))},
+        configuration=retrieval.configuration,
+        uncertainties_mode='default',
+    )
+    np.testing.assert_allclose(log_likelihood_wrapper(jnp.array(2.0)), expected)
+
+
+def test_build_jaxns_sampler_interface_rejects_non_distribution_priors():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    data = Data(
+        name='simple',
+        model_generating_function=lambda context, params, pt_plot_mode=False: ModelResult(
+            kind='spectrum',
+            wavelengths=jnp.array([1.0, 2.0]),
+            spectrum=jnp.array([params.get('transform_parameter'), params.get('transform_parameter') + 1.0]),
+        ),
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+    retrieval.configuration = SimpleNamespace(
+        parameters={
+            'transform_parameter': Parameter(
+                name='transform_parameter',
+                is_free_parameter=True,
+                transform_prior_cube_coordinate=lambda x: 1.0 + 3.0 * x,
+            ),
+        },
+        data={'simple': data},
+        adaptive_mesh_refinement=False,
+    )
+    retrieval.parameter_layout = ParameterLayout.from_parameters(retrieval.configuration.parameters)
+    retrieval.runtime = _build_runtime_native_runtime(
+        retrieval.configuration,
+        model_function=data.model_generating_function,
+    )
+
+    with pytest.raises(ValueError, match='distribution-backed free parameters'):
+        retrieval._build_jaxns_sampler_interface()
+
+
+def test_jax_sampler_interfaces_fail_clearly_on_legacy_only_models():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval.configuration = SimpleNamespace(
+        parameters={
+            'amplitude': Parameter(
+                name='amplitude',
+                is_free_parameter=True,
+                distribution=tfpd.Uniform(low=0.0, high=4.0),
+            ),
+        },
+        data={
+            'simple': Data(
+                name='simple',
+                model_generating_function=lambda _prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False: (
+                    jnp.array([1.0, 2.0]),
+                    jnp.array([parameters['amplitude'].value, parameters['amplitude'].value + 1.0]),
+                ),
+                radtrans_object=SimpleNamespace(),
+                wavelengths=jnp.array([1.0, 2.0]),
+                spectrum=jnp.array([2.0, 3.0]),
+                uncertainties=jnp.array([0.5, 0.5]),
+            ),
+        },
+        adaptive_mesh_refinement=False,
+    )
+    retrieval.parameter_layout = ParameterLayout.from_parameters(retrieval.configuration.parameters)
+    retrieval.runtime = RetrievalRuntime.from_configuration(
+        retrieval.configuration,
+        parameter_layout=retrieval.parameter_layout,
+        n_free_parameters=retrieval.parameter_layout.n_free_parameters,
+    )
+
+    with pytest.raises(ValueError, match='legacy-only retrievals are not supported'):
+        retrieval._build_unconstrained_mcmc_interface()
+
+    with pytest.raises(ValueError, match='legacy-only retrievals are not supported'):
+        retrieval._build_jaxns_sampler_interface()
+
+
+def test_run_ultranest_vectorized_mode_stays_enabled_for_runtime_native_retrieval(monkeypatch):
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    parameter = Parameter(
+        name='amplitude',
+        is_free_parameter=True,
+        value=0.0,
+        transform_prior_cube_coordinate=lambda x: 4.0 * x,
+    )
+
+    def runtime_native_model(context, params, pt_plot_mode=False):
+        del context, pt_plot_mode
+        amplitude = params.get('amplitude')
+        return ModelResult(
+            kind='spectrum',
+            wavelengths=jnp.array([1.0, 2.0]),
+            spectrum=jnp.array([amplitude, amplitude + 1.0]),
+        )
+
+    data = Data(
+        name='simple',
+        model_generating_function=runtime_native_model,
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+    retrieval.configuration = SimpleNamespace(
+        parameters={'amplitude': parameter},
+        data={'simple': data},
+        adaptive_mesh_refinement=False,
+        sampler_type='ultranest',
+        retrieval_name='ultranest_runtime_native',
+        run_mode='retrieval',
+    )
+    retrieval.parameter_layout = ParameterLayout.from_parameters(retrieval.configuration.parameters)
+    retrieval.runtime = _build_runtime_native_runtime(retrieval.configuration, runtime_native_model)
+    retrieval._free_parameter_names_cache = list(retrieval.parameter_layout.free_parameter_names)
+    retrieval._n_free_params_total_retrieval = retrieval.parameter_layout.n_free_parameters
+    retrieval.output_directory = tests_results_directory
+    retrieval.uncertainties_mode = 'default'
+    retrieval.print_log_likelihood_for_debugging = False
+    retrieval.sampler = None
+    retrieval.latest_sampler_results = None
+
+    monkeypatch.setattr(petitRADTRANS.retrieval.retrieval, 'UltranestSampler', _RecordingUltranestSampler)
+    retrieval.generate_retrieval_summary = lambda *args, **kwargs: None
+
+    retrieval.run(error_checking=False, vectorized=True)
+
+    assert _RecordingUltranestSampler.last_instance.run_kwargs['vectorized'] is True
+    batched = _RecordingUltranestSampler.last_instance.log_likelihood_func(np.array([[2.0], [1.0]], dtype=float))
+    np.testing.assert_allclose(batched, np.array([retrieval.log_likelihood(np.array([2.0])), retrieval.log_likelihood(np.array([1.0]))]))
+
+
+@pytest.mark.parametrize(
+    ('runtime', 'warning_text'),
+    [
+        (
+            'legacy',
+            'legacy model groups',
+        ),
+        (
+            'ragged',
+            'ragged observation groups',
+        ),
+    ],
+)
+def test_ultranest_vectorized_mode_is_disabled_for_unsupported_runtime_groups(monkeypatch, runtime, warning_text):
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    parameter = Parameter(
+        name='amplitude',
+        is_free_parameter=True,
+        value=0.0,
+        transform_prior_cube_coordinate=lambda x: 4.0 * x,
+    )
+    data = Data(
+        name='simple',
+        model_generating_function=lambda _prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False: (
+            jnp.array([1.0, 2.0]),
+            jnp.array([parameters['amplitude'].value, parameters['amplitude'].value + 1.0]),
+        ),
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([2.0, 3.0]),
+        uncertainties=jnp.array([0.5, 0.5]),
+    )
+    retrieval.configuration = SimpleNamespace(
+        parameters={'amplitude': parameter},
+        data={'simple': data},
+        adaptive_mesh_refinement=False,
+        sampler_type='ultranest',
+        retrieval_name='ultranest_disabled',
+        run_mode='retrieval',
+    )
+    retrieval.parameter_layout = ParameterLayout.from_parameters(retrieval.configuration.parameters)
+    retrieval._free_parameter_names_cache = list(retrieval.parameter_layout.free_parameter_names)
+    retrieval._n_free_params_total_retrieval = retrieval.parameter_layout.n_free_parameters
+    retrieval.output_directory = tests_results_directory
+    retrieval.uncertainties_mode = 'default'
+    retrieval.print_log_likelihood_for_debugging = False
+    retrieval.sampler = None
+    retrieval.latest_sampler_results = None
+
+    if runtime == 'legacy':
+        retrieval.runtime = RetrievalRuntime.from_configuration(
+            retrieval.configuration,
+            parameter_layout=retrieval.parameter_layout,
+            n_free_parameters=retrieval.parameter_layout.n_free_parameters,
+        )
+    else:
+        retrieval.runtime = RetrievalRuntime(
+            parameter_layout=retrieval.parameter_layout,
+            observations={
+                'simple': ObservationState(
+                    name='simple',
+                    wavelengths=jnp.array([1.0, 2.0]),
+                    spectrum=np.array([np.array([2.0, 3.0]), np.array([1.5])], dtype=object),
+                    mask=jnp.array([False, False]),
+                    radtrans_object=SimpleNamespace(),
+                    model_generating_function=lambda context, params, pt_plot_mode=False: ModelResult(
+                        kind='spectrum',
+                        wavelengths=jnp.array([1.0, 2.0]),
+                        spectrum=jnp.array([params.get('amplitude'), params.get('amplitude') + 1.0]),
+                    ),
+                    model_contract='runtime_native',
+                ),
+            },
+            likelihoods={'simple': LikelihoodState(n_free_parameters=1)},
+            model_groups=(
+                ModelGroupState(
+                    source_name='simple',
+                    observation_names=('simple',),
+                    model_contract='runtime_native',
+                    model_generating_function=lambda context, params, pt_plot_mode=False: ModelResult(
+                        kind='spectrum',
+                        wavelengths=jnp.array([1.0, 2.0]),
+                        spectrum=jnp.array([params.get('amplitude'), params.get('amplitude') + 1.0]),
+                    ),
+                    radtrans_object=SimpleNamespace(),
+                    metadata={},
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(petitRADTRANS.retrieval.retrieval, 'UltranestSampler', _RecordingUltranestSampler)
+    retrieval.generate_retrieval_summary = lambda *args, **kwargs: None
+
+    with pytest.warns(RuntimeWarning, match=warning_text):
+        retrieval.run(error_checking=False, vectorized=True)
+
+    assert _RecordingUltranestSampler.last_instance.run_kwargs['vectorized'] is False
+
+
 def test_set_free_parameter_values_updates_non_pymultinest_retrievals():
     retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
     retrieval.configuration = SimpleNamespace(
@@ -84,6 +1255,24 @@ def test_set_free_parameter_values_updates_non_pymultinest_retrievals():
 
     assert retrieval.configuration.parameters['free_parameter'].value == 3.5
     assert retrieval.configuration.parameters['fixed_parameter'].value == 7.0
+
+
+def test_set_free_parameter_values_accepts_ctypes_sequences():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval.configuration = SimpleNamespace(
+        parameters={
+            'free_parameter': Parameter(
+                name='free_parameter',
+                is_free_parameter=True,
+            ),
+        }
+    )
+
+    cube = (ctypes.c_double * 1)(4.25)
+
+    retrieval._set_free_parameter_values(cube)
+
+    assert retrieval.configuration.parameters['free_parameter'].value == 4.25
 
 
 def test_numpyro_hmc_kernel_kwargs_prefer_trajectory_length_over_num_steps():
