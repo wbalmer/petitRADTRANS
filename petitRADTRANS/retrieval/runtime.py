@@ -17,7 +17,10 @@ if TYPE_CHECKING:
     from petitRADTRANS.radtrans import Radtrans
 
 
-def _flatten_parameter_values(values: npt.ArrayLike) -> np.ndarray:
+def _flatten_parameter_values(
+    values: npt.ArrayLike,
+    expected_size: int | None = None,
+) -> np.ndarray:
     if isinstance(values, np.ndarray):
         return values.reshape(-1)
 
@@ -26,9 +29,20 @@ def _flatten_parameter_values(values: npt.ArrayLike) -> np.ndarray:
         if isinstance(converted_values, list):
             return np.array(converted_values, dtype=float).reshape(-1)
 
+    if expected_size is not None:
+        try:
+            return np.array([values[index] for index in range(expected_size)], dtype=float)
+        except (IndexError, TypeError, ValueError):
+            pass
+
+    try:
+        return np.array(values, dtype=float).reshape(-1)
+    except (TypeError, ValueError):
+        pass
+
     try:
         return np.array([values[index] for index in range(len(values))], dtype=float)
-    except TypeError:
+    except (TypeError, ValueError):
         return np.array([values], dtype=float)
 
 
@@ -834,7 +848,7 @@ class ParameterLayout:
         )
 
     def _validate_free_parameter_count(self, values: npt.ArrayLike) -> np.ndarray:
-        flat_values = _flatten_parameter_values(values)
+        flat_values = _flatten_parameter_values(values, expected_size=self.n_free_parameters)
 
         if flat_values.size != self.n_free_parameters:
             raise ValueError(
@@ -844,7 +858,18 @@ class ParameterLayout:
         return flat_values
 
     def prior_transform_numpy(self, cube: npt.ArrayLike) -> np.ndarray:
-        cube_values = np.asarray(cube, dtype=float)
+        if isinstance(cube, np.ndarray):
+            cube_values = cube.astype(float, copy=False)
+        elif isinstance(cube, (list, tuple)):
+            cube_values = np.asarray(cube, dtype=float)
+        elif hasattr(cube, 'tolist'):
+            converted_cube = cube.tolist()
+            if isinstance(converted_cube, list):
+                cube_values = np.asarray(converted_cube, dtype=float)
+            else:
+                cube_values = self._validate_free_parameter_count(cube)
+        else:
+            cube_values = self._validate_free_parameter_count(cube)
 
         if cube_values.ndim == 2:
             if cube_values.shape[1] != self.n_free_parameters:

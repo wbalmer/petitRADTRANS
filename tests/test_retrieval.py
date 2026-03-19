@@ -172,6 +172,31 @@ def test_parameter_layout_supports_ordered_prior_transforms_and_legacy_adapter()
     assert legacy_parameters['fixed_numeric_parameter'].value == 7.0
 
 
+def test_parameter_layout_prior_transform_accepts_ctypes_pointer_inputs():
+    parameters = {
+        'transform_parameter': Parameter(
+            name='transform_parameter',
+            is_free_parameter=True,
+            transform_prior_cube_coordinate=lambda x: 1.0 + 3.0 * x,
+        ),
+        'distribution_parameter': Parameter(
+            name='distribution_parameter',
+            is_free_parameter=True,
+            distribution=_DummyDistribution(),
+        ),
+    }
+    layout = ParameterLayout.from_parameters(parameters)
+
+    cube_array = (ctypes.c_double * 2)(0.25, 0.75)
+    cube_pointer = ctypes.cast(cube_array, ctypes.POINTER(ctypes.c_double))
+
+    np.testing.assert_allclose(layout.prior_transform_numpy(cube_pointer), np.array([1.75, 11.5]))
+
+    layout.prior_transform_inplace(cube_pointer)
+
+    np.testing.assert_allclose(np.array([cube_pointer[0], cube_pointer[1]]), np.array([1.75, 11.5]))
+
+
 def test_parameter_layout_supports_unconstrained_transforms_and_log_jacobian():
     layout = ParameterLayout.from_parameters({
         'transform_parameter': Parameter(
