@@ -217,11 +217,7 @@ class Retrieval:
             best_fit_sample = samples_use[:-1, best_fit_index]
             self.best_fit_parameters = self.build_param_dict(best_fit_sample, parameters_read)
         try:
-            analyzer_for_summary = self.get_pymultinest_analyzer(ret_name=self.configuration.retrieval_name)
-            if analyzer_for_summary and hasattr(analyzer_for_summary, 'get_stats'):
-                self.generate_retrieval_summary(stats=analyzer_for_summary.get_stats())
-            else:
-                self.generate_retrieval_summary(None)
+            self.generate_retrieval_summary(None)
         except (ValueError, FileNotFoundError) as e:
             print(f"Could not generate initial summary file! Error was: {str(e)}")
 
@@ -972,6 +968,247 @@ class Retrieval:
                     f"    {name:<15}{fmt.format(median)} +- {fmt.format(sigma)}\n"
                 )
 
+    @staticmethod
+    def _get_results_field(results, *field_names):
+        if results is None:
+            return None
+
+        for field_name in field_names:
+            if isinstance(results, dict) and field_name in results:
+                return results[field_name]
+            if hasattr(results, field_name):
+                return getattr(results, field_name)
+
+        return None
+
+    def _get_active_sampler_results(self):
+        if getattr(self, 'latest_sampler_results', None) is not None:
+            return self.latest_sampler_results
+
+        if self.sampler is None:
+            return None
+
+        if hasattr(self.sampler, 'get_results'):
+            try:
+                sampler_results = self.sampler.get_results()
+            except TypeError:
+                sampler_results = None
+
+            if sampler_results is not None:
+                return sampler_results
+
+        return getattr(self.sampler, 'results', None)
+
+    def _coerce_parameter_sample_matrix(self, parameter_samples, parameter_names):
+        if parameter_samples is None:
+            return None, parameter_names
+
+        if isinstance(parameter_samples, dict):
+            ordered_names = [name for name in parameter_names if name in parameter_samples]
+            if not ordered_names:
+                ordered_names = list(parameter_samples.keys())
+
+            if not ordered_names:
+                return None, parameter_names
+
+            matrix = np.column_stack([
+                np.asarray(parameter_samples[name]).reshape(-1)
+                for name in ordered_names
+            ])
+            return matrix, ordered_names
+
+        matrix = np.asarray(parameter_samples)
+        if matrix.ndim == 1:
+            if len(parameter_names) != 1:
+                return None, parameter_names
+            matrix = matrix.reshape(-1, 1)
+        elif matrix.ndim != 2:
+            return None, parameter_names
+
+        if matrix.shape[1] == len(parameter_names):
+            return matrix, parameter_names
+
+        if matrix.shape[0] == len(parameter_names):
+            return matrix.T, parameter_names
+
+        if len(parameter_names) == 1:
+            return matrix.reshape(-1, 1), parameter_names
+
+        return None, parameter_names
+
+    def _evaluate_sample_log_likelihoods(self, parameter_samples):
+        return np.asarray([
+            self.log_likelihood(np.asarray(sample, dtype=float))
+            for sample in np.asarray(parameter_samples)
+        ], dtype=float)
+
+    def _build_samples_from_sampler_results(self, results=None, parameter_names=None):
+        if parameter_names is None:
+            parameter_names = list(self._free_parameter_names_cache)
+
+        if results is None:
+            results = self._get_active_sampler_results()
+
+        if results is None:
+            return None, parameter_names
+
+        parameter_samples = self._get_results_field(results, 'samples', 'parametrised_samples')
+        matrix, parameter_names = self._coerce_parameter_sample_matrix(parameter_samples, parameter_names)
+
+        if matrix is None and isinstance(results, dict):
+            weighted_samples = results.get('weighted_samples')
+            if isinstance(weighted_samples, dict):
+                matrix, parameter_names = self._coerce_parameter_sample_matrix(
+                    weighted_samples.get('points'),
+                    parameter_names,
+                )
+
+        if matrix is None:
+            return None, parameter_names
+
+        log_likelihood = self._get_results_field(
+            results,
+            'model_log_likelihood',
+            'log_likelihood',
+            'log_likelihoods',
+            'log_L_samples',
+            'logL',
+            'logl',
+            'log_L',
+        )
+
+        if log_likelihood is None and isinstance(results, dict):
+            weighted_samples = results.get('weighted_samples')
+            if isinstance(weighted_samples, dict):
+                log_likelihood = self._get_results_field(
+                    weighted_samples,
+                    'logl',
+                    'logL',
+                    'log_likelihood',
+                    'log_likelihoods',
+                    'log_L',
+                )
+
+        if log_likelihood is None:
+            log_likelihood = self._evaluate_sample_log_likelihoods(matrix)
+        else:
+            log_likelihood = np.asarray(log_likelihood).reshape(-1)
+            if log_likelihood.shape[0] != matrix.shape[0]:
+                log_likelihood = self._evaluate_sample_log_likelihoods(matrix)
+
+        return np.vstack((matrix.T, log_likelihood[np.newaxis, :])), parameter_names
+
+    def _get_samples_archive_path(self, ret_name: str | None = None) -> str:
+        if ret_name is None:
+            ret_name = self.configuration.retrieval_name
+
+        return os.path.join(
+            self.output_directory,
+            'out_samples',
+            f'{ret_name}_samples.npz',
+        )
+
+    def _load_samples_archive(self, ret_name: str | None = None):
+        archive_path = self._get_samples_archive_path(ret_name=ret_name)
+
+        if not os.path.exists(archive_path):
+            return None, None
+
+        with np.load(archive_path, allow_pickle=False) as archive:
+            if 'parameter_names' in archive.files:
+                parameter_names = [str(name) for name in archive['parameter_names'].tolist()]
+            else:
+                parameter_names = [
+                    file_name for file_name in archive.files
+                    if file_name not in {'log_likelihood', 'sample_matrix'}
+                ]
+
+            if not parameter_names:
+                return None, None
+
+            if 'sample_matrix' in archive.files:
+                parameter_matrix = np.asarray(archive['sample_matrix'], dtype=float)
+                parameter_matrix, parameter_names = self._coerce_parameter_sample_matrix(
+                    parameter_matrix,
+                    parameter_names,
+                )
+            else:
+                parameter_matrix, parameter_names = self._coerce_parameter_sample_matrix(
+                    {name: archive[name] for name in parameter_names},
+                    parameter_names,
+                )
+
+            if parameter_matrix is None:
+                return None, None
+
+            if 'log_likelihood' not in archive.files:
+                return None, None
+
+            log_likelihood = np.asarray(archive['log_likelihood'], dtype=float).reshape(-1)
+            if log_likelihood.shape[0] != parameter_matrix.shape[0]:
+                return None, None
+
+        return np.vstack((parameter_matrix.T, log_likelihood[np.newaxis, :])), parameter_names
+
+    def _build_samples_for_export(self):
+        samples, parameter_names = self._build_samples_from_sampler_results()
+
+        if samples is not None and parameter_names is not None:
+            return samples, parameter_names
+
+        if self.configuration.sampler_type.lower() == 'pymultinest':
+            samples_dict = get_pymultinest_sample_dict(
+                output_dir=self.output_directory,
+                name=self.configuration.retrieval_name,
+                add_log_likelihood=True,
+                add_stats=False,
+            )
+            parameter_names = list(samples_dict.keys())[:-1]
+            samples = np.array(list(samples_dict.values()), dtype=float)
+            return samples, parameter_names
+
+        return None, None
+
+    def _save_samples_archive(self) -> str | None:
+        samples, parameter_names = self._build_samples_for_export()
+
+        if samples is None or parameter_names is None:
+            return None
+
+        os.makedirs(os.path.join(self.output_directory, 'out_samples'), exist_ok=True)
+        archive_path = self._get_samples_archive_path()
+        archive_payload = {
+            'parameter_names': np.asarray(parameter_names, dtype=str),
+            'sample_matrix': np.asarray(samples[:-1, :].T, dtype=float),
+            'log_likelihood': np.asarray(samples[-1, :], dtype=float),
+        }
+
+        for index, parameter_name in enumerate(parameter_names):
+            archive_payload[parameter_name] = np.asarray(samples[index, :], dtype=float)
+
+        np.savez(archive_path, **archive_payload)
+
+        return archive_path
+
+    def _finalize_sampler_run(self, sampler, results, stats=None, sampler_parameters=None):
+        self.sampler = sampler
+        self.latest_sampler_results = results
+
+        if rank == 0:
+            try:
+                self._save_samples_archive()
+            except (FileNotFoundError, OSError, ValueError) as error:
+                warnings.warn(
+                    f"Failed to save sample archive for '{self.configuration.retrieval_name}': {error}",
+                    RuntimeWarning,
+                )
+            self.generate_retrieval_summary(
+                stats=stats,
+                sampler_parameters=sampler_parameters,
+            )
+
+        return results
+
     def get_pymultinest_analyzer(self, ret_name: str = ""):
         """
         Get the PMN analyzer from a retrieval run
@@ -1366,7 +1603,21 @@ class Retrieval:
                 The name of the retrieval that prepends all the PMN
                 output files.
         """
+        current_ret_name = self.configuration.retrieval_name
+        if not ret_name or ret_name == current_ret_name:
+            sampler_summary = self._collect_sampler_summary()
+            evidence = sampler_summary.get('evidence', {})
+            ln_z = evidence.get('ln_z')
+            if ln_z is not None:
+                ln_z_err = evidence.get('ln_z_err')
+                if ln_z_err is None:
+                    ln_z_err = np.nan
+                return ln_z / np.log(10), ln_z_err / np.log(10)
+
         analyzer = self.get_pymultinest_analyzer(ret_name)
+        if analyzer is None:
+            return np.nan, np.nan
+
         s = analyzer.get_stats()
 
         return s['global evidence'] / np.log(10), s['global evidence error'] / np.log(10)
@@ -1791,9 +2042,33 @@ class Retrieval:
         if names is None:
             names = [self.configuration.retrieval_name]
 
+        current_ret_name = self.configuration.retrieval_name
+        current_sampler_samples = None
+        current_parameter_names = None
+        if current_ret_name in names:
+            current_sampler_samples, current_parameter_names = self._build_samples_from_sampler_results()
+
+        def _add_archived_samples_if_available(name):
+            archived_samples, archived_parameter_names = self._load_samples_archive(ret_name=name)
+
+            if archived_samples is None or archived_parameter_names is None:
+                return False
+
+            samples[name] = archived_samples
+            param_dict[name] = list(archived_parameter_names)
+            return True
+
         if ultranest:
             # TODO : check Ultranest outputs
             for name in names:
+                if name == current_ret_name and current_sampler_samples is not None:
+                    samples[name] = current_sampler_samples
+                    param_dict[name] = list(current_parameter_names)
+                    continue
+
+                if _add_archived_samples_if_available(name):
+                    continue
+
                 samples_ = np.genfromtxt(output_directory + 'out_' + name + '/chains/equal_weighted_post.txt')
                 parameters_read = open(output_directory + 'out_' + name + '/chains/weighted_post.paramnames')
                 samples[name] = samples_
@@ -1805,6 +2080,14 @@ class Retrieval:
             'blackjaxhmc', 'blackjax_hmc', 'hmc', 'blackjaxnuts', 'blackjax_nuts', 'nuts'
         }:
             for name in names:
+                if name == current_ret_name and current_sampler_samples is not None:
+                    samples[name] = current_sampler_samples
+                    param_dict[name] = list(current_parameter_names)
+                    continue
+
+                if _add_archived_samples_if_available(name):
+                    continue
+
                 params_file = os.path.join(output_directory, 'out_BlackJAX', name + '_params.json')
                 samples_file = os.path.join(output_directory, 'out_BlackJAX', name + '_samples.npz')
 
@@ -1822,6 +2105,14 @@ class Retrieval:
             'numpyrohmc', 'numpyro_hmc', 'numpyronuts', 'numpyro_nuts'
         }:
             for name in names:
+                if name == current_ret_name and current_sampler_samples is not None:
+                    samples[name] = current_sampler_samples
+                    param_dict[name] = list(current_parameter_names)
+                    continue
+
+                if _add_archived_samples_if_available(name):
+                    continue
+
                 params_file = os.path.join(output_directory, 'out_NumPyro', name + '_params.json')
                 samples_file = os.path.join(output_directory, 'out_NumPyro', name + '_samples.npz')
 
@@ -1835,8 +2126,34 @@ class Retrieval:
 
             return samples, param_dict
 
+        if sampler_type in {
+            'ultranest', 'jaxnestedsampler', 'jaxns', 'jaxnsshardedstaticsestedsampler'
+        }:
+            for name in names:
+                if name == current_ret_name and current_sampler_samples is not None:
+                    samples[name] = current_sampler_samples
+                    param_dict[name] = list(current_parameter_names)
+                    continue
+
+                if _add_archived_samples_if_available(name):
+                    continue
+
+                raise FileNotFoundError(
+                    f"Sampler outputs for '{name}' are not available in memory for sampler '{sampler_type}'."
+                )
+
+            return samples, param_dict
+
         # pymultinest
         for name in names:
+            if name == current_ret_name and current_sampler_samples is not None:
+                samples[name] = current_sampler_samples
+                param_dict[name] = list(current_parameter_names)
+                continue
+
+            if _add_archived_samples_if_available(name):
+                continue
+
             samples_ = get_pymultinest_sample_dict(
                 output_dir=output_directory,
                 name=name,
@@ -1867,7 +2184,7 @@ class Retrieval:
         )
 
         samples = samples[self.configuration.retrieval_name]
-        param_dict = parameter_names[self.configuration.retrieval_name]
+        param_dict = list(parameter_names[self.configuration.retrieval_name])
 
         # Add likelihood
         if return_likelihood:
@@ -3040,8 +3357,9 @@ class Retrieval:
             comm.barrier()
 
         if sampler_object is not None:
-            self.sampler = sampler_object
-            self.latest_sampler_results = sampler_object.run_sampler(**sampler_kwargs)
+            sampler = sampler_object
+            results = sampler.run_sampler(**sampler_kwargs)
+            return self._finalize_sampler_run(sampler, results)
 
         elif sampler_type_normalized == 'pymultinest':
             prefix = os.path.join(self.output_directory, 'out_PMN', self.configuration.retrieval_name + '_')
@@ -3090,16 +3408,19 @@ class Retrieval:
             )
             analyzer = sampler.run_sampler(n_dims=self._n_free_params_total_retrieval, **pmn_args)
             sampler.pretty_print(self._free_parameter_names_cache, prefix)
-            if analyzer is not None and rank == 0:
-                if hasattr(analyzer, 'get_stats'):
-                    statistics = analyzer.get_stats()
-                    self.generate_retrieval_summary(
-                        statistics,
-                        sampler_parameters=pmn_args
-                    )
-                else:
-                    warnings.warn("PymultinestSampler did not return a standard analyzer. Cannot generate summary.")
+            statistics = analyzer.get_stats() if analyzer is not None and hasattr(analyzer, 'get_stats') else None
+            if analyzer is None or statistics is not None:
+                return self._finalize_sampler_run(
+                    sampler,
+                    analyzer,
+                    stats=statistics,
+                    sampler_parameters=pmn_args,
+                )
+
+            warnings.warn("PymultinestSampler did not return a standard analyzer. Cannot generate summary.")
+            self.sampler = sampler
             self.latest_sampler_results = analyzer
+            return self.latest_sampler_results
 
         elif sampler_type_normalized == 'ultranest':
             ultranest_vectorized = self._resolve_ultranest_vectorized_mode(
@@ -3119,9 +3440,11 @@ class Retrieval:
                 'vectorized': ultranest_vectorized,
             }
             ultranest_kwargs.update(sampler_kwargs)
-            self.latest_sampler_results = sampler.run_sampler(**ultranest_kwargs)
+            results = sampler.run_sampler(**ultranest_kwargs)
             sampler.pretty_print_results()
-            self.generate_retrieval_summary(
+            return self._finalize_sampler_run(
+                sampler,
+                results,
                 sampler_parameters=self._build_ultranest_summary_parameters(
                     sampler_type=sampler_type_normalized,
                     parameter_names=ultranest_kwargs['parameter_names'],
@@ -3146,9 +3469,11 @@ class Retrieval:
                 output_directory=self.output_directory,
                 retrieval_name=self.configuration.retrieval_name
             )
-            self.latest_sampler_results = sampler.run_sampler(**blackjax_kwargs)
+            results = sampler.run_sampler(**blackjax_kwargs)
             sampler.pretty_print_results()
-            self.generate_retrieval_summary(
+            return self._finalize_sampler_run(
+                sampler,
+                results,
                 sampler_parameters=self._build_blackjax_summary_parameters(
                     sampler_type=sampler_type_normalized,
                     sampler_kwargs=blackjax_kwargs,
@@ -3172,9 +3497,11 @@ class Retrieval:
                 output_directory=self.output_directory,
                 retrieval_name=self.configuration.retrieval_name
             )
-            self.latest_sampler_results = sampler.run_sampler(**blackjax_kwargs)
+            results = sampler.run_sampler(**blackjax_kwargs)
             sampler.pretty_print_results()
-            self.generate_retrieval_summary(
+            return self._finalize_sampler_run(
+                sampler,
+                results,
                 sampler_parameters=self._build_blackjax_summary_parameters(
                     sampler_type=sampler_type_normalized,
                     sampler_kwargs=blackjax_kwargs,
@@ -3198,9 +3525,11 @@ class Retrieval:
                 output_directory=self.output_directory,
                 retrieval_name=self.configuration.retrieval_name
             )
-            self.latest_sampler_results = sampler.run_sampler(**numpyro_kwargs)
+            results = sampler.run_sampler(**numpyro_kwargs)
             sampler.pretty_print_results()
-            self.generate_retrieval_summary(
+            return self._finalize_sampler_run(
+                sampler,
+                results,
                 sampler_parameters=self._build_numpyro_summary_parameters(
                     sampler_type=sampler_type_normalized,
                     sampler_kwargs=numpyro_kwargs,
@@ -3224,9 +3553,11 @@ class Retrieval:
                 output_directory=self.output_directory,
                 retrieval_name=self.configuration.retrieval_name
             )
-            self.latest_sampler_results = sampler.run_sampler(**numpyro_kwargs)
+            results = sampler.run_sampler(**numpyro_kwargs)
             sampler.pretty_print_results()
-            self.generate_retrieval_summary(
+            return self._finalize_sampler_run(
+                sampler,
+                results,
                 sampler_parameters=self._build_numpyro_summary_parameters(
                     sampler_type=sampler_type_normalized,
                     sampler_kwargs=numpyro_kwargs,
@@ -3260,9 +3591,11 @@ class Retrieval:
                 retrieval_name=self.configuration.retrieval_name
             )
             sampler.run_sampler(jit=jit, **jaxns_kwargs)
-            self.latest_sampler_results = sampler.get_results()
-            self.generate_retrieval_summary(
-                self.latest_sampler_results,
+            results = sampler.get_results()
+            return self._finalize_sampler_run(
+                sampler,
+                results,
+                stats=results,
                 sampler_parameters=self._build_jaxns_summary_parameters(
                     sampler_type=sampler_type_normalized,
                     sampler_kwargs=jaxns_kwargs,
@@ -3297,9 +3630,11 @@ class Retrieval:
                 retrieval_name=self.configuration.retrieval_name
             )
             sampler.run_sampler(jit=jit, **jaxns_kwargs)
-            self.latest_sampler_results = sampler.get_results()
-            self.generate_retrieval_summary(
-                self.latest_sampler_results,
+            results = sampler.get_results()
+            return self._finalize_sampler_run(
+                sampler,
+                results,
+                stats=results,
                 sampler_parameters=self._build_jaxns_summary_parameters(
                     sampler_type=sampler_type_normalized,
                     sampler_kwargs=jaxns_kwargs,

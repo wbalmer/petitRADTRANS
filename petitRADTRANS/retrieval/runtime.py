@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping, TYPE_CHECKING
 import warnings
 
@@ -329,13 +329,24 @@ class RetrievalRuntime:
         data: Mapping[str, Any],
         n_free_parameters: int | None = None,
     ) -> 'RetrievalRuntime':
+        from petitRADTRANS.retrieval.models import coerce_model_generating_function
+
         if n_free_parameters is None:
             n_free_parameters = parameter_layout.n_free_parameters
 
-        observations = {
-            data_name: data_object.to_observation_state()
-            for data_name, data_object in data.items()
-        }
+        observations = {}
+        for data_name, data_object in data.items():
+            observation = data_object.to_observation_state()
+            model_contract, model_generating_function = coerce_model_generating_function(
+                observation.model_generating_function,
+                observation.model_contract,
+            )
+            observations[data_name] = replace(
+                observation,
+                model_generating_function=model_generating_function,
+                model_contract=model_contract,
+            )
+
         likelihoods = {
             data_name: data_object.to_likelihood_state(n_free_parameters=n_free_parameters)
             for data_name, data_object in data.items()
@@ -460,11 +471,15 @@ class RetrievalRuntime:
         group: ModelGroupState,
         physical_params: PhysicalParams,
     ) -> ModelResult:
-        from petitRADTRANS.retrieval.models import run_legacy_model_adapter, run_runtime_model_adapter
+        from petitRADTRANS.retrieval.models import (
+            MODEL_CONTRACT_LEGACY,
+            run_legacy_model_adapter,
+            run_runtime_model_adapter,
+        )
 
         model_context = self._build_model_context(configuration, group, self.parameter_layout.build_legacy_parameter_dict(physical_params))
 
-        if group.model_contract == 'runtime_native':
+        if group.model_contract != MODEL_CONTRACT_LEGACY:
             return run_runtime_model_adapter(
                 group.model_generating_function,
                 model_context,
@@ -687,6 +702,9 @@ class RetrievalRuntime:
 
                 log_likelihood += contribution
 
+            if model_result.auxiliary_outputs:
+                log_prior += model_result.auxiliary_outputs.get('log_prior_weight', 0.0)
+
         if 'log_prior_weight' in parameters.keys():
             log_prior += parameters['log_prior_weight'].value
 
@@ -748,6 +766,9 @@ class RetrievalRuntime:
                 )
 
             log_likelihood_contributions.append(group_contribution)
+
+            if model_result.auxiliary_outputs:
+                log_prior += model_result.auxiliary_outputs.get('log_prior_weight', 0.0)
 
         log_likelihood = jnp.sum(jnp.asarray(log_likelihood_contributions, dtype=JAX_DTYPE))
         log_likelihood = jnp.where(has_invalid_contribution, invalid_value, log_likelihood)

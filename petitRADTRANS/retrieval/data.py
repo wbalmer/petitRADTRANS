@@ -413,39 +413,42 @@ class Data:
         if self.photometry:
             return
 
-        data = jnp.array(fits.getdata(path, 'SPECTRUM'))
+        data = fits.getdata(path, 'SPECTRUM')
 
-        if not isinstance(data, jnp.ndarray):  # TODO @Evert, right now the condition is never met
-            self.wavelengths = data.field("WAVELENGTH")
-            self.spectrum = data.field("FLUX")
+        if hasattr(data, 'columns') and data.columns is not None:
+            column_names = tuple(data.columns.names)
+            self.wavelengths = jnp.asarray(data.field('WAVELENGTH'), dtype=jnp.float64)
+            self.spectrum = jnp.asarray(data.field('FLUX'), dtype=jnp.float64)
 
-            if "COVARIANCE" in data.columns.names:
-                self.covariance = data.field("COVARIANCE")
+            if 'COVARIANCE' in column_names:
+                self.covariance = jnp.asarray(data.field('COVARIANCE'), dtype=jnp.float64)
                 self.inv_cov = jnp.linalg.inv(self.covariance)
                 sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
                 self.uncertainties = jnp.sqrt(self.covariance.diagonal())
-            elif "ERROR" in data.columns.names:
+            elif 'ERROR' in column_names:
                 # Note that this will only be the uncorrelated error.
                 # Dot with the correlation matrix (if available) to get
                 # the full error.
-                self.uncertainties = data.field("ERROR")
+                self.uncertainties = jnp.asarray(data.field('ERROR'), dtype=jnp.float64)
                 self.covariance = jnp.diag(self.uncertainties ** 2)
                 self.inv_cov = jnp.linalg.inv(self.covariance)
         else:
             hdul = fits.open(path)
-            self.wavelengths = hdul[1].data['WAVELENGTH'].astype(jnp.float64)
-            self.spectrum = hdul[1].data['FLUX'].astype(jnp.float64)
+            self.wavelengths = jnp.asarray(hdul[1].data['WAVELENGTH'], dtype=jnp.float64)
+            self.spectrum = jnp.asarray(hdul[1].data['FLUX'], dtype=jnp.float64)
 
             if 'FLUX_STD' in hdul[1].data.columns.names:
-                self.uncertainties = hdul[1].data['FLUX_STD'].astype(jnp.float64)
+                self.uncertainties = jnp.asarray(hdul[1].data['FLUX_STD'], dtype=jnp.float64)
             elif 'FLUX_ERROR' in hdul[1].data.columns.names:
-                self.uncertainties = hdul[1].data['FLUX_ERROR'].astype(jnp.float64)
+                self.uncertainties = jnp.asarray(hdul[1].data['FLUX_ERROR'], dtype=jnp.float64)
 
             if 'FLUX_COV' in hdul[1].data.columns.names:
-                self.covariance = hdul[1].data['FLUX_COV'].astype(jnp.float64)
+                self.covariance = jnp.asarray(hdul[1].data['FLUX_COV'], dtype=jnp.float64)
             elif 'COVARIANCE' in hdul[1].data.columns.names:
-                self.covariance = hdul[1].data['COVARIANCE'].astype(jnp.float64)
-            self.inv_cov = jnp.linalg.inv(self.covariance)
+                self.covariance = jnp.asarray(hdul[1].data['COVARIANCE'], dtype=jnp.float64)
+
+            if self.covariance is not None:
+                self.inv_cov = jnp.linalg.inv(self.covariance)
 
         if self.uncertainties is None and self.covariance is not None:
             self.uncertainties = jnp.sqrt(self.covariance.diagonal())
