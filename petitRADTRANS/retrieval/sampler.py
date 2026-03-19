@@ -456,6 +456,35 @@ class NumPyroSampler(Sampler):
     def _get_output_prefix(self):
         return os.path.join(self.output_directory, "out_NumPyro", self.retrieval_name)
 
+    @staticmethod
+    def _prepare_kernel_kwargs(
+        algorithm_name,
+        log_likelihood_func,
+        initial_step_size,
+        is_mass_matrix_diagonal,
+        target_acceptance_rate,
+        numpyro_kwargs,
+    ):
+        numpyro_kwargs = dict(numpyro_kwargs)
+        kernel_kwargs = {
+            'potential_fn': lambda position: -log_likelihood_func(position),
+            'step_size': initial_step_size,
+            'adapt_step_size': numpyro_kwargs.pop('adapt_step_size', True),
+            'adapt_mass_matrix': numpyro_kwargs.pop('adapt_mass_matrix', True),
+            'dense_mass': numpyro_kwargs.pop('dense_mass', not is_mass_matrix_diagonal),
+            'target_accept_prob': target_acceptance_rate,
+            'find_heuristic_step_size': numpyro_kwargs.pop('find_heuristic_step_size', False),
+            'forward_mode_differentiation': numpyro_kwargs.pop('forward_mode_differentiation', False),
+            'regularize_mass_matrix': numpyro_kwargs.pop('regularize_mass_matrix', True),
+        }
+        kernel_kwargs.update(numpyro_kwargs)
+
+        if algorithm_name == 'hmc' and 'trajectory_length' in kernel_kwargs and 'num_steps' in kernel_kwargs:
+            # Prefer trajectory_length so NumPyro can still adapt the step size.
+            kernel_kwargs.pop('num_steps')
+
+        return kernel_kwargs
+
     def _save_results(
         self,
         parameter_names,
@@ -517,18 +546,14 @@ class NumPyroSampler(Sampler):
         chain_method='parallel',
         **numpyro_kwargs,
     ):
-        kernel_kwargs = {
-            'potential_fn': lambda position: -self.log_likelihood_func(position),
-            'step_size': initial_step_size,
-            'adapt_step_size': numpyro_kwargs.pop('adapt_step_size', True),
-            'adapt_mass_matrix': numpyro_kwargs.pop('adapt_mass_matrix', True),
-            'dense_mass': numpyro_kwargs.pop('dense_mass', not is_mass_matrix_diagonal),
-            'target_accept_prob': target_acceptance_rate,
-            'find_heuristic_step_size': numpyro_kwargs.pop('find_heuristic_step_size', False),
-            'forward_mode_differentiation': numpyro_kwargs.pop('forward_mode_differentiation', False),
-            'regularize_mass_matrix': numpyro_kwargs.pop('regularize_mass_matrix', True),
-        }
-        kernel_kwargs.update(numpyro_kwargs)
+        kernel_kwargs = self._prepare_kernel_kwargs(
+            algorithm_name=self.algorithm_name,
+            log_likelihood_func=self.log_likelihood_func,
+            initial_step_size=initial_step_size,
+            is_mass_matrix_diagonal=is_mass_matrix_diagonal,
+            target_acceptance_rate=target_acceptance_rate,
+            numpyro_kwargs=numpyro_kwargs,
+        )
 
         if not jit:
             warnings.warn(

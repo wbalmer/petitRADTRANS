@@ -5,6 +5,7 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 """
 import json
 import os
+from types import SimpleNamespace
 import jax
 jax.config.update("jax_enable_x64", True)
 os.environ["DYLD_LIBRARY_PATH"] = "/Users/nasedkin/software/MultiNest/lib/:$DYLD_LIBRARY_PATH"
@@ -15,6 +16,8 @@ import numpy as np
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
 from petitRADTRANS.opacities.opacities import Opacity, CorrelatedKOpacity
 from petitRADTRANS.retrieval.data import Data
+from petitRADTRANS.retrieval.jax_parameter import Parameter
+from petitRADTRANS.retrieval.sampler import NumPyroSampler
 from petitRADTRANS.retrieval.utils import gaussian_prior
 
 from .context import petitRADTRANS
@@ -22,6 +25,60 @@ from .utils import tests_results_directory, reference_filenames, test_parameters
 
 # TODO MultiNest's random generator is computer-dependent (on Mac only?), the tolerance is temporarily increased to match this until a fix is found  # noqa E501
 relative_tolerance = 1e0  # relative tolerance when comparing with older results
+
+
+class _DummyDistribution:
+    name = 'dummy'
+    parameters = {}
+
+    @staticmethod
+    def quantile(x):
+        return 10.0 + 2.0 * x
+
+
+def test_prior_ultranest_supports_transform_and_distribution_priors():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval.configuration = SimpleNamespace(
+        parameters={
+            'transform_parameter': Parameter(
+                name='transform_parameter',
+                is_free_parameter=True,
+                transform_prior_cube_coordinate=lambda x: 1.0 + 3.0 * x,
+            ),
+            'distribution_parameter': Parameter(
+                name='distribution_parameter',
+                is_free_parameter=True,
+                distribution=_DummyDistribution(),
+            ),
+            'fixed_parameter': Parameter(
+                name='fixed_parameter',
+                is_free_parameter=False,
+                value=7.0,
+            ),
+        }
+    )
+
+    cube = np.array([0.25, 0.75], dtype=float)
+    transformed = retrieval.prior_ultranest(cube)
+
+    np.testing.assert_allclose(transformed, np.array([1.75, 11.5]))
+
+
+def test_numpyro_hmc_kernel_kwargs_prefer_trajectory_length_over_num_steps():
+    kernel_kwargs = NumPyroSampler._prepare_kernel_kwargs(
+        algorithm_name='hmc',
+        log_likelihood_func=lambda position: jnp.sum(position ** 2),
+        initial_step_size=1.0,
+        is_mass_matrix_diagonal=True,
+        target_acceptance_rate=0.8,
+        numpyro_kwargs={
+            'num_steps': 20,
+            'trajectory_length': 3.5,
+        },
+    )
+
+    assert 'trajectory_length' in kernel_kwargs
+    assert 'num_steps' not in kernel_kwargs
 
 
 def init_run():

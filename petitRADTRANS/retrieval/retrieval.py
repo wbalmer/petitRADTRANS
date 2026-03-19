@@ -985,6 +985,9 @@ class Retrieval:
                 The name of the retrieval that prepends all the PMN
                 output files.
         """
+        if "pymultinest" not in self.configuration.sampler_type.lower():
+            return None
+
         current_ret_name = self.configuration.retrieval_name
         is_current_retrieval = not ret_name or ret_name == current_ret_name
         if hasattr(self, 'latest_sampler_results') and self.latest_sampler_results is not None:
@@ -1601,11 +1604,15 @@ class Retrieval:
         """Return the prior mid-range values of the free parameters.
         """
         cube = []
-        jaxns = False
+        use_distribution = False
+        if (('jaxns' in self.configuration.sampler_type.lower())
+           or ('blackjax' in self.configuration.sampler_type.lower())
+           or ('numpyro' in self.configuration.sampler_type.lower())):
+            use_distribution = True
+
         for parameter_name, parameter in self.configuration.parameters.items():
             if parameter.is_free_parameter:
-                if parameter.distribution is not None:
-                    jaxns = True
+                if use_distribution:
                     if parameter.distribution.name.lower() == 'uniform':
                         cube.append((parameter.distribution.low + parameter.distribution.high) / 2.)
                     else:
@@ -1613,7 +1620,7 @@ class Retrieval:
                 else:
                     cube.append(0.5)
 
-        if jaxns:
+        if use_distribution:
             return cube
         else:
             return self.prior(cube)
@@ -2585,14 +2592,13 @@ class Retrieval:
         i_p = 0
         for pp in self.configuration.parameters:
             if self.configuration.parameters[pp].is_free_parameter:
-                if self.configuration.parameters[pp].transform_prior_cube_coordinate is not None:
-                    cube[i_p] = self.configuration.parameters[pp].get_param_uniform(cube[i_p])
-                    i_p += 1
+                cube[i_p] = self.configuration.parameters[pp].get_param_uniform(cube[i_p])
+                i_p += 1
         return cube
 
     def prior_ultranest(self, cube: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
         """
-        pyMultinest Prior function. Transforms unit hypercube into physical space.
+        UltraNest prior function. Transforms unit hypercube into physical space.
         """
         params = cube.copy()
         i_p = 0
@@ -2950,6 +2956,12 @@ class Retrieval:
             free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
                 self._build_blackjax_logdensity_interface()
             )
+            numpyro_num_steps = sampler_kwargs.pop('num_integration_steps', None)
+            if numpyro_num_steps is None:
+                numpyro_num_steps = sampler_kwargs.pop('num_steps', None)
+            if numpyro_num_steps is None and 'trajectory_length' not in sampler_kwargs:
+                numpyro_num_steps = 20
+
             numpyro_kwargs = {
                 'initial_position': sampler_kwargs.pop('initial_position', initial_position),
                 'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
@@ -2965,8 +2977,9 @@ class Retrieval:
                 'num_chains': sampler_kwargs.pop('num_chains', 1),
                 'thinning': sampler_kwargs.pop('thinning', 1),
                 'chain_method': sampler_kwargs.pop('chain_method', 'parallel'),
-                'num_steps': sampler_kwargs.pop('num_integration_steps', sampler_kwargs.pop('num_steps', 20)),
             }
+            if numpyro_num_steps is not None:
+                numpyro_kwargs['num_steps'] = numpyro_num_steps
             numpyro_kwargs.update(sampler_kwargs)
 
             sampler = NumPyroHMCSampler(
@@ -2977,21 +2990,25 @@ class Retrieval:
             )
             self.latest_sampler_results = sampler.run_sampler(**numpyro_kwargs)
             sampler.pretty_print_results()
+            summary_parameters = {
+                'sampler_type': sampler_type.lower(),
+                'num_samples': numpyro_kwargs['num_samples'],
+                'num_warmup': numpyro_kwargs['num_warmup'],
+                'initial_step_size': numpyro_kwargs['initial_step_size'],
+                'target_acceptance_rate': numpyro_kwargs['target_acceptance_rate'],
+                'is_mass_matrix_diagonal': numpyro_kwargs['is_mass_matrix_diagonal'],
+                'num_chains': numpyro_kwargs['num_chains'],
+                'thinning': numpyro_kwargs['thinning'],
+                'chain_method': numpyro_kwargs['chain_method'],
+                'seed': numpyro_kwargs['seed'],
+                'jit': numpyro_kwargs['jit'],
+            }
+            if 'num_steps' in numpyro_kwargs:
+                summary_parameters['num_integration_steps'] = numpyro_kwargs['num_steps']
+            if 'trajectory_length' in numpyro_kwargs:
+                summary_parameters['trajectory_length'] = numpyro_kwargs['trajectory_length']
             self.generate_retrieval_summary(
-                sampler_parameters={
-                    'sampler_type': sampler_type.lower(),
-                    'num_samples': numpyro_kwargs['num_samples'],
-                    'num_warmup': numpyro_kwargs['num_warmup'],
-                    'initial_step_size': numpyro_kwargs['initial_step_size'],
-                    'target_acceptance_rate': numpyro_kwargs['target_acceptance_rate'],
-                    'is_mass_matrix_diagonal': numpyro_kwargs['is_mass_matrix_diagonal'],
-                    'num_integration_steps': numpyro_kwargs['num_steps'],
-                    'num_chains': numpyro_kwargs['num_chains'],
-                    'thinning': numpyro_kwargs['thinning'],
-                    'chain_method': numpyro_kwargs['chain_method'],
-                    'seed': numpyro_kwargs['seed'],
-                    'jit': numpyro_kwargs['jit'],
-                }
+                sampler_parameters=summary_parameters
             )
         elif (sampler_type.lower() == 'jaxnestedsampler') or (sampler_type.lower() == 'jaxns'):
             if tfp is None:

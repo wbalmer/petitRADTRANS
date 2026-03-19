@@ -78,7 +78,16 @@ class Parameter:
 
     def get_param_uniform(self, cube):
         if self.is_free_parameter:
-            return self.transform_prior_cube_coordinate(cube)
+            if self.transform_prior_cube_coordinate is not None:
+                return self.transform_prior_cube_coordinate(cube)
+
+            if self.distribution is not None:
+                return self.distribution.quantile(cube)
+
+            raise ValueError(
+                f"Error! Free parameter '{self.name}' has neither a prior transform "
+                f"nor a distribution with a quantile method"
+            )
 
         raise ValueError(f"Error! Parameter '{self.name}' is not a free parameter")
 
