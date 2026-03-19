@@ -2262,7 +2262,7 @@ class Retrieval:
 
     def _set_free_parameter_values(self, values: npt.ArrayLike) -> None:
         """Copy sampled free-parameter values into the active retrieval configuration."""
-        flat_values = np.asarray(values).reshape(-1)
+        flat_values = self._flatten_free_parameter_values(values)
         index = 0
 
         for parameter in self.configuration.parameters.values():
@@ -2281,6 +2281,28 @@ class Retrieval:
             raise ValueError(
                 f"Expected {index} free-parameter values, got {flat_values.size}"
             )
+
+    @staticmethod
+    def _flatten_free_parameter_values(values: npt.ArrayLike) -> np.ndarray:
+        """Return a 1D numpy array from sampler-provided parameter values.
+
+        PyMultiNest can pass a ctypes-backed buffer that NumPy 2 refuses to wrap
+        directly via np.asarray because of an unsupported PEP 3118 format string.
+        Falling back to plain indexing avoids that incompatibility while keeping
+        support for numpy, JAX, and Python sequence inputs.
+        """
+        if isinstance(values, np.ndarray):
+            return values.reshape(-1)
+
+        if hasattr(values, 'tolist'):
+            converted_values = values.tolist()
+            if isinstance(converted_values, list):
+                return np.array(converted_values, dtype=float).reshape(-1)
+
+        try:
+            return np.array([values[index] for index in range(len(values))], dtype=float)
+        except TypeError:
+            return np.array([values], dtype=float)
 
     @staticmethod
     def log_likelihood_jax(
