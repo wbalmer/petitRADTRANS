@@ -56,7 +56,7 @@ from petitRADTRANS.retrieval.sampler import (
     JAXNSSampler,
     JAXNSShardedStaticNestedSampler
     )
-from petitRADTRANS.retrieval.log_likelihood import LogLikelihood
+from petitRADTRANS.retrieval.log_likelihood import LogLikelihood, get_aic, get_bic, get_bpics
 from petitRADTRANS.utils import flatten_object, list_str2str
 # noinspection PyUnresolvedReferences
 
@@ -831,6 +831,15 @@ class Retrieval:
                 summary.write(f"    𝛘^2/n_wlen = {best_fit_summary['chi2_wavelengths']:.2f}\n")
                 summary.write(f"    𝛘^2/DoF = {best_fit_summary['chi2_d_o_f']:.2f}\n")
 
+                evidence_approximations = best_fit_summary.get('evidence_approximations', {})
+                if evidence_approximations:
+                    summary.write("    Evidence Approximations\n")
+                    for metric_name in ('bic', 'aic', 'bpics'):
+                        metric_value = evidence_approximations.get(metric_name)
+                        if metric_value is None:
+                            continue
+                        summary.write(f"        {metric_name.upper()} = {metric_value:.6g}\n")
+
                 for key, value in best_fit_summary['parameters'].items():
                     if key in ['pressure_simple', 'pressure_width', 'pressure_scaling', 'FstarWlenMicron']:
                         continue
@@ -885,6 +894,10 @@ class Retrieval:
             verbose=False,
             show_chi2=False
         )
+        evidence_approximations = self._collect_evidence_approximations(
+            max_logl=log_l,
+            logl_samples=samples_use[-1, :],
+        )
 
         self.samples = samples_dict
         self.param_dictionary = parameter_dict
@@ -894,7 +907,93 @@ class Retrieval:
             'log_likelihood': log_l,
             'chi2_wavelengths': chi2_wavelengths,
             'chi2_d_o_f': chi2_d_o_f,
+            'evidence_approximations': evidence_approximations,
             'parameters': best_fit_parameters,
+        }
+
+    def _count_data_points(self) -> int:
+        return sum(np.size(data.spectrum) for data in self.configuration.data.values())
+
+    def _count_free_parameters(self) -> int:
+        return sum(
+            1 for parameter in self.configuration.parameters.values()
+            if parameter.is_free_parameter
+        )
+
+    def _get_log_weight_samples(self, results=None) -> np.ndarray | None:
+        if results is None:
+            results = self._get_active_sampler_results()
+
+        log_weight_samples = self._get_results_field(
+            results,
+            'log_weights',
+            'log_posterior_weights',
+            'sample_log_weights',
+        )
+        if log_weight_samples is not None:
+            return np.asarray(log_weight_samples, dtype=float).reshape(-1)
+
+        if isinstance(results, dict):
+            weighted_samples = results.get('weighted_samples')
+            if isinstance(weighted_samples, dict):
+                weighted_logl = self._get_results_field(weighted_samples, 'logl', 'logL')
+                weighted_weights = self._get_results_field(
+                    weighted_samples,
+                    'log_weights',
+                    'weights',
+                    'sample_weights',
+                )
+
+                if weighted_weights is None:
+                    return None
+
+                weighted_weights = np.asarray(weighted_weights, dtype=float).reshape(-1)
+                if weighted_weights.size == 0:
+                    return None
+
+                if np.all(weighted_weights > 0):
+                    weighted_log_weights = np.log(weighted_weights)
+                else:
+                    weighted_log_weights = weighted_weights
+
+                if weighted_logl is None:
+                    return weighted_log_weights
+
+                weighted_logl = np.asarray(weighted_logl, dtype=float).reshape(-1)
+                if weighted_logl.shape == weighted_log_weights.shape:
+                    return weighted_log_weights
+
+        return None
+
+    def _collect_evidence_approximations(
+        self,
+        max_logl: float,
+        logl_samples: npt.ArrayLike,
+        log_weights: npt.ArrayLike = None,
+    ) -> dict[str, float] | None:
+        logl_samples = np.asarray(logl_samples, dtype=float).reshape(-1)
+
+        if logl_samples.size == 0:
+            return None
+
+        n_data = self._count_data_points()
+        n_params = self._count_free_parameters()
+
+        if n_data < 1 or n_params < 0:
+            return None
+
+        if log_weights is None:
+            log_weights = self._get_log_weight_samples()
+
+        if log_weights is not None:
+            log_weights = np.asarray(log_weights, dtype=float).reshape(-1)
+            if log_weights.size != logl_samples.size:
+                log_weights = None
+
+        return {
+            'bic': get_bic(max_logl=max_logl, n_data=n_data, n_params=n_params),
+            'aic': get_aic(max_logl=max_logl, n_params=n_params),
+            'bpics': get_bpics(logl_samples=logl_samples, n_params=n_params, log_weights=log_weights),
         }
 
     def _collect_sampler_summary(self, stats: dict = None, sampler_parameters: dict = None) -> dict:

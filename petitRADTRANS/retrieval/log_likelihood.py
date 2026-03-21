@@ -1,7 +1,55 @@
+import numpy as np
 import jax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 from jax import jit, lax
+from scipy.special import logsumexp
+
+
+def get_bic(max_logl: float, n_data: int, n_params: int) -> float:
+    """Calculate the Bayesian Information Criterion for a fitted model.
+
+    References:
+        Schwartz (1978), DOI 10.1214/aos/1176344136.
+        Thorngren et al. (2025), DOI 10.3847/1538-4365/ae0e71.
+    """
+    return -2 * max_logl + n_params * np.log(n_data)
+
+
+def get_aic(max_logl: float, n_params: int) -> float:
+    """Calculate the Akaike Information Criterion for a fitted model.
+
+    References:
+        Akaike (1974), DOI 10.1109/TAC.1974.1100705.
+        Thorngren et al. (2025), DOI 10.3847/1538-4365/ae0e71.
+    """
+    return -2 * max_logl + 2 * n_params
+
+
+def get_bpics(logl_samples: ArrayLike, n_params: int, log_weights: ArrayLike = None) -> float:
+    """Calculate the simplified Bayesian Predictive Information Criterion.
+
+    References:
+        Ando (2011), DOI 10.1080/01966324.2011.10737798.
+        Thorngren et al. (2025), DOI 10.3847/1538-4365/ae0e71.
+    """
+    logl_samples = np.asarray(logl_samples, dtype=float).reshape(-1)
+
+    if logl_samples.size == 0:
+        raise ValueError("logl_samples must contain at least one value")
+
+    weights = None
+    if log_weights is not None:
+        log_weights = np.asarray(log_weights, dtype=float).reshape(-1)
+        if log_weights.size != logl_samples.size:
+            raise ValueError(
+                f"Expected {logl_samples.size} log weights, got {log_weights.size}"
+            )
+
+        weights = np.exp(log_weights - logsumexp(log_weights))
+
+    mean_logl = np.average(logl_samples, weights=weights)
+    return -2 * mean_logl + 2 * n_params
 
 class LogLikelihood:
     def __init__(self,
