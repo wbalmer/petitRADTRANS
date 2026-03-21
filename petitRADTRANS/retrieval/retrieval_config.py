@@ -87,33 +87,10 @@ class RetrievalConfig:
         self.cloud_species = ()
         self.rayleigh_species = ()
         self.continuum_opacities = ()
-        self.plot_kwargs = {}
-
-        self._plot_defaults()
 
         self.add_parameter("pressure_scaling", False, value=1)
         self.add_parameter("pressure_width", False, value=1)
         self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
-
-    def _plot_defaults(self):
-        ##################################################################
-        # Define axis properties of spectral plot if run_mode == 'evaluate'
-        ##################################################################
-        self.plot_kwargs["spec_xlabel"] = 'Wavelength [micron]'
-        self.plot_kwargs["spec_ylabel"] = "Flux [W/m2/micron]"
-        self.plot_kwargs["y_axis_scaling"] = 1.0
-        self.plot_kwargs["xscale"] = 'log'
-        self.plot_kwargs["yscale"] = 'linear'
-        self.plot_kwargs["resolution"] = 1500.
-        self.plot_kwargs["nsample"] = 10.
-
-        ##################################################################
-        # Define from which observation object to take P-T
-        # in evaluation mode (if run_mode == 'evaluate'),
-        # add PT-envelope plotting options
-        ##################################################################
-        self.plot_kwargs["temp_limits"] = [150, 3000]
-        self.plot_kwargs["press_limits"] = [1e2, 1e-5]
 
     def _setup_pres(self, scaling=10, width=3):
         """

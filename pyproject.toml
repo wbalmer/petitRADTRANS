@@ -79,6 +79,20 @@ retrieval = [
     "corner",
     "ultranest"
 ]
+sbi = [
+    "equinox>=0.11",
+    "optax>=0.2",
+    "zarr>=2.18",
+    "numcodecs>=0.13"
+]
+
+sbi-checkpoint = [
+    "orbax-checkpoint>=0.6"
+]
+
+sbi-interop = [
+    "distrax>=0.1.5"
+]
 
 test = [
     "build",
@@ -91,7 +105,11 @@ test = [
     "matplotlib",
     "corner",
     "seaborn",
-    "ultranest"
+    "ultranest",
+    "equinox>=0.11",
+    "optax>=0.2",
+    "zarr>=2.18",
+    "numcodecs>=0.13"
 ]
 
 [tool.flake8]

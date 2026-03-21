@@ -16,20 +16,108 @@ from petitRADTRANS.retrieval.parameter import Parameter
 
 
 class RetrievalPlotter:
-    _local_attributes = {"retrieval"}
+    """Plotting companion for :class:`Retrieval`.
 
-    def __init__(self, retrieval):
+    The plotter owns the plotting-related configuration that used to live in
+    the retrieval configuration object. These attributes can be adjusted after
+    construction through ``retrieval.plotter`` and are used by the plotting and
+    model-evaluation helpers throughout the retrieval module.
+
+    Attributes:
+        spec_xlabel : str
+            Label for the wavelength axis in spectrum plots.
+        spec_ylabel : str
+            Label for the flux axis in spectrum plots.
+        y_axis_scaling : float
+            Multiplicative scaling applied when plotting spectra and
+            contribution-like outputs.
+        xscale : str
+            X-axis scaling used in spectral plots.
+        yscale : str
+            Y-axis scaling used in spectral plots.
+        resolution : float
+            Plotting resolution used when rebinned observational data are shown.
+        nsample : int | float
+            Default number of posterior samples used in sampled plotting
+            utilities.
+        temp_limits : list[float] | tuple[float, float] | None
+            Optional x-axis limits for pressure-temperature plots.
+        press_limits : list[float] | tuple[float, float] | None
+            Optional y-axis limits for pressure-temperature plots.
+        flux_lim : list[float] | tuple[float, float] | None
+            Optional y-axis limits for spectral plots.
+        wavelength_lim : list[float] | tuple[float, float] | None
+            Optional x-axis limits for spectral plots.
+        reference_data_name : str | None
+            Name of the dataset used as the default plotting reference. If not
+            provided at construction time, it defaults to the first key in
+            ``retrieval.configuration.data``.
+    """
+
+    _local_attributes = {
+        "retrieval",
+        "_local_attributes",
+        "spec_xlabel",
+        "spec_ylabel",
+        "y_axis_scaling",
+        "xscale",
+        "yscale",
+        "resolution",
+        "nsample",
+        "temp_limits",
+        "press_limits",
+        "flux_lim",
+        "wavelength_lim",
+        "reference_data_name",
+    }
+
+    def __init__(self, retrieval, reference_data_name=None):
         object.__setattr__(self, "retrieval", retrieval)
+        object.__setattr__(self, "spec_xlabel", 'Wavelength [micron]')
+        object.__setattr__(self, "spec_ylabel", "Flux [W/m2/micron]")
+        object.__setattr__(self, "y_axis_scaling", 1.0)
+        object.__setattr__(self, "xscale", 'log')
+        object.__setattr__(self, "yscale", 'linear')
+        object.__setattr__(self, "resolution", 1500.)
+        object.__setattr__(self, "nsample", 10.)
+        object.__setattr__(self, "temp_limits", [150, 3000])
+        object.__setattr__(self, "press_limits", [1e2, 1e-5])
+        object.__setattr__(self, "flux_lim", None)
+        object.__setattr__(self, "wavelength_lim", None)
+        object.__setattr__(
+            self,
+            "reference_data_name",
+            reference_data_name if reference_data_name is not None else next(iter(self.configuration.data), None)
+        )
 
     def __getattr__(self, name):
         return getattr(self.retrieval, name)
 
     def __setattr__(self, name, value):
-        if name in self._local_attributes or hasattr(type(self), name):
+        if name in self._local_attributes or name.startswith('_') or hasattr(type(self), name):
             object.__setattr__(self, name, value)
             return
 
         setattr(self.retrieval, name, value)
+
+    def get_reference_data_name(self):
+        if self.reference_data_name is not None:
+            return self.reference_data_name
+
+        if len(self.configuration.data) == 0:
+            raise ValueError("retrieval configuration does not contain any data sets")
+
+        return next(iter(self.configuration.data))
+
+    def get_reference_data(self):
+        return self.configuration.data[self.get_reference_data_name()]
+
+    def get_reference_radtrans_name(self):
+        data = self.get_reference_data()
+        return data.external_radtrans_reference or data.name
+
+    def get_reference_radtrans_data(self):
+        return self.configuration.data[self.get_reference_radtrans_name()]
 
     def plot_abundances(
         self,
@@ -103,17 +191,7 @@ class RetrievalPlotter:
             pressures, t = self.calculate_temperature_profile(sample_use)
 
             if species_to_plot is None:
-                if self.configuration.data[
-                        self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is not None:
-                    species_to_plot = self.configuration.data[
-                        self.configuration.data[
-                            self.configuration.plot_kwargs["take_PTs_from"]
-                        ].external_radtrans_reference
-                    ].radtrans_object.line_species
-                else:
-                    species_to_plot = self.configuration.data[
-                        self.configuration.plot_kwargs["take_PTs_from"]
-                    ].radtrans_object.line_species
+                species_to_plot = self.get_reference_radtrans_data().radtrans_object.line_species
 
             prop_cycle = plt.rcParams['axes.prop_cycle']
             colors = prop_cycle.by_key()['color']
@@ -442,11 +520,11 @@ class RetrievalPlotter:
             fig, ax = plt.subplots()
             if log_scale_contribution:
                 plot_cont = -np.log10(
-                    best_fit_contribution * self.configuration.plot_kwargs["y_axis_scaling"] / weights
+                    best_fit_contribution * self.y_axis_scaling / weights
                 )
                 label = "-Log Weighted Flux"
             else:
-                plot_cont = best_fit_contribution * self.configuration.plot_kwargs["y_axis_scaling"] / weights
+                plot_cont = best_fit_contribution * self.y_axis_scaling / weights
                 label = "Weighted Flux"
 
             im = ax.contourf(x,
@@ -454,9 +532,9 @@ class RetrievalPlotter:
                              plot_cont,
                              n_contour_levels,
                              cmap='magma')
-            ax.set_xlabel(self.configuration.plot_kwargs["spec_xlabel"])
+            ax.set_xlabel(self.spec_xlabel)
             ax.set_ylabel("Pressure [bar]")
-            ax.set_xscale(self.configuration.plot_kwargs["xscale"])
+            ax.set_xscale(self.xscale)
             ax.set_yscale("log")
             ax.set_ylim(pressures[-1] * 1.03, pressures[0] / 1.03)
             plt.colorbar(im, ax=ax, label=label)
@@ -672,9 +750,9 @@ class RetrievalPlotter:
                              label='1 sig',
                              zorder=3)
 
-            if self.configuration.plot_kwargs["temp_limits"] is not None:
-                tlims = self.configuration.plot_kwargs["temp_limits"]
-                ax.set_xlim(self.configuration.plot_kwargs["temp_limits"])
+            if self.temp_limits is not None:
+                tlims = self.temp_limits
+                ax.set_xlim(self.temp_limits)
             else:
                 tlims = (np.min(temps) * 0.97, np.max(temps) * 1.03)
                 ax.set_xlim(tlims)
@@ -757,7 +835,7 @@ class RetrievalPlotter:
                         zorder=5)
             ax.set_yscale('log')
             try:
-                ax.set_ylim(self.configuration.plot_kwargs["press_limits"])
+                ax.set_ylim(self.press_limits)
             except Exception:
                 ax.set_ylim([pressures[-1] * 1.03, pressures[0] / 1.03])
 
@@ -794,9 +872,9 @@ class RetrievalPlotter:
                 print("Not in evaluate mode. Changing run mode to evaluate.")
                 self.configuration.run_mode = 'evaluate'
 
-            self.configuration.plot_kwargs["nsample"] = int(self.configuration.plot_kwargs["nsample"])
+            self.nsample = int(self.nsample)
 
-            print("\nPlotting Best-fit spectrum with " + str(self.configuration.plot_kwargs["nsample"]) + " samples.")
+            print("\nPlotting Best-fit spectrum with " + str(self.nsample) + " samples.")
             print("This could take some time...")
             len_samples = samples_use.shape[1]
             path = os.path.join(self.output_directory, 'evaluate_' + self.configuration.retrieval_name)
@@ -826,10 +904,7 @@ class RetrievalPlotter:
             else:
                 p = self.configuration.pressures
 
-            species = copy.copy(
-                self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species
-                )
+            species = copy.copy(self.get_reference_radtrans_data().radtrans_object.line_species)
 
             atmosphere = Radtrans(
                 pressures=p,
@@ -837,8 +912,7 @@ class RetrievalPlotter:
                 rayleigh_species=copy.copy(self.configuration.rayleigh_species),
                 gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
                 cloud_species=copy.copy(self.configuration.cloud_species),
-                line_opacity_mode=self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].line_opacity_mode,
+                line_opacity_mode=self.get_reference_radtrans_data().line_opacity_mode,
                 wavelength_boundaries=np.array([wavelength_min * 0.98, wavelength_max * 1.02]),
                 scattering_in_emission=self.configuration.scattering_in_emission
             )
@@ -847,7 +921,7 @@ class RetrievalPlotter:
             n_samples = nsample
 
             if nsample is None:
-                n_samples = self.configuration.plot_kwargs["nsample"]
+                n_samples = self.nsample
 
             random_ints = np.random.randint(low=0, high=len_samples, size=int(n_samples))
             parameters = {}
@@ -858,7 +932,7 @@ class RetrievalPlotter:
                 if os.path.exists(file):
                     wavelengths, model = np.load(file)
                 else:
-                    print(f"Generating sampled spectrum {i_sample} / {self.configuration.plot_kwargs['nsample']}...")
+                    print(f"Generating sampled spectrum {i_sample} / {self.nsample}...")
 
                     parameters = self.build_param_dict(samples_use[:-1, random_index], parameters_read)
                     parameters["contribution"] = Parameter("contribution", False, value=False)
@@ -888,8 +962,8 @@ class RetrievalPlotter:
                         file,
                         np.column_stack((wavelengths, model))
                     )
-                ax.plot(wavelengths, model * self.configuration.plot_kwargs["y_axis_scaling"],
-                        color="#00d2f3", alpha=1 / self.configuration.plot_kwargs["nsample"] + 0.1, linewidth=0.2,
+                ax.plot(wavelengths, model * self.y_axis_scaling,
+                        color="#00d2f3", alpha=1 / self.nsample + 0.1, linewidth=0.2,
                         marker=None)
 
             log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
@@ -910,7 +984,7 @@ class RetrievalPlotter:
                 show_chi2=True
             )
             ax.plot(best_fit_wavelengths,
-                    best_fit_spectrum * self.configuration.plot_kwargs["y_axis_scaling"],
+                    best_fit_spectrum * self.y_axis_scaling,
                     marker=None,
                     label=rf"Best fit, $\chi^{{2}}$={chi2:.2f}",
                     linewidth=4,
@@ -919,11 +993,11 @@ class RetrievalPlotter:
 
             for name, data in self.configuration.data.items():
                 fig, ax = plot_data(fig, ax, data,
-                                    resolution=self.configuration.plot_kwargs["resolution"],
-                                    scaling=self.configuration.plot_kwargs["y_axis_scaling"])
+                                    resolution=self.resolution,
+                                    scaling=self.y_axis_scaling)
 
             ax.set_xlabel('Wavelength [micron]')
-            ax.set_ylabel(self.configuration.plot_kwargs["spec_ylabel"])
+            ax.set_ylabel(self.spec_ylabel)
             ax.legend(loc='best')
             plt.tight_layout()
             plt.savefig(os.path.join(path, self.configuration.retrieval_name + '_sampled.pdf'), bbox_inches=0.)
@@ -1126,7 +1200,7 @@ class RetrievalPlotter:
             for name, data in self.configuration.data.items():
                 if not isinstance(data, PhotometryData):
                     wavelengths, flux, error, wavelengths_bins = __rebin_data(
-                        self.configuration.plot_kwargs["resolution"],
+                        self.resolution,
                         data.wavelengths,
                         data.spectrum,
                         data.uncertainties,
@@ -1241,7 +1315,7 @@ class RetrievalPlotter:
                         _markersize=markersize,
                         _markerfacecolors=color_i,
                         _ecolor=ecolor,
-                        _y_axis_scaling=self.configuration.plot_kwargs["y_axis_scaling"],
+                        _y_axis_scaling=self.y_axis_scaling,
                         _label=label,
                         _alpha=alpha)
 
@@ -1264,7 +1338,7 @@ class RetrievalPlotter:
                 ax,
                 best_fit_wavelengths,
                 best_fit_spectrum,
-                self.configuration.plot_kwargs["y_axis_scaling"],
+                self.y_axis_scaling,
                 chi2,
                 mode)
 
@@ -1273,19 +1347,19 @@ class RetrievalPlotter:
             lim_y = ax.get_ylim()
             lim_y = [lim_y[0], lim_y[1] * 1.05]
 
-            if self.configuration.plot_kwargs.get('flux_lim') is not None:
-                ax.set_ylim(self.configuration.plot_kwargs.get('flux_lim'))
+            if self.flux_lim is not None:
+                ax.set_ylim(self.flux_lim)
             else:
                 ax.set_ylim(lim_y)
 
-            if self.configuration.plot_kwargs["xscale"] == 'log':
+            if self.xscale == 'log':
                 lims = [best_fit_wavelengths[0] * 0.98, lims[1] * 1.02]
             else:
                 lims = [best_fit_wavelengths[0] * 0.98, best_fit_wavelengths[-1] * 1.02]
 
-            if self.configuration.plot_kwargs.get('wavelength_lim') is not None:
-                ax.set_xlim(self.configuration.plot_kwargs.get('wavelength_lim'))
-                ax_r.set_xlim(self.configuration.plot_kwargs.get('wavelength_lim'))
+            if self.wavelength_lim is not None:
+                ax.set_xlim(self.wavelength_lim)
+                ax_r.set_xlim(self.wavelength_lim)
             else:
                 ax.set_xlim(lims)
                 ax_r.set_xlim(lims)
@@ -1296,10 +1370,10 @@ class RetrievalPlotter:
             ax_r.fill_between(lims, -5, 5, color='lightgrey', alpha=0.3, zorder=-8)
             ax_r.axhline(linestyle='--', color='k', alpha=0.8, linewidth=2)
 
-            if "xscale" in self.configuration.plot_kwargs.keys():
-                ax.set_xscale(self.configuration.plot_kwargs["xscale"])
-            if "yscale" in self.configuration.plot_kwargs.keys():
-                ax.set_yscale(self.configuration.plot_kwargs["yscale"])
+            if self.xscale is not None:
+                ax.set_xscale(self.xscale)
+            if self.yscale is not None:
+                ax.set_yscale(self.yscale)
 
             ax.tick_params(axis="both", direction="in", length=10, bottom=True, top=True, left=True, right=True)
 
@@ -1321,7 +1395,7 @@ class RetrievalPlotter:
                 direction='in',
                 length=5)
 
-            if self.configuration.plot_kwargs["xscale"] == 'log':
+            if self.xscale == 'log':
                 if min_wavelength < 0:
                     min_wavelength = 0.08
                 x_major_ticks = []
@@ -1347,7 +1421,7 @@ class RetrievalPlotter:
                     length=5)
 
             ax.yaxis.set_minor_locator(AutoMinorLocator())
-            ax.set_ylabel(self.configuration.plot_kwargs["spec_ylabel"])
+            ax.set_ylabel(self.spec_ylabel)
 
             ax_r.tick_params(
                 axis="both",
@@ -1373,7 +1447,7 @@ class RetrievalPlotter:
                 direction='in',
                 length=5)
 
-            if self.configuration.plot_kwargs["xscale"] == 'log':
+            if self.xscale == 'log':
                 if min_wavelength < 0:
                     min_wavelength = 0.08
                 x_major_ticks = []
@@ -1402,7 +1476,7 @@ class RetrievalPlotter:
                     length=5)
             ax_r.yaxis.set_minor_locator(AutoMinorLocator())
             ax_r.set_ylabel(r"Residuals [$\sigma$]")
-            ax_r.set_xlabel(self.configuration.plot_kwargs["spec_xlabel"])
+            ax_r.set_xlabel(self.spec_xlabel)
             ax.legend(loc='upper center', ncol=len(self.configuration.data.keys()) + 1).set_zorder(1002)
 
             fig.align_ylabels()

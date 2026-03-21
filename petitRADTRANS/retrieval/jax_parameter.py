@@ -1,5 +1,4 @@
 import os
-os.environ["XLA_FLAGS"] = f"--xla_force_host_platform_device_count={os.cpu_count()}"
 import jax.numpy as jnp
 from jax import config
 from jaxns import Prior

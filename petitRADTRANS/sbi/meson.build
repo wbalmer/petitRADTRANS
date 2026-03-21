@@ -1,0 +1,20 @@
+py.install_sources([
+    '__init__.py',
+    'artifacts.py',
+    'benchmark.py',
+    'calibration.py',
+    'compatibility.py',
+    'dataset.py',
+    'encoders.py',
+    'flows.py',
+    'inference.py',
+    'observation.py',
+    'plotting.py',
+    'preprocessing.py',
+    'posterior.py',
+    'simulator.py',
+    'task.py',
+    'training.py',
+    ],
+    subdir: 'petitRADTRANS/sbi'
+)

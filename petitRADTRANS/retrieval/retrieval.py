@@ -101,11 +101,12 @@ class Retrieval:
             The directory in which the output folders should be written
         evaluate_sample_spectra : Bool
             Produce plots and data files for random samples drawn from the outputs of pymultinest.
-        ultranest : bool
-            If true, use Ultranest sampling rather than pymultinest. Provides a more accurate evidence estimate,
-            but is significantly slower.
         corner_plot_names : List(Str)
             List of additional retrieval names that should be included in the corner plotlib.
+        reference_data_name : str
+            Name of the dataset to use as the central plotting reference. This controls which dataset supplies the
+            default Radtrans object and forward model for pressure-temperature plots, abundance plots, and related
+            full-range evaluation utilities. If None, the first key in ``configuration.data`` is used.
         use_prt_plot_style : Bool
             Use the petitRADTRANS plotting style as described in style.py. Recommended to
             turn this parameter to false if you want to use interactive plotting, or if the
@@ -135,6 +136,7 @@ class Retrieval:
         use_mpi: bool = False,
         evaluate_sample_spectra: bool = False,
         corner_plot_names: list[str] = None,
+        reference_data_name: str = None,
         use_prt_plot_style: bool = True,
         test_plotting: bool = False,
         uncertainties_mode: str = "default",
@@ -182,7 +184,7 @@ class Retrieval:
 
         self.samples = {}  #: The samples produced by pymultinest.
         self.param_dictionary = {}
-        self.plotter = RetrievalPlotter(self)
+        self.plotter = RetrievalPlotter(self, reference_data_name=reference_data_name)
 
         # Set up pretty plotting
         if use_prt_plot_style:
@@ -591,6 +593,7 @@ class Retrieval:
         use_mpi: bool = False,
         evaluate_sample_spectra: bool = False,
         corner_plot_names: list[str] = None,
+        reference_data_name: str = None,
         use_prt_plot_style: bool = True,
         test_plotting: bool = False,
         uncertainties_mode: str = "default",
@@ -629,6 +632,9 @@ class Retrieval:
                 Produce plots and data files for random samples drawn from the outputs of pymultinest.
             corner_plot_names : List(Str)
                 List of additional retrieval names that should be included in the corner plotlib.
+            reference_data_name : str
+                Name of the dataset to use as the central plotting reference. If None, the first key in ``data``
+                is used.
             use_prt_plot_style : Bool
                 Use the petitRADTRANS plotting style as described in style.py. Recommended to
                 turn this parameter to false if you want to use interactive plotting, or if the
@@ -694,6 +700,7 @@ class Retrieval:
             use_mpi=use_mpi,
             evaluate_sample_spectra=evaluate_sample_spectra,
             corner_plot_names=corner_plot_names,
+            reference_data_name=reference_data_name,
             use_prt_plot_style=use_prt_plot_style,
             test_plotting=test_plotting,
             uncertainties_mode=uncertainties_mode
@@ -747,12 +754,7 @@ class Retrieval:
                     else:
                         summary.write(f"    {key} = {value.value}\n")
 
-            if 'take_PTs_from' in self.configuration.plot_kwargs:
-                radtrans_object = self.configuration.data[
-                    self.configuration.plot_kwargs['take_PTs_from']
-                ].radtrans_object
-            else:
-                radtrans_object = list(self.configuration.data.values())[0].radtrans_object
+            radtrans_object = self.plotter.get_reference_data().radtrans_object
 
             summary.write("    line_species = ")
             summary.write(f"{radtrans_object.line_species}")
@@ -821,39 +823,15 @@ class Retrieval:
 
             summary.write('\n')
 
-            # TODO: Ultranest and JAXNS sampler output saving to file.
-            if self.configuration.run_mode == 'evaluate':
+            best_fit_summary = self._collect_best_fit_summary()
+            if best_fit_summary is not None:
                 summary.write("Best Fit Parameters\n")
 
-                self.samples, self.param_dictionary = self.get_samples(
-                    ultranest=self.ultranest,
-                    names=self.corner_files,
-                    output_directory=self.output_directory,
-                    ret_names=None
-                )
-                samples_use = self.samples[self.configuration.retrieval_name]
-                parameters_read = self.param_dictionary[self.configuration.retrieval_name]
+                summary.write(f"    log_likelihood = {best_fit_summary['log_likelihood']:.6g}\n")
+                summary.write(f"    𝛘^2/n_wlen = {best_fit_summary['chi2_wavelengths']:.2f}\n")
+                summary.write(f"    𝛘^2/DoF = {best_fit_summary['chi2_d_o_f']:.2f}\n")
 
-                # Get best-fit index
-                log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                self.build_param_dict(samples_use[:-1, best_fit_index], parameters_read)
-                chi2_wavelengths = self.get_reduced_chi2_from_sample(
-                    sample=samples_use[:, best_fit_index],
-                    subtract_n_parameters=False,
-                    verbose=True,
-                    show_chi2=True
-                )
-                chi2_d_o_f = self.get_reduced_chi2_from_sample(
-                    sample=samples_use[:, best_fit_index],
-                    subtract_n_parameters=True,
-                    verbose=True,
-                    show_chi2=False
-                )
-
-                summary.write(f"    𝛘^2/n_wlen = {chi2_wavelengths:.2f}\n")
-                summary.write(f"    𝛘^2/DoF = {chi2_d_o_f:.2f}\n")
-
-                for key, value in self.best_fit_parameters.items():
+                for key, value in best_fit_summary['parameters'].items():
                     if key in ['pressure_simple', 'pressure_width', 'pressure_scaling', 'FstarWlenMicron']:
                         continue
 
@@ -869,6 +847,55 @@ class Retrieval:
                         summary.write(f"    {key} = {out:.3e}\n")
                     else:
                         summary.write(f"    {key} = {out}\n")
+
+    def _collect_best_fit_summary(self) -> dict | None:
+        try:
+            samples_dict, parameter_dict = self.get_samples(
+                ultranest=self.ultranest,
+                names=[self.configuration.retrieval_name],
+                output_directory=self.output_directory,
+                ret_names=None
+            )
+        except (FileNotFoundError, OSError, ValueError, KeyError):
+            return None
+
+        samples_use = samples_dict.get(self.configuration.retrieval_name)
+        parameters_read = parameter_dict.get(self.configuration.retrieval_name)
+
+        if samples_use is None or parameters_read is None:
+            return None
+
+        samples_use = np.asarray(samples_use)
+        if samples_use.ndim != 2 or samples_use.shape[0] == 0 or samples_use.shape[1] == 0:
+            return None
+
+        log_l, best_fit_index = self.get_best_fit_likelihood(samples_use, print_value=False)
+        best_fit_sample = samples_use[:, best_fit_index]
+        best_fit_parameters = self.build_param_dict(best_fit_sample[:-1], parameters_read)
+
+        chi2_wavelengths = self.get_reduced_chi2_from_sample(
+            sample=best_fit_sample,
+            subtract_n_parameters=False,
+            verbose=False,
+            show_chi2=False
+        )
+        chi2_d_o_f = self.get_reduced_chi2_from_sample(
+            sample=best_fit_sample,
+            subtract_n_parameters=True,
+            verbose=False,
+            show_chi2=False
+        )
+
+        self.samples = samples_dict
+        self.param_dictionary = parameter_dict
+        self.best_fit_parameters = best_fit_parameters
+
+        return {
+            'log_likelihood': log_l,
+            'chi2_wavelengths': chi2_wavelengths,
+            'chi2_d_o_f': chi2_d_o_f,
+            'parameters': best_fit_parameters,
+        }
 
     def _collect_sampler_summary(self, stats: dict = None, sampler_parameters: dict = None) -> dict:
         sampler_summary = {
@@ -1676,15 +1703,10 @@ class Retrieval:
                 if data.wavelength_boundaries[1] > wavelength_max:
                     wavelength_max = data.wavelength_boundaries[1]
 
-            species = copy.copy(self.configuration.data[
-                self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species)
+                species = copy.copy(self.plotter.get_reference_radtrans_data().radtrans_object.line_species)
 
-            line_opacity_mode = self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]
-            ].line_opacity_mode
-            resolution = self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]
-            ].model_resolution
+                line_opacity_mode = self.plotter.get_reference_radtrans_data().line_opacity_mode
+                resolution = self.plotter.get_reference_radtrans_data().model_resolution
             line_by_line_sampling = None
 
             if line_opacity_mode == 'lbl' and resolution is not None:
@@ -1709,9 +1731,7 @@ class Retrieval:
 
         # Check what model function we're using
         if model_generating_function is None:
-            mg_func = self.configuration.data[
-                self.configuration.plot_kwargs["take_PTs_from"]
-                ].model_generating_function
+            mg_func = self.plotter.get_reference_data().model_generating_function
         else:
             mg_func = model_generating_function
 
@@ -1779,10 +1799,7 @@ class Retrieval:
 
         pressures, temps = self.calculate_temperature_profile(sample)
 
-        if self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
-            name = self.configuration.plot_kwargs["take_PTs_from"]
-        else:
-            name = self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
+        name = self.plotter.get_reference_radtrans_name()
 
         species = [
             Opacity([species]).get_full_name().split('.R')[0]
@@ -3319,9 +3336,6 @@ class Retrieval:
         """
         Run mode for the class. Uses pynultinest to sample parameter space
         and produce standard PMN outputs.
-
-        TODO: simplfy code, want to enable use of more or less arbitrary samplers
-
         Args:
             sampler_type : str
                 The type of sampler to use. Can be one of the following:
@@ -3665,9 +3679,9 @@ class Retrieval:
                 A list of retrieval names, each should be included in the sample_dict.
                 If left as none, it defaults to only using the current retrieval name.
             nsample : Optional(int)
-                The number of times to compute Teff. If left empty, uses the "take_PTs_from"
-                plot_kwarg. Recommended to use ~300 samples, probably more than is set in
-                the kwarg!
+                The number of times to compute Teff. If left empty, uses the configured
+                reference_data_name. Recommended to use ~300 samples, probably more than
+                the default plotting sample count.
             resolution : int
                 The spectra resolution to compute the models at. Typically, this should be very
                 low in order to enable rapid calculation.
@@ -3681,7 +3695,7 @@ class Retrieval:
         if ret_names is None:
             ret_names = [self.configuration.retrieval_name]
         if nsample is None:
-            nsample = self.configuration.plot_kwargs["nsample"]
+            nsample = self.plotter.nsample
 
         # Set up the pRT object
         self._rebin_opacities(resolution=resolution)
@@ -3731,7 +3745,7 @@ class Retrieval:
             else:
                 random_numbers = np.random.randint(0, samples.shape[1], int(nsample))
 
-            data_use = self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]]
+            data_use = self.plotter.get_reference_data()
 
             if data_use.external_radtrans_reference is not None:
                 data_use = self.configuration.data[data_use.external_radtrans_reference]
@@ -4009,12 +4023,7 @@ class Retrieval:
         mass_fractions = []
 
         for ret in rets:
-            if self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
-                name = self.configuration.plot_kwargs["take_PTs_from"]
-            else:
-                name = self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
+            name = self.plotter.get_reference_radtrans_name()
 
             species = [
                 Opacity([species]).get_full_name().split('.R')[0]
@@ -4074,12 +4083,7 @@ class Retrieval:
         vmrs = None
 
         for ret in rets:
-            if self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
-                name = self.configuration.plot_kwargs["take_PTs_from"]
-            else:
-                name = self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
+            name = self.plotter.get_reference_radtrans_name()
 
             species = [
                 Opacity([species]).get_full_name().split('.R')[0]

@@ -7,6 +7,7 @@ subdir('plotlib')
 subdir('profiles')
 subdir('radtrans_core')
 subdir('retrieval')
+subdir('sbi')
 subdir('slurm_runs')
 subdir('stellar_spectra')
 

@@ -1,3 +1,22 @@
+"""Runtime data model and evaluation helpers for retrievals.
+
+This module defines the runtime-facing representation used by the retrieval
+package when executing sampler evaluations, especially for JAX-compatible and
+sampler-agnostic workflows.
+
+The core responsibilities of the module are:
+
+- represent parameter values in a pytree-friendly form
+- normalize observations and likelihood inputs into immutable runtime state
+- group shared model evaluations across observations
+- evaluate retrieval likelihoods through scalar, JAX, and batched JAX paths
+- translate between sampler coordinates and the legacy ``Parameter`` objects
+
+The classes in this file are intentionally small, immutable containers with a
+few conversion helpers. Together they provide the bridge between the legacy
+retrieval configuration objects and the newer runtime-native execution model.
+"""
+
 from __future__ import annotations
 
 import copy
@@ -73,9 +92,46 @@ def _clone_parameter(parameter: Parameter, value: Any) -> Parameter:
     )
 
 
+def _serialize_runtime_metadata_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _serialize_runtime_metadata_value(val)
+            for key, val in sorted(value.items(), key=lambda item: str(item[0]))
+        }
+
+    if isinstance(value, tuple):
+        return [_serialize_runtime_metadata_value(item) for item in value]
+
+    if isinstance(value, list):
+        return [_serialize_runtime_metadata_value(item) for item in value]
+
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+
+    if isinstance(value, np.generic):
+        return value.item()
+
+    if callable(value):
+        module = getattr(value, '__module__', '__callable__')
+        qualname = getattr(value, '__qualname__', repr(value))
+        return f'{module}.{qualname}'
+
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+
+    return repr(value)
+
+
 @tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class PhysicalParams:
+    """Immutable parameter values used by the runtime evaluator.
+
+    The runtime stores free and fixed parameter values separately so that the
+    dynamic portion can participate cleanly in JAX pytree flattening while the
+    original parameter ordering remains preserved.
+    """
+
     ordered_names: tuple[str, ...]
     dynamic_names: tuple[str, ...]
     dynamic_values: tuple[Any, ...]
@@ -83,6 +139,7 @@ class PhysicalParams:
 
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> 'PhysicalParams':
+        """Build runtime parameters from an ordered name-to-value mapping."""
         ordered_names = tuple(mapping.keys())
         dynamic_names = []
         dynamic_values = []
@@ -103,6 +160,7 @@ class PhysicalParams:
         )
 
     def tree_flatten(self):
+        """Return the pytree representation used by JAX transforms."""
         children = self.dynamic_values
         aux_data = {
             'ordered_names': self.ordered_names,
@@ -113,6 +171,7 @@ class PhysicalParams:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
+        """Reconstruct a ``PhysicalParams`` instance from pytree parts."""
         return cls(
             ordered_names=aux_data['ordered_names'],
             dynamic_names=aux_data['dynamic_names'],
@@ -121,6 +180,7 @@ class PhysicalParams:
         )
 
     def as_dict(self) -> dict[str, Any]:
+        """Return all parameters as a plain dictionary in original order."""
         dynamic_mapping = dict(zip(self.dynamic_names, self.dynamic_values, strict=True))
         static_mapping = dict(self.static_items)
         return {
@@ -129,15 +189,23 @@ class PhysicalParams:
         }
 
     def get(self, name: str, default: Any = None) -> Any:
+        """Return a parameter value by name with an optional default."""
         return self.as_dict().get(name, default)
 
     def ordered_items(self) -> tuple[tuple[str, Any], ...]:
+        """Return ordered ``(name, value)`` pairs for all parameters."""
         mapping = self.as_dict()
         return tuple((name, mapping[name]) for name in self.ordered_names)
 
 
 @dataclass(frozen=True)
 class ObservationState:
+    """Immutable observation description used by the runtime.
+
+    This mirrors the pieces of a retrieval ``Data`` object that are needed when
+    evaluating models and likelihoods, while stripping away mutable behavior.
+    """
+
     name: str
     wavelengths: Any
     spectrum: Any
@@ -156,6 +224,13 @@ class ObservationState:
 
 @dataclass(frozen=True)
 class LikelihoodState:
+    """Precomputed likelihood inputs associated with one observation.
+
+    The runtime stores the uncertainty representation separately from the raw
+    observation so samplers can reuse the same normalized bookkeeping across
+    repeated evaluations.
+    """
+
     data_uncertainties: Any = None
     data_covariance: Any = None
     mask: Any = None
@@ -167,6 +242,12 @@ class LikelihoodState:
 
 @dataclass(frozen=True)
 class ModelContext:
+    """Execution context passed to runtime-native model functions.
+
+    A runtime-native model receives this context instead of the legacy mutable
+    ``Parameter`` dictionary plus a collection of loosely coupled flags.
+    """
+
     name: str
     mode: str
     radtrans: 'Radtrans'
@@ -185,6 +266,13 @@ class ModelContext:
 @tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class ModelInputs:
+    """Structured physical inputs consumed by low-level spectrum calculators.
+
+    Runtime-native model builders populate this container once they have
+    derived thermodynamic, chemical, and cloud state from the current
+    parameters.
+    """
+
     pressures: Any
     temperatures: Any
     abundances: Mapping[str, Any]
@@ -229,6 +317,7 @@ class ModelInputs:
         )
 
     def tree_flatten(self):
+        """Return the pytree representation used by JAX transforms."""
         children = (
             self.pressures,
             self.temperatures,
@@ -263,6 +352,7 @@ class ModelInputs:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
+        """Reconstruct a ``ModelInputs`` instance from pytree parts."""
         return cls(
             pressures=children[0],
             temperatures=children[1],
@@ -295,6 +385,13 @@ class ModelInputs:
 
 @dataclass(frozen=True)
 class ModelResult:
+    """Normalized output emitted by runtime model evaluation.
+
+    The result can represent a valid spectrum, a pressure-temperature profile,
+    or an invalid evaluation. Named fields replace the legacy tuple protocol so
+    downstream code can handle auxiliary outputs consistently.
+    """
+
     kind: str
     wavelengths: Any = None
     spectrum: Any = None
@@ -307,6 +404,13 @@ class ModelResult:
 
 @dataclass(frozen=True)
 class ModelGroupState:
+    """Description of one shared model evaluation group.
+
+    Multiple observations can reuse the same underlying model call when they
+    point at the same radiative-transfer source. The runtime tracks that shared
+    evaluation through this grouping object.
+    """
+
     source_name: str
     observation_names: tuple[str, ...]
     model_contract: str
@@ -317,6 +421,13 @@ class ModelGroupState:
 
 @dataclass(frozen=True)
 class RetrievalRuntime:
+    """Immutable runtime view of a retrieval configuration.
+
+    ``RetrievalRuntime`` centralizes the normalized observation graph, model
+    grouping, and likelihood evaluation code used by scalar and JAX-backed
+    samplers.
+    """
+
     parameter_layout: 'ParameterLayout'
     observations: Mapping[str, ObservationState] = field(default_factory=dict)
     likelihoods: Mapping[str, LikelihoodState] = field(default_factory=dict)
@@ -329,6 +440,11 @@ class RetrievalRuntime:
         data: Mapping[str, Any],
         n_free_parameters: int | None = None,
     ) -> 'RetrievalRuntime':
+        """Build a runtime from retrieval data objects.
+
+        This normalizes observation state, resolves model contracts, and groups
+        observations that share a single model evaluation.
+        """
         from petitRADTRANS.retrieval.models import coerce_model_generating_function
 
         if n_free_parameters is None:
@@ -388,9 +504,10 @@ class RetrievalRuntime:
     def from_configuration(
         cls,
         configuration: Any,
-        parameter_layout: 'ParameterLayout' | None = None,
+        parameter_layout: ParameterLayout | None = None,
         n_free_parameters: int | None = None,
     ) -> 'RetrievalRuntime':
+        """Build a runtime directly from a retrieval configuration object."""
         if parameter_layout is None:
             parameter_layout = ParameterLayout.from_configuration(configuration)
 
@@ -666,6 +783,11 @@ class RetrievalRuntime:
         uncertainties_mode: str = 'default',
         print_log_likelihood_for_debugging: bool = False,
     ) -> float:
+        """Evaluate the posterior contribution for one parameter point.
+
+        This path is primarily used by non-JAX samplers and debugging code.
+        It returns the log likelihood plus any runtime-provided prior weight.
+        """
         invalid_value = -1e99
         tiny = 1e-99
         log_likelihood = 0.0
@@ -728,6 +850,11 @@ class RetrievalRuntime:
         uncertainties_mode: str = 'default',
         print_log_likelihood_for_debugging: bool = False,
     ) -> float:
+        """Evaluate the posterior through a JAX-compatible execution path.
+
+        The structure mirrors :meth:`evaluate_scalar`, but keeps the control
+        flow and array operations compatible with JAX transformations.
+        """
         invalid_value = jnp.asarray(-1e99, dtype=JAX_DTYPE)
         tiny = 1e-99
         log_likelihood_contributions = []
@@ -801,6 +928,11 @@ class RetrievalRuntime:
         uncertainties_mode: str = 'default',
         print_log_likelihood_for_debugging: bool = False,
     ) -> Any:
+        """Evaluate one or many parameter vectors with JAX vectorization.
+
+        A one-dimensional input is evaluated as a single sample. Higher-rank
+        inputs are mapped over the leading dimension with ``jax.vmap``.
+        """
         def evaluate_single(single_values: Any) -> Any:
             physical_params = self.parameter_layout.physical_params_from_free_values(single_values)
             return self.evaluate_jax(
@@ -817,9 +949,97 @@ class RetrievalRuntime:
 
         return jax.vmap(evaluate_single)(free_parameter_values)
 
+    def _project_dataset_observation(
+        self,
+        data_name: str,
+        data: Any,
+        parameters: Mapping[str, Any],
+        wavelengths_model: Any,
+        spectrum_model: Any,
+    ) -> Any:
+        """Project one model spectrum into the observation space of a dataset."""
+        from petitRADTRANS.retrieval.utils import (
+            ensure_jax_array,
+            extract_spectrum_parameters,
+            process_spectrum_pipeline,
+        )
+
+        parameter_dict = dict(parameters)
+
+        if data.photometry:
+            projected = data.photometric_transformation_function(wavelengths_model, spectrum_model)
+            if isinstance(projected, (tuple, list)):
+                projected = projected[0]
+            return ensure_jax_array(projected)
+
+        spectrum_params = extract_spectrum_parameters(parameter_dict, data_name)
+        projected = process_spectrum_pipeline(
+            wavelengths_model,
+            spectrum_model,
+            data,
+            parameter_dict,
+            data_name,
+            spectrum_params,
+        )
+        return ensure_jax_array(projected)
+
+    def simulate_observations_scalar(
+        self,
+        configuration: Any,
+        physical_params: PhysicalParams,
+    ) -> dict[str, dict[str, Any]]:
+        """Return deterministic observation-space model outputs for one parameter point."""
+        parameters = self.parameter_layout.build_legacy_parameter_dict(physical_params)
+        simulated_observations: dict[str, dict[str, Any]] = {}
+
+        for group in self.model_groups:
+            model_result = self._evaluate_model_group(configuration, group, physical_params)
+
+            if model_result.kind == 'invalid' or model_result.spectrum is None:
+                raise ValueError(
+                    f"Model evaluation for source '{group.source_name}' returned an invalid result."
+                )
+
+            for observation_name in group.observation_names:
+                data = configuration.data[observation_name]
+                projected_values = self._project_dataset_observation(
+                    observation_name,
+                    data,
+                    parameters,
+                    model_result.wavelengths,
+                    model_result.spectrum,
+                )
+                projected_values = data.scale_flux(projected_values, parameters)
+                projected_values = data.offset_flux(projected_values, parameters)
+                projected_uncertainties, projected_covariance = data.scale_and_inflate_uncertainties(parameters)
+                simulated_observations[observation_name] = {
+                    'values': projected_values,
+                    'uncertainties': projected_uncertainties,
+                    'covariance': projected_covariance,
+                    'mask': data.mask,
+                    'coordinates': data.wavelengths,
+                    'metadata': {
+                        'photometry': data.photometry,
+                        'source_name': group.source_name,
+                        'line_opacity_mode': data.line_opacity_mode,
+                        'scale': data.scale,
+                        'scale_err': data.scale_err,
+                        'offset_bool': data.offset_bool,
+                    },
+                }
+
+        return simulated_observations
+
 
 @dataclass(frozen=True)
 class ParameterLayout:
+    """Translation layer between sampler coordinates and runtime parameters.
+
+    ``ParameterLayout`` owns the ordered parameter metadata needed to transform
+    from unit-cube or unconstrained sampler coordinates into physical values,
+    and to reconstruct legacy ``Parameter`` dictionaries when required.
+    """
+
     parameter_names: tuple[str, ...]
     free_parameter_names: tuple[str, ...]
     free_parameter_indices: tuple[int, ...]
@@ -828,10 +1048,12 @@ class ParameterLayout:
 
     @classmethod
     def from_configuration(cls, configuration: Any) -> 'ParameterLayout':
+        """Build a parameter layout from a retrieval configuration."""
         return cls.from_parameters(configuration.parameters)
 
     @classmethod
     def from_parameters(cls, parameters: Mapping[str, Parameter]) -> 'ParameterLayout':
+        """Build a parameter layout from an ordered parameter mapping."""
         parameter_names = tuple(parameters.keys())
         parameter_templates = tuple(
             _clone_parameter(parameters[name], parameters[name].value)
@@ -855,6 +1077,7 @@ class ParameterLayout:
 
     @property
     def n_free_parameters(self) -> int:
+        """Return the number of free parameters in the layout."""
         return len(self.free_parameter_names)
 
     def _transform_parameter(self, parameter: Parameter, cube_value: Any) -> Any:
@@ -879,6 +1102,11 @@ class ParameterLayout:
         return flat_values
 
     def prior_transform_numpy(self, cube: npt.ArrayLike) -> np.ndarray:
+        """Transform unit-cube samples into physical parameter values.
+
+        Both single samples and batched samples are supported. The return value
+        is always a NumPy array to keep non-JAX sampler interfaces simple.
+        """
         if isinstance(cube, np.ndarray):
             cube_values = cube.astype(float, copy=False)
         elif isinstance(cube, (list, tuple)):
@@ -910,12 +1138,14 @@ class ParameterLayout:
         return transformed
 
     def prior_transform_inplace(self, cube: npt.ArrayLike) -> npt.ArrayLike:
+        """Apply :meth:`prior_transform_numpy` and write the result back in place."""
         transformed = self.prior_transform_numpy(cube)
         for index, value in enumerate(transformed):
             cube[index] = value
         return cube
 
     def transform_cube_to_physical(self, cube_position: Any) -> jnp.ndarray:
+        """Transform one unit-cube position into JAX physical coordinates."""
         cube_position = jnp.asarray(cube_position, dtype=JAX_DTYPE)
         transformed = []
 
@@ -928,7 +1158,17 @@ class ParameterLayout:
 
         return jnp.stack(transformed)
 
+    def transform_cube_to_physical_batch(self, cube_positions: Any) -> jnp.ndarray:
+        """Transform one or many unit-cube positions into physical coordinates."""
+        cube_positions = jnp.asarray(cube_positions, dtype=JAX_DTYPE)
+
+        if jnp.ndim(cube_positions) == 1:
+            return self.transform_cube_to_physical(cube_positions)[jnp.newaxis, :]
+
+        return jax.vmap(self.transform_cube_to_physical)(cube_positions)
+
     def cube_from_unconstrained(self, unconstrained_position: Any) -> jnp.ndarray:
+        """Map unconstrained coordinates onto the open unit cube."""
         unconstrained_position = jnp.asarray(unconstrained_position, dtype=JAX_DTYPE)
         return jnp.clip(
             jax.nn.sigmoid(unconstrained_position),
@@ -936,16 +1176,32 @@ class ParameterLayout:
             1.0 - self.cube_epsilon,
         )
 
+    def cube_from_unconstrained_batch(self, unconstrained_positions: Any) -> jnp.ndarray:
+        """Map one or many unconstrained positions onto the open unit cube."""
+        unconstrained_positions = jnp.asarray(unconstrained_positions, dtype=JAX_DTYPE)
+        return jnp.clip(
+            jax.nn.sigmoid(unconstrained_positions),
+            self.cube_epsilon,
+            1.0 - self.cube_epsilon,
+        )
+
     def transform_unconstrained(self, unconstrained_position: Any) -> jnp.ndarray:
+        """Transform unconstrained coordinates directly into physical values."""
         return self.transform_cube_to_physical(self.cube_from_unconstrained(unconstrained_position))
 
+    def transform_unconstrained_batch(self, unconstrained_positions: Any) -> jnp.ndarray:
+        """Transform one or many unconstrained positions into physical values."""
+        return self.transform_cube_to_physical_batch(self.cube_from_unconstrained_batch(unconstrained_positions))
+
     def log_jacobian_single(self, unconstrained_position: Any) -> jnp.ndarray:
+        """Return the log-Jacobian term for one unconstrained position."""
         unconstrained_position = jnp.asarray(unconstrained_position, dtype=JAX_DTYPE)
         return jnp.sum(
             -jax.nn.softplus(-unconstrained_position) - jax.nn.softplus(unconstrained_position)
         )
 
     def log_jacobian(self, unconstrained_positions: Any) -> jnp.ndarray:
+        """Return log-Jacobian terms for one or many unconstrained positions."""
         unconstrained_positions = jnp.asarray(unconstrained_positions, dtype=JAX_DTYPE)
 
         if jnp.ndim(unconstrained_positions) == 1:
@@ -954,10 +1210,26 @@ class ParameterLayout:
         return jax.vmap(self.log_jacobian_single)(unconstrained_positions)
 
     def physical_params_from_vector(self, values: npt.ArrayLike) -> PhysicalParams:
+        """Build ``PhysicalParams`` from a flat vector of free values."""
         flat_values = self._validate_free_parameter_count(values)
         return self.physical_params_from_free_values(tuple(flat_values))
 
+    def physical_params_from_matrix(self, values: npt.ArrayLike) -> tuple[PhysicalParams, ...]:
+        """Build ``PhysicalParams`` objects from a batch of free-parameter vectors."""
+        values = np.asarray(values, dtype=float)
+
+        if values.ndim == 1:
+            return (self.physical_params_from_vector(values),)
+
+        if values.shape[1] != self.n_free_parameters:
+            raise ValueError(
+                f"Expected value matrix with {self.n_free_parameters} free parameters, got {values.shape[1]}"
+            )
+
+        return tuple(self.physical_params_from_vector(row) for row in values)
+
     def physical_params_from_free_values(self, values: Any) -> PhysicalParams:
+        """Build ``PhysicalParams`` from ordered free-parameter values."""
         if len(values) != self.n_free_parameters:
             raise ValueError(
                 f"Expected {self.n_free_parameters} free-parameter values, got {len(values)}"
@@ -976,21 +1248,61 @@ class ParameterLayout:
         return PhysicalParams.from_mapping(physical_mapping)
 
     def physical_params_from_cube(self, cube_position: npt.ArrayLike) -> PhysicalParams:
+        """Build ``PhysicalParams`` from a unit-cube position."""
         return self.physical_params_from_vector(self.prior_transform_numpy(cube_position))
 
     def physical_params_from_unconstrained(self, unconstrained_position: Any) -> PhysicalParams:
+        """Build ``PhysicalParams`` from unconstrained sampler coordinates."""
         transformed = self.transform_unconstrained(unconstrained_position)
         return self.physical_params_from_vector(np.asarray(transformed))
 
     def free_parameter_vector(self, physical_params: PhysicalParams) -> jnp.ndarray:
+        """Extract the ordered free-parameter vector from ``PhysicalParams``."""
         mapping = physical_params.as_dict()
         return jnp.asarray([mapping[name] for name in self.free_parameter_names], dtype=JAX_DTYPE)
 
     def build_legacy_parameter_dict(self, physical_params: PhysicalParams) -> dict[str, Parameter]:
+        """Reconstruct legacy ``Parameter`` objects for compatibility paths."""
         mapping = physical_params.as_dict()
         return {
             parameter_name: _clone_parameter(parameter, mapping[parameter_name])
             for parameter_name, parameter in zip(self.parameter_names, self.parameter_templates, strict=True)
+        }
+
+    def serialize_metadata(self) -> dict[str, Any]:
+        """Return a deterministic metadata payload describing the layout."""
+        parameter_metadata = []
+
+        for parameter_name, parameter in zip(self.parameter_names, self.parameter_templates, strict=True):
+            distribution = parameter.distribution
+            distribution_name = None
+            distribution_parameters = None
+
+            if distribution is not None:
+                distribution_name = getattr(distribution, 'name', distribution.__class__.__name__)
+                distribution_parameters = _serialize_runtime_metadata_value(
+                    getattr(distribution, 'parameters', None)
+                )
+
+            parameter_metadata.append(
+                {
+                    'name': parameter_name,
+                    'is_free_parameter': parameter.is_free_parameter,
+                    'distribution_name': distribution_name,
+                    'distribution_parameters': distribution_parameters,
+                    'transform_prior_cube_coordinate': _serialize_runtime_metadata_value(
+                        parameter.transform_prior_cube_coordinate
+                    ),
+                    'value': _serialize_runtime_metadata_value(parameter.value),
+                }
+            )
+
+        return {
+            'parameter_names': list(self.parameter_names),
+            'free_parameter_names': list(self.free_parameter_names),
+            'free_parameter_indices': list(self.free_parameter_indices),
+            'cube_epsilon': float(self.cube_epsilon),
+            'parameters': parameter_metadata,
         }
 
 
