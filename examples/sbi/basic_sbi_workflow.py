@@ -13,6 +13,10 @@ The example uses a deliberately simple synthetic forward model so that the
 workflow is easy to read and can run quickly on a laptop. It is intended as a
 reference for the control flow and APIs rather than as a scientifically useful
 retrieval setup.
+
+If you persist a trained SBI estimator from this workflow and reload it later,
+prefer ``load_posterior_estimator(...)`` over a concrete class loader so the
+artifact remains compatible with future estimator families.
 """
 
 from __future__ import annotations

@@ -5,6 +5,7 @@ py.install_sources([
     'calibration.py',
     'compatibility.py',
     'dataset.py',
+    'estimator_registry.py',
     'encoders.py',
     'flows.py',
     'inference.py',

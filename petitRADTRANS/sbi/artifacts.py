@@ -29,6 +29,7 @@ class ArtifactMetadata:
     role: ArtifactRole
     task_name: str
     version: str
+    estimator_family: str | None = None
     task_version: str | None = None
     task_fingerprint: str | None = None
     preprocessing_version: str | None = None
@@ -45,6 +46,7 @@ class ArtifactMetadata:
             'role': self.role.value,
             'task_name': self.task_name,
             'version': self.version,
+            'estimator_family': self.estimator_family,
             'task_version': self.task_version,
             'task_fingerprint': self.task_fingerprint,
             'preprocessing_version': self.preprocessing_version,
@@ -72,6 +74,7 @@ class ArtifactMetadata:
         task: 'SBITask',
         role: ArtifactRole,
         version: str,
+        estimator_family: str | None = None,
         metadata: Mapping[str, Any] | None = None,
         preprocessing_metadata: Mapping[str, Any] | None = None,
         retrieval_config_digest: str | None = None,
@@ -82,6 +85,7 @@ class ArtifactMetadata:
             role=role,
             task_name=task.name,
             version=version,
+            estimator_family=estimator_family,
             task_version=task.task_version,
             task_fingerprint=task.task_fingerprint.digest,
             preprocessing_version=task.preprocessing_version,

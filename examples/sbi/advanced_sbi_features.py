@@ -12,6 +12,11 @@ current SBI stack:
 7. serving the trained posterior through the preprocessing-aware
    ``AmortizedRetrieval`` interface.
 
+Saved-model reloads in this example intentionally use the generic
+``load_posterior_estimator(...)`` entry point rather than a concrete class
+loader. That keeps the user-facing persistence boundary stable as additional
+estimator families are added.
+
 The script remains synthetic so that it can run as a self-contained example.
 It is intended to show how the different module pieces fit together.
 """
@@ -32,6 +37,7 @@ from petitRADTRANS.sbi import (
     ConditionalSplineFlowPosterior,
     DatasetSplit,
     FileArtifactRegistry,
+    load_posterior_estimator,
     NoiseModelConfig,
     NormalizedObservationDatasetReader,
     ObservationBlock,
@@ -185,8 +191,8 @@ def main() -> None:
         registry_payload = json.loads((registry_dir / 'registry.json').read_text())
         print('Registered artifact count:', len(registry_payload['artifacts']))
 
-        # Step 4: restore the saved model to demonstrate the persistence path.
-        loaded_posterior = ConditionalSplineFlowPosterior.load(saved_posterior_dir.as_posix())
+        # Step 4: restore the saved model through the generic estimator loader.
+        loaded_posterior = load_posterior_estimator(saved_posterior_dir.as_posix())
         print('Loaded posterior parameter space:', loaded_posterior.parameter_space)
         print('Loaded preprocessing payload keys:', sorted(loaded_posterior.preprocessing_metadata_payload.keys()))
 

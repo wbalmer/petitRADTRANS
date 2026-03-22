@@ -25,10 +25,12 @@ from petitRADTRANS.sbi import (  # noqa: E402
     empirical_interval_coverage,
     FileArtifactRegistry,
     fit_task_preprocessing,
+    FlowMatchingPosterior,
     generate_posterior_predictive_report,
     generate_sbc_report,
     generate_simulation_dataset,
     HierarchicalObservationEncoder,
+    load_posterior_estimator,
     NoiseModelConfig,
     NormalizedObservationDatasetReader,
     ObservationBlock,
@@ -1004,7 +1006,11 @@ def test_conditional_flow_posterior_fit_sample_and_save_load(tmp_path):
     save_directory = tmp_path / 'saved_posterior'
     posterior.save(save_directory.as_posix())
     loaded = ConditionalSplineFlowPosterior.load(save_directory.as_posix())
+    loaded_generic = load_posterior_estimator(save_directory.as_posix())
     loaded_samples = loaded.sample_posterior(encoded_observation, n_samples=5, seed=13)
+    loaded_generic_samples = loaded_generic.sample_posterior(encoded_observation, n_samples=5, seed=13)
+
+    saved_metadata = json.loads((save_directory / 'metadata.json').read_text())
 
     assert len(artifacts.history['train_loss']) == 2
     assert len(artifacts.validation_metrics['validation_loss']) == 2
@@ -1013,6 +1019,10 @@ def test_conditional_flow_posterior_fit_sample_and_save_load(tmp_path):
     assert np.asarray(samples.samples).shape == (5, 1)
     assert np.asarray(log_probabilities).shape == (5,)
     assert np.asarray(loaded_samples.samples).shape == (5, 1)
+    assert np.asarray(loaded_generic_samples.samples).shape == (5, 1)
+    assert saved_metadata['estimator_family'] == 'conditional_flow'
+    assert saved_metadata['metadata_schema_version'] == '0.2.0'
+    assert saved_metadata['estimator_config']['flow_family'] == 'spline'
     assert (checkpoint_directory / 'latest' / 'metadata.json').exists()
 
 
@@ -1135,10 +1145,121 @@ def test_posterior_model_save_registers_artifact_metadata(tmp_path):
     registered_entry = registry_payload['artifacts'][0]
 
     assert registry.resolve(ArtifactRole.POSTERIOR_MODEL, task.name, version='1.2.3') == save_directory.as_posix()
+    assert registered_entry['metadata']['estimator_family'] == 'conditional_flow'
     assert registered_entry['metadata']['task_fingerprint'] == generated.manifest.task_fingerprint
     assert registered_entry['metadata']['preprocessing_metadata']['version'] == generated.preprocessing_metadata.version
     assert 'training_metadata' in registered_entry['metadata']['metadata']
     assert registered_entry['metadata']['metadata']['training_metadata']['flow_family'] == 'spline'
+
+
+def test_generic_loader_supports_legacy_flow_metadata(tmp_path):
+    task = _build_runtime_task(
+        retrieval_name='legacy_loader_demo',
+        noise_mode='gaussian',
+        seed=62,
+        include_nuisance=False,
+        store_log_likelihood=False,
+        uncertainties=jnp.array([0.05, 0.05]),
+    )
+    generated = generate_simulation_dataset(
+        task=task,
+        storage_uri=(tmp_path / 'legacy_loader_dataset.zarr').as_posix(),
+        n_simulations=8,
+        chunk_size=2,
+        split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
+        dataset_version='0.8.2',
+    )
+    store = ZarrSimulationDatasetStore(chunk_size=2)
+    dataset = store.open(generated.manifest)
+    reader = NormalizedObservationDatasetReader(
+        dataset=dataset,
+        preprocessing_metadata=generated.preprocessing_metadata,
+    )
+    posterior = ConditionalSplineFlowPosterior(
+        parameter_dim=1,
+        embedding_dim=32,
+        num_coupling_layers=3,
+        hidden_dim=32,
+        learning_rate=5e-3,
+        batch_size=2,
+        num_epochs=2,
+        parameter_space='unconstrained',
+        seed=17,
+        task_metadata={'task_name': task.name},
+    )
+    posterior.fit(reader)
+
+    save_directory = tmp_path / 'legacy_saved_posterior'
+    posterior.save(save_directory.as_posix())
+
+    metadata_path = save_directory / 'metadata.json'
+    legacy_metadata = json.loads(metadata_path.read_text())
+    del legacy_metadata['estimator_family']
+    del legacy_metadata['metadata_schema_version']
+    del legacy_metadata['estimator_config']
+    metadata_path.write_text(json.dumps(legacy_metadata, sort_keys=True, indent=2))
+
+    loaded = load_posterior_estimator(save_directory.as_posix())
+
+    assert loaded.estimator_family == 'conditional_flow'
+    assert loaded.flow_family == 'spline'
+
+
+def test_flow_matching_posterior_fit_sample_and_generic_load(tmp_path):
+    task = _build_runtime_task(
+        retrieval_name='flow_matching_demo',
+        noise_mode='gaussian',
+        seed=67,
+        include_nuisance=False,
+        store_log_likelihood=False,
+        uncertainties=jnp.array([0.05, 0.05]),
+    )
+    generated = generate_simulation_dataset(
+        task=task,
+        storage_uri=(tmp_path / 'flow_matching_dataset.zarr').as_posix(),
+        n_simulations=8,
+        chunk_size=2,
+        split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
+        dataset_version='0.8.9',
+    )
+    store = ZarrSimulationDatasetStore(chunk_size=2)
+    dataset = store.open(generated.manifest)
+    reader = NormalizedObservationDatasetReader(
+        dataset=dataset,
+        preprocessing_metadata=generated.preprocessing_metadata,
+    )
+    posterior = FlowMatchingPosterior(
+        parameter_dim=1,
+        embedding_dim=24,
+        hidden_dim=32,
+        num_velocity_layers=2,
+        learning_rate=1e-3,
+        batch_size=2,
+        num_epochs=2,
+        parameter_space='unconstrained',
+        integration_steps=12,
+        seed=73,
+        task_metadata={'task_name': task.name},
+    )
+
+    artifacts = posterior.fit(reader)
+    train_batch = next(reader.iter_batches(split=DatasetSplit.TRAIN, batch_size=1, parameter_space='unconstrained'))
+    encoded_observation = posterior.encode_observation(train_batch.observations[0])
+    samples = posterior.sample_posterior(encoded_observation, n_samples=6, seed=79)
+
+    save_directory = tmp_path / 'saved_flow_matching_posterior'
+    posterior.save(save_directory.as_posix())
+    loaded = load_posterior_estimator(save_directory.as_posix())
+    loaded_samples = loaded.sample_posterior(encoded_observation, n_samples=6, seed=79)
+    saved_metadata = json.loads((save_directory / 'metadata.json').read_text())
+
+    assert len(artifacts.history['train_loss']) == 2
+    assert artifacts.metadata['integration_steps'] == 12
+    assert np.asarray(samples.samples).shape == (6, 1)
+    assert np.asarray(loaded_samples.samples).shape == (6, 1)
+    assert saved_metadata['estimator_family'] == 'flow_matching'
+    assert saved_metadata['estimator_config']['num_velocity_layers'] == 2
+    assert loaded.estimator_family == 'flow_matching'
 
 
 def test_spline_posterior_holdout_interval_coverage(tmp_path):

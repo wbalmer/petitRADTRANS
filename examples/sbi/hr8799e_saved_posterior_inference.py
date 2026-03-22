@@ -2,7 +2,7 @@
 
 This script is the companion to
 ``examples/sbi/hr8799e_runtime_native_real_data.py``. It assumes that a
-conditional spline posterior has already been trained and saved, then:
+saved SBI posterior artifact has already been trained and saved, then:
 
 1. rebuilds the real-data retrieval configuration;
 2. loads the saved posterior artifact from disk;
@@ -11,6 +11,9 @@ conditional spline posterior has already been trained and saved, then:
 
 This is the path you would use once a posterior model is already trained and you
 want repeated low-latency inference rather than retraining each time.
+
+Saved-model reloads go through ``load_posterior_estimator(...)`` so the script
+does not depend on one specific estimator class at restore time.
 
 Configuration is controlled through editable constants near the top of the
 script rather than command-line arguments.
@@ -31,7 +34,7 @@ from hr8799e_runtime_native_real_data import (  # noqa: E402
 )
 from petitRADTRANS.sbi import (  # noqa: E402
     AmortizedRetrieval,
-    ConditionalSplineFlowPosterior,
+    load_posterior_estimator,
     plot_posterior_marginals,
     plot_posterior_predictive_report,
 )
@@ -75,7 +78,7 @@ def main() -> None:
         output_dir = OUTPUT_DIRECTORY.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    posterior = ConditionalSplineFlowPosterior.load(posterior_dir.as_posix())
+    posterior = load_posterior_estimator(posterior_dir.as_posix())
     raw_observation_blocks = build_raw_observation_blocks(retrieval_config)
     retrieval = AmortizedRetrieval(task=task, posterior_estimator=posterior)
     result = retrieval.infer(

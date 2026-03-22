@@ -42,6 +42,14 @@ Documentation
 =============
 The code documentation, installation guide, and tutorial can be found at `https://petitradtrans.readthedocs.io <https://petitradtrans.readthedocs.io>`_.
 
+Saved SBI Artifacts
+===================
+The amortized SBI package now stores an explicit estimator-family identifier in
+saved posterior artifacts. User-facing examples load saved SBI models through
+``petitRADTRANS.sbi.load_posterior_estimator(...)`` rather than calling a
+concrete class loader directly. Existing saved flow posteriors without the new
+metadata field remain loadable through the compatibility path.
+
 Attribution
 ===========
 If you use petitRADTRANS in your work, please cite the following articles:

@@ -35,6 +35,11 @@ from .dataset import (
     generate_simulation_dataset,
 )
 from .encoders import DatasetSetAggregator, HierarchicalObservationEncoder, PhotometryPointEncoder, SpectralPatchEncoder
+from .estimator_registry import (
+    get_posterior_estimator_class,
+    load_posterior_estimator,
+    register_posterior_estimator,
+)
 from .flows import (
     ConditionalAffineCoupling,
     ConditionalAffineFlow,
@@ -55,6 +60,9 @@ from .observation import (
 from .posterior import (
     ConditionalFlowPosterior,
     ConditionalSplineFlowPosterior,
+    FlowMatchingPosterior,
+    POSTERIOR_METADATA_SCHEMA_VERSION,
+    PersistentPosteriorEstimator,
     PosteriorBatch,
     PosteriorEstimator,
     PosteriorSamples,
@@ -108,7 +116,10 @@ __all__ = [
     'DatasetSplit',
     'EncodedObservation',
     'GeneratedSimulationDataset',
+    'FlowMatchingPosterior',
+    'get_posterior_estimator_class',
     'HierarchicalObservationEncoder',
+    'load_posterior_estimator',
     'NoiseModelConfig',
     'NormalizedObservationDatasetReader',
     'ObservationBlock',
@@ -118,6 +129,7 @@ __all__ = [
     'OODDiagnostic',
     'PosteriorBatch',
     'PosteriorEstimator',
+    'POSTERIOR_METADATA_SCHEMA_VERSION',
     'PosteriorSamples',
     'plot_posterior_marginals',
     'plot_posterior_predictive_report',
@@ -158,8 +170,10 @@ __all__ = [
     'normalize_observation_blocks',
     'OrbaxCheckpointBackend',
     'PhotometryPointEncoder',
+    'PersistentPosteriorEstimator',
     'PosteriorPredictiveReport',
     'RegisteredArtifact',
+    'register_posterior_estimator',
     'resolve_checkpoint_backend',
     'SBITrainer',
     'SimulationBasedCalibrationReport',

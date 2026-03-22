@@ -36,6 +36,8 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 
 ### Changed
 - a15 Reverse-mode differentiation changes to rebinning and particle radius functions.
+- a15 Renamed retrieval dataset controls from `scale`, `scale_err`, and `offset_bool` to `scale_flux`, `scale_uncertainties`, and `fit_flux_offset` throughout `Data`, `RetrievalConfig`, runtime metadata, plotting, tests, and tutorials.
+- a15 Documented the runtime-native retrieval workflow around `RetrievalRuntime` and the built-in JAX retrieval models exported from `petitRADTRANS.retrieval.models`.
 - a14 Added BlackJAX and Numpyro HMC and NUTS samplers. Integrated samplers into retrieval summary.
 - a14 Moved retrieval plotting into RetrievalPlotter class, inheriting from Retrieval.
 - a12 Optimised Feautrier and ensured consistency with Fortran implementation.
@@ -66,6 +68,9 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 ### Added
 - a14: Added autodiff version of calculate_transit_radii function.
 - a13: Added autodiff version of calculate_flux functions.
+- a15 Added covariance fitting for spectroscopic retrieval datasets, including automatic covariance hyperparameters in `RetrievalConfig`, covariance construction in `Data`, and Cholesky-based covariance likelihood evaluation in `LogLikelihood`.
+- a15 Added a dedicated runtime-native JAX emission retrieval tutorial using the built-in runtime model exports.
+- a15 Added the `petitRADTRANS.sbi` package scaffold for simulation-based inference workflows built on the retrieval runtime.
 - Reimplemented synthetic photometry calculations from `species` to avoid circular dependencies.
 - Implemented new `Sampler` package to allow easier selection of `pymultinest`, `jaxns` or `ultranest`
 - Implemented new `LogLikelihood` class to ensure consistent chi2 calculations.
@@ -403,7 +408,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Attribute `SpectralModel.times` is now inside `SpectralModel.model_parameters`.
 - Function `polyfit` now only masks invalid points instead of the entire column/line where the point was.
 - In `SpectralModel`, orbital longitudes and radial velocity semi-amplitudes are know calculated instead of fixed.
-- In function `retrievals.data.get_chisq`, variable `scale_err` is now applied after 10^b error scaling, not before.
+- In function `retrievals.data.get_chisq`, variable `scale_err` (renamed `scale_uncertainties` in the current retrieval API) is now applied after 10^b error scaling, not before.
 - Rules for opacites and species names are now clearly defined, based on the ExoMol format.
 - Structure of directory input_data now is akin to ExoMol.
 - Line-by-line opacities are now read from HDF5 files.
