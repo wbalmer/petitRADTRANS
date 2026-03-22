@@ -838,13 +838,10 @@ class UltranestSampler(Sampler):
                  prior_func,           # Retrieval.prior_model_jax (generator)
                  output_directory,
                  retrieval_name,
-                 enable_step_sampling = False
                  ):
         super().__init__(log_likelihood_func, prior_func, output_directory, retrieval_name)
         if ultranest is None:
             raise ImportError("Ultranest module is not installed. This sampler cannot be used.")
-
-        self.enable_step_sampling = enable_step_sampling
 
         self.results = None
 
@@ -870,6 +867,7 @@ class UltranestSampler(Sampler):
             'ndraw_max': kwargs.pop('ndraw_max', 65536),
             'storage_backend': kwargs.pop('storage_backend', 'hdf5'),
             'warmstart_max_tau': kwargs.pop('warmstart_max_tau', -1),
+            'enable_step_sampling': kwargs.pop('enable_step_sampling', False)
         }
 
         self.sampler = ultranest.ReactiveNestedSampler(  # Renamed to avoid conflict with base class name
@@ -878,7 +876,7 @@ class UltranestSampler(Sampler):
             transform=self.prior_func,
             **reactive_kwargs
         )
-        if self.enable_step_sampling:
+        if reactive_kwargs.get('enable_step_sampling'):
             try:
                 from ultranest.stepsampler import SliceSampler, generate_mixture_random_direction
                 step_sampler_kwargs = {

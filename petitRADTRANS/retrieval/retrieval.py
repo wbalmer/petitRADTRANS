@@ -164,7 +164,6 @@ class Retrieval:
         self.print_log_likelihood_for_debugging = print_log_likelihood_for_debugging
         self.generate_mock_data = generate_mock_data
         self.output_directory = output_directory
-        self.ultranest = self.configuration.sampler_type.lower() == 'ultranest'
 
         self.corner_files = corner_plot_names
         if self.corner_files is None:
@@ -860,7 +859,6 @@ class Retrieval:
     def _collect_best_fit_summary(self) -> dict | None:
         try:
             samples_dict, parameter_dict = self.get_samples(
-                ultranest=self.ultranest,
                 names=[self.configuration.retrieval_name],
                 output_directory=self.output_directory,
                 ret_names=None
@@ -2128,7 +2126,6 @@ class Retrieval:
 
     def get_samples(
         self,
-        ultranest: bool = False,
         names: list[str] = None,
         output_directory: str = os.getcwd(),
         ret_names: list[str] = None
@@ -2136,8 +2133,6 @@ class Retrieval:
         """Get the samples of the requested retrievals.
 
         Args:
-            ultranest:
-                If True, assume that the retrievals are Ultranest retrievals.
             names:
                 Names of the retrievals from which to get the samples.
             output_directory :
@@ -2173,23 +2168,6 @@ class Retrieval:
             samples[name] = archived_samples
             param_dict[name] = list(archived_parameter_names)
             return True
-
-        if ultranest:
-            # TODO : check Ultranest outputs
-            for name in names:
-                if name == current_ret_name and current_sampler_samples is not None:
-                    samples[name] = current_sampler_samples
-                    param_dict[name] = list(current_parameter_names)
-                    continue
-
-                if _add_archived_samples_if_available(name):
-                    continue
-
-                samples_ = np.genfromtxt(output_directory + 'out_' + name + '/chains/equal_weighted_post.txt')
-                parameters_read = open(output_directory + 'out_' + name + '/chains/weighted_post.paramnames')
-                samples[name] = samples_
-                param_dict[name] = parameters_read
-            return samples, param_dict
 
         sampler_type = self.configuration.sampler_type.lower()
         if sampler_type in {
@@ -2293,7 +2271,6 @@ class Retrieval:
             A dict containing the free parameters names as keys, and their sampled values as values.
         """
         samples, parameter_names = self.get_samples(
-            ultranest=self.ultranest,
             names=None,
             output_directory=self.output_directory,
             ret_names=None

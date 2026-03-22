@@ -393,7 +393,6 @@ class RetrievalPlotter:
                 output_directory = self.output_directory
 
             sample_dict, parameter_dict = self.get_samples(
-                ultranest=self.ultranest,
                 names=self.corner_files,
                 output_directory=output_directory,
                 ret_names=ret_names
