@@ -92,11 +92,11 @@ def locate_input_files() -> tuple[Path, Path | None]:
     """Locate the HR8799e spectrum and optional photometry file inside the repo."""
 
     spectrum_candidates = [
-        Path('retrievals/emission/observations/HR8799e_Spectra.fits'),
+        Path('/u/nnas/packages/petitRADTRANS/docs/content/notebooks/retrievals/emission/observations/HR8799e_Spectra.fits'),
         Path('docs/content/notebooks/retrievals/emission/observations/HR8799e_Spectra.fits'),
     ]
     photometry_candidates = [
-        Path('retrievals/emission/observations/hr8799e_photometry.txt'),
+        Path('/u/nnas/packages/petitRADTRANS/docs/content/notebooks/retrievals/emission/observations/hr8799e_photometry.txt'),
         Path('docs/content/notebooks/retrievals/emission/observations/hr8799e_photometry.txt'),
     ]
 
@@ -225,7 +225,7 @@ def configure_retrieval_plotting(retrieval: Retrieval) -> None:
     retrieval.plotter.spec_xlabel = 'Wavelength [micron]'
     retrieval.plotter.spec_ylabel = 'Flux [W/m2/micron]'
     retrieval.plotter.y_axis_scaling = 1.0
-    retrieval.plotter.xscale = 'log'
+    retrieval.plotter.xscale = 'linear'
     retrieval.plotter.yscale = 'linear'
     retrieval.plotter.nsample = 10
     retrieval.plotter.reference_data_name = 'GRAVITY'

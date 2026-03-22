@@ -147,7 +147,7 @@ class PreCalculatedEquilibriumChemistryTable:
 
     def interpolate_mass_fractions(self, co_ratios: iter, log10_metallicities: iter,
                                    temperatures: iter, pressures: iter,
-                                   carbon_pressure_quench: float = None, full: bool = False,
+                                   carbon_quench_pressure: float = None, full: bool = False,
                                    numpy_compatible=False):
         """Interpolate mass fractions from a pre-calculated table to the desired parameters.
 
@@ -160,7 +160,7 @@ class PreCalculatedEquilibriumChemistryTable:
                 (K) desired temperatures
             pressures:
                 (bar) desired pressures
-            carbon_pressure_quench:
+            carbon_quench_pressure:
                 (bar) pressure at which to put a simplistic carbon-bearing species quenching
             full:
                 if True, output the pre-calculated mean molar mass and logarithmic derivative of temperature with
@@ -268,27 +268,27 @@ class PreCalculatedEquilibriumChemistryTable:
             nabla_adiabatic = None
 
         # Carbon quenching, assumes pressures_goal is sorted in ascending order
-        if carbon_pressure_quench is not None:
+        if carbon_quench_pressure is not None:
             def apply_carbon_quench(mass_fractions):
                 q_index = jnp.clip(
-                    jnp.searchsorted(pressures, carbon_pressure_quench),
+                    jnp.searchsorted(pressures, carbon_quench_pressure),
                     0, pressures.size - 1
                 )
 
                 mass_fractions['CH4'] = jnp.where(
-                    pressures < carbon_pressure_quench,
+                    pressures < carbon_quench_pressure,
                     mass_fractions['CH4'][q_index],
                     mass_fractions['CH4']
                 )
 
                 mass_fractions['CO'] = jnp.where(
-                    pressures < carbon_pressure_quench,
+                    pressures < carbon_quench_pressure,
                     mass_fractions['CO'][q_index],
                     mass_fractions['CO']
                 )
 
                 mass_fractions['H2O'] = jnp.where(
-                    pressures < carbon_pressure_quench,
+                    pressures < carbon_quench_pressure,
                     mass_fractions['H2O'][q_index],
                     mass_fractions['H2O']
                 )
@@ -298,7 +298,7 @@ class PreCalculatedEquilibriumChemistryTable:
                 return mass_fractions
 
             mass_fractions = lax.cond(
-                carbon_pressure_quench > jnp.min(pressures),
+                carbon_quench_pressure > jnp.min(pressures),
                 apply_carbon_quench,
                 no_carbon_quench,
                 mass_fractions
