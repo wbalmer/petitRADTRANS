@@ -216,17 +216,21 @@ def build_retrieval_config(example_data_file: Path) -> tuple[RetrievalConfig, jn
         wavelength_boundaries=(1.0, 2.5),
         line_opacity_mode='c-k',
     )
-
-    retrieval_config.plot_kwargs['spec_xlabel'] = 'Wavelength [micron]'
-    retrieval_config.plot_kwargs['spec_ylabel'] = 'Flux [W/m2/micron]'
-    retrieval_config.plot_kwargs['y_axis_scaling'] = 1.0
-    retrieval_config.plot_kwargs['xscale'] = 'log'
-    retrieval_config.plot_kwargs['yscale'] = 'linear'
-    retrieval_config.plot_kwargs['nsample'] = 10
-    retrieval_config.plot_kwargs['take_PTs_from'] = 'GRAVITY'
-    retrieval_config.plot_kwargs['temp_limits'] = [150, 3500]
-    retrieval_config.plot_kwargs['press_limits'] = [1e2, 1e-6]
     return retrieval_config, pressures
+
+
+def configure_retrieval_plotting(retrieval: Retrieval) -> None:
+    """Apply plotting settings through the retrieval plotter companion."""
+
+    retrieval.plotter.spec_xlabel = 'Wavelength [micron]'
+    retrieval.plotter.spec_ylabel = 'Flux [W/m2/micron]'
+    retrieval.plotter.y_axis_scaling = 1.0
+    retrieval.plotter.xscale = 'log'
+    retrieval.plotter.yscale = 'linear'
+    retrieval.plotter.nsample = 10
+    retrieval.plotter.reference_data_name = 'GRAVITY'
+    retrieval.plotter.temp_limits = [150, 3500]
+    retrieval.plotter.press_limits = [1e2, 1e-6]
 
 
 def build_sbi_task(retrieval_config: RetrievalConfig) -> SBITask:
@@ -292,6 +296,7 @@ def maybe_run_exact_retrieval(
         evaluate_sample_spectra=False,
         use_prt_plot_style=True,
     )
+    configure_retrieval_plotting(retrieval)
 
     retrieval.run(
         num_live_points=80,
