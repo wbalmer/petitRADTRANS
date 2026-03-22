@@ -122,6 +122,28 @@ def _serialize_runtime_metadata_value(value: Any) -> Any:
     return repr(value)
 
 
+def _configuration_requires_radtrans_initialization(configuration: Any) -> bool:
+    for data in getattr(configuration, 'data', {}).values():
+        if getattr(data, 'external_radtrans_reference', None) is None and getattr(data, 'radtrans_object', None) is None:
+            return True
+
+    return False
+
+
+def _ensure_configuration_radtrans_objects_initialized(configuration: Any) -> None:
+    if not _configuration_requires_radtrans_initialization(configuration):
+        return
+
+    from petitRADTRANS.config.configuration import petitradtrans_config_parser
+    from petitRADTRANS.retrieval.retrieval import Retrieval
+
+    retrieval = object.__new__(Retrieval)
+    retrieval.configuration = configuration
+    retrieval.path = petitradtrans_config_parser.get_input_data_path()
+
+    Retrieval.initialise_radtrans_objects(retrieval)
+
+
 @tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class PhysicalParams:
@@ -508,6 +530,8 @@ class RetrievalRuntime:
         n_free_parameters: int | None = None,
     ) -> 'RetrievalRuntime':
         """Build a runtime directly from a retrieval configuration object."""
+        _ensure_configuration_radtrans_objects_initialized(configuration)
+
         if parameter_layout is None:
             parameter_layout = ParameterLayout.from_configuration(configuration)
 

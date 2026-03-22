@@ -695,7 +695,8 @@ def get_abundances(pressures: typing.ArrayLike, temperatures: typing.ArrayLike,
         metallicity = jnp.mean(jnp.array(metallicity))
         co_ratio = jnp.mean(elemental_ratios[6]['local'] / elemental_ratios[8]['local'])
 
-    p_bases, pressure_indices = INVALID_VALUE, jnp.zeros_like(pressures, dtype=int)
+    p_bases = {}
+    pressure_indices = jnp.linspace(0, pressures.shape[0] - 1, pressures.shape[0], dtype=int)
     if cloud_species:
         mass_fractions, p_bases, pressure_indices = calculate_cloud_mass_fractions(
             pressures,
@@ -715,7 +716,7 @@ def get_abundances(pressures: typing.ArrayLike, temperatures: typing.ArrayLike,
         if 'FeH' in species:
             # Magic factor for FeH opacity - off by factor of 2
             abunds_change_rainout = value / 2.
-            if 'Fe(s)' in p_bases.keys() and 'use_easychem' not in parameters.keys():
+            if 'Fe(s)' in p_bases and 'use_easychem' not in parameters.keys():
                 index_ro = pressures < p_bases['Fe(s)']  # Must have iron cloud
                 abunds_change_rainout = jnp.where(index_ro, 0.0, abunds_change_rainout)
             mass_fractions[species] = abunds_change_rainout[pressure_indices]

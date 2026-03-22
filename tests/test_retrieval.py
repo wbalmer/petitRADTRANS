@@ -407,6 +407,60 @@ def test_retrieval_runtime_groups_external_radtrans_references():
     assert groups_by_source['independent'].observation_names == ('independent',)
 
 
+def test_retrieval_runtime_initializes_missing_radtrans_objects(monkeypatch):
+    initialized = []
+
+    def fake_initialize_radtrans_objects(self, scaling=10, width=3):
+        initialized.append((scaling, width))
+
+        for name, data in self.configuration.data.items():
+            if data.external_radtrans_reference is None and data.radtrans_object is None:
+                data.radtrans_object = SimpleNamespace(name=f'{name}_radtrans')
+
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.retrieval.Retrieval,
+        'initialise_radtrans_objects',
+        fake_initialize_radtrans_objects,
+    )
+
+    source_data = Data(
+        name='source',
+        model_generating_function=lambda *args, **kwargs: None,
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([0.1, 0.2]),
+        uncertainties=jnp.array([0.01, 0.02]),
+        wavelength_boundaries=(0.95, 2.05),
+    )
+    shared_data = Data(
+        name='shared',
+        model_generating_function=lambda *args, **kwargs: None,
+        external_radtrans_reference='source',
+        wavelengths=jnp.array([1.5, 2.5]),
+        spectrum=jnp.array([0.3, 0.4]),
+        uncertainties=jnp.array([0.03, 0.04]),
+        wavelength_boundaries=(1.45, 2.55),
+    )
+
+    config = SimpleNamespace(
+        parameters={
+            'free_parameter': Parameter(name='free_parameter', is_free_parameter=True),
+        },
+        data={
+            'source': source_data,
+            'shared': shared_data,
+        },
+        adaptive_mesh_refinement=False,
+    )
+
+    runtime = RetrievalRuntime.from_configuration(config)
+
+    assert initialized == [(10, 3)]
+    assert source_data.radtrans_object is not None
+    assert shared_data.radtrans_object is None
+    assert runtime.model_groups[0].source_name == 'source'
+    assert runtime.model_groups[0].radtrans_object is source_data.radtrans_object
+
+
 def test_runtime_construction_auto_detects_runtime_native_model_functions():
     def runtime_native_model(context, params, pt_plot_mode=False):
         del context, pt_plot_mode

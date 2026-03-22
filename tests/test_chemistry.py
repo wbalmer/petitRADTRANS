@@ -1,6 +1,7 @@
 """Test petitRADTRANS chemistry module.
 """
 import numpy as np
+from types import SimpleNamespace
 
 from .context import petitRADTRANS
 from .benchmark import Benchmark
@@ -136,3 +137,53 @@ def test_mass_fractions2metallicities():
         mass_fractions=mass_fractions,
         mean_molar_masses=mean_molar_masses
     )
+
+
+def test_get_abundances_without_clouds_keeps_dict_p_bases_and_identity_indices(monkeypatch):
+    pressures = np.array([1.0, 10.0])
+    temperatures = np.array([1000.0, 1100.0])
+
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        'calculate_gas_mass_fractions',
+        lambda **kwargs: (
+            {
+                'FeH': np.array([0.2, 0.4]),
+                'H2': np.array([0.7, 0.5]),
+                'He': np.array([0.1, 0.1]),
+            },
+            1.0,
+        ),
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        'compute_mean_molar_masses',
+        lambda abundances: np.ones_like(next(iter(abundances.values()))),
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        'mass_fractions2metallicity',
+        lambda mass_fractions, mean_molar_mass: (
+            np.array([0.0, 0.0]),
+            {
+                6: {'local': np.array([0.5, 0.5])},
+                8: {'local': np.array([1.0, 1.0])},
+            },
+        ),
+    )
+
+    abundances, mean_molar_mass, pressure_indices, p_bases = petitRADTRANS.chemistry.core.get_abundances(
+        pressures=pressures,
+        temperatures=temperatures,
+        parameters={
+            'Fe/H': SimpleNamespace(value=0.0),
+            'C/O': SimpleNamespace(value=0.5),
+        },
+        line_species=(),
+        cloud_species=(),
+    )
+
+    assert p_bases == {}
+    np.testing.assert_array_equal(np.asarray(pressure_indices), np.array([0, 1]))
+    np.testing.assert_allclose(np.asarray(abundances['FeH']), np.array([0.1, 0.2]))
+    np.testing.assert_allclose(np.asarray(mean_molar_mass), np.array([1.0, 1.0]))
