@@ -102,9 +102,9 @@ def _build_runtime_task(
         path_to_observations=None,
         model_generating_function=_dummy_runtime_model,
         radtrans_object=object(),
-        scale=include_nuisance,
-        scale_err=include_nuisance,
-        offset_bool=include_nuisance,
+        scale_flux=include_nuisance,
+        scale_uncertainties=include_nuisance,
+        fit_flux_offset=include_nuisance,
         wavelengths=jnp.array([1.0, 2.0]),
         spectrum=jnp.array([0.0, 0.0]),
         uncertainties=uncertainties,
@@ -599,8 +599,8 @@ def test_runtime_simulator_supports_nuisance_parameters():
     assert jnp.allclose(observation['deterministic_values'][0], jnp.array([5.0, 8.0]))
     assert jnp.allclose(observation['values'], observation['deterministic_values'])
     assert jnp.allclose(observation['uncertainties'][0], expected_uncertainties)
-    assert observation['metadata'][0]['scale'] is True
-    assert observation['metadata'][0]['offset_bool'] is True
+    assert observation['metadata'][0]['scale_flux'] is True
+    assert observation['metadata'][0]['fit_flux_offset'] is True
 
 
 def test_zarr_simulation_dataset_store_round_trip(tmp_path):
@@ -616,9 +616,9 @@ def test_zarr_simulation_dataset_store_round_trip(tmp_path):
         'photometry': False,
         'source_name': 'synthetic_spectrum',
         'line_opacity_mode': 'c-k',
-        'scale': False,
-        'scale_err': False,
-        'offset_bool': False,
+        'scale_flux': False,
+        'scale_uncertainties': False,
+        'fit_flux_offset': False,
     }
 
     writer.append(

@@ -10,6 +10,13 @@ from jax.typing import ArrayLike
 from astropy.io import fits
 
 import petitRADTRANS.physical_constants as cst
+from petitRADTRANS.retrieval.covariance import (
+    build_global_covariance_kernel,
+    build_local_covariance_kernel,
+    normalize_covariance_mode,
+    normalize_global_kernel_name,
+    normalize_local_kernel_name,
+)
 from petitRADTRANS.retrieval.runtime import LikelihoodState, ObservationState
 
 
@@ -67,12 +74,12 @@ class Data:
         wavelength_boundaries : tuple,list
             Set the wavelength range of the pRT object. Defaults to a range +/-5% greater than that of the data.
             Must at least be equal to the range of the data.
-        scale : bool
+        scale_flux : bool
             Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the
             retrieval.
-        scale_err:
+        scale_uncertainties:
             # TODO @Evert complete docstring
-        offset_bool:
+        fit_flux_offset:
             # TODO @Evert complete docstring
         wavelength_bin_widths : numpy.ndarray
             Set the wavelength bin width to bin the Radtrans object to the data. Defaults to the data bins.
@@ -111,8 +118,20 @@ class Data:
             Uncertainties of the data, in the same units as the spectrum.
         covariance:
             Covariance matrix of the data, in the same units as the spectrum squared.
-        covariance:
-            Covariance matrix of the data, in the same units as the spectrum squared.
+        fit_covariance:
+            If True, construct a fitted covariance matrix during retrieval using GP-like kernel terms.
+            This is currently supported for 1D spectroscopic datasets only.
+        covariance_mode:
+            Covariance model to use. Supported values are ``'none'``, ``'local'``, ``'global'``, and
+            ``'global_local'``.
+        global_covariance_kernel:
+            Global kernel name used when ``covariance_mode`` includes a global term.
+        local_covariance_kernel:
+            Local kernel name used when ``covariance_mode`` includes local terms.
+        n_local_covariance_kernels:
+            Number of local covariance kernels to include when using ``'global_local'`` mode.
+        covariance_jitter:
+            Small diagonal stabilization term added to the fitted covariance matrix.
         mask:
             Mask of the data.
     """
@@ -128,9 +147,9 @@ class Data:
         external_radtrans_reference: object | None = None,
         model_generating_function: Callable[..., tuple[ArrayLike, ArrayLike, ArrayLike]] | None = None,
         wavelength_boundaries: tuple[float, float] | None = None,
-        scale: bool = False,
-        scale_err: bool = False,
-        offset_bool: bool = False,
+        scale_flux: bool = False,
+        scale_uncertainties: bool = False,
+        fit_flux_offset: bool = False,
         fit_instrumental_resolution: bool = False,
         subtract_continuum: bool = False,
         wavelength_bin_widths: ArrayLike | None = None,
@@ -147,6 +166,12 @@ class Data:
         spectrum: ArrayLike | None = None,
         uncertainties: ArrayLike | None = None,
         covariance: ArrayLike | None = None,
+        fit_covariance: bool = False,
+        covariance_mode: str = 'none',
+        global_covariance_kernel: str = 'squared_exponential',
+        local_covariance_kernel: str = 'squared_exponential',
+        n_local_covariance_kernels: int = 0,
+        covariance_jitter: float = 0.0,
         mask: ArrayLike | None = None # TODO bool typing
     ):
         self.name: str = name
@@ -215,6 +240,13 @@ class Data:
         self.covariance: ArrayLike | None = covariance
         self.inv_cov: ArrayLike | None = None
         self.log_covariance_determinant: float | None = None
+        self.fit_covariance: bool = fit_covariance
+        self.covariance_mode: str = normalize_covariance_mode(covariance_mode)
+        self.global_covariance_kernel: str = normalize_global_kernel_name(global_covariance_kernel)
+        self.local_covariance_kernel: str = normalize_local_kernel_name(local_covariance_kernel)
+        self.n_local_covariance_kernels: int = int(n_local_covariance_kernels)
+        self.covariance_jitter: float = float(covariance_jitter)
+        self._pairwise_wavelength_differences: ArrayLike | None = None
 
         if covariance is not None:
             self.inv_cov = jnp.linalg.inv(covariance)
@@ -223,9 +255,9 @@ class Data:
         if covariance is not None and uncertainties is None:
             self.uncertainties = jnp.sqrt(jnp.diagonal(covariance))
 
-        self.scale: bool = scale
-        self.scale_err: bool = scale_err
-        self.offset_bool: bool = offset_bool
+        self.scale_flux: bool = scale_flux
+        self.scale_uncertainties: bool = scale_uncertainties
+        self.fit_flux_offset: bool = fit_flux_offset
         self.fit_instrumental_resolution: bool = fit_instrumental_resolution
         self.subtract_continuum: bool = subtract_continuum
         self.scale_factor: float = 1.0
@@ -311,6 +343,8 @@ class Data:
 
                 if self.data_resolution is None:
                     self.data_resolution = jnp.mean(self.photometric_bin_edges) / self.wavelength_bin_widths
+
+            self._validate_covariance_configuration()
 
     # TODO [4.0.0] This should be a classmethod instantiating a Data object, also fix function name => from_txt()
     def loadtxt(self, path: str, delimiter: str = ',', comments: str = '#') -> None:
@@ -530,6 +564,128 @@ class Data:
                 b_val = parameter_value.value if hasattr(parameter_value, 'value') else parameter_value
         return b_val
 
+    def _validate_covariance_configuration(self) -> None:
+        if not self.fit_covariance:
+            return
+
+        if self.covariance_mode == 'none':
+            self.fit_covariance = False
+            self.n_local_covariance_kernels = 0
+            return
+
+        if self.photometry:
+            raise NotImplementedError(
+                f"Covariance fitting is currently unsupported for photometric dataset '{self.name}'"
+            )
+
+        if getattr(self.spectrum, 'dtype', None) == 'O':
+            raise NotImplementedError(
+                f"Covariance fitting is currently unsupported for ragged dataset '{self.name}'"
+            )
+
+        if self.wavelengths is not None and jnp.ndim(self.wavelengths) != 1:
+            raise NotImplementedError(
+                f"Covariance fitting requires 1D wavelength grids for dataset '{self.name}'"
+            )
+
+        if self.spectrum is not None and jnp.ndim(self.spectrum) != 1:
+            raise NotImplementedError(
+                f"Covariance fitting requires 1D spectra for dataset '{self.name}'"
+            )
+
+        if self.covariance_mode == 'global':
+            self.n_local_covariance_kernels = 0
+        elif self.covariance_mode in {'local', 'global_local'} and self.n_local_covariance_kernels < 1:
+            self.n_local_covariance_kernels = 1
+
+    def _get_wavelength_vector(self) -> ArrayLike:
+        if self.wavelengths is None:
+            raise ValueError(f"Dataset '{self.name}' has no wavelength grid for covariance fitting")
+
+        wavelength_vector = jnp.asarray(self.wavelengths)
+        if wavelength_vector.ndim != 1:
+            raise ValueError(f"Dataset '{self.name}' must provide a 1D wavelength grid")
+
+        return wavelength_vector
+
+    def _get_pairwise_wavelength_differences(self) -> ArrayLike:
+        if self._pairwise_wavelength_differences is None:
+            wavelength_vector = self._get_wavelength_vector()
+            self._pairwise_wavelength_differences = (
+                wavelength_vector[:, jnp.newaxis] - wavelength_vector[jnp.newaxis, :]
+            )
+
+        return self._pairwise_wavelength_differences
+
+    @staticmethod
+    def _parameter_value(parameters_dict: dict, parameter_name: str, default: float = 0.0):
+        parameter_value = parameters_dict.get(parameter_name)
+        if parameter_value is None:
+            return default
+        return parameter_value.value if hasattr(parameter_value, 'value') else parameter_value
+
+    def _build_base_covariance(self, err_scale_factor: float, additive_variance_term: float) -> ArrayLike:
+        wavelength_vector = self._get_wavelength_vector()
+
+        if self.covariance is not None:
+            base_covariance = jnp.asarray(self.covariance) * (err_scale_factor ** 2)
+        elif self.uncertainties is not None:
+            scaled_uncertainties = jnp.asarray(self.uncertainties) * err_scale_factor
+            base_covariance = jnp.diag(scaled_uncertainties ** 2)
+        else:
+            raise ValueError("Data object has neither uncertainties nor covariance.")
+
+        identity = jnp.eye(wavelength_vector.shape[0], dtype=base_covariance.dtype)
+        return base_covariance + additive_variance_term * identity
+
+    def _build_fitted_covariance(self, parameters_dict: dict, err_scale_factor: float, additive_variance_term: float):
+        total_covariance = self._build_base_covariance(err_scale_factor, additive_variance_term)
+        wavelength_vector = self._get_wavelength_vector()
+
+        if self.covariance_mode in {'global', 'global_local'}:
+            global_amplitude = self._parameter_value(parameters_dict, f'{self.name}_gp_global_amp', default=0.0)
+            global_length = self._parameter_value(parameters_dict, f'{self.name}_gp_global_length', default=1.0)
+            total_covariance = total_covariance + build_global_covariance_kernel(
+                wavelength_vector,
+                amplitude=global_amplitude,
+                length_scale=global_length,
+                kernel_name=self.global_covariance_kernel,
+            )
+
+        if self.covariance_mode in {'local', 'global_local'}:
+            for kernel_index in range(1, self.n_local_covariance_kernels + 1):
+                local_amplitude = self._parameter_value(
+                    parameters_dict,
+                    f'{self.name}_gp_local_{kernel_index}_amp',
+                    default=0.0,
+                )
+                local_length = self._parameter_value(
+                    parameters_dict,
+                    f'{self.name}_gp_local_{kernel_index}_length',
+                    default=1.0,
+                )
+                default_center = jnp.mean(wavelength_vector)
+                local_center = self._parameter_value(
+                    parameters_dict,
+                    f'{self.name}_gp_local_{kernel_index}_center',
+                    default=default_center,
+                )
+                total_covariance = total_covariance + build_local_covariance_kernel(
+                    wavelength_vector,
+                    amplitude=local_amplitude,
+                    length_scale=local_length,
+                    center=local_center,
+                    kernel_name=self.local_covariance_kernel,
+                )
+
+        if self.covariance_jitter > 0.0:
+            total_covariance = total_covariance + self.covariance_jitter * jnp.eye(
+                total_covariance.shape[0],
+                dtype=total_covariance.dtype,
+            )
+
+        return total_covariance
+
     def to_observation_state(self, model_contract: str = 'legacy') -> ObservationState:
         return ObservationState(
             name=self.name,
@@ -549,10 +705,15 @@ class Data:
                 'system_distance': self.system_distance,
                 'fit_instrumental_resolution': self.fit_instrumental_resolution,
                 'subtract_continuum': self.subtract_continuum,
-                'scale': self.scale,
-                'scale_err': self.scale_err,
-                'offset_bool': self.offset_bool,
+                'scale_flux': self.scale_flux,
+                'scale_uncertainties': self.scale_uncertainties,
+                'fit_flux_offset': self.fit_flux_offset,
                 'radtrans_grid': self.radtrans_grid,
+                'fit_covariance': self.fit_covariance,
+                'covariance_mode': self.covariance_mode,
+                'global_covariance_kernel': self.global_covariance_kernel,
+                'local_covariance_kernel': self.local_covariance_kernel,
+                'n_local_covariance_kernels': self.n_local_covariance_kernels,
                 'photometric_transformation_function': self.photometric_transformation_function,
                 'photometric_bin_edges': self.photometric_bin_edges,
                 'wavelength_boundaries': self.wavelength_boundaries,
@@ -575,18 +736,20 @@ class Data:
             metadata={
                 'name': self.name,
                 'has_covariance': self.covariance is not None,
+                'fit_covariance': self.fit_covariance,
+                'covariance_mode': self.covariance_mode,
                 'photometry': self.photometry,
                 'data_resolution': self.data_resolution,
             },
         )
 
-    def scale_flux(self, input_spectrum, parameters_dict: dict) -> ArrayLike:
+    def apply_flux_scaling(self, input_spectrum, parameters_dict: dict) -> ArrayLike:
         """
         Applies scaling and offset to self.spectrum based on parameters in parameters_dict.
         """
 
         scale_factor = 1.0
-        if self.scale:
+        if self.scale_flux:
             param_val = parameters_dict.get(f"{self.name}_scale_factor")
             if param_val is not None:
                 scale_factor = param_val.value if hasattr(param_val, 'value') else param_val
@@ -600,7 +763,7 @@ class Data:
         """
 
         offset_val = 0.0
-        if self.offset_bool:
+        if self.fit_flux_offset:
             param_val = parameters_dict.get(f"{self.name}_offset")
             if param_val is not None:
                 offset_val = param_val.value if hasattr(param_val, 'value') else param_val
@@ -611,14 +774,14 @@ class Data:
     def scale_and_inflate_uncertainties(self, parameters_dict: dict) -> tuple[ArrayLike, ArrayLike]:
         """
         Applies scaling to self.uncertainties or self.covariance.
-        Returns a tuple: (scaled_uncertainties, scaled_covariance). One will be None.
+        Returns a tuple: (scaled_uncertainties, scaled_covariance).
         """
         scaled_uncertainties = None
         scaled_covariance = None
 
         # Multiplicative scaling factor for error bars
         err_scale_factor = 1.0
-        if self.scale_err:  # This flag means apply multiplicative scaling to errors
+        if self.scale_uncertainties:  # This flag means apply multiplicative scaling to errors
             param_val = parameters_dict.get(f"{self.name}_scale_factor")  # Uses the same param as flux scaling
             if param_val is not None:
                 err_scale_factor = param_val.value if hasattr(param_val, 'value') else param_val
@@ -631,12 +794,22 @@ class Data:
             0.0,
         )
 
+        if self.fit_covariance:
+            scaled_covariance = self._build_fitted_covariance(
+                parameters_dict,
+                err_scale_factor=err_scale_factor,
+                additive_variance_term=additive_variance_term,
+            )
+            scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
+            return scaled_uncertainties, scaled_covariance
+
         if self.covariance is not None:
             scaled_covariance = self.covariance * (err_scale_factor ** 2)
             scaled_covariance = scaled_covariance + additive_variance_term * jnp.eye(
                 scaled_covariance.shape[0],
                 dtype=scaled_covariance.dtype,
             )
+            scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
         elif self.uncertainties is not None:
             scaled_uncertainties = self.uncertainties * err_scale_factor
             scaled_uncertainties = jnp.sqrt(scaled_uncertainties ** 2 + additive_variance_term)
@@ -663,9 +836,9 @@ class PhotometryData(Data):
                  external_radtrans_reference=None,
                  model_generating_function=None,
                  wavelength_boundaries=None,
-                 scale=False,
-                 scale_err=False,
-                 offset_bool=False,
+                 scale_flux=False,
+                 scale_uncertainties=False,
+                 fit_flux_offset=False,
                  line_opacity_mode='c-k',
                  radtrans_object=None,
                  wavelengths=None):
@@ -724,9 +897,9 @@ class PhotometryData(Data):
                          external_radtrans_reference=external_radtrans_reference,
                          model_generating_function=model_generating_function,
                          wavelength_boundaries=derived_wavelength_boundaries,
-                         scale=scale,
-                         scale_err=scale_err,
-                         offset_bool=offset_bool,
+                         scale_flux=scale_flux,
+                         scale_uncertainties=scale_uncertainties,
+                         fit_flux_offset=fit_flux_offset,
                          wavelength_bin_widths=calculated_wavelength_bin_widths,
                          line_opacity_mode=line_opacity_mode,
                          radtrans_object=radtrans_object,
@@ -759,9 +932,9 @@ class TimeSeriesData(Data):
                  external_radtrans_reference=None,
                  model_generating_function=None,
                  wavelength_boundaries=None,
-                 scale=False,
-                 scale_err=False,
-                 offset_bool=False,
+                 scale_flux=False,
+                 scale_uncertainties=False,
+                 fit_flux_offset=False,
                  line_opacity_mode='c-k',
                  radtrans_grid=False,  # TODO: get rid of this as a parameter?
                  concatenate_flux_epochs_variability=False,
@@ -791,9 +964,9 @@ class TimeSeriesData(Data):
                  external_radtrans_reference=external_radtrans_reference,
                  model_generating_function=model_generating_function,
                  wavelength_boundaries=wavelength_boundaries,
-                 scale=scale,
-                 scale_err=scale_err,
-                 offset_bool=offset_bool,
+                 scale_flux=scale_flux,
+                 scale_uncertainties=scale_uncertainties,
+                 fit_flux_offset=fit_flux_offset,
                  line_opacity_mode=line_opacity_mode,
                  radtrans_grid=radtrans_grid,
                  radtrans_object=radtrans_object,

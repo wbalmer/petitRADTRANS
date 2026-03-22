@@ -924,16 +924,16 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
     flux = data.spectrum
     error = data.uncertainties
 
-    if data.scale:
+    if data.scale_flux:
         scale = data.scale_factor
 
-    if data.scale_err:
+    if data.scale_uncertainties:
         errscale = data.scale_factor
         error = error * errscale
 
     offset = 0.0
 
-    if data.offset_bool:
+    if data.fit_flux_offset:
         offset = data.offset
 
     flux = (flux * scale) - offset

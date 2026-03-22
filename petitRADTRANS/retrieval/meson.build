@@ -1,4 +1,5 @@
 py.install_sources([
+    'covariance.py',
     'data.py',
     'runtime.py',
     'models.py',

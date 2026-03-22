@@ -163,6 +163,106 @@ class RetrievalConfig:
             corner_label=corner_label
             )
 
+    def _add_uniform_free_parameter(self, name: str, lower: float, upper: float, corner_label: str = None) -> None:
+        if name in self.parameters:
+            return
+
+        if self.sampler_type == 'pymultinest':
+            self.parameters[name] = Parameter(
+                name=name,
+                is_free_parameter=True,
+                transform_prior_cube_coordinate=lambda x, lo=lower, hi=upper: uniform_prior(x, lo, hi),
+                corner_label=corner_label,
+            )
+        else:
+            self.parameters[name] = Parameter(
+                name=name,
+                is_free_parameter=True,
+                distribution=tfpd.Uniform(low=lower, high=upper),
+                corner_label=corner_label,
+            )
+
+    @staticmethod
+    def _default_covariance_parameter_priors(data_object: Data) -> dict[str, tuple[float, float]]:
+        amplitude_scale = None
+        if data_object.uncertainties is not None:
+            uncertainties = np.asarray(data_object.uncertainties, dtype=float).reshape(-1)
+            uncertainties = uncertainties[np.isfinite(uncertainties) & (uncertainties > 0)]
+            if uncertainties.size > 0:
+                amplitude_scale = float(np.median(uncertainties))
+
+        if amplitude_scale is None or amplitude_scale <= 0:
+            if data_object.spectrum is not None:
+                spectrum = np.asarray(data_object.spectrum, dtype=float).reshape(-1)
+                spectrum = np.abs(spectrum[np.isfinite(spectrum)])
+                if spectrum.size > 0:
+                    amplitude_scale = float(np.median(spectrum)) * 1e-2
+
+        if amplitude_scale is None or amplitude_scale <= 0:
+            amplitude_scale = 1.0
+
+        wavelengths = np.asarray(data_object.wavelengths, dtype=float).reshape(-1)
+        wavelength_span = float(np.max(wavelengths) - np.min(wavelengths)) if wavelengths.size > 1 else 1.0
+        wavelength_diffs = np.diff(wavelengths)
+        wavelength_diffs = wavelength_diffs[np.isfinite(wavelength_diffs) & (wavelength_diffs > 0)]
+        min_length = float(np.median(wavelength_diffs)) if wavelength_diffs.size > 0 else wavelength_span
+        min_length = max(min_length, 1e-12)
+        max_length = max(wavelength_span, min_length)
+
+        return {
+            'global_amp': (0.0, amplitude_scale * 10.0),
+            'global_length': (min_length, max_length),
+            'local_amp': (0.0, amplitude_scale * 10.0),
+            'local_length': (min_length, max_length),
+            'local_center': (float(np.min(wavelengths)), float(np.max(wavelengths))),
+        }
+
+    def _add_covariance_hyperparameters(
+        self,
+        data_object: Data,
+        covariance_mode: str,
+        n_local_covariance_kernels: int,
+        covariance_parameter_priors: dict | None = None,
+    ) -> None:
+        prior_ranges = self._default_covariance_parameter_priors(data_object)
+        if covariance_parameter_priors is not None:
+            prior_ranges.update(covariance_parameter_priors)
+
+        if covariance_mode in {'global', 'global_local'}:
+            self._add_uniform_free_parameter(
+                name=f'{data_object.name}_gp_global_amp',
+                lower=prior_ranges['global_amp'][0],
+                upper=prior_ranges['global_amp'][1],
+                corner_label=f'{data_object.name} gp global amp',
+            )
+            self._add_uniform_free_parameter(
+                name=f'{data_object.name}_gp_global_length',
+                lower=prior_ranges['global_length'][0],
+                upper=prior_ranges['global_length'][1],
+                corner_label=f'{data_object.name} gp global length',
+            )
+
+        if covariance_mode in {'local', 'global_local'}:
+            for kernel_index in range(1, n_local_covariance_kernels + 1):
+                self._add_uniform_free_parameter(
+                    name=f'{data_object.name}_gp_local_{kernel_index}_amp',
+                    lower=prior_ranges['local_amp'][0],
+                    upper=prior_ranges['local_amp'][1],
+                    corner_label=f'{data_object.name} gp local {kernel_index} amp',
+                )
+                self._add_uniform_free_parameter(
+                    name=f'{data_object.name}_gp_local_{kernel_index}_length',
+                    lower=prior_ranges['local_length'][0],
+                    upper=prior_ranges['local_length'][1],
+                    corner_label=f'{data_object.name} gp local {kernel_index} length',
+                )
+                self._add_uniform_free_parameter(
+                    name=f'{data_object.name}_gp_local_{kernel_index}_center',
+                    lower=prior_ranges['local_center'][0],
+                    upper=prior_ranges['local_center'][1],
+                    corner_label=f'{data_object.name} gp local {kernel_index} center',
+                )
+
     @staticmethod
     def list_available_line_species():
         """
@@ -652,9 +752,9 @@ class RetrievalConfig:
                  data_resolution=None,
                  model_resolution=None,
                  system_distance=None,
-                 scale=False,
-                 scale_err=False,
-                 offset_bool=False,
+                 scale_flux=False,
+                 scale_uncertainties=False,
+                 fit_flux_offset=False,
                  fit_instrumental_resolution=False,
                  subtract_continuum=False,
                  radvel=False,
@@ -672,6 +772,13 @@ class RetrievalConfig:
                  uncertainties=None,
                  mask=None,
                  covariance=None,
+                 fit_covariance=False,
+                 covariance_mode='none',
+                 global_covariance_kernel='squared_exponential',
+                 local_covariance_kernel='squared_exponential',
+                 n_local_covariance_kernels=0,
+                 covariance_jitter=0.0,
+                 covariance_parameter_priors=None,
                  concatenate_flux_epochs_variability=False,
                  variability_atmospheric_column_model_flux_return_mode=False,
                  atmospheric_column_flux_mixer=None):
@@ -696,7 +803,7 @@ class RetrievalConfig:
                 The distance to the object in cgs units. Defaults to a 10pc normalized distance. All data must
                 be scaled to the same distance before running the retrieval, which can be done using the
                 scale_to_distance method in the Data class.
-            scale : bool
+            scale_flux : bool
                 Turn on or off scaling the data by a constant factor.
             wavelength_boundaries : Tuple
                 A pair of wavelengths in units of micron that determine the lower and upper boundaries of the
@@ -711,17 +818,36 @@ class RetrievalConfig:
                 recommended to set the model_resolution parameter.
             radtrans_grid: bool
                 Set to true if data has been binned to a pRT opacity grid, exactly.
+            fit_covariance : bool
+                If True, fit a parametric covariance model for this dataset during the retrieval.
+                This is currently supported for 1D spectroscopic datasets only.
+            covariance_mode : str
+                Covariance model to fit. Supported values are ``'none'``, ``'local'``, ``'global'``, and
+                ``'global_local'``.
+            global_covariance_kernel : str
+                Name of the global covariance kernel. Supported values are ``'squared_exponential'`` and
+                ``'matern32'``.
+            local_covariance_kernel : str
+                Name of the local covariance kernel. Currently only ``'squared_exponential'`` is supported.
+            n_local_covariance_kernels : int
+                Number of local covariance kernels to include when ``covariance_mode='global_local'``.
+            covariance_jitter : float
+                Small diagonal stabilization term added to the fitted covariance matrix.
+            covariance_parameter_priors : dict
+                Optional override dictionary for the automatically generated covariance hyperparameter priors.
+                Supported keys are ``'global_amp'``, ``'global_length'``, ``'local_amp'``, ``'local_length'``,
+                and ``'local_center'``.
         """
-        self.data[name] = Data(
+        data_object = Data(
             name=name,
             path_to_observations=path_to_observations,
             model_generating_function=model_generating_function,
             data_resolution=data_resolution,
             model_resolution=model_resolution,
             system_distance=system_distance,
-            scale=scale,
-            scale_err=scale_err,
-            offset_bool=offset_bool,
+            scale_flux=scale_flux,
+            scale_uncertainties=scale_uncertainties,
+            fit_flux_offset=fit_flux_offset,
             fit_instrumental_resolution=fit_instrumental_resolution,
             subtract_continuum=subtract_continuum,
             photometry=photometry,
@@ -737,8 +863,23 @@ class RetrievalConfig:
             spectrum=spectrum,
             uncertainties=uncertainties,
             covariance=covariance,
+            fit_covariance=fit_covariance,
+            covariance_mode=covariance_mode,
+            global_covariance_kernel=global_covariance_kernel,
+            local_covariance_kernel=local_covariance_kernel,
+            n_local_covariance_kernels=n_local_covariance_kernels,
+            covariance_jitter=covariance_jitter,
             mask=mask,
         )
+        self.data[name] = data_object
+
+        if fit_covariance:
+            self._add_covariance_hyperparameters(
+                data_object=data_object,
+                covariance_mode=data_object.covariance_mode,
+                n_local_covariance_kernels=data_object.n_local_covariance_kernels,
+                covariance_parameter_priors=covariance_parameter_priors,
+            )
 
     def add_photometry(
         self,
@@ -746,7 +887,7 @@ class RetrievalConfig:
         model_generating_function: Callable,
         model_resolution: float = 10.0,
         distance: float | None = None,
-        scale: bool = False,
+        scale_flux: bool = False,
         wlen_range_micron: tuple[float, float] = None,
         photometric_transformation_function: Callable = None,
         external_prt_reference: object = None,
@@ -768,7 +909,7 @@ class RetrievalConfig:
                 Path to observations file, including filename.
             model_resolution : float
                 Spectral resolution of the model, allowing for low resolution correlated k tables from exo-k.
-            scale : bool
+            scale_flux : bool
                 Turn on or off scaling the data by a constant factor. Currently only set up to scale all
                 photometric data in a given file.
             distance : float
@@ -837,7 +978,7 @@ class RetrievalConfig:
                     photometric_bin_edges=(wavelengths_low, wavelengths_high),
                     data_resolution=data_resolution,
                     model_resolution=model_resolution,
-                    scale=scale,
+                    scale_flux=scale_flux,
                     photometric_transformation_function=transform,
                     external_radtrans_reference=external_prt_reference,
                     line_opacity_mode=opacity_mode

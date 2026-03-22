@@ -300,8 +300,8 @@ def test_data_materializes_observation_and_likelihood_state():
         spectrum=jnp.array([0.1, 0.2]),
         uncertainties=jnp.array([0.01, 0.02]),
         mask=jnp.array([False, True]),
-        scale=True,
-        offset_bool=True,
+        scale_flux=True,
+        fit_flux_offset=True,
     )
 
     observation_state = data.to_observation_state(model_contract='runtime_native')
@@ -310,7 +310,7 @@ def test_data_materializes_observation_and_likelihood_state():
     assert observation_state.name == 'test_dataset'
     assert observation_state.model_contract == 'runtime_native'
     assert observation_state.model_generating_function is data.model_generating_function
-    assert observation_state.metadata['scale'] is True
+    assert observation_state.metadata['scale_flux'] is True
     np.testing.assert_array_equal(observation_state.mask, jnp.array([False, True]))
 
     assert likelihood_state.n_free_parameters == 3

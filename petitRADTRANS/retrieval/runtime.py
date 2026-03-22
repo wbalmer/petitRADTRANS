@@ -628,7 +628,7 @@ class RetrievalRuntime:
         invalid_value = jnp.asarray(-1e99, dtype=JAX_DTYPE)
 
         data_spectrum = data.spectrum
-        data_spectrum = data.scale_flux(data_spectrum, parameters)
+        data_spectrum = data.apply_flux_scaling(data_spectrum, parameters)
         data_spectrum = data.offset_flux(data_spectrum, parameters)
         data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(parameters)
 
@@ -1009,7 +1009,7 @@ class RetrievalRuntime:
                     model_result.wavelengths,
                     model_result.spectrum,
                 )
-                projected_values = data.scale_flux(projected_values, parameters)
+                projected_values = data.apply_flux_scaling(projected_values, parameters)
                 projected_values = data.offset_flux(projected_values, parameters)
                 projected_uncertainties, projected_covariance = data.scale_and_inflate_uncertainties(parameters)
                 simulated_observations[observation_name] = {
@@ -1022,9 +1022,9 @@ class RetrievalRuntime:
                         'photometry': data.photometry,
                         'source_name': group.source_name,
                         'line_opacity_mode': data.line_opacity_mode,
-                        'scale': data.scale,
-                        'scale_err': data.scale_err,
-                        'offset_bool': data.offset_bool,
+                        'scale_flux': data.scale_flux,
+                        'scale_uncertainties': data.scale_uncertainties,
+                        'fit_flux_offset': data.fit_flux_offset,
                     },
                 }
 

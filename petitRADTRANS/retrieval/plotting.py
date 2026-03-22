@@ -659,14 +659,14 @@ class RetrievalPlotter:
                 error = data.uncertainties
 
                 if self.configuration.run_mode == 'evaluate':
-                    if data.scale:
+                    if data.scale_flux:
                         scale = self.best_fit_parameters[f"{name}_scale_factor"].value
 
-                    if data.scale_err:
+                    if data.scale_uncertainties:
                         errscale = self.best_fit_parameters[f"{name}_scale_factor"].value
                         error = error * errscale
 
-                    if data.offset_bool:
+                    if data.fit_flux_offset:
                         offset = self.best_fit_parameters[f"{name}_offset"].value
 
                 spectrum = (spectrum * scale) - offset
@@ -1226,15 +1226,15 @@ class RetrievalPlotter:
                     radial_velocity = self.best_fit_parameters["system_radial_velocity"].value * 1e5
                     wavelengths = wavelengths * np.sqrt((1 + radial_velocity / cst.c) / (1 - radial_velocity / cst.c))
 
-                if data.scale:
+                if data.scale_flux:
                     scale = self.best_fit_parameters[f"{name}_scale_factor"].value
 
-                if data.scale_err:
+                if data.scale_uncertainties:
                     errscale = self.best_fit_parameters[f"{name}_scale_factor"].value
                     error = error * errscale
 
                 offset = 0.0
-                if data.offset_bool:
+                if data.fit_flux_offset:
                     offset = self.best_fit_parameters[f"{name}_offset"].value
 
                 flux = (flux * scale) - offset

@@ -794,13 +794,13 @@ class Retrieval:
                 if data.model_generating_function is not None:
                     summary.write(f"    Model Function = {data.model_generating_function.__name__}\n")
 
-                if data.scale:
+                if data.scale_flux:
                     summary.write(f"    scale factor = {data.scale_factor:.2f}\n")
 
-                if data.scale_err:
+                if data.scale_uncertainties:
                     summary.write(f"    scale err factor = {data.scale_factor:.2f}\n")
 
-                if data.offset_bool:
+                if data.fit_flux_offset:
                     summary.write("    offset = True\n")
 
                 if data.system_distance is not None:
@@ -1413,7 +1413,7 @@ class Retrieval:
         for name, data in self.configuration.data.items():
             sf = 1.0
 
-            if data.scale_err:
+            if data.scale_uncertainties:
                 sf = self.best_fit_parameters[f"{name}_scale_factor"].value
 
             if data.covariance is not None:
@@ -1422,7 +1422,7 @@ class Retrieval:
             else:
                 f_err = data.uncertainties
 
-                if data.scale_err:
+                if data.scale_uncertainties:
                     f_err = f_err * sf
 
                 if f"{name}_b" in self.configuration.parameters.keys():
@@ -1626,7 +1626,7 @@ class Retrieval:
         for name, data in self.configuration.data.items():
             # Prepare spectrum data
             data_spectrum = data.spectrum
-            data_spectrum = data.scale_flux(data_spectrum, param_dict)
+            data_spectrum = data.apply_flux_scaling(data_spectrum, param_dict)
             data_spectrum = data.offset_flux(data_spectrum, param_dict)
             data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(param_dict)
 
@@ -1660,7 +1660,7 @@ class Retrieval:
         for name, data in self.configuration.data.items():
             # Prepare spectrum data
             data_spectrum = data.spectrum
-            data_spectrum = data.scale_flux(data_spectrum, param_dict)
+            data_spectrum = data.apply_flux_scaling(data_spectrum, param_dict)
             data_spectrum = data.offset_flux(data_spectrum, param_dict)
             data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(param_dict)
 
@@ -2089,7 +2089,7 @@ class Retrieval:
             spectrum_params = extract_spectrum_parameters(parameters, name)
 
             data_spectrum = data.spectrum
-            data_spectrum = data.scale_flux(data_spectrum, parameters)
+            data_spectrum = data.apply_flux_scaling(data_spectrum, parameters)
             data_spectrum = data.offset_flux(data_spectrum, parameters)
             data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(parameters)
 
@@ -2434,8 +2434,8 @@ class Retrieval:
                 # Keep logL's separate per data-object
                 log_likelihood = 0.
 
-            # Only calculate spectra within a given wavelengths range once if data.scale or data.scale_err:
-            data_spectrum = data.scale_flux(data_spectrum, self.configuration.parameters)
+            # Only calculate spectra within a given wavelengths range once if data.scale_flux or data.scale_uncertainties:
+            data_spectrum = data.apply_flux_scaling(data_spectrum, self.configuration.parameters)
             data_spectrum = data.offset_flux(data_spectrum, self.configuration.parameters)
             data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(self.configuration.parameters)
 
@@ -2613,7 +2613,7 @@ class Retrieval:
                 if data_2.external_radtrans_reference is not None:
                     data_2_spectrum = data_2.spectrum
 
-                    data_2_spectrum = data_2.scale_flux(data_2_spectrum, self.configuration.parameters)
+                    data_2_spectrum = data_2.apply_flux_scaling(data_2_spectrum, self.configuration.parameters)
                     data_2_spectrum = data_2.offset_flux(data_2_spectrum, self.configuration.parameters)
                     data_2_uncertainties, data_2_covariance = data.scale_and_inflate_uncertainties(
                         self.configuration.parameters
@@ -2929,7 +2929,7 @@ class Retrieval:
 
             # Prepare spectrum data
             data_spectrum = data.spectrum
-            data_spectrum = data.scale_flux(data_spectrum, parameters)
+            data_spectrum = data.apply_flux_scaling(data_spectrum, parameters)
             data_spectrum = data.offset_flux(data_spectrum, parameters)
             data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(parameters)
 
@@ -3050,7 +3050,7 @@ class Retrieval:
 
                     # Prepare secondary data
                     data_2_spectrum = data_2.spectrum
-                    data_2_spectrum = data_2.scale_flux(data_2_spectrum, parameters)
+                    data_2_spectrum = data_2.apply_flux_scaling(data_2_spectrum, parameters)
                     data_2_spectrum = data_2.offset_flux(data_2_spectrum, parameters)
                     data_2_uncertainties, data_2_covariance = data_2.scale_and_inflate_uncertainties(parameters)
 
@@ -3883,9 +3883,9 @@ class Retrieval:
         for name, data in self.configuration.data.items():
             # Only calculate spectra within a given
             # Wavelengths range once
-            if data.scale or data.scale_err:
+            if data.scale_flux or data.scale_uncertainties:
                 data.scale_factor = parameters[name + "_scale_factor"].value
-            if data.offset_bool:
+            if data.fit_flux_offset:
                 data.offset = parameters[name + "_offset"].value
             if name + "_b" in parameters.keys():
                 data.bval = parameters[name + "_b"].value
@@ -3997,10 +3997,10 @@ class Retrieval:
 
             if data.external_radtrans_reference is None:
                 # Only calculate spectra within a given wavelengths range once
-                if data.scale or data.scale_err:
+                if data.scale_flux or data.scale_uncertainties:
                     data.scale_factor = parameters[name + "_scale_factor"].value
 
-                if data.offset_bool:
+                if data.fit_flux_offset:
                     data.offset = parameters[name + "_offset"].value
 
                 if name + "_b" in parameters.keys():

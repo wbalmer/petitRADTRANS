@@ -1,8 +1,7 @@
 import numpy as np
-import jax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
-from jax import jit, lax
+from jax import lax
 from scipy.special import logsumexp
 
 
@@ -51,6 +50,7 @@ def get_bpics(logl_samples: ArrayLike, n_params: int, log_weights: ArrayLike = N
     mean_logl = np.average(logl_samples, weights=weights)
     return -2 * mean_logl + 2 * n_params
 
+
 class LogLikelihood:
     def __init__(self,
                  model_spectrum: ArrayLike,
@@ -81,12 +81,15 @@ class LogLikelihood:
         self.n_data_points = self.data_spectrum.shape[0]
 
         self.n_free_parameters = n_free_parameters
+        self.cholesky_factor = None
+        self.inv_covariance = None
+        self.log_det_covariance = None
 
         if data_uncertainties is not None:
             self.data_uncertainties = jnp.asarray(data_uncertainties)
             if self.data_uncertainties.shape != self.model_spectrum.shape:
-                raise ValueError(f"data_uncertainties must have the same shape as the model_spectrum!)")
-            #if jnp.any(self.data_uncertainties <= 0): TODO: move to data.py
+                raise ValueError("data_uncertainties must have the same shape as the model_spectrum")
+            # if jnp.any(self.data_uncertainties <= 0): TODO: move to data.py
             #    raise ValueError("Uncertainties must be positive.")
         else:
             self.data_uncertainties = None
@@ -96,38 +99,32 @@ class LogLikelihood:
             if self.data_covariance.shape != (self.n_data_points, self.n_data_points):
                 raise ValueError(f"Shape of data_covariance ({self.data_covariance.shape}) "
                                  f"is not ({self.n_data_points}, {self.n_data_points})")
-
+            if self.data_uncertainties is None:
+                self.data_uncertainties = jnp.sqrt(jnp.diagonal(self.data_covariance))
+        else:
+            self.data_covariance = None
 
         # Precompute terms for likelihood calculation
         if data_covariance is not None:
-            #try:
             # TODO: This assumes 1D spectrum. Need to extend to ND data.
-            self.inv_covariance = jnp.linalg.inv(self.data_covariance)
-            _sign, self.log_det_covariance = jnp.linalg.slogdet(self.data_covariance)
-            if _sign <= 0:
-                raise ValueError("Covariance matrix determinant is not positive. Log determinant is undefined.")
+            self.cholesky_factor = jnp.linalg.cholesky(self.data_covariance)
+            self.log_det_covariance = 2.0 * jnp.sum(jnp.log(jnp.diagonal(self.cholesky_factor)))
             self._log_norm_constant = -0.5 * (self.n_data_points * jnp.log(2.0 * jnp.pi) +
                                               self.log_det_covariance)
-            # TODO: re-enable exception handling for JAX
-            # except jnp.linalg.LinAlgError:
-            #    raise ValueError("Covariance matrix is singular and cannot be inverted.")
         else:
             self.data_covariance = jnp.diag(self.data_uncertainties**2)
-            self.inv_covariance = jnp.linalg.inv(self.data_covariance)
             _sign, self.log_det_covariance = jnp.linalg.slogdet(self.data_covariance)
             self._log_norm_constant = -0.5 * jnp.sum(jnp.log(2.0 * jnp.pi * self.data_uncertainties**2))
 
     def get_chi_squared(self) -> float:
-        chi_squared = lax.cond(
-            jnp.sum(self.data_covariance) != 0.0,
-            self._calculate_chi_squared_covariance,
-            self._calculate_chi_squared_uncertainties
-            )
-        return chi_squared
+        if self.cholesky_factor is not None:
+            return self._calculate_chi_squared_covariance()
+        return self._calculate_chi_squared_uncertainties()
 
     def _calculate_chi_squared_covariance(self):
         residual = self.data_spectrum - self.model_spectrum
-        return jnp.dot(residual, jnp.dot(self.inv_covariance, residual))
+        whitened_residual = jnp.linalg.solve(self.cholesky_factor, residual)
+        return jnp.dot(whitened_residual, whitened_residual)
 
     def _calculate_chi_squared_uncertainties(self):
         residual = self.data_spectrum - self.model_spectrum
