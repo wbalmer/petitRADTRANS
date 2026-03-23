@@ -46,6 +46,24 @@ def test_rebin_spectrum_reverse_mode_differentiable():
     assert jnp.all(jnp.isfinite(gradient))
 
 
+def test_rebin_spectrum_bin_preserves_float64_scan_dtype():
+    input_wavelengths = jnp.linspace(0.95, 2.05, 16, dtype=jnp.float64)
+    input_spectrum = (jnp.sin(input_wavelengths) + 0.2 * input_wavelengths).astype(jnp.float64)
+    rebinned_wavelengths = jnp.linspace(1.05, 1.95, 8, dtype=jnp.float64)
+    bin_widths = jnp.full(rebinned_wavelengths.shape, 0.1, dtype=jnp.float64)
+
+    rebinned = petitRADTRANS.radtrans_core.spectrum_utils.rebin_spectrum_bin(
+        input_wavelengths,
+        input_spectrum,
+        rebinned_wavelengths,
+        bin_widths,
+    )
+
+    assert rebinned.dtype == jnp.float64
+    assert rebinned.shape == rebinned_wavelengths.shape
+    assert jnp.all(jnp.isfinite(rebinned))
+
+
 def test_compute_radius_hydrostatic_equilibrium_reference_pressure_below_grid():
     pressures = np.logspace(-6, 2, 100, dtype=np.float64) * 1e6
     temperatures = np.linspace(500.0, 2000.0, pressures.size, dtype=np.float64)

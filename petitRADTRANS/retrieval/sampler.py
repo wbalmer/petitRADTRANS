@@ -52,13 +52,39 @@ except Exception:
     NumPyroMCMC = None
     NumPyroNUTS = None
 
-try:
-    import jaxns
-    from jaxns import Model, NestedSampler, save_results, load_results, summary as jaxns_summary  # Renamed to avoid conflict
-    from jaxns.nested_samplers import ShardedStaticNestedSampler
-    from jaxns.samplers import UniformSampler
-except Exception:
-    jaxns = None  # Flag that jaxns is not available
+jaxns = None
+Model = None
+NestedSampler = None
+save_results = None
+load_results = None
+ShardedStaticNestedSampler = None
+UniformSampler = None
+
+
+def _require_jaxns():
+    global jaxns, Model, NestedSampler, save_results, load_results, ShardedStaticNestedSampler, UniformSampler
+
+    if jaxns is not None:
+        return
+
+    try:
+        import jaxns as jaxns_module
+        from jaxns import Model as jaxns_model
+        from jaxns import NestedSampler as jaxns_nested_sampler
+        from jaxns import load_results as jaxns_load_results
+        from jaxns import save_results as jaxns_save_results
+        from jaxns.nested_samplers import ShardedStaticNestedSampler as jaxns_sharded_static_nested_sampler
+        from jaxns.samplers import UniformSampler as jaxns_uniform_sampler
+    except Exception as error:
+        raise ImportError("JAXNS module or its JAX dependencies are not installed. This sampler cannot be used.") from error
+
+    jaxns = jaxns_module
+    Model = jaxns_model
+    NestedSampler = jaxns_nested_sampler
+    save_results = jaxns_save_results
+    load_results = jaxns_load_results
+    ShardedStaticNestedSampler = jaxns_sharded_static_nested_sampler
+    UniformSampler = jaxns_uniform_sampler
 
 
 class Sampler(abc.ABC):
@@ -803,7 +829,7 @@ class PymultinestSampler(Sampler):
 
         print("\nPyMultiNest Parameter Statistics:")
         for i, name in enumerate(free_parameter_names):
-            param_stats = self.analyzer.get_mode_stats()['marginals'][i]
+            param_stats = self.analyzer.get_stats()['marginals'][i]
             print(f"  {name}: {param_stats['median']:.2e} "
                     f"[{param_stats['1sigma'][0]:.2e} - {param_stats['1sigma'][1]:.2e}]")
 
@@ -870,12 +896,7 @@ class UltranestSampler(Sampler):
             'enable_step_sampling': kwargs.pop('enable_step_sampling', False)
         }
 
-        self.sampler = ultranest.ReactiveNestedSampler(  # Renamed to avoid conflict with base class name
-            param_names=parameter_names,
-            loglike=self.log_likelihood_func,
-            transform=self.prior_func,
-            **reactive_kwargs
-        )
+
         if reactive_kwargs.get('enable_step_sampling'):
             try:
                 from ultranest.stepsampler import SliceSampler, generate_mixture_random_direction
@@ -894,7 +915,14 @@ class UltranestSampler(Sampler):
                 )
             except ImportError:
                 warnings.warn("Could not import SliceSampler. Step sampler disabled.", RuntimeWarning)
-
+        else:
+            reactive_kwargs.pop('enable_step_sampling', None)
+            self.sampler = ultranest.ReactiveNestedSampler(  # Renamed to avoid conflict with base class name
+            param_names=parameter_names,
+            loglike=self.log_likelihood_func,
+            transform=self.prior_func,
+            **reactive_kwargs
+        )
         run_kwargs = {
             'update_interval_volume_fraction': kwargs.pop('update_interval_volume_fraction', 0.8),
             'update_interval_ncall': kwargs.pop('update_interval_ncall', None),
@@ -969,8 +997,7 @@ class JAXNSSampler(Sampler):
                  retrieval_name,
                  ):
         super().__init__(log_likelihood_func, prior_func, output_directory, retrieval_name)
-        if jaxns is None:
-            raise ImportError("JAXNS module or its JAX dependencies are not installed. This sampler cannot be used.")
+        _require_jaxns()
         os.makedirs(os.path.join(self.output_directory, "out_JAXNS/"), exist_ok=True)
         self.jaxns_parameters = {}
 
@@ -982,9 +1009,7 @@ class JAXNSSampler(Sampler):
         """
         Run the JAXNS sampler.
         """
-        if jaxns is None:  # Should have been caught by __init__
-            warnings.warn("JAXNS module not found, cannot run JAXNSSampler.", RuntimeWarning)
-            return None
+        _require_jaxns()
 
         self.jaxns_parameters = {
             'num_live_points': jaxns_kwargs.pop('num_live_points', 400),
@@ -1040,6 +1065,7 @@ class JAXNSSampler(Sampler):
         return self.results
 
     def load_results(self):
+        _require_jaxns()
         self.results = load_results(os.path.join(
             self.output_directory,
             "out_JAXNS/",
@@ -1100,8 +1126,7 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
                  retrieval_name,
                  ):
         super().__init__(log_likelihood_func, prior_func, output_directory, retrieval_name)
-        if jaxns is None:
-            raise ImportError("JAXNS module or its JAX dependencies are not installed. This sampler cannot be used.")
+        _require_jaxns()
         self.log_likelihood_func = log_likelihood_func
         self.prior_function = prior_func
         self.output_directory = output_directory
@@ -1117,9 +1142,7 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
         """
         Run the JAXNS sampler.
         """
-        if jaxns is None:  # Should have been caught by __init__
-            warnings.warn("JAXNS module not found, cannot run JAXNSSampler.", RuntimeWarning)
-            return None
+        _require_jaxns()
 
         self.jaxns_parameters = {
             'num_live_points': jaxns_kwargs.pop('num_live_points', 400),
@@ -1169,6 +1192,7 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
         return self.results
 
     def load_results(self):
+        _require_jaxns()
         self.results = load_results(os.path.join(
             self.output_directory,
             "out_JAXNS/",

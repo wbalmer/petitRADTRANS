@@ -131,6 +131,21 @@ class OrbaxCheckpointBackend(CheckpointBackend):
         return restored_state, metadata
 
 
+def instantiate_checkpoint_backend(name: str) -> CheckpointBackend:
+    """Instantiate one concrete checkpoint backend by explicit name."""
+    normalized = name.lower()
+    if normalized == 'equinox':
+        return EquinoxCheckpointBackend()
+    if normalized == 'orbax':
+        return OrbaxCheckpointBackend()
+    raise ValueError(f"Unknown checkpoint backend '{name}'.")
+
+
+def _is_orbax_unsupported_type_error(error: Exception) -> bool:
+    message = str(error)
+    return 'TypeHandler lookup failed' in message or 'Must register a TypeHandler' in message
+
+
 def resolve_checkpoint_backend(preferred: str = 'auto') -> CheckpointBackend:
     """Resolve the requested checkpoint backend with graceful fallback.
 
@@ -153,14 +168,14 @@ def resolve_checkpoint_backend(preferred: str = 'auto') -> CheckpointBackend:
 
     normalized = preferred.lower()
     if normalized == 'equinox':
-        return EquinoxCheckpointBackend()
+        return instantiate_checkpoint_backend('equinox')
     if normalized == 'orbax':
-        return OrbaxCheckpointBackend()
+        return instantiate_checkpoint_backend('orbax')
     if normalized == 'auto':
         try:
-            return OrbaxCheckpointBackend()
+            return instantiate_checkpoint_backend('orbax')
         except RuntimeError:
-            return EquinoxCheckpointBackend()
+            return instantiate_checkpoint_backend('equinox')
     raise ValueError(f"Unknown checkpoint backend '{preferred}'.")
 
 
@@ -213,7 +228,18 @@ class SBITrainer:
             'checkpoint_kind': checkpoint_kind,
             **metadata,
         }
-        self.checkpoint_backend.save(state, checkpoint_path, payload)
+
+        try:
+            payload['checkpoint_backend'] = self.checkpoint_backend.name
+            self.checkpoint_backend.save(state, checkpoint_path, payload)
+        except ValueError as error:
+            if self.checkpoint_backend.name != 'orbax' or not _is_orbax_unsupported_type_error(error):
+                raise
+
+            self.checkpoint_backend = instantiate_checkpoint_backend('equinox')
+            payload['checkpoint_backend'] = self.checkpoint_backend.name
+            payload['checkpoint_backend_fallback_reason'] = 'orbax_unsupported_type'
+            self.checkpoint_backend.save(state, checkpoint_path, payload)
 
     def _restore_checkpoint(
         self,
@@ -230,6 +256,14 @@ class SBITrainer:
         )
         if checkpoint_path is None or not checkpoint_path.exists():
             return None
+
+        metadata_path = checkpoint_path / 'metadata.json'
+        if metadata_path.exists():
+            metadata = json.loads(metadata_path.read_text())
+            backend_name = str(metadata.get('checkpoint_backend', self.checkpoint_backend.name))
+            checkpoint_backend = instantiate_checkpoint_backend(backend_name)
+            self.checkpoint_backend = checkpoint_backend
+            return checkpoint_backend.restore(template_state, checkpoint_path)
 
         return self.checkpoint_backend.restore(template_state, checkpoint_path)
 

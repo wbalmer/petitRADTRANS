@@ -30,6 +30,7 @@ from pathlib import Path
 
 os.environ.setdefault('OMP_NUM_THREADS', '1')
 os.environ.setdefault('JAX_CHECK_TRACER_LEAKS', 'False')
+os.environ.setdefault('JAX_ENABLE_X64', 'True')
 
 multinest_lib_dir = '/Users/nasedkin/software/MultiNest/lib/'
 existing_dyld_path = os.environ.get('DYLD_LIBRARY_PATH', '')
@@ -44,6 +45,8 @@ import jax  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 import tensorflow_probability.substrates.jax as tfp  # noqa: E402
+
+jax.config.update('jax_enable_x64', True)
 
 from petitRADTRANS import physical_constants as cst  # noqa: E402
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig  # noqa: E402
@@ -71,7 +74,6 @@ from petitRADTRANS.sbi import (  # noqa: E402
 
 
 tfpd = tfp.distributions
-jax.config.update('jax_enable_x64', True)
 
 
 # User-editable configuration
@@ -437,6 +439,7 @@ def main() -> None:
         num_epochs=NUM_EPOCHS,
         parameter_space='unconstrained',
         checkpoint_directory=checkpoint_dir.as_posix(),
+        checkpoint_backend='equinox',
         seed=123,
         task_metadata={'task_name': task.name},
     )

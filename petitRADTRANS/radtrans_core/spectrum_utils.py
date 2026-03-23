@@ -433,6 +433,12 @@ def median_filter_spectrum(spectrum, size=10, mode='nearest'):
 def rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin):
     del n_rebin  # inferred from the output bin arrays
 
+    rebin_dtype = jnp.result_type(input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high)
+    input_wavelengths = jnp.asarray(input_wavelengths, dtype=rebin_dtype)
+    input_spectrum = jnp.asarray(input_spectrum, dtype=rebin_dtype)
+    rebin_bin_low = jnp.asarray(rebin_bin_low, dtype=rebin_dtype)
+    rebin_bin_high = jnp.asarray(rebin_bin_high, dtype=rebin_dtype)
+
     segment_low = input_wavelengths[:-1]
     segment_high = input_wavelengths[1:]
     segment_width = segment_high - segment_low
@@ -481,13 +487,18 @@ def _raise_incomplete_wavelength_range(args):
 
 @jit
 def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
+    rebin_dtype = jnp.result_type(input_wavelengths, input_spectrum, rebinned_wavelengths)
+    input_wavelengths = jnp.asarray(input_wavelengths, dtype=rebin_dtype)
+    input_spectrum = jnp.asarray(input_spectrum, dtype=rebin_dtype)
+    rebinned_wavelengths = jnp.asarray(rebinned_wavelengths, dtype=rebin_dtype)
+
     n_rebin = rebinned_wavelengths.size
-    rebinned_spectrum = jnp.zeros(n_rebin)
+    rebinned_spectrum = jnp.zeros(n_rebin, dtype=rebin_dtype)
 
     jax.debug.callback(_raise_small_size, n_rebin)
 
-    rebin_bin_low = jnp.zeros(n_rebin)
-    rebin_bin_high = jnp.zeros(n_rebin)
+    rebin_bin_low = jnp.zeros(n_rebin, dtype=rebin_dtype)
+    rebin_bin_high = jnp.zeros(n_rebin, dtype=rebin_dtype)
 
     rebin_bin_low = rebin_bin_low.at[0].set(
         rebinned_wavelengths[0] - (rebinned_wavelengths[1] - rebinned_wavelengths[0]) * 0.5
@@ -510,8 +521,14 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
 
 
 def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths):
+    rebin_dtype = jnp.result_type(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths)
+    input_wavelengths = jnp.asarray(input_wavelengths, dtype=rebin_dtype)
+    input_spectrum = jnp.asarray(input_spectrum, dtype=rebin_dtype)
+    rebinned_wavelengths = jnp.asarray(rebinned_wavelengths, dtype=rebin_dtype)
+    bin_widths = jnp.asarray(bin_widths, dtype=rebin_dtype)
+
     n_rebin = rebinned_wavelengths.size
-    rebinned_spectrum = jnp.zeros(n_rebin)
+    rebinned_spectrum = jnp.zeros(n_rebin, dtype=rebin_dtype)
 
     if n_rebin < 2:
         raise ValueError(f"Error: output wavelength array size must be >= 2, but is of size {n_rebin}")

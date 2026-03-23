@@ -187,3 +187,23 @@ def test_get_abundances_without_clouds_keeps_dict_p_bases_and_identity_indices(m
     np.testing.assert_array_equal(np.asarray(pressure_indices), np.array([0, 1]))
     np.testing.assert_allclose(np.asarray(abundances['FeH']), np.array([0.1, 0.2]))
     np.testing.assert_allclose(np.asarray(mean_molar_mass), np.array([1.0, 1.0]))
+
+
+def test_calculate_gas_mass_fractions_accepts_tuple_filling_species():
+    pressures = np.logspace(-6.0, 2.0, 5)
+    temperatures = np.full_like(pressures, 1000.0)
+
+    mass_fractions, _ = petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+        pressures=pressures,
+        temperatures=temperatures,
+        imposed_mass_fractions={},
+        line_species=(),
+        cloud_species=(),
+        filling_species=('H2', 'He'),
+        use_equilibrium_chemistry=False,
+    )
+
+    assert set(mass_fractions.keys()) == {'H2', 'He'}
+    assert np.asarray(mass_fractions['H2']).shape == pressures.shape
+    assert np.asarray(mass_fractions['He']).shape == pressures.shape
+    assert np.asarray(mass_fractions['H2']).dtype == np.asarray(mass_fractions['He']).dtype

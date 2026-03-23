@@ -5,6 +5,7 @@ from typing import Callable
 
 import numpy as np
 import jax.numpy as jnp
+from jax import config
 from numpy import genfromtxt
 from jax.typing import ArrayLike
 from astropy.io import fits
@@ -19,6 +20,9 @@ from petitRADTRANS.retrieval.covariance import (
 )
 from petitRADTRANS.retrieval.runtime import LikelihoodState, ObservationState
 
+JAX_DTYPE = jnp.float32
+if config.jax_enable_x64:
+    JAX_DTYPE = jnp.float64
 
 class Data:
     r"""
@@ -451,11 +455,11 @@ class Data:
 
         if hasattr(data, 'columns') and data.columns is not None:
             column_names = tuple(data.columns.names)
-            self.wavelengths = jnp.asarray(data.field('WAVELENGTH'), dtype=jnp.float64)
-            self.spectrum = jnp.asarray(data.field('FLUX'), dtype=jnp.float64)
+            self.wavelengths = jnp.asarray(data.field('WAVELENGTH'), dtype=JAX_DTYPE)
+            self.spectrum = jnp.asarray(data.field('FLUX'), dtype=JAX_DTYPE)
 
             if 'COVARIANCE' in column_names:
-                self.covariance = jnp.asarray(data.field('COVARIANCE'), dtype=jnp.float64)
+                self.covariance = jnp.asarray(data.field('COVARIANCE'), dtype=JAX_DTYPE)
                 self.inv_cov = jnp.linalg.inv(self.covariance)
                 sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
                 self.uncertainties = jnp.sqrt(self.covariance.diagonal())
@@ -463,23 +467,23 @@ class Data:
                 # Note that this will only be the uncorrelated error.
                 # Dot with the correlation matrix (if available) to get
                 # the full error.
-                self.uncertainties = jnp.asarray(data.field('ERROR'), dtype=jnp.float64)
+                self.uncertainties = jnp.asarray(data.field('ERROR'), dtype=JAX_DTYPE)
                 self.covariance = jnp.diag(self.uncertainties ** 2)
                 self.inv_cov = jnp.linalg.inv(self.covariance)
         else:
             hdul = fits.open(path)
-            self.wavelengths = jnp.asarray(hdul[1].data['WAVELENGTH'], dtype=jnp.float64)
-            self.spectrum = jnp.asarray(hdul[1].data['FLUX'], dtype=jnp.float64)
+            self.wavelengths = jnp.asarray(hdul[1].data['WAVELENGTH'], dtype=JAX_DTYPE)
+            self.spectrum = jnp.asarray(hdul[1].data['FLUX'], dtype=JAX_DTYPE)
 
             if 'FLUX_STD' in hdul[1].data.columns.names:
-                self.uncertainties = jnp.asarray(hdul[1].data['FLUX_STD'], dtype=jnp.float64)
+                self.uncertainties = jnp.asarray(hdul[1].data['FLUX_STD'], dtype=JAX_DTYPE)
             elif 'FLUX_ERROR' in hdul[1].data.columns.names:
-                self.uncertainties = jnp.asarray(hdul[1].data['FLUX_ERROR'], dtype=jnp.float64)
+                self.uncertainties = jnp.asarray(hdul[1].data['FLUX_ERROR'], dtype=JAX_DTYPE)
 
             if 'FLUX_COV' in hdul[1].data.columns.names:
-                self.covariance = jnp.asarray(hdul[1].data['FLUX_COV'], dtype=jnp.float64)
+                self.covariance = jnp.asarray(hdul[1].data['FLUX_COV'], dtype=JAX_DTYPE)
             elif 'COVARIANCE' in hdul[1].data.columns.names:
-                self.covariance = jnp.asarray(hdul[1].data['COVARIANCE'], dtype=jnp.float64)
+                self.covariance = jnp.asarray(hdul[1].data['COVARIANCE'], dtype=JAX_DTYPE)
 
             if self.covariance is not None:
                 self.inv_cov = jnp.linalg.inv(self.covariance)

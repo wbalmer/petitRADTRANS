@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 sys.modules.setdefault('pymultinest', SimpleNamespace())
 
@@ -62,6 +63,12 @@ def _dummy_runtime_model(prt_object, parameters, pt_plot_mode=False, adaptive_me
     return jnp.array([1.0, 2.0]), jnp.array([amplitude, amplitude + 1.0])
 
 
+def _nan_runtime_model(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=True):
+    del prt_object, pt_plot_mode, adaptive_mesh_refinement
+    amplitude = parameters['amplitude'].value
+    return jnp.array([1.0, 2.0]), jnp.array([jnp.nan, amplitude + jnp.nan])
+
+
 def _dummy_photometric_transform(wavelengths, spectrum):
     del wavelengths
     return jnp.mean(jnp.asarray(spectrum))
@@ -74,6 +81,7 @@ def _build_runtime_task(
     include_nuisance=False,
     store_log_likelihood=False,
     uncertainties=None,
+    model_generating_function=_dummy_runtime_model,
 ):
     if uncertainties is None:
         uncertainties = jnp.array([0.01, 0.01])
@@ -102,7 +110,7 @@ def _build_runtime_task(
     configuration.add_data(
         name='synthetic_spectrum',
         path_to_observations=None,
-        model_generating_function=_dummy_runtime_model,
+        model_generating_function=model_generating_function,
         radtrans_object=object(),
         scale_flux=include_nuisance,
         scale_uncertainties=include_nuisance,
@@ -791,6 +799,44 @@ def test_generate_simulation_dataset_returns_preprocessing_artifact(tmp_path):
     assert train_split['parameters'].shape == (3, 4)
 
 
+def test_generate_simulation_dataset_aborts_on_non_finite_observations(tmp_path):
+    task = _build_runtime_task(
+        retrieval_name='non_finite_dataset_demo',
+        noise_mode='no_noise',
+        seed=41,
+        uncertainties=jnp.array([0.05, 0.05]),
+        model_generating_function=_nan_runtime_model,
+    )
+
+    with pytest.raises(ValueError, match="Projected observation values contain non-finite entries"):
+        generate_simulation_dataset(
+            task=task,
+            storage_uri=(tmp_path / 'invalid_dataset.zarr').as_posix(),
+            n_simulations=2,
+            chunk_size=2,
+            split_counts={DatasetSplit.TRAIN: 2},
+            dataset_version='0.3.1',
+        )
+
+
+def test_runtime_simulator_logs_non_finite_projection(caplog):
+    task = _build_runtime_task(
+        retrieval_name='non_finite_projection_demo',
+        noise_mode='no_noise',
+        seed=43,
+        uncertainties=jnp.array([0.05, 0.05]),
+        model_generating_function=_nan_runtime_model,
+    )
+    simulator = RuntimeSimulator(task=task, seed=43)
+
+    with caplog.at_level('ERROR'), pytest.raises(ValueError, match='Projected observation values contain non-finite'):
+        simulator.simulate_from_parameters(jnp.array([[0.5]], dtype=jnp.float64))
+
+    assert "source 'synthetic_spectrum'" in caplog.text
+    assert "dataset 'synthetic_spectrum'" in caplog.text
+    assert "parameters={'amplitude': 0.5}" in caplog.text
+
+
 def test_generate_simulation_dataset_supports_mixed_spectrum_and_photometry(tmp_path):
     task = _build_mixed_modality_task(seed=9, noise_mode='gaussian')
 
@@ -1143,6 +1189,77 @@ def test_posterior_model_save_registers_artifact_metadata(tmp_path):
 
     registry_payload = json.loads((tmp_path / 'artifact_registry' / 'registry.json').read_text())
     registered_entry = registry_payload['artifacts'][0]
+
+
+def test_posterior_checkpoint_falls_back_from_orbax_for_callable_leaves(tmp_path, monkeypatch):
+    task = _build_runtime_task(
+        retrieval_name='orbax_fallback_demo',
+        noise_mode='gaussian',
+        seed=71,
+        include_nuisance=False,
+        store_log_likelihood=False,
+        uncertainties=jnp.array([0.05, 0.05]),
+    )
+    generated = generate_simulation_dataset(
+        task=task,
+        storage_uri=(tmp_path / 'orbax_fallback_dataset.zarr').as_posix(),
+        n_simulations=8,
+        chunk_size=2,
+        split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
+        dataset_version='0.8.3',
+    )
+    store = ZarrSimulationDatasetStore(chunk_size=2)
+    dataset = store.open(generated.manifest)
+    reader = NormalizedObservationDatasetReader(
+        dataset=dataset,
+        preprocessing_metadata=generated.preprocessing_metadata,
+    )
+
+    class _FailingOrbaxBackend:
+        name = 'orbax'
+
+        def save(self, state, output_directory, metadata):
+            del state, output_directory, metadata
+            raise ValueError(
+                'TypeHandler lookup failed for: type=<class "jax._src.custom_derivatives.custom_jvp">'
+            )
+
+        def restore(self, template_state, output_directory):
+            del template_state, output_directory
+            raise AssertionError('restore should not be called in this test')
+
+    monkeypatch.setattr(
+        petitRADTRANS.sbi.training,
+        'resolve_checkpoint_backend',
+        lambda preferred='auto': _FailingOrbaxBackend(),
+    )
+
+    checkpoint_directory = tmp_path / 'orbax_fallback_checkpoints'
+    posterior = ConditionalSplineFlowPosterior(
+        parameter_dim=1,
+        embedding_dim=32,
+        num_coupling_layers=3,
+        hidden_dim=32,
+        learning_rate=5e-3,
+        batch_size=2,
+        num_epochs=1,
+        parameter_space='unconstrained',
+        checkpoint_directory=checkpoint_directory.as_posix(),
+        checkpoint_backend='auto',
+        seed=13,
+        task_metadata={'task_name': task.name},
+    )
+    artifacts = posterior.fit(reader)
+
+    latest_metadata = json.loads((checkpoint_directory / 'latest' / 'metadata.json').read_text())
+    best_metadata = json.loads((checkpoint_directory / 'best' / 'metadata.json').read_text())
+
+    assert artifacts.metadata['checkpoint_backend'] == 'equinox'
+    assert latest_metadata['checkpoint_backend'] == 'equinox'
+    assert best_metadata['checkpoint_backend'] == 'equinox'
+    assert latest_metadata['checkpoint_backend_fallback_reason'] == 'orbax_unsupported_type'
+    assert (checkpoint_directory / 'latest' / 'state.pkl').exists()
+    assert (checkpoint_directory / 'best' / 'state.pkl').exists()
 
     assert registry.resolve(ArtifactRole.POSTERIOR_MODEL, task.name, version='1.2.3') == save_directory.as_posix()
     assert registered_entry['metadata']['estimator_family'] == 'conditional_flow'
