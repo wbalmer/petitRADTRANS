@@ -494,6 +494,49 @@ def test_runtime_construction_auto_detects_runtime_native_model_functions():
     assert runtime.model_groups[0].model_generating_function is runtime_native_model
 
 
+def test_calculate_forward_model_accepts_runtime_native_model_functions():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    parameter = Parameter(
+        name='amplitude',
+        is_free_parameter=True,
+        value=0.0,
+        transform_prior_cube_coordinate=lambda x: 4.0 * x,
+    )
+
+    def runtime_native_model(context, params, pt_plot_mode=False):
+        del context, pt_plot_mode
+        amplitude = params.get('amplitude')
+        return ModelResult(
+            kind='spectrum',
+            wavelengths=jnp.array([1.0, 2.0]),
+            spectrum=jnp.array([amplitude, amplitude + 1.0]),
+        )
+
+    retrieval.configuration = SimpleNamespace(
+        parameters={'amplitude': parameter},
+        data={
+            'simple': Data(
+                name='simple',
+                model_generating_function=runtime_native_model,
+                radtrans_object=SimpleNamespace(),
+                wavelengths=jnp.array([1.0, 2.0]),
+                spectrum=jnp.array([2.0, 3.0]),
+                uncertainties=jnp.array([0.5, 0.5]),
+            ),
+        },
+        adaptive_mesh_refinement=False,
+    )
+
+    wavelengths, spectrum = retrieval.calculate_forward_model(
+        parameters={'amplitude': 2.0},
+        data='simple',
+    )
+
+    np.testing.assert_array_equal(wavelengths, jnp.array([1.0, 2.0]))
+    np.testing.assert_array_equal(spectrum, jnp.array([2.0, 3.0]))
+
+
 def test_run_legacy_model_adapter_normalizes_legacy_outputs():
     model_context = ModelContext(
         name='legacy_model',
