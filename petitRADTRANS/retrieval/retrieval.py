@@ -2014,9 +2014,11 @@ class Retrieval:
         """
         cube = []
         use_distribution = False
-        if (('jaxns' in self.configuration.sampler_type.lower())
-           or ('blackjax' in self.configuration.sampler_type.lower())
-           or ('numpyro' in self.configuration.sampler_type.lower())):
+        sampler_type = getattr(self.configuration, 'sampler_type', '')
+
+        if (('jaxns' in sampler_type.lower())
+            or ('blackjax' in sampler_type.lower())
+            or ('numpyro' in sampler_type.lower())):
             use_distribution = True
 
         for parameter_name, parameter in self.configuration.parameters.items():
