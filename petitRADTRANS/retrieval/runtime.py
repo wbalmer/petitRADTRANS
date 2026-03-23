@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field, replace
+import logging
 from typing import Any, Mapping, TYPE_CHECKING
 import warnings
 
@@ -34,6 +35,9 @@ from petitRADTRANS.retrieval.jax_parameter import JAX_DTYPE, Parameter
 
 if TYPE_CHECKING:
     from petitRADTRANS.radtrans import Radtrans
+
+
+logger = logging.getLogger(__name__)
 
 
 def _flatten_parameter_values(
@@ -1015,6 +1019,14 @@ class RetrievalRuntime:
         """Return deterministic observation-space model outputs for one parameter point."""
         parameters = self.parameter_layout.build_legacy_parameter_dict(physical_params)
         simulated_observations: dict[str, dict[str, Any]] = {}
+        parameter_payload = {
+            name: float(value)
+            for name, value in zip(
+                self.parameter_layout.free_parameter_names,
+                np.asarray(self.parameter_layout.free_parameter_vector(physical_params), dtype=float),
+                strict=True,
+            )
+        }
 
         for group in self.model_groups:
             model_result = self._evaluate_model_group(configuration, group, physical_params)
@@ -1035,6 +1047,23 @@ class RetrievalRuntime:
                 )
                 projected_values = data.apply_flux_scaling(projected_values, parameters)
                 projected_values = data.offset_flux(projected_values, parameters)
+                projected_values_array = np.asarray(projected_values, dtype=float)
+                finite_mask = np.isfinite(projected_values_array)
+                if not finite_mask.all():
+                    non_finite_count = int(finite_mask.size - finite_mask.sum())
+                    logger.error(
+                        "Non-finite projected observation values detected for source '%s' and dataset '%s' "
+                        "(non_finite_count=%d, total_values=%d, parameters=%s)",
+                        group.source_name,
+                        observation_name,
+                        non_finite_count,
+                        int(finite_mask.size),
+                        parameter_payload,
+                    )
+                    raise ValueError(
+                        "Projected observation values contain non-finite entries for "
+                        f"source '{group.source_name}' and dataset '{observation_name}'."
+                    )
                 projected_uncertainties, projected_covariance = data.scale_and_inflate_uncertainties(parameters)
                 simulated_observations[observation_name] = {
                     'values': projected_values,

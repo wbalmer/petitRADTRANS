@@ -86,70 +86,76 @@ def calculate_gas_mass_fractions(pressures, temperatures=None, imposed_mass_frac
         imposed_mass_fractions = {}
 
     def build_filling_species(filling_species, pressures):
+        pressure_template = jnp.asarray(pressures)
+
+        def _zeros():
+            return jnp.zeros_like(pressure_template)
+
+        def _filled(value):
+            return jnp.full_like(pressure_template, value)
+
         def h2he_case(filling_species):
             fill_species = {}
             if metallicity is not None:
                 fill_species = {
-                    'H2': jnp.zeros(pressures.size).astype(JAX_DTYPE),
-                    'He': jnp.zeros(pressures.size).astype(JAX_DTYPE)}
+                    'H2': _zeros(),
+                    'He': _zeros(),
+                }
             else:
                 fill_species = {
-                    'H2': 74.0 * jnp.ones(pressures.size).astype(JAX_DTYPE),
-                    'He': 24.0 * jnp.ones(pressures.size).astype(JAX_DTYPE)
+                    'H2': _filled(74.0),
+                    'He': _filled(24.0),
                 }
             if isinstance(filling_species, dict):
                 for species, value in filling_species.items():
                     if species not in fill_species:
-                        fill_species[species] = value * jnp.ones(pressures.size).astype(JAX_DTYPE)
+                        fill_species[species] = _filled(value)
             elif isinstance(filling_species, tuple):
                 for species in filling_species:
                     if species not in fill_species:
-                        fill_species[species] = jnp.zeros(pressures.size).astype(JAX_DTYPE)
+                        fill_species[species] = _zeros()
             return fill_species
 
         def default_case(filling_species):
             if isinstance(filling_species, dict):
-                for key, value in filling_species.items():
-                    filling_species[key] = value * jnp.ones_like(pressures).astype(JAX_DTYPE)
+                return {
+                    key: _filled(value)
+                    for key, value in filling_species.items()
+                }
+
             return filling_species
 
-        return lax.cond(
-            (hasattr(filling_species, '__iter__') and len(filling_species) == 2 and not isinstance(filling_species, dict)
-             and 'H2' in filling_species and 'He' in filling_species),
-            h2he_case,
-            default_case,
-            operand=filling_species
-        )
+        if (
+            hasattr(filling_species, '__iter__')
+            and len(filling_species) == 2
+            and not isinstance(filling_species, dict)
+            and 'H2' in filling_species
+            and 'He' in filling_species
+        ):
+            return h2he_case(filling_species)
+
+        return default_case(filling_species)
 
     filling_species = build_filling_species(filling_species, pressures)
 
     # Handle string and non-dict case
     def handle_non_dict(fs):
         def str_case(_):
-            return {fs: jnp.ones(pressures.size)}
+            return {fs: jnp.ones_like(pressures)}
         def iter_case(_):
-            return {species: jnp.ones(pressures.size) for species in fs}
+            return {species: jnp.ones_like(pressures) for species in fs}
         def none_case(_):
             return {}
         def error_case(_):
             raise ValueError(f"filling_species must be a dictionary, but is {fs}")
 
-        return lax.cond(
-            isinstance(fs, str),
-            str_case,
-            lambda _: lax.cond(
-                hasattr(fs, '__iter__'),
-                iter_case,
-                lambda _: lax.cond(
-                    fs is None,
-                    none_case,
-                    error_case,
-                    operand=None
-                ),
-                operand=None
-            ),
-            operand=None
-        )
+        if isinstance(fs, str):
+            return str_case(None)
+        if hasattr(fs, '__iter__'):
+            return iter_case(None)
+        if fs is None:
+            return none_case(None)
+        return error_case(None)
 
     if not isinstance(filling_species, dict):
         filling_species = handle_non_dict(filling_species)

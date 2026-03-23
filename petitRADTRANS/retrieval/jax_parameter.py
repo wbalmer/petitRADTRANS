@@ -1,13 +1,23 @@
 import os
 import jax.numpy as jnp
 from jax import config
-from jaxns import Prior
 from petitRADTRANS.retrieval.utils import log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
 from jax import tree_util
 
 JAX_DTYPE = jnp.float32
 if config.jax_enable_x64:
     JAX_DTYPE = jnp.float64
+
+
+def _build_jaxns_prior(distribution, name):
+    try:
+        from jaxns import Prior
+    except Exception as error:
+        raise ImportError(
+            "JAXNS is required to build Prior objects for JAXNS retrievals, but it could not be imported."
+        ) from error
+
+    return Prior(distribution, name=name)
 
 class Parameter:
     """
@@ -121,7 +131,7 @@ class Parameter:
         raise ValueError(f"Error! Parameter '{self.name}' is not a free parameter")
 
     def set_prior(self):
-        return Prior(self.distribution, name=self.name)
+        return _build_jaxns_prior(self.distribution, name=self.name)
         #return self.prior_sample
 
 class RetrievalParameter:

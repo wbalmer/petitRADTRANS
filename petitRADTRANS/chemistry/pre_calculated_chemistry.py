@@ -6,13 +6,16 @@ import h5py
 import jax
 import jax.numpy as jnp
 import numpy as np  # For file I/O, as JAX doesn't handle it directly
-from jax import lax
+from jax import lax, config
 
 from jax.typing import ArrayLike
 
 from petitRADTRANS._input_data import find_input_file
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
 
+JAX_DTYPE = jnp.float32
+if config.jax_enable_x64:
+    JAX_DTYPE = jnp.float64
 
 def interpolate_chemical_table(
         co_ratios: jax.typing.ArrayLike,            # (n_layers,)
@@ -347,13 +350,13 @@ class PreCalculatedEquilibriumChemistryTable:
             nabla_adiabatic = f['nabla_adiabatic'][()]
 
         # Change array ordering for more efficient fortran calculation (this takes time, so it is done during loading)
-        mass_fractions = jnp.array(mass_fractions, dtype='d')
-        mean_molar_masses = jnp.array(mean_molar_masses, dtype='d')
-        nabla_adiabatic = jnp.array(nabla_adiabatic, dtype='d')
-        log10_metallicities = jnp.array(log10_metallicities, dtype='d')
-        co_ratios = jnp.array(co_ratios, dtype='d')
-        temperatures = jnp.array(temperatures, dtype='d')
-        pressures = jnp.array(pressures, dtype='d')
+        mass_fractions = jnp.array(mass_fractions, dtype=JAX_DTYPE)
+        mean_molar_masses = jnp.array(mean_molar_masses, dtype=JAX_DTYPE)
+        nabla_adiabatic = jnp.array(nabla_adiabatic, dtype=JAX_DTYPE)
+        log10_metallicities = jnp.array(log10_metallicities, dtype=JAX_DTYPE)
+        co_ratios = jnp.array(co_ratios, dtype=JAX_DTYPE)
+        temperatures = jnp.array(temperatures, dtype=JAX_DTYPE)
+        pressures = jnp.array(pressures, dtype=JAX_DTYPE)
 
         print("Done.")
         return (mass_fractions, mean_molar_masses, nabla_adiabatic,

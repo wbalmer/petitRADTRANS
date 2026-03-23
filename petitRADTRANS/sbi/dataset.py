@@ -175,6 +175,47 @@ class GeneratedSimulationDataset:
     preprocessing_metadata: TaskPreprocessingMetadata | None = None
 
 
+def _validate_finite_split_observations(dataset: StoredSimulationDataset) -> None:
+    """Abort when generated observations contain non-finite values."""
+    for split_name, split_count in dataset.manifest.splits.items():
+        if int(split_count) == 0:
+            continue
+
+        split = dataset.read_split(DatasetSplit(split_name))
+        observations = split.get('observations', {})
+
+        for observation_name, payload in observations.items():
+            values = payload.get('values')
+            if values is None:
+                continue
+
+            finite_mask = np.isfinite(np.asarray(values, dtype=float))
+            if finite_mask.all():
+                continue
+
+            non_finite_count = int(finite_mask.size - finite_mask.sum())
+            raise ValueError(
+                "Generated simulation dataset contains non-finite observation values: "
+                f"split='{split_name}', observation='{observation_name}', "
+                f"non_finite_count={non_finite_count}, total_values={int(finite_mask.size)}."
+            )
+
+
+def _validate_preprocessing_metadata(preprocessing_metadata: TaskPreprocessingMetadata | None) -> None:
+    """Abort when preprocessing stats indicate no finite training values."""
+    if preprocessing_metadata is None:
+        return
+
+    for block_name, stats in preprocessing_metadata.blocks.items():
+        if int(stats.n_values) > 0:
+            continue
+
+        raise ValueError(
+            "Generated simulation dataset preprocessing is invalid: "
+            f"block '{block_name}' has n_values == 0, indicating no finite training observations."
+        )
+
+
 @dataclass(frozen=True)
 class NormalizedObservationDatasetReader:
     """Lightweight reader yielding normalized ObservationBlock batches for training."""
@@ -634,10 +675,11 @@ def generate_simulation_dataset(
             remaining -= batch_size
 
     finalized_manifest = writer.finalize()
+    finalized_dataset = dataset_store.open(finalized_manifest)
+    _validate_finite_split_observations(finalized_dataset)
 
     preprocessing_metadata = None
     if include_preprocessing_metadata:
-        finalized_dataset = dataset_store.open(finalized_manifest)
         training_split = finalized_dataset.read_split(DatasetSplit.TRAIN)
         training_blocks = build_observation_block_batch(
             training_split['observations'],
@@ -652,6 +694,7 @@ def generate_simulation_dataset(
                 'split_policy': resolved_split_policy.value,
             },
         )
+        _validate_preprocessing_metadata(preprocessing_metadata)
 
     artifact_metadata = ArtifactMetadata.from_task(
         task=task,
