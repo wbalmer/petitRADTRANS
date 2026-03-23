@@ -34,6 +34,12 @@ import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
 from petitRADTRANS.retrieval.jax_parameter import Parameter, RetrievalParameter
+from petitRADTRANS.retrieval.models import (
+    _build_model_context_from_parameters,
+    _model_result_to_legacy_output,
+    coerce_model_generating_function,
+    run_runtime_model_adapter,
+)
 from petitRADTRANS.retrieval.plotting import RetrievalPlotter
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.runtime import ParameterLayout, PhysicalParams, RetrievalRuntime
@@ -189,13 +195,6 @@ class Retrieval:
         if use_prt_plot_style:
             # import petitRADTRANS.retrieval.plot_style  # commented to avoid breaking of mpl
             pass
-            from petitRADTRANS.retrieval.models import (
-                MODEL_CONTRACT_LEGACY,
-                _build_model_context_from_parameters,
-                _model_result_to_legacy_output,
-                coerce_model_generating_function,
-                run_runtime_model_adapter,
-            )
         self.prt_plot_style = use_prt_plot_style
 
         # Path to input opacities
@@ -217,49 +216,6 @@ class Retrieval:
             n_free_parameters=self._n_free_params_total_retrieval,
         )
         self.latest_sampler_results = None
-                @staticmethod
-                def _call_model_generating_function(
-                    model_generating_function: Callable,
-                    radtrans_object,
-                    parameters,
-                    *,
-                    data_name: str,
-                    pt_plot_mode: bool = False,
-                    adaptive_mesh_refinement: bool = False,
-                ):
-                    resolved_contract, resolved_model_generating_function = coerce_model_generating_function(
-                        model_generating_function
-                    )
-
-                    if resolved_contract == MODEL_CONTRACT_LEGACY:
-                        return model_generating_function(
-                            radtrans_object,
-                            parameters,
-                            pt_plot_mode=pt_plot_mode,
-                            adaptive_mesh_refinement=adaptive_mesh_refinement,
-                        )
-
-                    physical_params = PhysicalParams.from_mapping(
-                        {
-                            name: parameter.value
-                            for name, parameter in parameters.items()
-                        }
-                    )
-                    model_context = _build_model_context_from_parameters(
-                        data_name,
-                        'unknown',
-                        radtrans_object,
-                        parameters,
-                        adaptive_mesh_refinement=adaptive_mesh_refinement,
-                    )
-                    model_result = run_runtime_model_adapter(
-                        resolved_model_generating_function,
-                        model_context,
-                        physical_params,
-                        pt_plot_mode=pt_plot_mode,
-                    )
-
-                    return _model_result_to_legacy_output(model_result)
         if self.configuration.run_mode == 'evaluate':
             sample_dict, parameters_dict = self.get_samples(output_directory=self.output_directory)
             samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
@@ -277,50 +233,42 @@ class Retrieval:
 
         if not data_are_valid:
             warnings.warn("Data may not be suitable for retrievals due to invalid values")
-                        model_returned_values[name] = self._call_model_generating_function(
-                            _data.model_generating_function,
-                            radtrans_object,
-                            configuration_parameters,
-                            data_name=name,
-                            pt_plot_mode=pt_plot_mode,
-                            adaptive_mesh_refinement=adaptive_mesh_refinement,
+
+        self._error_check_model_function()
+
+    def _data_are_valid(self, data=None):
+        tested_attributes = ['wavelengths', 'spectrum', 'uncertainties']
         valid = True
 
         if data is None:
             data = self.configuration.data
 
         if isinstance(data, dict):
-                            model_returned_values = self._call_model_generating_function(
-                                data.model_generating_function,
-                                data.radtrans_object,
-                                self.configuration.parameters,
-                                data_name=data_name,
-                                pt_plot_mode=False,
-                                adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
+            for name, data_obj in data.items():
+                print(f"Testing data '{name}':")
+
+                for tested_attribute in tested_attributes:
+                    print(f" {tested_attribute}:")
                     tested_attribute = data_obj.__getattribute__(tested_attribute)
                     valid = valid and self._data_are_valid(tested_attribute)
 
                     if valid:
                         print("  OK (no NaN, infinite, or negative value detected)")
-                            model_returned_values = self._call_model_generating_function(
-                                data.model_generating_function,
-                                data.radtrans_object,
-                                parameters,
-                                data_name=data_name,
-                                pt_plot_mode=False,
-                                adaptive_mesh_refinement=configuration.adaptive_mesh_refinement,
+        elif isinstance(data, np.ndarray):
+            if data.dtype == 'O':
+                for d in data:
+                    valid = valid and self._data_are_valid(d)
+            else:
                 if np.any(np.isnan(data)):
                     warnings.warn(f"NaN detected ({np.nonzero(np.isnan(data))[0].size} / {data.size})")
                     valid = False
 
                 if np.any(~np.isfinite(data)):
-                            ret_val = self._call_model_generating_function(
-                                data_use.model_generating_function,
-                                radtrans_object,
-                                parameters,
-                                data_name=data_use.name,
-                                pt_plot_mode=False,
-                                adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
+                    warnings.warn(f"Infinite value detected ({np.nonzero(~np.isfinite(data))[0].size} / {data.size})")
+                    valid = False
+
+                if np.any(np.less(data, 0)):
+                    warnings.warn(f"Negative value detected ({np.nonzero(np.less(data, 0))[0].size} / {data.size})\n"
                                   "Make sure that this makes sense for the data set you are considering.")
                     valid = False
         else:
@@ -329,14 +277,13 @@ class Retrieval:
         return valid
 
     def _error_check_model_function(self):
-                            ret_val = self._call_model_generating_function(
-                                data.model_generating_function,
-                                data.radtrans_object,
-                                parameters,
-                                data_name=name,
-                                pt_plot_mode=False,
-                                adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
-                            )
+        for data_name in self.configuration.data:
+            print(f"Testing model function for data '{data_name}'...")
+            message = None
+            wavelengths = None
+            model = None
+            exc_info = None
+
             cube = self.get_parameters_prior_mid_range_values()
 
             try:
@@ -346,13 +293,13 @@ class Retrieval:
                     pt_plot_mode=False,
                     adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
                     copy_configuration_parameters=False
-                            ret_val = self._call_model_generating_function(
-                                self.configuration.data[data.external_radtrans_reference].model_generating_function,
-                                prt_obj,
-                                parameters,
-                                data_name=data.external_radtrans_reference,
-                                pt_plot_mode=False,
-                                adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
+                )
+
+                # TODO the generating function should always return the same number of values
+                if len(model_returned_values) == 3:  # handle case where beta is returned
+                    wavelengths, model, _ = model_returned_values
+                else:
+                    wavelengths, model = model_returned_values
             except KeyError:
                 exc_info = sys.exc_info()
                 message = "and may be caused by an invalid parameter dictionary or invalid abundances"
@@ -363,13 +310,13 @@ class Retrieval:
                 exc_info = sys.exc_info()
                 message = "and may be caused by arrays with an incorrect shape"
             except ZeroDivisionError:
-                            results = self._call_model_generating_function(
-                                data.model_generating_function,
-                                data.radtrans_object,
-                                parameters,
-                                data_name=name,
-                                pt_plot_mode=False,
-                                adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
+                exc_info = sys.exc_info()
+                message = ""
+            except TypeError:
+                exc_info = sys.exc_info()
+                message = "and may be caused by invalid inputs"
+            finally:
+                if message is not None:
                     message = "this error was directly caused by the above error " + message
                     traceback.print_exception(*exc_info)
                     raise RuntimeError(message)
@@ -448,6 +395,40 @@ class Retrieval:
                     value=parameter.value
                 )
         return parameters
+
+    @staticmethod
+    def _call_model_generating_function(
+        model_generating_function: Callable,
+        radtrans_object,
+        parameters: dict[str, Parameter],
+        *,
+        data_name: str,
+        pt_plot_mode: bool = False,
+        adaptive_mesh_refinement: bool = False,
+    ):
+        _, runtime_ready_model_function = coerce_model_generating_function(model_generating_function)
+
+        physical_params = PhysicalParams.from_mapping(
+            {
+                name: parameter.value
+                for name, parameter in parameters.items()
+            }
+        )
+        model_context = _build_model_context_from_parameters(
+            data_name,
+            'unknown',
+            radtrans_object,
+            parameters,
+            adaptive_mesh_refinement=adaptive_mesh_refinement,
+        )
+        model_result = run_runtime_model_adapter(
+            runtime_ready_model_function,
+            model_context,
+            physical_params,
+            pt_plot_mode=pt_plot_mode,
+        )
+
+        return _model_result_to_legacy_output(model_result)
 
     def calculate_forward_model(
         self,
@@ -584,11 +565,13 @@ class Retrieval:
             else:
                 radtrans_object = _data.radtrans_object
 
-            model_returned_values[name] = _data.model_generating_function(
+            model_returned_values[name] = self._call_model_generating_function(
+                _data.model_generating_function,
                 radtrans_object,
                 configuration_parameters,
+                data_name=name,
                 pt_plot_mode=pt_plot_mode,
-                adaptive_mesh_refinement=adaptive_mesh_refinement
+                adaptive_mesh_refinement=adaptive_mesh_refinement,
             )
 
         if return_dict or len(data) > 1:
@@ -2477,11 +2460,13 @@ class Retrieval:
 
             if data.external_radtrans_reference is None:
                 # Compute the model
-                model_returned_values = data.model_generating_function(
+                model_returned_values = self._call_model_generating_function(
+                    data.model_generating_function,
                     data.radtrans_object,
                     self.configuration.parameters,
+                    data_name=data_name,
                     pt_plot_mode=False,
-                    adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement
+                    adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
                 )  # TODO the generating function should always return the same number of values
 
                 if retrieve_uncertainties:
@@ -2974,11 +2959,13 @@ class Retrieval:
             # === Process Primary Data Source ===
             if data.external_radtrans_reference is None:
                 # Compute model spectrum
-                model_returned_values = data.model_generating_function(
+                model_returned_values = Retrieval._call_model_generating_function(
+                    data.model_generating_function,
                     data.radtrans_object,
                     parameters,
+                    data_name=data_name,
                     pt_plot_mode=False,
-                    adaptive_mesh_refinement=configuration.adaptive_mesh_refinement
+                    adaptive_mesh_refinement=configuration.adaptive_mesh_refinement,
                 )
 
                 # Unpack model output using helper
@@ -3888,11 +3875,13 @@ class Retrieval:
             for random_number in random_numbers:
                 sample = samples[:-1, int(random_number)]
                 parameters = self.build_param_dict(sample, parameters_read)
-                ret_val = data_use.model_generating_function(
+                ret_val = self._call_model_generating_function(
+                    data_use.model_generating_function,
                     radtrans_object,
                     parameters,
-                    False,
-                    self.configuration.adaptive_mesh_refinement
+                    data_name=data_use.name,
+                    pt_plot_mode=False,
+                    adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
                 )
 
                 if len(ret_val) == 2:
@@ -3928,13 +3917,14 @@ class Retrieval:
 
             if data.external_radtrans_reference is None:
                 # Compute the model
-                ret_val = \
-                    data.model_generating_function(
-                        data.radtrans_object,
-                        parameters,
-                        False,
-                        adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement
-                    )
+                ret_val = self._call_model_generating_function(
+                    data.model_generating_function,
+                    data.radtrans_object,
+                    parameters,
+                    data_name=name,
+                    pt_plot_mode=False,
+                    adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
+                )
                 if len(ret_val) == 3:
                     wavelengths_model, spectrum_model, additional_logl = ret_val
                 elif len(ret_val) == 4 and data.variability_atmospheric_column_model_flux_return_mode:
@@ -3949,13 +3939,13 @@ class Retrieval:
             else:
                 # Compute the model
                 prt_obj = self.configuration.data[data.external_radtrans_reference].radtrans_object
-                ret_val = (
-                    self.configuration.data[data.external_radtrans_reference].model_generating_function(
-                        prt_obj,
-                        parameters,
-                        False,
-                        adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement
-                    )
+                ret_val = self._call_model_generating_function(
+                    self.configuration.data[data.external_radtrans_reference].model_generating_function,
+                    prt_obj,
+                    parameters,
+                    data_name=data.external_radtrans_reference,
+                    pt_plot_mode=False,
+                    adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
                 )
 
                 if len(ret_val) == 3:
@@ -4043,13 +4033,13 @@ class Retrieval:
                     data.bval = parameters[name + "_b"].value
 
                 # Compute the model
-                results = (
-                    data.model_generating_function(
-                        data.radtrans_object,
-                        parameters,
-                        False,
-                        adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement
-                    )
+                results = self._call_model_generating_function(
+                    data.model_generating_function,
+                    data.radtrans_object,
+                    parameters,
+                    data_name=name,
+                    pt_plot_mode=False,
+                    adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
                 )
 
                 if len(results) == 3:

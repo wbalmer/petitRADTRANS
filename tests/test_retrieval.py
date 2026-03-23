@@ -1668,7 +1668,6 @@ def test_run_regenerates_summary_for_non_pymultinest_sampler(tmp_path):
         sampler_type='blackjaxnuts',
         retrieval_name='non_pmn_summary',
         run_mode='retrieval',
-        plot_kwargs={},
     )
     retrieval.parameter_layout = ParameterLayout.from_parameters(retrieval.configuration.parameters)
     retrieval._free_parameter_names_cache = list(retrieval.parameter_layout.free_parameter_names)
@@ -1720,7 +1719,6 @@ def test_run_saves_named_sample_archive_for_completed_retrieval(tmp_path):
         sampler_type='blackjaxnuts',
         retrieval_name='archived_summary',
         run_mode='retrieval',
-        plot_kwargs={},
     )
     retrieval.parameter_layout = ParameterLayout.from_parameters(retrieval.configuration.parameters)
     retrieval._free_parameter_names_cache = list(retrieval.parameter_layout.free_parameter_names)
@@ -1774,7 +1772,6 @@ def test_get_samples_loads_named_archive_for_non_pymultinest_sampler(tmp_path):
         sampler_type='jaxns',
         retrieval_name='archived_jaxns',
         run_mode='retrieval',
-        plot_kwargs={},
     )
     retrieval.parameter_layout = ParameterLayout.from_parameters(retrieval.configuration.parameters)
     retrieval._free_parameter_names_cache = list(retrieval.parameter_layout.free_parameter_names)
@@ -2025,20 +2022,6 @@ def init_run():
     #    run_definition_simple.parameters[spec].plot_in_corner = True
     #    run_definition_simple.parameters[spec].corner_ranges = [-6.0, 0.0]
 
-    # Spectrum plot
-    run_definition_simple.plot_kwargs["spec_xlabel"] = 'Wavelength [micron]'
-    run_definition_simple.plot_kwargs["spec_ylabel"] = r'$(R_{\rm P}/R_*)^2$ [ppm]'
-    run_definition_simple.plot_kwargs["y_axis_scaling"] = 1e6  # so we have units of ppm
-    run_definition_simple.plot_kwargs["xscale"] = 'linear'
-    run_definition_simple.plot_kwargs["yscale"] = 'linear'
-
-    run_definition_simple.plot_kwargs["nsample"] = 10
-
-    # Temperature profile plot
-    run_definition_simple.plot_kwargs["take_PTs_from"] = 'test'
-    run_definition_simple.plot_kwargs["temp_limits"] = [150, 3000]
-    run_definition_simple.plot_kwargs["press_limits"] = [1e2, 1e-5]
-
     return run_definition_simple
 
 
@@ -2120,8 +2103,18 @@ def test_simple_retrieval():
     retrieval = petitRADTRANS.retrieval.Retrieval(
         run_definition,
         output_directory=tests_results_directory,
-        evaluate_sample_spectra=test_parameters['retrieval_parameters']['sample_spectrum_output']
+        evaluate_sample_spectra=test_parameters['retrieval_parameters']['sample_spectrum_output'],
+        reference_data_name='test'
     )
+
+    retrieval.plotter.spec_xlabel = 'Wavelength [micron]'
+    retrieval.plotter.spec_ylabel = r'$(R_{\rm P}/R_*)^2$ [ppm]'
+    retrieval.plotter.y_axis_scaling = 1e6
+    retrieval.plotter.xscale = 'linear'
+    retrieval.plotter.yscale = 'linear'
+    retrieval.plotter.nsample = 10
+    retrieval.plotter.temp_limits = [150, 3000]
+    retrieval.plotter.press_limits = [1e2, 1e-5]
 
     retrieval.run(
         sampling_efficiency=test_parameters['retrieval_parameters']['sampling_efficiency'],

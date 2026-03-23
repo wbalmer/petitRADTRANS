@@ -72,14 +72,16 @@ class RetrievalPlotter:
     }
 
     def __init__(self, retrieval, reference_data_name=None):
+        resolved_reference_data_name = reference_data_name
+
         object.__setattr__(self, "retrieval", retrieval)
         object.__setattr__(self, "spec_xlabel", 'Wavelength [micron]')
         object.__setattr__(self, "spec_ylabel", "Flux [W/m2/micron]")
         object.__setattr__(self, "y_axis_scaling", 1.0)
         object.__setattr__(self, "xscale", 'log')
         object.__setattr__(self, "yscale", 'linear')
-        object.__setattr__(self, "resolution", 1500.)
-        object.__setattr__(self, "nsample", 10.)
+        object.__setattr__(self, "resolution", 1500.0)
+        object.__setattr__(self, "nsample", 10.0)
         object.__setattr__(self, "temp_limits", [150, 3000])
         object.__setattr__(self, "press_limits", [1e2, 1e-5])
         object.__setattr__(self, "flux_lim", None)
@@ -87,7 +89,7 @@ class RetrievalPlotter:
         object.__setattr__(
             self,
             "reference_data_name",
-            reference_data_name if reference_data_name is not None else next(iter(self.configuration.data), None)
+            resolved_reference_data_name if resolved_reference_data_name is not None else next(iter(self.configuration.data), None)
         )
 
     def __getattr__(self, name):
