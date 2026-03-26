@@ -703,9 +703,17 @@ def test_log_likelihood_jax_routes_normal_path_through_runtime():
     )
     parameters = {'amplitude': Parameter(name='amplitude', is_free_parameter=True, value=jnp.array(2.0))}
 
-    runtime_value = petitRADTRANS.retrieval.retrieval.Retrieval.log_likelihood_jax(
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval.configuration = configuration
+    retrieval.parameter_layout = ParameterLayout.from_parameters(configuration.parameters)
+    retrieval.runtime = RetrievalRuntime.from_configuration(
+        configuration,
+        parameter_layout=retrieval.parameter_layout,
+        n_free_parameters=retrieval.parameter_layout.n_free_parameters,
+    )
+
+    runtime_value = retrieval.log_likelihood_jax(
         parameters=parameters,
-        configuration=configuration,
         uncertainties_mode='default',
     )
     legacy_value = petitRADTRANS.retrieval.retrieval.Retrieval._log_likelihood_jax_legacy(
@@ -1348,9 +1356,17 @@ def test_log_likelihood_jax_routes_external_reference_setup_through_runtime():
     )
     parameters = {'amplitude': Parameter(name='amplitude', is_free_parameter=True, value=jnp.array(2.0))}
 
-    runtime_value = petitRADTRANS.retrieval.retrieval.Retrieval.log_likelihood_jax(
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval.configuration = configuration
+    retrieval.parameter_layout = ParameterLayout.from_parameters(configuration.parameters)
+    retrieval.runtime = RetrievalRuntime.from_configuration(
+        configuration,
+        parameter_layout=retrieval.parameter_layout,
+        n_free_parameters=retrieval.parameter_layout.n_free_parameters,
+    )
+
+    runtime_value = retrieval.log_likelihood_jax(
         parameters=parameters,
-        configuration=configuration,
         uncertainties_mode='default',
     )
     legacy_value = petitRADTRANS.retrieval.retrieval.Retrieval._log_likelihood_jax_legacy(
@@ -1406,9 +1422,8 @@ def test_build_jaxns_sampler_interface_routes_through_runtime_jax_likelihood():
     free_parameter_names, _prior_model, log_likelihood_wrapper = retrieval._build_jaxns_sampler_interface()
 
     assert free_parameter_names == ['amplitude']
-    expected = petitRADTRANS.retrieval.retrieval.Retrieval.log_likelihood_jax(
+    expected = retrieval.log_likelihood_jax(
         parameters={'amplitude': Parameter(name='amplitude', is_free_parameter=True, value=jnp.array(2.0))},
-        configuration=retrieval.configuration,
         uncertainties_mode='default',
     )
     np.testing.assert_allclose(log_likelihood_wrapper(jnp.array(2.0)), expected)

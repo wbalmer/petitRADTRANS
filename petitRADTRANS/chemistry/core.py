@@ -430,13 +430,13 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, co_rati
         def eq_scaling_case():
             if 'eq_scaling_' + cloud_name in parameter_key_list:
                 x_cloud = fc.return_cloud_mass_fraction(cloud, metallicity, co_ratio)
-                return 10 ** parameters['eq_scaling_' + cloud_name].value * x_cloud
+                return 10 ** parameters['eq_scaling_' + cloud_name] * x_cloud
             else:
                 return jnp.zeros_like(temperatures)
 
         def free_case():
             if 'log_X_cb_' + cloud_name in parameter_key_list:
-                return (10 ** parameters['log_X_cb_' + cloud_name].value) * jnp.ones_like(temperatures)
+                return (10 ** parameters['log_X_cb_' + cloud_name]) * jnp.ones_like(temperatures)
             else:
                 return jnp.zeros_like(temperatures)
 
@@ -457,14 +457,14 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, co_rati
 
         def log_pbase_case():
             if 'log_Pbase_' + cloud_name in parameter_key_list:
-                output = jnp.array(10 ** parameters['log_Pbase_' + cloud_name].value)
+                output = jnp.array(10 ** parameters['log_Pbase_' + cloud_name])
             else:
                 output = INVALID_VALUE
             return output.astype(JAX_DTYPE)
 
         def pbase_case():
             if 'Pbase_' + cloud_name in parameter_key_list:
-                output = jnp.array(parameters['Pbase_' + cloud_name].value)
+                output = jnp.array(parameters['Pbase_' + cloud_name])
             else:
                 output = INVALID_VALUE
             return output.astype(JAX_DTYPE)
@@ -486,7 +486,7 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, co_rati
                     cloud_name,
                     pressures,
                     temperatures,
-                    10 ** parameters['log_X_cb_' + cloud_name].value,
+                    10 ** parameters['log_X_cb_' + cloud_name],
                     mean_molar_mass[0]
                 ))
             else:
@@ -533,14 +533,14 @@ def calculate_cloud_mass_fractions(pressures, temperatures, metallicity, co_rati
     def get_fsed(cloud_name, parameters):
         def fsed_cloud_case(_):
             if 'fsed_' + cloud_name in parameter_key_list:
-                output = jnp.array(parameters['fsed_' + cloud_name].value)
+                output = jnp.array(parameters['fsed_' + cloud_name])
             else:
                 output = INVALID_VALUE
             return output.astype(JAX_DTYPE)
 
         def fsed_default_case(_):
             if 'fsed' in parameter_key_list:
-                output = jnp.array(parameters['fsed'].value)
+                output = jnp.array(parameters['fsed'])
             else:
                 output = INVALID_VALUE
             return output.astype(JAX_DTYPE)
@@ -647,26 +647,26 @@ def get_abundances(pressures: typing.ArrayLike, temperatures: typing.ArrayLike,
     atomic_mass_fractions = None
 
     if 'Fe/H' in parameters.keys():
-        metallicity = parameters['Fe/H'].value
+        metallicity = parameters['Fe/H']
 
     if 'M/H' in parameters.keys():
-        metallicity = parameters['M/H'].value
+        metallicity = parameters['M/H']
 
     if 'C/O' in parameters.keys():
-        co_ratio = parameters['C/O'].value
+        co_ratio = parameters['C/O']
 
     if 'log_Pquench' in parameters.keys():
-        carbon_quench_pressure = 10 ** parameters['log_Pquench'].value
+        carbon_quench_pressure = 10 ** parameters['log_Pquench']
     elif 'Pquench' in parameters.keys():
-        carbon_quench_pressure = parameters['Pquench'].value
+        carbon_quench_pressure = parameters['Pquench']
 
     if 'use_easychem' in parameters.keys():
-        use_equilibrium_chemistry = parameters['use_exoatmos'].value
-        exo_atmos = parameters['exoatmos'].value
+        use_equilibrium_chemistry = parameters['use_exoatmos']
+        exo_atmos = parameters['exoatmos']
         atomic_mass_fractions = {}
         for atom_name in exo_atmos.atoms:
             if atom_name in parameters.keys():
-                atomic_mass_fractions[atom_name] = parameters[atom_name].value
+                atomic_mass_fractions[atom_name] = parameters[atom_name]
 
     imposed_mass_fractions = {}
     for species in line_species:
@@ -675,9 +675,9 @@ def get_abundances(pressures: typing.ArrayLike, temperatures: typing.ArrayLike,
         species_basename = Opacity.get_species_base_name(species)
 
         if species_full_name in parameters.keys():
-            imposed_mass_fractions[species_full_name] = parameters[species_full_name].value
+            imposed_mass_fractions[species_full_name] = parameters[species_full_name]
         elif species_basename in parameters.keys():
-            imposed_mass_fractions[species_basename] = parameters[species_basename].value
+            imposed_mass_fractions[species_basename] = parameters[species_basename]
 
     mass_fractions, m_sum_total = calculate_gas_mass_fractions(
         pressures=pressures,
@@ -729,6 +729,33 @@ def get_abundances(pressures: typing.ArrayLike, temperatures: typing.ArrayLike,
             continue
         mass_fractions[species] = value[pressure_indices]
     return mass_fractions, mean_molar_mass, pressure_indices, p_bases
+
+
+def get_abundances_from_legacy_dict(pressures: typing.ArrayLike, temperatures: typing.ArrayLike,
+                                    parameters: dict, line_species: tuple, cloud_species: tuple,
+                                    filling_species: tuple | dict = None, adaptive_mesh_refinement: bool = False,
+                                    **kwargs):
+    """Legacy wrapper for :func:`get_abundances`.
+
+    Converts a legacy parameter dictionary (values accessed via ``.value``) to a
+    plain-value mapping before forwarding to :func:`get_abundances`.
+
+    Args:
+        parameters : dict
+            Legacy parameter dictionary where each value is an object with a ``.value`` attribute.
+        All other arguments are forwarded unchanged to :func:`get_abundances`.
+    """
+    plain_parameters = {name: param.value for name, param in parameters.items()}
+    return get_abundances(
+        pressures=pressures,
+        temperatures=temperatures,
+        parameters=plain_parameters,
+        line_species=line_species,
+        cloud_species=cloud_species,
+        filling_species=filling_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement,
+        **kwargs,
+    )
 
 
 def get_abundances_old(pressures, temperatures, line_species, cloud_species, parameters, adaptive_mesh_refinement=False):

@@ -194,8 +194,11 @@ def setup_clouds(pressures, parameters, cloud_species):
     Args:
         pressures : jnp.ndarray
             The pressure array used to provide the atmospheric grid
-        parameters : dict
-            The dictionary of parameters passed to the model function. Should contain:
+        parameters : PhysicalParams or dict
+            The parameter container. Values are accessed directly (e.g.
+            ``parameters['sigma_lnorm']``). Use :func:`setup_clouds_from_legacy_dict`
+            if you have a legacy parameter dictionary with ``.value`` attributes.
+            Should contain:
                  *  fsed : sedimentation parameter - can be unique to each cloud type
                 One of:
                   *  sigma_lnorm : Width of cloud particle size distribution (log normal)
@@ -227,7 +230,7 @@ def setup_clouds(pressures, parameters, cloud_species):
 
     # Setup distribution shape
     if "sigma_lnorm" in parameters.keys():
-        sigma_lnorm = parameters['sigma_lnorm'].value
+        sigma_lnorm = parameters['sigma_lnorm']
     elif "b_hans" in parameters.keys():
         b_hans = get_bhans(parameters, cloud_species, pressures.shape[0])
         distribution = "hansen"
@@ -240,7 +243,7 @@ def setup_clouds(pressures, parameters, cloud_species):
         species_full_name = cloud_opacity.species_full_name
         cloud_name = species_full_name.split('_')[0]
         if 'log_cloud_radius_' + cloud_name in parameters.keys():
-            radii[cloud] = 10 ** parameters['log_cloud_radius_' + cloud_name].value * jnp.ones_like(pressures)
+            radii[cloud] = 10 ** parameters['log_cloud_radius_' + cloud_name] * jnp.ones_like(pressures)
 
     if not radii:
         radii = None
@@ -249,23 +252,47 @@ def setup_clouds(pressures, parameters, cloud_species):
     fseds = get_fseds(parameters, cloud_species)
 
     if "log_kzz" in parameters.keys():
-        kzz = 10 ** parameters["log_kzz"].value * jnp.ones_like(pressures)
+        kzz = 10 ** parameters["log_kzz"] * jnp.ones_like(pressures)
 
     cloud_fraction = 1.0
     complete_coverage_clouds = None
 
     if 'patchiness' in parameters.keys():
-        cloud_fraction = parameters['patchiness'].value
+        cloud_fraction = parameters['patchiness']
 
     if 'cloud_fraction' in parameters.keys():
-        cloud_fraction = parameters['cloud_fraction'].value
+        cloud_fraction = parameters['cloud_fraction']
 
     if 'complete_coverage_clouds' in parameters.keys():
-        complete_coverage_clouds = parameters['complete_coverage_clouds'].value
+        complete_coverage_clouds = parameters['complete_coverage_clouds']
 
     if 'remove_cloud_species' in parameters.keys():
-        complete_coverage_clouds = parameters['complete_coverage_clouds'].value
+        complete_coverage_clouds = parameters['complete_coverage_clouds']
     return sigma_lnorm, fseds, kzz, b_hans, radii, cloud_fraction, complete_coverage_clouds, distribution
+
+
+def setup_clouds_from_legacy_dict(pressures, parameters, cloud_species):
+    """Wrapper for :func:`setup_clouds` that accepts a legacy parameter dictionary.
+
+    Legacy model functions receive ``parameters`` as a dict of objects with a
+    ``.value`` attribute (e.g. ``SimpleNamespace(value=...)``).  This wrapper
+    extracts the plain values before forwarding to :func:`setup_clouds`.
+
+    Args:
+        pressures : jnp.ndarray
+            The pressure array used to provide the atmospheric grid.
+        parameters : dict
+            Legacy parameter dictionary where each value exposes a ``.value``
+            attribute containing the actual scalar or array.
+        cloud_species : list
+            A list of the names of each of the cloud species used in the
+            atmosphere.
+
+    Returns:
+        Same 8-tuple as :func:`setup_clouds`.
+    """
+    plain_params = {name: param.value for name, param in parameters.items()}
+    return setup_clouds(pressures, plain_params, cloud_species)
 
 
 def setup_simple_clouds_hazes(parameters):
@@ -287,33 +314,47 @@ def setup_simple_clouds_hazes(parameters):
 
     # Grey clouds
     if 'log_Pcloud' in parameters.keys():  # TODO should be log10 to be consistent with SpecModel
-        pcloud = 10 ** parameters['log_Pcloud'].value
+        pcloud = 10 ** parameters['log_Pcloud']
     elif 'Pcloud' in parameters.keys():
-        pcloud = parameters['Pcloud'].value
+        pcloud = parameters['Pcloud']
     elif 'log_opaque_cloud_top_pressure' in parameters.keys():  # TODO should be log10 to be consistent with SpecModel
-        pcloud = 10 ** parameters['log_opaque_cloud_top_pressure'].value
+        pcloud = 10 ** parameters['log_opaque_cloud_top_pressure']
     elif 'opaque_cloud_top_pressure' in parameters.keys():
-        pcloud = parameters['opaque_cloud_top_pressure'].value
+        pcloud = parameters['opaque_cloud_top_pressure']
 
     # Hazes and Rayleigh
     if "power_law_opacity_350nm" in parameters.keys():
-        power_law_opacity_350nm = parameters["power_law_opacity_350nm"].value
+        power_law_opacity_350nm = parameters["power_law_opacity_350nm"]
     if "power_law_opacity_coefficient" in parameters.keys():
-        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
+        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"]
     if "log_haze_factor" in parameters.keys():  # TODO should be log10 to be consistent with SpectralModel
         # TODO Document. Should be taken care of in prior.
-        haze_factor = 10 ** parameters["log_haze_factor"].value
+        haze_factor = 10 ** parameters["log_haze_factor"]
     elif "haze_factor" in parameters.keys():
-        haze_factor = parameters["haze_factor"].value
+        haze_factor = parameters["haze_factor"]
 
     # Compatibility
     if "gamma_scat" in parameters.keys():
         # TODO deprecated naming
-        power_law_opacity_coefficient = parameters["gamma_scat"].value
+        power_law_opacity_coefficient = parameters["gamma_scat"]
     if "kappa_0" in parameters.keys():
         # TODO deprecated naming
-        power_law_opacity_350nm = 10 ** parameters["kappa_0"].value
+        power_law_opacity_350nm = 10 ** parameters["kappa_0"]
     return pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm
+
+
+def setup_simple_clouds_hazes_from_legacy_dict(parameters):
+    """Legacy wrapper for :func:`setup_simple_clouds_hazes`.
+
+    Converts a legacy parameter dictionary (values accessed via ``.value``) to a
+    plain-value mapping before forwarding to :func:`setup_simple_clouds_hazes`.
+
+    Args:
+        parameters : dict
+            Legacy parameter dictionary where each value is an object with a ``.value`` attribute.
+    """
+    plain_parameters = {name: param.value for name, param in parameters.items()}
+    return setup_simple_clouds_hazes(plain_parameters)
 
 
 def cloud_dict(parameters, parameter_name, cloud_species, shape=0):
@@ -332,9 +373,9 @@ def cloud_dict(parameters, parameter_name, cloud_species, shape=0):
         output = None
 
         if parameter_name + "_" + cloud_name in parameters.keys():
-            output = parameters[parameter_name + "_" + cloud_name].value
+            output = parameters[parameter_name + "_" + cloud_name]
         elif parameter_name in parameters.keys():
-            output = parameters[parameter_name].value
+            output = parameters[parameter_name]
 
         if shape > 0:
             output = output * jnp.ones(shape)

@@ -238,7 +238,6 @@ class RuntimeSimulator(BatchedSimulator):
         for parameter_row in np.asarray(parameter_matrix):
             physical_params = self.runtime.parameter_layout.physical_params_from_vector(parameter_row)
             simulated_observations = self.runtime.simulate_observations_scalar(
-                configuration=self.task.retrieval_config,
                 physical_params=physical_params,
             )
 

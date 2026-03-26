@@ -53,6 +53,7 @@ from petitRADTRANS.retrieval.utils import (
 )
 from petitRADTRANS.retrieval.sampler import (
     Sampler,
+    SamplerContext,
     PymultinestSampler,
     UltranestSampler,
     BlackJAXHMCSampler,
@@ -69,6 +70,24 @@ from petitRADTRANS.utils import flatten_object, list_str2str
 JAX_DTYPE = jnp.float32
 if config.jax_enable_x64:
     JAX_DTYPE = jnp.float64
+
+SAMPLER_DISPATCH: dict[str, type[Sampler]] = {
+    'pymultinest': PymultinestSampler,
+    'ultranest': UltranestSampler,
+    'blackjaxhmc': BlackJAXHMCSampler,
+    'blackjax_hmc': BlackJAXHMCSampler,
+    'hmc': BlackJAXHMCSampler,
+    'blackjaxnuts': BlackJAXNUTSSampler,
+    'blackjax_nuts': BlackJAXNUTSSampler,
+    'nuts': BlackJAXNUTSSampler,
+    'numpyrohmc': NumPyroHMCSampler,
+    'numpyro_hmc': NumPyroHMCSampler,
+    'numpyronuts': NumPyroNUTSSampler,
+    'numpyro_nuts': NumPyroNUTSSampler,
+    'jaxnestedsampler': JAXNSSampler,
+    'jaxns': JAXNSSampler,
+    'jaxnsshardedstaticsestedsampler': JAXNSShardedStaticNestedSampler,
+}
 
 prt_emcee_mode = os.environ.get("pRT_emcee_mode")
 load_mpi = True
@@ -2390,7 +2409,6 @@ class Retrieval:
 
         physical_params = self.parameter_layout.physical_params_from_vector(cube)
         return self.runtime.evaluate_scalar(
-            configuration=self.configuration,
             physical_params=physical_params,
             uncertainties_mode=self.uncertainties_mode,
             print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging,
@@ -2829,46 +2847,32 @@ class Retrieval:
 
         return True
 
-    @staticmethod
     def log_likelihood_jax(
-        parameters,
-        configuration,
+        self,
+        parameters=None,
+        configuration=None,
         log_l_per_datapoint_dict: dict = None,
         return_model: bool = False,
         uncertainties_mode: str = 'default',
         generate_mock_data: bool = False,
-        print_log_likelihood_for_debugging: bool = False
+        print_log_likelihood_for_debugging: bool = False,
+        *,
+        physical_params: 'PhysicalParams | None' = None,
     ):
-        """
-        JAX-compatible log likelihood computation for pyMultiNest.
+        """JAX-compatible log likelihood computation.
 
-        This function wraps the model computation and log-likelihood calculations
-        for pyMultiNest sampling. It has been refactored for clarity and JAX
-        JIT compilation compatibility.
+        Uses the pre-built ``RetrievalRuntime`` stored on ``self`` instead of
+        reconstructing it on every call.  Accepts either a legacy *parameters*
+        dict (for backward compatibility) or a *physical_params* instance.
 
-        Args:
-            parameters : dict
-                Dictionary of Parameter objects with values to evaluate
-            configuration : RetrievalConfig
-                Configuration object describing the retrieval setup
-            log_l_per_datapoint_dict : dict, optional
-                Dictionary with instrument-entries. If provided, log likelihood
-                per datapoint is appended to existing list.
-            return_model : bool
-                If True, return the generated model alongside log-likelihood
-                (for debugging purposes; should stay False in normal retrieval)
-            uncertainties_mode : str
-                Mode for handling uncertainties: 'default'|'optimize'|'retrieve'|'retrieve_add'
-            generate_mock_data : bool
-                Placeholder for future mock data generation
-            print_log_likelihood_for_debugging : bool
-                Placeholder for debugging output
-
-        Returns:
-            float or dict
-                Log likelihood value, or per-datapoint dictionary if log_l_per_datapoint_dict provided
+        Falls back to the legacy implementation when *log_l_per_datapoint_dict*,
+        *return_model*, or *generate_mock_data* are requested.
         """
         if isinstance(log_l_per_datapoint_dict, dict) or return_model or generate_mock_data:
+            if configuration is None:
+                configuration = self.configuration
+            if parameters is None and physical_params is not None:
+                parameters = self._get_parameter_layout().build_legacy_parameter_dict(physical_params)
             return Retrieval._log_likelihood_jax_legacy(
                 parameters=parameters,
                 configuration=configuration,
@@ -2879,18 +2883,17 @@ class Retrieval:
                 print_log_likelihood_for_debugging=print_log_likelihood_for_debugging,
             )
 
-        parameter_layout = ParameterLayout.from_configuration(configuration)
-        physical_params = PhysicalParams.from_mapping({
-            parameter_name: parameter.value if hasattr(parameter, 'value') else parameter
-            for parameter_name, parameter in parameters.items()
-        })
-        runtime = RetrievalRuntime.from_configuration(
-            configuration,
-            parameter_layout=parameter_layout,
-            n_free_parameters=parameter_layout.n_free_parameters,
-        )
+        runtime = self._get_runtime()
+
+        if physical_params is None:
+            if parameters is None:
+                raise ValueError("Either 'parameters' or 'physical_params' must be provided.")
+            physical_params = PhysicalParams.from_mapping({
+                parameter_name: parameter.value if hasattr(parameter, 'value') else parameter
+                for parameter_name, parameter in parameters.items()
+            })
+
         return runtime.evaluate_jax(
-            configuration=configuration,
             physical_params=physical_params,
             uncertainties_mode=uncertainties_mode,
             print_log_likelihood_for_debugging=print_log_likelihood_for_debugging,
@@ -3218,7 +3221,6 @@ class Retrieval:
         def log_likelihood_batch(physical_positions):
             return np.asarray(
                 runtime.evaluate_vectorized_jax(
-                    configuration=self.configuration,
                     free_parameter_values=physical_positions,
                     uncertainties_mode=self.uncertainties_mode,
                     print_log_likelihood_for_debugging=False,
@@ -3227,9 +3229,29 @@ class Retrieval:
 
         return log_likelihood_batch, prior_transform
 
+    def _build_sampler_context(self) -> SamplerContext:
+        """Build a SamplerContext from the current Retrieval state."""
+        parameter_layout = self._get_parameter_layout()
+        runtime = self._get_runtime()
+        return SamplerContext(
+            parameter_layout=parameter_layout,
+            runtime=runtime,
+            configuration=self.configuration,
+            output_directory=self.output_directory,
+            retrieval_name=self.configuration.retrieval_name,
+            uncertainties_mode=self.uncertainties_mode,
+            print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging,
+            log_likelihood_func=self.log_likelihood,
+            prior_func=self.prior,
+            prior_ultranest_func=self.prior_ultranest,
+            free_parameter_names=list(parameter_layout.free_parameter_names),
+            n_free_parameters=parameter_layout.n_free_parameters,
+        )
+
     def _build_jaxns_sampler_interface(self):
         self._ensure_jax_sampler_model_support('JAXNS')
         parameter_layout = self._get_parameter_layout()
+        runtime = self._get_runtime()
         free_parameter_names = list(parameter_layout.free_parameter_names)
 
         if len(free_parameter_names) < 1:
@@ -3255,15 +3277,10 @@ class Retrieval:
 
         def log_likelihood_wrapper(*args):
             physical_params = parameter_layout.physical_params_from_free_values(args)
-            updated_parameters = parameter_layout.build_legacy_parameter_dict(physical_params)
-            return self.log_likelihood_jax(
-                parameters=updated_parameters,
-                configuration=self.configuration,
-                log_l_per_datapoint_dict=None,
-                return_model=False,
+            return runtime.evaluate_jax(
+                physical_params=physical_params,
                 uncertainties_mode=self.uncertainties_mode,
-                generate_mock_data=self.generate_mock_data,
-                print_log_likelihood_for_debugging=False
+                print_log_likelihood_for_debugging=False,
             )
 
         return free_parameter_names, prior_model, log_likelihood_wrapper
@@ -3271,6 +3288,7 @@ class Retrieval:
     def _build_unconstrained_mcmc_interface(self):
         self._ensure_jax_sampler_model_support('Gradient-based JAX samplers')
         parameter_layout = self._get_parameter_layout()
+        runtime = self._get_runtime()
         free_parameter_names = list(parameter_layout.free_parameter_names)
 
         if len(free_parameter_names) < 1:
@@ -3301,16 +3319,11 @@ class Retrieval:
         def logdensity(unconstrained_position):
             physical_position = transform_single(unconstrained_position)
             physical_params = parameter_layout.physical_params_from_free_values(tuple(physical_position))
-            updated_parameters = parameter_layout.build_legacy_parameter_dict(physical_params)
 
-            return self.log_likelihood_jax(
-                parameters=updated_parameters,
-                configuration=self.configuration,
-                log_l_per_datapoint_dict=None,
-                return_model=False,
+            return runtime.evaluate_jax(
+                physical_params=physical_params,
                 uncertainties_mode=self.uncertainties_mode,
-                generate_mock_data=self.generate_mock_data,
-                print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging
+                print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging,
             ) + log_jacobian_single(unconstrained_position)
 
         initial_position = jnp.zeros(parameter_layout.n_free_parameters, dtype=JAX_DTYPE)
@@ -3499,290 +3512,19 @@ class Retrieval:
             results = sampler.run_sampler(**sampler_kwargs)
             return self._finalize_sampler_run(sampler, results)
 
-        elif sampler_type_normalized == 'pymultinest':
-            prefix = os.path.join(self.output_directory, 'out_PMN', self.configuration.retrieval_name + '_')
-            if len(prefix) > 100 - 21 and rank == 0:
-                warnings.warn("The path to the output files is very long. "
-                              "This can cause problems for MultiNest...", RuntimeWarning)
-
-            if self.configuration.run_mode == 'retrieval':
-                if rank == 0:
-                    print(f"Starting PyMultiNest retrieval: {self.configuration.retrieval_name}")
-                    print(f"Output directory: {os.path.join(self.output_directory, 'out_PMN')}")
-                    with open(prefix + 'params.json', 'w') as f:
-                        json.dump(self._free_parameter_names_cache, f, indent=4)
-
-            pmn_args = {
-                'outputfiles_basename':  sampler_kwargs.pop('outputfiles_basename', prefix),
-                'sampling_efficiency': sampler_kwargs.pop('sampling_efficiency', 0.8),
-                'const_efficiency_mode': sampler_kwargs.pop('const_efficiency_mode', False),
-                'n_live_points': sampler_kwargs.pop('n_live_points', 400),
-                'evidence_tolerance': sampler_kwargs.pop('evidence_tolerance',
-                                                         sampler_kwargs.pop('log_z_convergence', 0.5)),
-                'n_iter_before_update': sampler_kwargs.pop('n_iter_before_update', 50),
-                'resume': sampler_kwargs.pop('resume', False),
-                'verbose': sampler_kwargs.pop('verbose', True),
-                'max_iter': sampler_kwargs.pop('max_iter', 0),
-                'seed': sampler_kwargs.pop('seed', -1),
-                'n_clustering_params': sampler_kwargs.pop('n_clustering_params', None),
-                'wrapped_params': sampler_kwargs.pop('wrapped_params', None),
-                'importance_nested_sampling': sampler_kwargs.pop('importance_nested_sampling', True),
-                'multimodal': sampler_kwargs.pop('multimodal', True),
-                'null_log_evidence': sampler_kwargs.pop('null_log_evidence', -1e90),
-                'max_modes': sampler_kwargs.pop('max_modes', 100),
-                'mode_tolerance': sampler_kwargs.pop('mode_tolerance', -1e90),
-                'context': sampler_kwargs.pop('context', 0),
-                'write_output': sampler_kwargs.pop('write_output', True),
-                'log_zero': sampler_kwargs.pop('log_zero', -1e100),
-                'use_MPI': sampler_kwargs.pop('use_MPI', True),
-                'init_MPI': sampler_kwargs.pop('init_MPI', False),
-                'dump_callback': sampler_kwargs.pop('dump_callback', False),
-            }
-            sampler = PymultinestSampler(
-                log_likelihood_func=self.log_likelihood,
-                prior_func=self.prior,
-                output_directory=self.output_directory,
-                retrieval_name=self.configuration.retrieval_name
-            )
-            analyzer = sampler.run_sampler(n_dims=self._n_free_params_total_retrieval, **pmn_args)
-            sampler.pretty_print(self._free_parameter_names_cache, prefix)
-            statistics = analyzer.get_stats() if analyzer is not None and hasattr(analyzer, 'get_stats') else None
-            if analyzer is None or statistics is not None:
-                return self._finalize_sampler_run(
-                    sampler,
-                    analyzer,
-                    stats=statistics,
-                    sampler_parameters=pmn_args,
-                )
-
-            warnings.warn("PymultinestSampler did not return a standard analyzer. Cannot generate summary.")
-            self.sampler = sampler
-            self.latest_sampler_results = analyzer
-            return self.latest_sampler_results
-
-        elif sampler_type_normalized == 'ultranest':
-            ultranest_vectorized = self._resolve_ultranest_vectorized_mode(
-                sampler_kwargs.pop('vectorized', False)
-            )
-            ultranest_log_likelihood, ultranest_prior = self._build_ultranest_sampler_interface(
-                vectorized=ultranest_vectorized
-            )
-            sampler = UltranestSampler(
-                log_likelihood_func=ultranest_log_likelihood,
-                prior_func=ultranest_prior,
-                output_directory=self.output_directory,
-                retrieval_name=self.configuration.retrieval_name
-            )
-            ultranest_kwargs = {
-                'parameter_names': sampler_kwargs.pop('parameter_names', self._free_parameter_names_cache),
-                'vectorized': ultranest_vectorized,
-            }
-            ultranest_kwargs.update(sampler_kwargs)
-            results = sampler.run_sampler(**ultranest_kwargs)
-            sampler.pretty_print_results()
-            return self._finalize_sampler_run(
-                sampler,
-                results,
-                sampler_parameters=self._build_ultranest_summary_parameters(
-                    sampler_type=sampler_type_normalized,
-                    parameter_names=ultranest_kwargs['parameter_names'],
-                    vectorized=ultranest_vectorized,
-                )
-            )
-        elif sampler_type_normalized in {'blackjaxnuts', 'blackjax_nuts', 'nuts'}:
-            free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
-                self._build_unconstrained_mcmc_interface()
-            )
-            blackjax_kwargs = self._build_blackjax_sampler_kwargs(
-                sampler_kwargs,
-                free_parameter_names=free_parameter_names,
-                initial_position=initial_position,
-                log_jacobian=log_jacobian,
-                algorithm_name='nuts',
-            )
-
-            sampler = BlackJAXNUTSSampler(
-                log_likelihood_func=logdensity,
-                prior_func=transform_positions,
-                output_directory=self.output_directory,
-                retrieval_name=self.configuration.retrieval_name
-            )
-            results = sampler.run_sampler(**blackjax_kwargs)
-            sampler.pretty_print_results()
-            return self._finalize_sampler_run(
-                sampler,
-                results,
-                sampler_parameters=self._build_blackjax_summary_parameters(
-                    sampler_type=sampler_type_normalized,
-                    sampler_kwargs=blackjax_kwargs,
-                )
-            )
-        elif sampler_type_normalized in {'blackjaxhmc', 'blackjax_hmc', 'hmc'}:
-            free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
-                self._build_unconstrained_mcmc_interface()
-            )
-            blackjax_kwargs = self._build_blackjax_sampler_kwargs(
-                sampler_kwargs,
-                free_parameter_names=free_parameter_names,
-                initial_position=initial_position,
-                log_jacobian=log_jacobian,
-                algorithm_name='hmc',
-            )
-
-            sampler = BlackJAXHMCSampler(
-                log_likelihood_func=logdensity,
-                prior_func=transform_positions,
-                output_directory=self.output_directory,
-                retrieval_name=self.configuration.retrieval_name
-            )
-            results = sampler.run_sampler(**blackjax_kwargs)
-            sampler.pretty_print_results()
-            return self._finalize_sampler_run(
-                sampler,
-                results,
-                sampler_parameters=self._build_blackjax_summary_parameters(
-                    sampler_type=sampler_type_normalized,
-                    sampler_kwargs=blackjax_kwargs,
-                )
-            )
-        elif sampler_type_normalized in {'numpyronuts', 'numpyro_nuts'}:
-            free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
-                self._build_unconstrained_mcmc_interface()
-            )
-            numpyro_kwargs = self._build_numpyro_sampler_kwargs(
-                sampler_kwargs,
-                free_parameter_names=free_parameter_names,
-                initial_position=initial_position,
-                log_jacobian=log_jacobian,
-                algorithm_name='nuts',
-            )
-
-            sampler = NumPyroNUTSSampler(
-                log_likelihood_func=logdensity,
-                prior_func=transform_positions,
-                output_directory=self.output_directory,
-                retrieval_name=self.configuration.retrieval_name
-            )
-            results = sampler.run_sampler(**numpyro_kwargs)
-            sampler.pretty_print_results()
-            return self._finalize_sampler_run(
-                sampler,
-                results,
-                sampler_parameters=self._build_numpyro_summary_parameters(
-                    sampler_type=sampler_type_normalized,
-                    sampler_kwargs=numpyro_kwargs,
-                )
-            )
-        elif sampler_type_normalized in {'numpyrohmc', 'numpyro_hmc'}:
-            free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian = (
-                self._build_unconstrained_mcmc_interface()
-            )
-            numpyro_kwargs = self._build_numpyro_sampler_kwargs(
-                sampler_kwargs,
-                free_parameter_names=free_parameter_names,
-                initial_position=initial_position,
-                log_jacobian=log_jacobian,
-                algorithm_name='hmc',
-            )
-
-            sampler = NumPyroHMCSampler(
-                log_likelihood_func=logdensity,
-                prior_func=transform_positions,
-                output_directory=self.output_directory,
-                retrieval_name=self.configuration.retrieval_name
-            )
-            results = sampler.run_sampler(**numpyro_kwargs)
-            sampler.pretty_print_results()
-            return self._finalize_sampler_run(
-                sampler,
-                results,
-                sampler_parameters=self._build_numpyro_summary_parameters(
-                    sampler_type=sampler_type_normalized,
-                    sampler_kwargs=numpyro_kwargs,
-                )
-            )
-        elif sampler_type_normalized in {'jaxnestedsampler', 'jaxns'}:
-            if tfp is None:
-                raise ImportError("TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed.")
-            jaxns_kwargs = {
-                'num_live_points': sampler_kwargs.pop('num_live_points', 400),
-                'max_samples': sampler_kwargs.pop('max_samples', 1e7),
-                's': sampler_kwargs.pop('s', 4),
-                'k': sampler_kwargs.pop('k', 0),
-                'c': sampler_kwargs.pop('c', 200),
-                'devices': sampler_kwargs.pop('devices', devices()),
-                'difficult_model': sampler_kwargs.pop('difficult_model', False),
-                'parameter_estimation': sampler_kwargs.pop('parameter_estimation', False),
-                'shell_fraction': sampler_kwargs.pop('shell_fraction', 0.5),
-                'gradient_guided': sampler_kwargs.pop('gradient_guided', False),
-                'init_efficiency_threshold': sampler_kwargs.pop('init_efficiency_threshold', 0.05),
-                'verbose': sampler_kwargs.pop('verbose', False),
-                'seed': sampler_kwargs.pop('seed', 42654)
-            }
-            jit = sampler_kwargs.pop('jit', True)
-            free_parameter_names, prior_model, log_likelihood_wrapper = self._build_jaxns_sampler_interface()
-
-            sampler = JAXNSSampler(
-                log_likelihood_func=log_likelihood_wrapper,
-                prior_func=prior_model,
-                output_directory=self.output_directory,
-                retrieval_name=self.configuration.retrieval_name
-            )
-            sampler.run_sampler(jit=jit, **jaxns_kwargs)
-            results = sampler.get_results()
-            return self._finalize_sampler_run(
-                sampler,
-                results,
-                stats=results,
-                sampler_parameters=self._build_jaxns_summary_parameters(
-                    sampler_type=sampler_type_normalized,
-                    sampler_kwargs=jaxns_kwargs,
-                    parameter_names=free_parameter_names,
-                )
-            )
-        elif sampler_type_normalized == 'jaxnsshardedstaticsestedsampler':
-            if tfp is None:
-                raise ImportError("TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed.")
-
-            jit = sampler_kwargs.pop('jit', True)
-            jaxns_kwargs = {
-                'num_live_points': sampler_kwargs.pop('num_live_points', 400),
-                'max_samples': sampler_kwargs.pop('max_samples', 1e7),
-                's': sampler_kwargs.pop('s', 4),
-                'k': sampler_kwargs.pop('k', 0),
-                'c': sampler_kwargs.pop('c', 200),
-                'devices': sampler_kwargs.pop('devices', devices()),
-                'difficult_model': sampler_kwargs.pop('difficult_model', False),
-                'parameter_estimation': sampler_kwargs.pop('parameter_estimation', False),
-                'shell_fraction': sampler_kwargs.pop('shell_fraction', 0.5),
-                'gradient_guided': sampler_kwargs.pop('gradient_guided', False),
-                'init_efficiency_threshold': sampler_kwargs.pop('init_efficiency_threshold', 0.05),
-                'verbose': sampler_kwargs.pop('verbose', False),
-                'seed': sampler_kwargs.pop('seed', 42654)
-            }
-            free_parameter_names, prior_model, log_likelihood_wrapper = self._build_jaxns_sampler_interface()
-            sampler = JAXNSShardedStaticNestedSampler(
-                log_likelihood_func=log_likelihood_wrapper,
-                prior_func=prior_model,
-                output_directory=self.output_directory,
-                retrieval_name=self.configuration.retrieval_name
-            )
-            sampler.run_sampler(jit=jit, **jaxns_kwargs)
-            results = sampler.get_results()
-            return self._finalize_sampler_run(
-                sampler,
-                results,
-                stats=results,
-                sampler_parameters=self._build_jaxns_summary_parameters(
-                    sampler_type=sampler_type_normalized,
-                    sampler_kwargs=jaxns_kwargs,
-                    parameter_names=free_parameter_names,
-                )
-            )
-        else:
+        sampler_cls = SAMPLER_DISPATCH.get(sampler_type_normalized)
+        if sampler_cls is None:
             raise ValueError(f"Unknown sampler_type: {sampler_type}")
-        self.sampler = sampler
-        return self.latest_sampler_results
+
+        context = self._build_sampler_context()
+        sampler, run_kwargs, summary_parameters = sampler_cls.prepare(context, **sampler_kwargs)
+        results = sampler.run_sampler(**run_kwargs)
+        results, extra_finalize_kwargs = sampler.post_run(results)
+        return self._finalize_sampler_run(
+            sampler, results,
+            sampler_parameters=summary_parameters,
+            **extra_finalize_kwargs,
+        )
 
     def sample_effective_temperature(self, sample_dict, param_dict, ret_names=None, nsample=None, resolution=40):
         r"""
