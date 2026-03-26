@@ -141,24 +141,43 @@ class SpectralPatchEncoder(eqx.Module):
         if values.shape[0] == 0:
             return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
 
-        patch_embeddings = []
-        for start in range(0, values.shape[0], self.patch_size):
-            stop = min(start + self.patch_size, values.shape[0])
-            patch_mask = mask[start:stop]
-            patch_values = values[start:stop]
-            patch_uncertainties = uncertainties[start:stop] if uncertainties.shape[0] else jnp.zeros((0,))
-            patch_coordinates = coordinates[start:stop] if coordinates.shape[0] else jnp.zeros((0,))
-            patch_summary = jnp.concatenate(
-                (
-                    _summaries(patch_values, patch_mask),
-                    _summaries(patch_uncertainties, _safe_mask(None, patch_uncertainties.shape[0])),
-                    _summaries(patch_coordinates, _safe_mask(None, patch_coordinates.shape[0])),
-                ),
-                axis=0,
-            )
-            patch_embeddings.append(self.patch_mlp(patch_summary))
+        n = values.shape[0]
+        ps = self.patch_size
+        n_patches = -(-n // ps)
+        padded_length = n_patches * ps
+        pad_size = padded_length - n
 
-        pooled = jnp.mean(jnp.stack(patch_embeddings, axis=0), axis=0)
+        padding_indicator = jnp.arange(padded_length) >= n
+
+        values_padded = jnp.concatenate([values, jnp.zeros(pad_size, dtype=jnp.float32)])
+        mask_padded = jnp.concatenate([mask, jnp.ones(pad_size, dtype=bool)])
+        values_2d = values_padded.reshape(n_patches, ps)
+        mask_2d = mask_padded.reshape(n_patches, ps)
+
+        if uncertainties.shape[0] > 0:
+            unc_pad = max(0, padded_length - uncertainties.shape[0])
+            unc_padded = jnp.concatenate([uncertainties, jnp.zeros(unc_pad, dtype=jnp.float32)])[:padded_length]
+            unc_mask_2d = padding_indicator.reshape(n_patches, ps)
+        else:
+            unc_padded = jnp.zeros(padded_length, dtype=jnp.float32)
+            unc_mask_2d = jnp.ones((n_patches, ps), dtype=bool)
+        unc_2d = unc_padded.reshape(n_patches, ps)
+
+        if coordinates.shape[0] > 0:
+            coord_pad = max(0, padded_length - coordinates.shape[0])
+            coord_padded = jnp.concatenate([coordinates, jnp.zeros(coord_pad, dtype=jnp.float32)])[:padded_length]
+            coord_mask_2d = padding_indicator.reshape(n_patches, ps)
+        else:
+            coord_padded = jnp.zeros(padded_length, dtype=jnp.float32)
+            coord_mask_2d = jnp.ones((n_patches, ps), dtype=bool)
+        coord_2d = coord_padded.reshape(n_patches, ps)
+
+        def _patch_summary(v, vm, u, um, c, cm):
+            return jnp.concatenate((_summaries(v, vm), _summaries(u, um), _summaries(c, cm)))
+
+        summaries = jax.vmap(_patch_summary)(values_2d, mask_2d, unc_2d, unc_mask_2d, coord_2d, coord_mask_2d)
+        patch_embeddings = jax.vmap(self.patch_mlp)(summaries)
+        pooled = jnp.mean(patch_embeddings, axis=0)
         return self.output_projection(pooled)
 
 
@@ -269,7 +288,8 @@ class DatasetSetAggregator(eqx.Module):
         if not block_embeddings:
             return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
 
-        projected = jnp.stack([self.block_projection(embedding) for embedding in block_embeddings], axis=0)
+        stacked = jnp.stack(block_embeddings, axis=0)
+        projected = jax.vmap(self.block_projection)(stacked)
         pooled = jnp.concatenate(
             (jnp.mean(projected, axis=0), jnp.max(projected, axis=0), jnp.std(projected, axis=0)),
             axis=0,
