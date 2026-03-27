@@ -828,6 +828,21 @@ class RetrievalRuntime:
         model_groups = []
         for source_name, observation_names in grouped_observations.items():
             source_observation = observations[source_name]
+            # Merge source observation metadata so model functions can
+            # access time-series configuration, observation times, etc.
+            group_metadata = {
+                'line_opacity_mode': source_observation.line_opacity_mode,
+                'has_external_references': any(
+                    observations[name].external_radtrans_reference is not None
+                    for name in observation_names
+                ),
+            }
+            obs_meta = source_observation.metadata or {}
+            for key in ('observation_times', 'time_series_config',
+                        'atmospheric_column_flux_mixer',
+                        'concatenate_flux_epochs_variability'):
+                if key in obs_meta and obs_meta[key] is not None:
+                    group_metadata[key] = obs_meta[key]
             model_groups.append(
                 ModelGroupState(
                     source_name=source_name,
@@ -835,13 +850,7 @@ class RetrievalRuntime:
                     model_contract=source_observation.model_contract,
                     model_generating_function=source_observation.model_generating_function,
                     radtrans_object=source_observation.radtrans_object,
-                    metadata={
-                        'line_opacity_mode': source_observation.line_opacity_mode,
-                        'has_external_references': any(
-                            observations[name].external_radtrans_reference is not None
-                            for name in observation_names
-                        ),
-                    },
+                    metadata=group_metadata,
                 )
             )
 
@@ -1062,13 +1071,18 @@ class RetrievalRuntime:
             )
             return jnp.where(ll <= INVALID_LOG_LIKELIHOOD, INVALID_LOG_LIKELIHOOD, ll + additional_log_likelihood)
 
-        # --- 2-D spectrum (e.g. multi-order spectroscopy) ---
+        # --- 2-D spectrum (e.g. multi-order spectroscopy or time series) ---
         if jnp.ndim(observation.spectrum) == 2:
             log_likelihood = jnp.asarray(0.0, dtype=JAX_DTYPE)
             for i, spectrum_data in enumerate(observation.spectrum):
-                masked_model = spectrum_model[i, ~observation.mask[i, :]]
+                # Project each epoch/order model spectrum into observation space
+                model_epoch = project_model_to_observation_space(
+                    wavelengths_model, spectrum_model[i], observation, parameters, data_name,
+                )
+                if observation.mask is not None:
+                    model_epoch = model_epoch[~observation.mask[i, :]]
                 log_likelihood += compute_observation_log_likelihood(
-                    masked_model, spectrum_data,
+                    model_epoch, spectrum_data,
                     observation.uncertainties[i], None, n_free,
                 )
             return log_likelihood + additional_log_likelihood

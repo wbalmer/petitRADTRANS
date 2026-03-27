@@ -50,7 +50,7 @@ jax.config.update('jax_enable_x64', True)
 
 from petitRADTRANS import physical_constants as cst  # noqa: E402
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig  # noqa: E402
-from petitRADTRANS.retrieval.models import runtime_native_guillot_emission  # noqa: E402
+from petitRADTRANS.retrieval.models import guillot_emission  # noqa: E402
 from petitRADTRANS.sbi import (  # noqa: E402
     AmortizedRetrieval,
     ConditionalSplineFlowPosterior,
@@ -212,7 +212,7 @@ def build_retrieval_config(example_data_file: Path) -> tuple[RetrievalConfig, jn
     retrieval_config.add_data(
         name='GRAVITY',
         path_to_observations=str(example_data_file),
-        model_generating_function=runtime_native_guillot_emission,
+        model_generating_function=guillot_emission,
         data_resolution=500,
         model_resolution=300,
         wavelength_boundaries=(1.0, 2.5),

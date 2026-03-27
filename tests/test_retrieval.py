@@ -34,21 +34,21 @@ from petitRADTRANS.retrieval.models import (
     coerce_model_generating_function,
     run_legacy_model_adapter,
     run_runtime_model_adapter,
-    runtime_native_emission_model_diseq_patchy_clouds,
-    runtime_native_gradient_profile_emission,
-    runtime_native_guillot_emission,
-    runtime_native_guillot_emission_add_gaussian_temperature,
-    runtime_native_guillot_patchy_emission,
-    runtime_native_guillot_patchy_transmission,
-    runtime_native_guillot_transmission,
-    runtime_native_interpolated_profile_emission,
-    runtime_native_isothermal_transmission,
-    runtime_native_madhushudhan_seager_emission,
-    runtime_native_madhushudhan_seager_transmission,
-    runtime_native_madhu_seager_patchy_transmission,
-    runtime_native_power_law_profile_emission,
-    runtime_native_power_law_profile_transmission,
-    runtime_native_spline_eddington_adiabatic_emission,
+    emission_model_diseq_patchy_clouds,
+    gradient_profile_emission,
+    guillot_emission,
+    guillot_emission_add_gaussian_temperature,
+    guillot_patchy_emission,
+    guillot_patchy_transmission,
+    guillot_transmission,
+    interpolated_profile_emission,
+    isothermal_transmission,
+    madhushudhan_seager_emission,
+    madhushudhan_seager_transmission,
+    madhu_seager_patchy_transmission,
+    power_law_profile_emission,
+    power_law_profile_transmission,
+    spline_eddington_adiabatic_emission,
 )
 from petitRADTRANS.retrieval.runtime import ParameterLayout, RetrievalRuntime
 from petitRADTRANS.retrieval.runtime import (
@@ -1090,34 +1090,34 @@ def test_runtime_native_builtin_models_expose_stable_model_result_fields():
         assert result.auxiliary_outputs == {'source': source_name}
 
 
-def test_runtime_native_builtin_model_exports_are_detected_as_native():
-    runtime_native_models = {
-        'spline_eddington_adiabatic_emission': runtime_native_spline_eddington_adiabatic_emission,
-        'emission_model_diseq_patchy_clouds': runtime_native_emission_model_diseq_patchy_clouds,
-        'guillot_emission': runtime_native_guillot_emission,
-        'guillot_emission_add_gaussian_temperature': runtime_native_guillot_emission_add_gaussian_temperature,
-        'guillot_patchy_emission': runtime_native_guillot_patchy_emission,
-        'interpolated_profile_emission': runtime_native_interpolated_profile_emission,
-        'gradient_profile_emission': runtime_native_gradient_profile_emission,
-        'power_law_profile_emission': runtime_native_power_law_profile_emission,
-        'guillot_transmission': runtime_native_guillot_transmission,
-        'guillot_patchy_transmission': runtime_native_guillot_patchy_transmission,
-        'madhushudhan_seager_emission': runtime_native_madhushudhan_seager_emission,
-        'madhushudhan_seager_transmission': runtime_native_madhushudhan_seager_transmission,
-        'madhu_seager_patchy_transmission': runtime_native_madhu_seager_patchy_transmission,
-        'isothermal_transmission': runtime_native_isothermal_transmission,
-        'power_law_profile_transmission': runtime_native_power_law_profile_transmission,
+def test_builtin_model_exports_are_detected_as_native():
+    unified_models = {
+        'spline_eddington_adiabatic_emission': spline_eddington_adiabatic_emission,
+        'emission_model_diseq_patchy_clouds': emission_model_diseq_patchy_clouds,
+        'guillot_emission': guillot_emission,
+        'guillot_emission_add_gaussian_temperature': guillot_emission_add_gaussian_temperature,
+        'guillot_patchy_emission': guillot_patchy_emission,
+        'interpolated_profile_emission': interpolated_profile_emission,
+        'gradient_profile_emission': gradient_profile_emission,
+        'power_law_profile_emission': power_law_profile_emission,
+        'guillot_transmission': guillot_transmission,
+        'guillot_patchy_transmission': guillot_patchy_transmission,
+        'madhushudhan_seager_emission': madhushudhan_seager_emission,
+        'madhushudhan_seager_transmission': madhushudhan_seager_transmission,
+        'madhu_seager_patchy_transmission': madhu_seager_patchy_transmission,
+        'isothermal_transmission': isothermal_transmission,
+        'power_law_profile_transmission': power_law_profile_transmission,
     }
 
-    for legacy_name, runtime_native_model in runtime_native_models.items():
-        resolved_contract, coerced_model = coerce_model_generating_function(runtime_native_model)
+    for name, model in unified_models.items():
+        resolved_contract, coerced_model = coerce_model_generating_function(model)
 
-        assert runtime_native_model.__name__ == f'runtime_native_{legacy_name}'
+        assert model.__name__ == name
         assert resolved_contract == MODEL_CONTRACT_RUNTIME_NATIVE
-        assert coerced_model is runtime_native_model
+        assert coerced_model is model
 
 
-def test_runtime_native_isothermal_transmission_runs_through_runtime_helpers(monkeypatch):
+def test_isothermal_transmission_runs_through_runtime_helpers(monkeypatch):
     monkeypatch.setattr(
         petitRADTRANS.retrieval.models,
         'get_abundances',
@@ -1156,7 +1156,7 @@ def test_runtime_native_isothermal_transmission_runs_through_runtime_helpers(mon
         'stellar_radius': 2.0,
     })
 
-    result = runtime_native_isothermal_transmission(model_context, physical_params)
+    result = isothermal_transmission(model_context, physical_params)
 
     assert result.kind == 'spectrum'
     np.testing.assert_allclose(result.wavelengths, jnp.array([1.0, 2.0]))

@@ -23,17 +23,20 @@ All models must take the same set of inputs:
         the location of the photosphere, increasing the resolution where required.
         For example, using the fixed_length_adaptive_mesh_refinement function defined below.
 """
-# TODO replace by SpectralModel function
+import re
 from functools import wraps
 from numbers import Number
 from types import SimpleNamespace
+import jax
 import jax.numpy as jnp
 
 from petitRADTRANS.chemistry import clouds
 from petitRADTRANS.chemistry.core import get_abundances, get_abundances_from_legacy_dict
 from petitRADTRANS.physics import (
     flux2irradiance,
-    planck_function_cm
+    planck_function_cm,
+    ism_extinction,
+    apply_ism_ext
 )
 from petitRADTRANS.profiles import (
     cubic_spline_temperature_profile,
@@ -60,6 +63,10 @@ MODEL_CONTRACT_RUNTIME_LEGACY_ADAPTER = 'runtime_legacy_adapter'
 _MODEL_CONTRACT_ATTRIBUTE = '_prt_model_contract'
 _WRAPPED_LEGACY_MODEL_ATTRIBUTE = '_prt_wrapped_legacy_model'
 
+# Naming-convention patterns for automatic time-series parameter detection
+_TIME_INDEXED_PATTERN = re.compile(r'^(.+)_t_(\d+)$')
+_SINUSOIDAL_SUFFIXES = ('_amplitude', '_period', '_phase', '_offset')
+
 
 def _compute_gravity(physical_params):
     if 'log_g' in physical_params.keys() and 'mass' in physical_params.keys():
@@ -83,7 +90,7 @@ def _compute_gravity(physical_params):
     return gravity, planet_radius
 
 
-def spline_eddington_adiabatic_emission(
+def legacy_spline_eddington_adiabatic_emission(
         prt_object,
         parameters,
         pt_plot_mode=False,
@@ -236,7 +243,7 @@ def spline_eddington_adiabatic_emission(
         )
 
 
-def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=True):
+def legacy_emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=True):
     """
     Disequilibrium Chemistry Emission Model
 
@@ -444,7 +451,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
     return wlen_model, spectrum_model
 
 
-def guillot_emission(prt_object,
+def legacy_guillot_emission(prt_object,
                      parameters,
                      pt_plot_mode=False,
                      adaptive_mesh_refinement=False):
@@ -566,7 +573,7 @@ def guillot_emission(prt_object,
         )
 
 
-def guillot_emission_add_gaussian_temperature(prt_object,
+def legacy_guillot_emission_add_gaussian_temperature(prt_object,
                                               parameters,
                                               pt_plot_mode=False,
                                               adaptive_mesh_refinement=False):
@@ -698,14 +705,14 @@ def guillot_emission_add_gaussian_temperature(prt_object,
         )
 
 
-def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+def legacy_guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     Deprecated, to be removed in future version
     """
-    return guillot_emission(prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement)
+    return legacy_guillot_emission(prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement)
 
 
-def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+def legacy_interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     This model computes a emission spectrum based a spline temperature-pressure profile.
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
@@ -833,7 +840,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, ad
         )
 
 
-def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+def legacy_gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     This model computes a emission spectrum based a gradient temperature-pressure profile (Zhang 2023).
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
@@ -965,7 +972,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, adapti
         )
 
 
-def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+def legacy_power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     This model computes a emission spectrum based a gradient temperature-pressure profile (Zhang 2023).
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
@@ -1085,7 +1092,7 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, adapt
         )
 
 
-def guillot_transmission(prt_object,
+def legacy_guillot_transmission(prt_object,
                          parameters,
                          pt_plot_mode=False,
                          adaptive_mesh_refinement=False):
@@ -1222,17 +1229,17 @@ def guillot_transmission(prt_object,
         )
 
 
-def guillot_patchy_transmission(prt_object,
+def legacy_guillot_patchy_transmission(prt_object,
                                 parameters,
                                 pt_plot_mode=False,
                                 adaptive_mesh_refinement=False):
     """
     Deprecated
     """
-    return guillot_transmission(prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement)
+    return legacy_guillot_transmission(prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement)
 
 
-def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+def legacy_madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     Transmission Model, Madhusudhan Seager 2009 Profile
 
@@ -1373,7 +1380,7 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, ada
         )
 
 
-def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+def legacy_madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     Transmission Model, Madhusudhan Seager 2009 Profile
 
@@ -1523,17 +1530,17 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
         )
 
 
-def madhu_seager_patchy_transmission(prt_object,
+def legacy_madhu_seager_patchy_transmission(prt_object,
                                      parameters,
                                      pt_plot_mode=False,
                                      adaptive_mesh_refinement=False):
     """
     Deprecated
     """
-    return madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement)
+    return legacy_madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement)
 
 
-def isothermal_transmission(prt_object,
+def legacy_isothermal_transmission(prt_object,
                             parameters,
                             pt_plot_mode=False,
                             adaptive_mesh_refinement=False):
@@ -1658,7 +1665,7 @@ def isothermal_transmission(prt_object,
         )
 
 
-def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
+def legacy_power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     This model computes a emission spectrum based a gradient temperature-pressure profile (Zhang 2023).
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
@@ -2086,6 +2093,67 @@ def run_runtime_model_adapter(
     return _normalize_model_output(model_output, pt_plot_mode=pt_plot_mode)
 
 
+def make_unified_model(fn, legacy_fn=None):
+    """Return a single callable that dispatches to *fn* or
+    *legacy_fn* based on the type of the first positional argument.
+
+    When the first argument is a :class:`~petitRADTRANS.retrieval.runtime.ModelContext`
+    instance, the runtime-native code path is taken.  Any other type routes to
+    the legacy calling convention ``(prt_object, parameters, ...)``.  If no
+    *legacy_fn* is supplied and the first argument is not a
+    :class:`ModelContext`, a :class:`TypeError` is raised.
+
+    The dispatcher carries ``_prt_model_contract == MODEL_CONTRACT_RUNTIME_NATIVE``
+    so that :func:`coerce_model_generating_function` and the retrieval runtime
+    treat it as a first-class runtime-native function.  The constituent
+    functions remain accessible as ``.___`` and ``.__legacy__``
+    attributes.
+
+    JAX safety
+    ----------
+    The dispatch is a pure Python ``isinstance`` check executed **before** JAX
+    observes any arguments.  Consequences:
+
+    * ``jax.jit`` — JAX traces only the selected code path; XLA sees no
+      dead branch and compiles no extra code.
+    * ``jax.grad`` / ``jax.vjp`` — gradients are computed through the
+      dispatched path only; the other path is never traced.
+    * ``jax.vmap`` — behaves identically; ``isinstance`` is static w.r.t.
+      vmapped axes.
+    * No ``jax.lax.cond``-style runtime branching is introduced; the dispatch
+      cost is a single O(1) Python call incurred once per JIT compilation.
+    """
+
+    @wraps(fn)
+    def dispatcher(
+            first_arg,
+            second_arg,
+            pt_plot_mode=False,
+            adaptive_mesh_refinement=False,
+            **kwargs,
+    ):
+        if isinstance(first_arg, ModelContext):
+            return fn(first_arg, second_arg, pt_plot_mode=pt_plot_mode)
+        if legacy_fn is None:
+            raise TypeError(
+                f"{fn.__name__}: no legacy counterpart registered; "
+                f"first argument must be a ModelContext, got "
+                f"{type(first_arg).__name__}."
+            )
+        return legacy_fn(
+            first_arg,
+            second_arg,
+            pt_plot_mode=pt_plot_mode,
+            adaptive_mesh_refinement=adaptive_mesh_refinement,
+            **kwargs,
+        )
+
+    setattr(dispatcher, _MODEL_CONTRACT_ATTRIBUTE, MODEL_CONTRACT_RUNTIME_NATIVE)
+    dispatcher.___ = fn
+    dispatcher.__legacy__ = legacy_fn
+    return dispatcher
+
+
 def _initialize_runtime_pressure_grid(model_context: ModelContext, physical_params):
     return initialize_pressure(
         model_context.radtrans.pressures / 1e6,
@@ -2242,7 +2310,7 @@ def _build_runtime_transmission_model_inputs(
 
 
 @mark_model_function_runtime_native
-def runtime_native_spline_eddington_adiabatic_emission(
+def spline_eddington_adiabatic_emission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -2309,7 +2377,7 @@ def runtime_native_spline_eddington_adiabatic_emission(
 
 
 @mark_model_function_runtime_native
-def runtime_native_emission_model_diseq_patchy_clouds(
+def emission_model_diseq_patchy_clouds(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -2436,7 +2504,7 @@ def runtime_native_emission_model_diseq_patchy_clouds(
 
 
 @mark_model_function_runtime_native
-def runtime_native_guillot_emission(
+def guillot_emission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -2480,7 +2548,7 @@ def runtime_native_guillot_emission(
 
 
 @mark_model_function_runtime_native
-def runtime_native_guillot_emission_add_gaussian_temperature(
+def guillot_emission_add_gaussian_temperature(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -2537,16 +2605,16 @@ def runtime_native_guillot_emission_add_gaussian_temperature(
 
 
 @mark_model_function_runtime_native
-def runtime_native_guillot_patchy_emission(
+def guillot_patchy_emission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
 ) -> ModelResult:
-    return runtime_native_guillot_emission(model_context, physical_params, pt_plot_mode=pt_plot_mode)
+    return guillot_emission(model_context, physical_params, pt_plot_mode=pt_plot_mode)
 
 
 @mark_model_function_runtime_native
-def runtime_native_interpolated_profile_emission(
+def interpolated_profile_emission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -2600,7 +2668,7 @@ def runtime_native_interpolated_profile_emission(
 
 
 @mark_model_function_runtime_native
-def runtime_native_gradient_profile_emission(
+def gradient_profile_emission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -2655,8 +2723,229 @@ def runtime_native_gradient_profile_emission(
     return calculate_emission_spectrum_runtime(model_context, model_inputs)
 
 
+def _build_timestep_params(physical_params, t_idx, t_value):
+    """Build a :class:`PhysicalParams` snapshot for a single model timestep.
+
+    Auto-detects time-varying parameters by scanning parameter names:
+
+    - **Per-timestep keys** matching ``{P}_t_{int}``: the value at index
+      *t_idx* is stored under the base name ``P``.
+    - **Sinusoidal quartets** ``{P}_amplitude``, ``{P}_period``,
+      ``{P}_phase``, ``{P}_offset``: the base name ``P`` is evaluated as
+      ``offset + amplitude * sin(2π * t_value / period + phase)``.
+
+    All detected meta-keys are stripped from the snapshot; only the resolved
+    base name is included.  Parameters matching neither pattern are copied
+    unchanged.  This allows *any* parameter to vary with time simply by
+    following the naming convention—no pre-declaration is required.
+    """
+    # --- Detect per-timestep parameters: {base}_t_{int} ---
+    time_varying_bases = set()
+    tv_keys = set()
+    for key in physical_params.keys():
+        m = _TIME_INDEXED_PATTERN.match(key)
+        if m:
+            time_varying_bases.add(m.group(1))
+            tv_keys.add(key)
+
+    # --- Detect sinusoidal quartets ---
+    all_keys = set(physical_params.keys())
+    sinusoidal_bases = set()
+    sin_keys = set()
+    candidate_bases = set()
+    for key in all_keys:
+        for suf in _SINUSOIDAL_SUFFIXES:
+            if key.endswith(suf):
+                candidate_bases.add(key[:-len(suf)])
+    for base in candidate_bases:
+        if base in time_varying_bases:
+            continue  # per-timestep keys take precedence
+        if all(f'{base}{suf}' in all_keys for suf in _SINUSOIDAL_SUFFIXES):
+            sinusoidal_bases.add(base)
+            for suf in _SINUSOIDAL_SUFFIXES:
+                sin_keys.add(f'{base}{suf}')
+
+    skip_keys = tv_keys | sin_keys
+
+    # --- Build snapshot ---
+    base_dict = {}
+    for key in physical_params.keys():
+        if key in skip_keys:
+            continue
+        base_dict[key] = physical_params[key]
+
+    # Resolve per-timestep values
+    for base in time_varying_bases:
+        base_dict[base] = physical_params[f'{base}_t_{t_idx}']
+
+    # Evaluate sinusoidal values
+    for base in sinusoidal_bases:
+        amp = physical_params[f'{base}_amplitude']
+        period = physical_params[f'{base}_period']
+        phase = physical_params[f'{base}_phase']
+        offset = physical_params[f'{base}_offset']
+        base_dict[base] = offset + amp * jnp.sin(2.0 * jnp.pi * t_value / period + phase)
+
+    return PhysicalParams.from_mapping(base_dict)
+
+
 @mark_model_function_runtime_native
-def runtime_native_power_law_profile_emission(
+def time_series_gradient_emission(
+        model_context: ModelContext,
+        physical_params: PhysicalParams,
+        pt_plot_mode: bool = False,
+) -> ModelResult:
+    """Time-variable gradient-profile emission model.
+
+    Computes ``N_time`` emission spectra at regularly spaced model timesteps
+    spanning the range of the observation times.  Spectra at intermediate
+    observation times are obtained by linear interpolation along the time axis.
+
+    Time-varying parameters are **auto-detected** from the naming convention
+    by :func:`_build_timestep_params` — no explicit declaration is needed.
+    Any parameter can vary with time simply by following one of the two
+    supported patterns:
+
+    Per-timestep keys
+    -----------------
+    Supply ``{P}_t_0`` … ``{P}_t_{N_time-1}`` as free parameters.  At each
+    model timestep *i* the snapshot will contain ``P`` set to the value of
+    ``{P}_t_i``.
+
+    Sinusoidal parameterisation
+    ---------------------------
+    Supply ``{P}_amplitude``, ``{P}_period`` (seconds), ``{P}_phase``
+    (radians), and ``{P}_offset``.  The value at time *t* is
+
+    .. math::
+
+        P(t) = \\text{offset} + A \\sin\\!\\left(\\frac{2\\pi t}{\\text{period}} + \\phi\\right)
+
+    Parameters that do not match either pattern are treated as constant
+    across all timesteps (e.g. ``distance_to_system``, ``mass``,
+    ``planet_radius``, ``N_layers``).
+
+    Returns
+    -------
+    ModelResult
+        When ``pt_plot_mode=False``: ``spectrum`` has shape
+        ``(N_obs, N_wavelength)`` aligned with ``observation_times``.
+        When ``pt_plot_mode=True``: ``temperatures`` has shape
+        ``(N_time, N_pressure)`` and ``auxiliary_outputs['model_times']``
+        gives the corresponding model time grid.
+    """
+    metadata = model_context.model_metadata
+    observation_times = metadata['observation_times']
+    n_time = int(physical_params['N_time'])
+
+    # Build a regular model time grid spanning the observation window
+    t_min = jnp.min(observation_times)
+    t_max = jnp.max(observation_times)
+    model_times = jnp.linspace(t_min, t_max, n_time)
+
+    # Pressure grid and gravity are constant across timesteps
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    gravity, planet_radius = _compute_gravity(physical_params)
+    num_layer = int(physical_params['N_layers'])
+
+    top_of_atmosphere_pressure = -3
+    bottom_of_atmosphere_pressure = 3
+    if 'top_of_atmosphere_pressure' in physical_params.keys():
+        top_of_atmosphere_pressure = physical_params['top_of_atmosphere_pressure']
+    if 'bottom_of_atmosphere_pressure' in physical_params.keys():
+        bottom_of_atmosphere_pressure = physical_params['bottom_of_atmosphere_pressure']
+
+    model_spectra = []
+    model_temperatures = []
+
+    for t_idx in range(n_time):
+        t_val = model_times[t_idx]
+
+        # Resolve parameter values at this timestep
+        snapshot = _build_timestep_params(physical_params, t_idx, t_val)
+
+        # Build the gradient temperature profile
+        layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
+        for k in range(num_layer):
+            layer_pt_slopes = layer_pt_slopes.at[k].set(
+                snapshot[f'PTslope_{num_layer - k}']
+            )
+
+        temperatures = dtdp_temperature_profile(
+            p_use,
+            num_layer,
+            layer_pt_slopes,
+            snapshot['T_bottom'],
+            top_of_atmosphere_pressure=top_of_atmosphere_pressure,
+            bottom_of_atmosphere_pressure=bottom_of_atmosphere_pressure,
+        )
+
+        if pt_plot_mode:
+            model_temperatures.append(temperatures)
+            continue
+
+        # Resolve chemistry
+        result, abundance_state = _resolve_runtime_abundance_state(
+            model_context,
+            snapshot,
+            p_use,
+            p_global,
+            temperatures,
+            pt_plot_mode=False,
+        )
+        if result is not None:
+            return result
+
+        # Clouds
+        cloud_properties = clouds.setup_clouds(
+            abundance_state['pressures'],
+            snapshot,
+            model_context.radtrans.cloud_species,
+        )
+
+        # Build model inputs and compute emission spectrum
+        model_inputs = _build_runtime_emission_model_inputs(
+            snapshot,
+            abundance_state,
+            gravity,
+            planet_radius,
+            cloud_properties,
+        )
+        step_result = calculate_emission_spectrum_runtime(model_context, model_inputs)
+        model_spectra.append(step_result.spectrum)
+
+    if pt_plot_mode:
+        return ModelResult(
+            kind='pt_profile',
+            pressures=p_use,
+            temperatures=jnp.stack(model_temperatures),
+            auxiliary_outputs={'model_times': model_times},
+        )
+
+    # Stack model spectra: (N_time, N_wavelength)
+    model_spectra_2d = jnp.stack(model_spectra)
+    wavelengths = step_result.wavelengths
+
+    # Interpolate along the time axis for each wavelength bin to produce
+    # spectra at the actual observation times: (N_obs, N_wavelength)
+    observed_spectra = jax.vmap(
+        lambda wl_col: jnp.interp(observation_times, model_times, wl_col),
+        in_axes=1, out_axes=1,
+    )(model_spectra_2d)
+
+    return ModelResult(
+        kind='spectrum',
+        wavelengths=wavelengths,
+        spectrum=observed_spectra,
+        auxiliary_outputs={
+            'model_times': model_times,
+            'model_spectra': model_spectra_2d,
+        },
+    )
+
+
+@mark_model_function_runtime_native
+def power_law_profile_emission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -2697,7 +2986,7 @@ def runtime_native_power_law_profile_emission(
 
 
 @mark_model_function_runtime_native
-def runtime_native_guillot_transmission(
+def guillot_transmission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -2752,16 +3041,16 @@ def runtime_native_guillot_transmission(
 
 
 @mark_model_function_runtime_native
-def runtime_native_guillot_patchy_transmission(
+def guillot_patchy_transmission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
 ) -> ModelResult:
-    return runtime_native_guillot_transmission(model_context, physical_params, pt_plot_mode=pt_plot_mode)
+    return guillot_transmission(model_context, physical_params, pt_plot_mode=pt_plot_mode)
 
 
 @mark_model_function_runtime_native
-def runtime_native_madhushudhan_seager_emission(
+def madhushudhan_seager_emission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -2821,7 +3110,7 @@ def runtime_native_madhushudhan_seager_emission(
 
 
 @mark_model_function_runtime_native
-def runtime_native_madhushudhan_seager_transmission(
+def madhushudhan_seager_transmission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -2892,12 +3181,12 @@ def runtime_native_madhushudhan_seager_transmission(
 
 
 @mark_model_function_runtime_native
-def runtime_native_madhu_seager_patchy_transmission(
+def madhu_seager_patchy_transmission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
 ) -> ModelResult:
-    return runtime_native_madhushudhan_seager_transmission(
+    return madhushudhan_seager_transmission(
         model_context,
         physical_params,
         pt_plot_mode=pt_plot_mode,
@@ -2905,7 +3194,7 @@ def runtime_native_madhu_seager_patchy_transmission(
 
 
 @mark_model_function_runtime_native
-def runtime_native_isothermal_transmission(
+def isothermal_transmission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -2954,7 +3243,7 @@ def runtime_native_isothermal_transmission(
 
 
 @mark_model_function_runtime_native
-def runtime_native_power_law_profile_transmission(
+def power_law_profile_transmission(
         model_context: ModelContext,
         physical_params: PhysicalParams,
         pt_plot_mode: bool = False,
@@ -3292,97 +3581,78 @@ def pglobal_check(press, shape, scaling):
     return PGLOBAL
 
 
-def ism_extinction(
-    av_mag, rv_red, wavelengths
-):
-    """
-    Function for calculating the optical and IR extinction
-    with the empirical relation from `Cardelli et al. (1989)
-    <https://ui.adsabs.harvard.edu/abs/1989ApJ...345..245C/abstract>`_.
-    Reimplemented from species.utils.dust_utils to avoid circular
-    dependencies.
+# ---------------------------------------------------------------------------
+# Unified entry-points
+# ---------------------------------------------------------------------------
+# Each name below accepts *either* the JAX-native calling convention
+# ``(ModelContext, PhysicalParams, pt_plot_mode=False)`` *or* the legacy
+# convention ``(prt_object, parameters_dict, pt_plot_mode, adaptive_mesh_refinement)``.
+# Dispatch is performed by a Python ``isinstance`` check and carries no JAX
+# overhead (see :func:`make_unified_model` for the full safety analysis).
+#
+# The ``legacy_*`` prefixed names are preserved for callers that need the old API.
+# ---------------------------------------------------------------------------
 
-    Parameters
-    ----------
-    av_mag : float
-        Extinction (mag) in the $V$ band.
-    rv_red : float
-        Reddening in the $V$ band, ``R_V = A_V / E(B-V)``.
-    wavelengths : np.ndarray, list(float), float
-        Array or list with the wavelengths (um) for which
-        the extinction is calculated. It is also possible
-        to provide a single value as float.
-
-    Returns
-    -------
-    np.ndarray
-        Extinction (mag) at ``wavelengths``.
-    """
-
-    wavelengths = jnp.array(wavelengths)
-
-    x_wavel = 1.0 / wavelengths
-    y_wavel = x_wavel - 1.82
-
-    a_coeff = jnp.zeros(x_wavel.size)
-    b_coeff = jnp.zeros(x_wavel.size)
-
-    indices = jnp.where(x_wavel < 1.1)[0]
-
-    if len(indices) > 0:
-        a_coeff[indices] = 0.574 * x_wavel[indices] ** 1.61
-        b_coeff[indices] = -0.527 * x_wavel[indices] ** 1.61
-
-    indices = jnp.where(x_wavel >= 1.1)[0]
-
-    if len(indices) > 0:
-        a_coeff[indices] = (
-            1.0
-            + 0.17699 * y_wavel[indices]
-            - 0.50447 * y_wavel[indices] ** 2
-            - 0.02427 * y_wavel[indices] ** 3
-            + 0.72085 * y_wavel[indices] ** 4
-            + 0.01979 * y_wavel[indices] ** 5
-            - 0.77530 * y_wavel[indices] ** 6
-            + 0.32999 * y_wavel[indices] ** 7
-        )
-
-        b_coeff[indices] = (
-            1.41338 * y_wavel[indices]
-            + 2.28305 * y_wavel[indices] ** 2
-            + 1.07233 * y_wavel[indices] ** 3
-            - 5.38434 * y_wavel[indices] ** 4
-            - 0.62251 * y_wavel[indices] ** 5
-            + 5.30260 * y_wavel[indices] ** 6
-            - 2.09002 * y_wavel[indices] ** 7
-        )
-
-    return av_mag * (a_coeff + b_coeff / rv_red)
-
-
-def apply_ism_ext(
-    wavelengths, flux, v_band_ext, v_band_red
-):
-    """
-    Function for applying ISM extinction to a spectrum.
-    Reimplemented from species.utils.dust_utils to avoid circular
-    dependencies.
-
-    wavelengths : jnp.ndarray
-        Wavelengths (um) of the spectrum.
-    flux : jnp.ndarray
-        Fluxes (W m-2 um-1) of the spectrum.
-    v_band_ext : float
-        Extinction (mag) in the $V$ band.
-    v_band_red : float
-        Reddening in the $V$ band.
-
-    Returns
-    -------
-    jnp.ndarray
-        Fluxes (W m-2 um-1) with the extinction applied.
-    """
-
-    ext_mag = ism_extinction(v_band_ext, v_band_red, wavelengths)
-
-    return flux * 10.0 ** (-0.4 * ext_mag)
+spline_eddington_adiabatic_emission = make_unified_model(
+    spline_eddington_adiabatic_emission,
+    legacy_spline_eddington_adiabatic_emission,
+)
+emission_model_diseq_patchy_clouds = make_unified_model(
+    emission_model_diseq_patchy_clouds,
+    legacy_emission_model_diseq_patchy_clouds,
+)
+guillot_emission = make_unified_model(
+    guillot_emission,
+    legacy_guillot_emission,
+)
+guillot_emission_add_gaussian_temperature = make_unified_model(
+    guillot_emission_add_gaussian_temperature,
+    legacy_guillot_emission_add_gaussian_temperature,
+)
+guillot_patchy_emission = make_unified_model(
+    guillot_patchy_emission,
+    legacy_guillot_patchy_emission,
+)
+interpolated_profile_emission = make_unified_model(
+    interpolated_profile_emission,
+    legacy_interpolated_profile_emission,
+)
+gradient_profile_emission = make_unified_model(
+    gradient_profile_emission,
+    legacy_gradient_profile_emission,
+)
+power_law_profile_emission = make_unified_model(
+    power_law_profile_emission,
+    legacy_power_law_profile_emission,
+)
+guillot_transmission = make_unified_model(
+    guillot_transmission,
+    legacy_guillot_transmission,
+)
+guillot_patchy_transmission = make_unified_model(
+    guillot_patchy_transmission,
+    legacy_guillot_patchy_transmission,
+)
+madhushudhan_seager_emission = make_unified_model(
+    madhushudhan_seager_emission,
+    legacy_madhushudhan_seager_emission,
+)
+madhushudhan_seager_transmission = make_unified_model(
+    madhushudhan_seager_transmission,
+    legacy_madhushudhan_seager_transmission,
+)
+madhu_seager_patchy_transmission = make_unified_model(
+    madhu_seager_patchy_transmission,
+    legacy_madhu_seager_patchy_transmission,
+)
+isothermal_transmission = make_unified_model(
+    isothermal_transmission,
+    legacy_isothermal_transmission,
+)
+power_law_profile_transmission = make_unified_model(
+    power_law_profile_transmission,
+    legacy_power_law_profile_transmission,
+)
+time_series_gradient_emission = make_unified_model(
+    time_series_gradient_emission,
+)

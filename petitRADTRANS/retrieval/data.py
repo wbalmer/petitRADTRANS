@@ -955,13 +955,17 @@ class TimeSeriesData(Data):
                  covariance=None,
                  mask=None  # Split to SpectrumData
                  ):
-        self.observation_times = observation_times
+        if observation_times is not None:
+            self.observation_times = jnp.asarray(observation_times, dtype=JAX_DTYPE)
+        else:
+            self.observation_times = None
         self.filename_list = filename_list
         self.concatenate_flux_epochs_variability = concatenate_flux_epochs_variability
         self.atmospheric_column_flux_mixer = atmospheric_column_flux_mixer
         self.variability_atmospheric_column_model_flux_return_mode =\
             variability_atmospheric_column_model_flux_return_mode
-
+        # Time-series model configuration (set by RetrievalConfig.add_time_series_data)
+        self.time_series_config = None
         super().__init__(
                  name=name,
                  path_to_observations=path_to_observations,
@@ -985,7 +989,47 @@ class TimeSeriesData(Data):
                  mask=mask
                  )
 
-    def load_time_series_spectrum_txt(self, delimiter=',', comments='#'):
+    def to_observation_state(self, model_contract: str = 'legacy') -> ObservationState:
+        obs = super().to_observation_state(model_contract=model_contract)
+        updated_metadata = dict(obs.metadata)
+        updated_metadata['observation_times'] = self.observation_times
+        if self.time_series_config is not None:
+            updated_metadata['time_series_config'] = self.time_series_config
+        return ObservationState(
+            name=obs.name,
+            wavelengths=obs.wavelengths,
+            spectrum=obs.spectrum,
+            mask=obs.mask,
+            uncertainties=obs.uncertainties,
+            covariance=obs.covariance,
+            radtrans_object=obs.radtrans_object,
+            model_generating_function=obs.model_generating_function,
+            model_resolution=obs.model_resolution,
+            data_resolution=obs.data_resolution,
+            wavelength_bin_widths=obs.wavelength_bin_widths,
+            photometry=obs.photometry,
+            external_radtrans_reference=obs.external_radtrans_reference,
+            line_opacity_mode=obs.line_opacity_mode,
+            model_contract=obs.model_contract,
+            scale_flux=obs.scale_flux,
+            scale_uncertainties=obs.scale_uncertainties,
+            fit_flux_offset=obs.fit_flux_offset,
+            fit_instrumental_resolution=obs.fit_instrumental_resolution,
+            subtract_continuum=obs.subtract_continuum,
+            photometric_transformation_function=obs.photometric_transformation_function,
+            fit_covariance=obs.fit_covariance,
+            covariance_mode=obs.covariance_mode,
+            global_covariance_kernel=obs.global_covariance_kernel,
+            local_covariance_kernel=obs.local_covariance_kernel,
+            n_local_covariance_kernels=obs.n_local_covariance_kernels,
+            covariance_jitter=obs.covariance_jitter,
+            variability_atmospheric_column_model_flux_return_mode=(
+                obs.variability_atmospheric_column_model_flux_return_mode
+            ),
+            metadata=updated_metadata,
+        )
+
+    def load_single_spectrum_txt(self, delimiter=',', comments='#'):
         wavelengths, spectra, bin_widths, uncertainties = [], [], [], []
         for filename in self.filename_list:
             wavelength, spectrum, bin_width, uncertainty = self.loadtxt(self.path_to_observations + filename, delimiter, comments)

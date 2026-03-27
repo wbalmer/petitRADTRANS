@@ -881,6 +881,137 @@ class RetrievalConfig:
                 covariance_parameter_priors=covariance_parameter_priors,
             )
 
+    def add_time_series_data(
+        self,
+        name: str,
+        observation_times: ArrayLike,
+        model_generating_function: Callable,
+        n_model_timesteps: int,
+        time_varying_parameters: list[str] | None = None,
+        sinusoidal_parameters: list[str] | None = None,
+        *,
+        path_to_observations: str | None = None,
+        filename_list: list[str] | None = None,
+        wavelengths: ArrayLike | None = None,
+        spectrum: ArrayLike | None = None,
+        uncertainties: ArrayLike | None = None,
+        mask: ArrayLike | None = None,
+        wavelength_bin_widths: ArrayLike | None = None,
+        data_resolution: float | None = None,
+        model_resolution: float | None = None,
+        system_distance: float | None = None,
+        wavelength_boundaries: tuple | None = None,
+        external_radtrans_reference: str | None = None,
+        line_opacity_mode: str = 'c-k',
+        scale_flux: bool = False,
+        scale_uncertainties: bool = False,
+        fit_flux_offset: bool = False,
+        radtrans_object: object = None,
+        covariance: ArrayLike | None = None,
+    ):
+        """Create a :class:`TimeSeriesData` object for time-variable retrievals.
+
+        This method creates the data object **and** registers the fixed
+        ``N_time`` parameter.  The caller is still responsible for adding the
+        per-timestep or sinusoidal free parameters with appropriate priors via
+        :meth:`add_parameter`.
+
+        Args:
+            name : str
+                Identifier for this data set.
+            observation_times : ArrayLike
+                1-D array of observation times in seconds (absolute or relative
+                to the first observation).
+            model_generating_function : Callable
+                A runtime-native model function (e.g.
+                ``time_series_gradient_emission``).
+            n_model_timesteps : int
+                Number of model spectra computed at regular intervals spanning
+                the observation window.  Spectra at the actual observation
+                times are interpolated from these.
+            time_varying_parameters : list[str], optional
+                Parameter names that are freely varied at each model timestep.
+                For each name ``P`` the retrieval must contain free parameters
+                ``{P}_t_0`` through ``{P}_t_{n_model_timesteps - 1}``.
+            sinusoidal_parameters : list[str], optional
+                Parameter names whose time variation is described by a
+                sinusoid.  For each name ``P`` the retrieval must contain free
+                parameters ``{P}_amplitude``, ``{P}_period``, ``{P}_phase``,
+                and ``{P}_offset``.
+            path_to_observations : str, optional
+                Path to a directory containing individual epoch files when
+                using *filename_list*.
+            filename_list : list[str], optional
+                Per-epoch filenames inside *path_to_observations*.  If given,
+                data will be loaded via
+                :meth:`TimeSeriesData.load_single_spectrum_txt`.
+            wavelengths : ArrayLike, optional
+                1-D wavelength grid (micron) shared by all epochs.
+            spectrum : ArrayLike, optional
+                2-D flux array of shape ``(N_obs, N_wavelength)``.
+            uncertainties : ArrayLike, optional
+                2-D uncertainty array matching *spectrum*.
+            mask : ArrayLike, optional
+                2-D boolean mask matching *spectrum*.
+            wavelength_bin_widths : ArrayLike, optional
+                1-D or 2-D bin widths.
+            data_resolution, model_resolution, system_distance,
+            wavelength_boundaries, external_radtrans_reference,
+            line_opacity_mode, scale_flux, scale_uncertainties,
+            fit_flux_offset, radtrans_object, covariance
+                Same semantics as :meth:`add_data`.
+        """
+        if time_varying_parameters is None:
+            time_varying_parameters = []
+        if sinusoidal_parameters is None:
+            sinusoidal_parameters = []
+
+        overlap = set(time_varying_parameters) & set(sinusoidal_parameters)
+        if overlap:
+            raise ValueError(
+                f"Parameters cannot be both time-varying and sinusoidal: {overlap}"
+            )
+
+        data_object = TimeSeriesData(
+            name=name,
+            path_to_observations=path_to_observations,
+            filename_list=filename_list,
+            observation_times=observation_times,
+            model_generating_function=model_generating_function,
+            data_resolution=data_resolution,
+            model_resolution=model_resolution,
+            system_distance=system_distance,
+            wavelength_boundaries=wavelength_boundaries,
+            external_radtrans_reference=external_radtrans_reference,
+            line_opacity_mode=line_opacity_mode,
+            scale_flux=scale_flux,
+            scale_uncertainties=scale_uncertainties,
+            fit_flux_offset=fit_flux_offset,
+            radtrans_object=radtrans_object,
+            wavelengths=wavelengths,
+            spectrum=spectrum,
+            uncertainties=uncertainties,
+            wavelength_bin_widths=wavelength_bin_widths,
+            covariance=covariance,
+            mask=mask,
+        )
+
+        # Attach time-series configuration so the model function can read it
+        # via ModelContext.model_metadata['time_series_config'].
+        data_object.time_series_config = {
+            'n_model_timesteps': n_model_timesteps,
+            'time_varying_parameters': list(time_varying_parameters),
+            'sinusoidal_parameters': list(sinusoidal_parameters),
+        }
+
+        self.data[name] = data_object
+
+        # Register the fixed N_time parameter (shared across all datasets)
+        if 'N_time' not in self.parameters:
+            self.add_parameter(
+                'N_time', is_free_parameter=False, value=n_model_timesteps,
+            )
+
     def add_photometry(
         self,
         path: str,
