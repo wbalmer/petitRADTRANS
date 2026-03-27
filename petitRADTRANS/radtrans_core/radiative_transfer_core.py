@@ -4,6 +4,7 @@ JAX implementation of fortran_core.core
 """
 import sys
 from typing import Any, Optional
+import jax
 import jax.numpy as jnp
 from jax import Array, config, jit, vmap, lax, ShapeDtypeStruct, pure_callback, debug
 from interpax import interp1d
@@ -38,11 +39,15 @@ def build_ck_combination_state(weights_gauss: ArrayLike) -> tuple[ArrayLike, Arr
     Returns
     -------
     tuple[jax.Array, jax.Array]
-        Flattened pairwise g-combination weights and their total sum.
+        Pre-normalized pairwise g-combination weights (sum to 1) and their
+        original sum before normalization.
     """
-    weights_use = weights_gauss.at[:8].divide(3.0)
-    g_combination_weights = (weights_use[:, None] * weights_use[None, :]).reshape(-1)
+    # C4: Use weights_gauss directly — matches Fortran, which does not apply
+    # the /3 adjustment to the outer-product weights.
+    g_combination_weights = (weights_gauss[:, None] * weights_gauss[None, :]).reshape(-1)
     g_combination_weights_sum = jnp.sum(g_combination_weights)
+    # C1: Pre-normalize so the inner loop avoids a per-call vector division.
+    g_combination_weights = g_combination_weights / g_combination_weights_sum
 
     return g_combination_weights, g_combination_weights_sum
 
@@ -117,89 +122,84 @@ def combine_ck_opacities(
     n_sample = n_g * n_g
 
     # ------------------------------------------------------------------
-    # Core combination for a single (f*l) cell.
+    # Core batched combination across all (f×l) cells.
+    # Uses a single batched sort, cumsum, and searchsorted instead of
+    # vmap over per-cell sort+interp, reducing kernel dispatch overhead.
     # ------------------------------------------------------------------
 
-    def _perform_combination(opac_out_lf: ArrayLike, spec_opac_lf: ArrayLike) -> ArrayLike:
-        """
-        Combine opac_out_lf with spec_opac_lf for one cell.
-        """
-        # Outer sum of all g-point pairs -> (n_g^2,)
-        k_combined_flat = (opac_out_lf[:, None] + spec_opac_lf[None, :]).reshape(-1)
-
-        # Co-sort k and weights in a single radix pass.
-        k_sorted, weights_sorted = lax.sort(
-            operand=(k_combined_flat, g_combination_weights),
-            num_keys=1,
-        )
-        weights_normalised = weights_sorted / g_combination_weights_sum
-
-        # Cumulative-sum midpoints.
-        right_edges = jnp.cumsum(weights_normalised)          # (n_g^2,)
-        g_x_vals    = right_edges - weights_normalised * 0.5  # (n_g^2,)
-        k_min_val  = opac_out_lf[0] + spec_opac_lf[0]   # scalar
-        k_max_val  = opac_out_lf[-1] + spec_opac_lf[-1]  # scalar
-        k_pinned = k_sorted.at[0].set(k_min_val).at[n_sample - 1].set(k_max_val)
-
-        return jnp.interp(g_gauss, g_x_vals, k_pinned, right=k_max_val)
-
-    def process_one_cell(
-            opacities_all_species_lf: ArrayLike,
-            abundance_weights_lf: ArrayLike,
-            continuum_lf: ArrayLike,
+    def _perform_combination_batched(
+            current: ArrayLike, spec_s: ArrayLike,
     ) -> ArrayLike:
-        """
-        Combine all species for a single (f*l) cell.
-        """
-        weighted_species = opacities_all_species_lf * abundance_weights_lf[:, None]
-        species_strength = jnp.max(weighted_species, axis=1)
-        species_order = jnp.argsort(-species_strength)
-        weighted_species_sorted = weighted_species[species_order, :]
+        """Combine current (n_fl, n_g) with spec_s (n_fl, n_g) for all cells."""
+        n_fl_local = current.shape[0]
 
-        initial = weighted_species_sorted[0, :] + continuum_lf
-        threshold_lf = jnp.max(initial) * 1e-2
-        active_mask_sorted = (species_strength[species_order] >= threshold_lf).at[0].set(True)
+        # Outer sum of all g-point pairs → (n_fl, n_g²)
+        k_combined = (
+            current[:, :, None] + spec_s[:, None, :]
+        ).reshape(n_fl_local, n_sample)
 
-        if n_species == 1:
-            return initial
+        # Sort keys only; reconstruct weight order via permutation indices.
+        # Avoids co-sorting a tiled weight array (halves sort data movement).
+        perm = jnp.argsort(k_combined, axis=-1)
+        k_sorted = jnp.take_along_axis(k_combined, perm, axis=-1)
+        weights_sorted = g_combination_weights[perm]   # 1D→2D broadcast gather
 
-        if n_species <= _UNROLL_SPECIES_LIMIT:
-            current = initial
-            for s in range(1, n_species):
-                spec = weighted_species_sorted[s, :]
-                is_active = active_mask_sorted[s]
-                current = lax.cond(
-                    is_active,
-                    lambda carry: _perform_combination(carry[0], carry[1]),
-                    lambda carry: carry[0],
-                    (current, spec),
-                )
-            return current
+        # Cumulative-sum midpoints (batched along last axis).
+        right_edges = jnp.cumsum(weights_sorted, axis=-1)
+        g_x_vals = right_edges - weights_sorted * 0.5
 
-        # Fallback for large n_species.
-        def scan_body(current_opac: ArrayLike, species_entry: tuple[ArrayLike, ArrayLike]) -> tuple[ArrayLike, None]:
-            weighted_spec, is_active = species_entry
-            return lax.cond(
-                is_active,
-                lambda carry: _perform_combination(carry[0], carry[1]),
-                lambda carry: carry[0],
-                (current_opac, weighted_spec),
-            ), None
+        # Pin endpoints.
+        k_sorted = k_sorted.at[:, 0].set(current[:, 0] + spec_s[:, 0])
+        k_sorted = k_sorted.at[:, n_sample - 1].set(current[:, -1] + spec_s[:, -1])
 
-        final, _ = lax.scan(
-            scan_body,
-            initial,
-            (weighted_species_sorted[1:, :], active_mask_sorted[1:]),
+        # Batched binary search — replaces vmap(searchsorted).
+        # 9 iterations covers 2^9 = 512 > n_sample = 256.
+        g_target = g_gauss[None, :]                                    # (1, n_g)
+        rows = jnp.arange(n_fl_local)[:, None]                        # (n_fl, 1)
+        lo = jnp.zeros((n_fl_local, n_g), dtype=jnp.int32)
+        hi = jnp.full((n_fl_local, n_g), n_sample - 1, dtype=jnp.int32)
+
+        for _ in range(9):
+            mid = (lo + hi) >> 1
+            go_right = g_x_vals[rows, mid] < g_target
+            lo = jnp.where(go_right, mid + 1, lo)
+            hi = jnp.where(go_right, hi, mid)
+
+        idx = jnp.clip(lo, 1, n_sample - 1)
+        idx_lo = idx - 1
+        x0 = g_x_vals[rows, idx_lo]
+        x1 = g_x_vals[rows, idx]
+        y0 = k_sorted[rows, idx_lo]
+        y1 = k_sorted[rows, idx]
+        t = jnp.clip(
+            (g_target - x0) / jnp.maximum(x1 - x0, TINIEST), 0.0, 1.0
         )
-        return final
+        return y0 + t * (y1 - y0)
 
-    opacities_out_flat = vmap(process_one_cell)(
-        opacities_flat, abundance_weights_flat, continuum_flat
-    )  # (f*l, n_g)
+    # ------------------------------------------------------------------
+    # C2 + C3: Vectorized threshold & species loop.
+    # ------------------------------------------------------------------
+
+    # Weight all species by abundance  (n_fl, n_species, n_g)
+    weighted_all = opacities_flat * abundance_weights_flat[:, :, None]
+
+    # Initialize with first species + continuum  (n_fl, n_g)
+    current = weighted_all[:, 0, :] + continuum_flat[:, None]
+
+    if n_species > 1:
+        # C2: Vectorized threshold matching Fortran structure.
+        threshold = jnp.max(weighted_all[:, :, -1], axis=1) * 1e-2  # (n_fl,)
+        active_mask = weighted_all[:, :, -1] >= threshold[:, None]   # (n_fl, n_species)
+
+        # Batched species loop — no vmap, single sort kernel per species.
+        for s in range(1, n_species):
+            spec_s = weighted_all[:, s, :]                                # (n_fl, n_g)
+            combined = _perform_combination_batched(current, spec_s)      # (n_fl, n_g)
+            current = jnp.where(active_mask[:, s:s+1], combined, current)
 
     # Reshape and transpose back to (n_g, f, l).
     return jnp.transpose(
-        opacities_out_flat.reshape(n_frequencies, n_layers, n_g),
+        current.reshape(n_frequencies, n_layers, n_g),
         (2, 0, 1),
     )
 
@@ -748,7 +748,7 @@ def _compute_feautrier_radiative_transfer_chunk(
             0.5 * (I_plus_surface_gfa + I_minus_boundary_gf[:, :, None])
         )  # (g, f, a)
 
-        I_H_top, x_last_gfa, x_nm2_gfa, J_bol_gfl = linalg.solve_tridiagonal_thomas_batched_feautrier_fused(
+        I_H_top, x_last_gfa, x_nm2_gfa, J_bol_gfl = linalg.solve_feautrier_tridiagonal(
             a_flat,
             b_flat,
             c_flat,
@@ -1080,15 +1080,12 @@ def compute_feautrier_radiative_transfer(
     stellar_intensity_chunks = stellar_intensity_padded.reshape(n_chunks, feautrier_chunk_size)
     reflectances_chunks = reflectances_padded.reshape(n_chunks, feautrier_chunk_size)
     emissivities_chunks = emissivities_padded.reshape(n_chunks, feautrier_chunk_size)
-    frequencies_bin_edges_chunks = jnp.stack(
-        [
-            frequencies_bin_edges_padded[
-                i_chunk * feautrier_chunk_size:(i_chunk + 1) * feautrier_chunk_size + 1
-            ]
-            for i_chunk in range(n_chunks)
-        ],
-        axis=0,
-    )
+    # Vectorised sliding-window construction — avoids Python for-loop
+    # that would be unrolled at trace time.
+    _chunk_starts = jnp.arange(n_chunks) * feautrier_chunk_size
+    frequencies_bin_edges_chunks = jax.vmap(
+        lambda s: lax.dynamic_slice(frequencies_bin_edges_padded, (s,), (feautrier_chunk_size + 1,))
+    )(_chunk_starts)
 
     def _chunk_body(_: None, chunk_inputs: tuple[ArrayLike, ...]) -> tuple[None, tuple[ArrayLike, ArrayLike]]:
         (

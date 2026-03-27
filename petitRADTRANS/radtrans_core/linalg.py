@@ -1,5 +1,6 @@
 from functools import partial
 
+import jax
 import jax.numpy as jnp
 from jax import lax, jit, config
 
@@ -8,6 +9,9 @@ HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float32).max)
 if config.jax_enable_x64:
     TINIEST = jnp.finfo(jnp.float64).tiny
     HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
+
+# Detect GPU once at import time to choose optimal tridiagonal solver.
+_USE_GPU = jax.default_backend() != 'cpu'
 
 
 @jit
@@ -472,6 +476,98 @@ def solve_tridiagonal_pcr(a, b, c, d):
 
     # Reshape solution back to original batch dimensions
     return x_flat.reshape(original_shape)
+
+
+@partial(jit, static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
+def solve_tridiagonal_pcr_batched_feautrier_fused(
+        a,
+        b,
+        c,
+        d_inner,
+        d_surf,
+        angle_weight_a,
+        n_g,
+        n_freq_bins,
+        n_angles,
+        n_layers,
+):
+    """PCR-based Feautrier tridiagonal solver optimised for GPU.
+
+    Mirrors the interface of ``solve_tridiagonal_thomas_batched_feautrier_fused``
+    but uses the O(log N) parallel cyclic reduction algorithm internally.
+
+    Parameters
+    ----------
+    a, b, c : (batch, n_layers)
+        Tridiagonal coefficients where batch = n_g * n_freq_bins * n_angles.
+    d_inner : (n_g, n_freq_bins, n_layers - 1)
+        Angle-independent RHS entries for layers 0 .. n_layers-2.
+    d_surf : (n_g, n_freq_bins, n_angles)
+        Boundary RHS entry for the surface layer.
+    angle_weight_a : (n_angles,)
+        Angular quadrature weights for mean-intensity accumulation.
+    n_g, n_freq_bins, n_angles, n_layers : int
+        Static shape parameters.
+
+    Returns
+    -------
+    I_H_top : (n_g, n_freq_bins, n_angles)
+    x_last : (n_g, n_freq_bins, n_angles)
+    x_nm2 : (n_g, n_freq_bins, n_angles)
+    J_bol_gfl : (n_g, n_freq_bins, n_layers)
+    """
+    n = n_layers
+    n_gf = n_g * n_freq_bins
+    batch = n_gf * n_angles
+
+    # Build the full RHS (batch, n_layers) by broadcasting d_inner over
+    # angles and placing d_surf at the surface layer.
+    d_inner_broadcast = jnp.broadcast_to(
+        d_inner[:, :, :, None],                           # (g, f, l-1, 1)
+        (n_g, n_freq_bins, n_layers - 1, n_angles),
+    ).reshape(batch, n_layers - 1)                         # (batch, l-1)
+    d_surf_flat = d_surf.reshape(batch, 1)                 # (batch, 1)
+    d_full = jnp.concatenate([d_inner_broadcast, d_surf_flat], axis=1)  # (batch, n)
+
+    # Solve with PCR
+    x_full = solve_tridiagonal_pcr(a, b, c, d_full)        # (batch, n)
+
+    # Extract outputs matching the Thomas fused solver interface
+    x_last_flat = x_full[:, n - 1]                         # (batch,)
+    x_nm2_flat = x_full[:, n - 2] if n > 1 else x_last_flat
+    x0_flat = x_full[:, 0]                                 # (batch,)
+
+    # J_bol: angle-weighted mean intensity per (g, f, l)
+    x_gfal = x_full.reshape(n_gf, n_angles, n)             # (gf, a, l)
+    J_bol_gfl = jnp.sum(
+        x_gfal * angle_weight_a[None, :, None], axis=1
+    ).reshape(n_g, n_freq_bins, n)                          # (g, f, l)
+
+    I_H_top = (-x0_flat).reshape(n_g, n_freq_bins, n_angles)
+    x_last = x_last_flat.reshape(n_g, n_freq_bins, n_angles)
+    x_nm2 = x_nm2_flat.reshape(n_g, n_freq_bins, n_angles)
+
+    return I_H_top, x_last, x_nm2, J_bol_gfl
+
+
+def solve_feautrier_tridiagonal(a, b, c, d_inner, d_surf, angle_weight_a,
+                                n_g, n_freq_bins, n_angles, n_layers):
+    """Dispatch to the optimal Feautrier tridiagonal solver for the current device.
+
+    Uses the sequential Thomas algorithm on CPU (good sequential throughput)
+    and the parallel cyclic reduction algorithm on GPU (O(log N) depth).
+
+    Parameters are identical to ``solve_tridiagonal_thomas_batched_feautrier_fused``.
+    """
+    if _USE_GPU:
+        return solve_tridiagonal_pcr_batched_feautrier_fused(
+            a, b, c, d_inner, d_surf, angle_weight_a,
+            n_g, n_freq_bins, n_angles, n_layers,
+        )
+    return solve_tridiagonal_thomas_batched_feautrier_fused(
+        a, b, c, d_inner, d_surf, angle_weight_a,
+        n_g, n_freq_bins, n_angles, n_layers,
+    )
 
 
 @jit
