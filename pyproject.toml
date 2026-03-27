@@ -11,7 +11,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "4.0.0a15"
+version = "4.0.0a16"
 description = "Exopanet spectral synthesis tool for retrievals"
 authors = [
     {name = "Paul Mollière", email = "molliere@mpia.de"},
@@ -39,7 +39,6 @@ dependencies = [
     "molmass",
     "h5py",
     "dill",
-    "pymultinest",
     "jaxns",
     "pyvo",
     "bs4",
@@ -69,28 +68,36 @@ full = [
     "matplotlib",
     "corner",
     "seaborn",  # only used in nice_corner
-    "ultranest"  # alternative to pymultinest
+    "ultranest",
+    "pymultinest",
+    "blackjax",
+    "numpyro",
+    "equinox>=0.11",
+    "optax>=0.2",
+    "zarr>=2.18",
+    "numcodecs>=0.13",
+    "orbax-checkpoint>=0.6",
+    "distrax>=0.1.5"
 ]
+
 retrieval = [
     "mpi4py",
     "requests",
     "skycalc-cli",
     "matplotlib",
     "corner",
-    "ultranest"
+    "ultranest",
+    "pymultinest",
+    "blackjax",
+    "numpyro",
 ]
+
 sbi = [
     "equinox>=0.11",
     "optax>=0.2",
     "zarr>=2.18",
-    "numcodecs>=0.13"
-]
-
-sbi-checkpoint = [
-    "orbax-checkpoint>=0.6"
-]
-
-sbi-interop = [
+    "numcodecs>=0.13",
+    "orbax-checkpoint>=0.6",
     "distrax>=0.1.5"
 ]
 
@@ -106,6 +113,9 @@ test = [
     "corner",
     "seaborn",
     "ultranest",
+    "pymultinest",
+    "blackjax",
+    "numpyro",
     "equinox>=0.11",
     "optax>=0.2",
     "zarr>=2.18",

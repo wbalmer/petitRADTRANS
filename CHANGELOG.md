@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a15] - 2026-03-19
+## [4.0.0a16] - 2026-03-27
 ### Summary
 pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs.
@@ -17,15 +17,11 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Feature completion: Finish reimplementing contribution functions.
 - Feature completion: Implement adaptive mesh refinement with constant size pressure array.
 - Feature completion: Figure out how to implement additional_outputs in jax compatible way.
-- Feature completion: update log likelihoods for 2D, 3D data.
-- Feature completion: Multicolumn/time domain retrievals - update TimeSeriesData class and calculate 2D models.
 - Add new cloud opacities to be compatible with new condensation curves.
 - Optimisation: make everything deeper than `calculate_flux` JIT-compileable (done) and fast(still working on it).
 - Optimisation: profile code for new bottlenecks.
 - Testing: ensure compatibility of spectral_model.
-- Testing: gradient calculations.
 - Testing: write unit tests for new JAX functions.
-- Testing: test GPU functionality.
 - Architecture: Make sure all chi2 calculations use LogLikelihood class.
 - Documentation: Add docstrings to all new JAX functions.
 - Documentation: Update tutorials to be v4 compatible.
@@ -35,6 +31,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Clean up comment blocks.
 
 ### Changed
+- a16: Shard_map parallelisation for MCMC samplers
 - a15 Reverse-mode differentiation changes to rebinning and particle radius functions.
 - a15 Renamed retrieval dataset controls from `scale`, `scale_err`, and `offset_bool` to `scale_flux`, `scale_uncertainties`, and `fit_flux_offset` throughout `Data`, `RetrievalConfig`, runtime metadata, plotting, tests, and tutorials.
 - a15 Documented the runtime-native retrieval workflow around `RetrievalRuntime` and the built-in JAX retrieval models exported from `petitRADTRANS.retrieval.models`.
@@ -66,6 +63,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Renamed functions beginning with `__` in Radtrans to only use a single underscore.
 
 ### Added
+- a16: Time-variable model function parameterisation
 - a14: Added autodiff version of calculate_transit_radii function.
 - a13: Added autodiff version of calculate_flux functions.
 - a15 Added covariance fitting for spectroscopic retrieval datasets, including automatic covariance hyperparameters in `RetrievalConfig`, covariance construction in `Data`, and Cholesky-based covariance likelihood evaluation in `LogLikelihood`.

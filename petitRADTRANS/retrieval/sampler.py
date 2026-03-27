@@ -33,12 +33,15 @@ try:
     import jax
     from jax import lax, random, tree
     import jax.numpy as jnp
+    from jax.sharding import NamedSharding, PartitionSpec as P
 except Exception:
     jax = None
     lax = None
     random = None
     tree = None
     jnp = None
+    NamedSharding = None
+    P = None
 
 try:
     import tensorflow_probability.substrates.jax as tfp
@@ -353,6 +356,7 @@ class BlackJAXSampler(Sampler):
             'seed': sampler_kwargs.pop('seed', 42654),
             'jit': sampler_kwargs.pop('jit', True),
             'log_jacobian_fn': log_jacobian,
+            'num_chains': sampler_kwargs.pop('num_chains', 1),
         }
         if algorithm_name == 'hmc':
             run_kwargs['num_integration_steps'] = sampler_kwargs.pop('num_integration_steps', 20)
@@ -372,6 +376,7 @@ class BlackJAXSampler(Sampler):
             'initial_step_size': run_kwargs['initial_step_size'],
             'target_acceptance_rate': run_kwargs['target_acceptance_rate'],
             'is_mass_matrix_diagonal': run_kwargs['is_mass_matrix_diagonal'],
+            'num_chains': run_kwargs['num_chains'],
             'seed': run_kwargs['seed'],
             'jit': run_kwargs['jit'],
         }
@@ -463,8 +468,10 @@ class BlackJAXSampler(Sampler):
         seed=42654,
         jit=True,
         log_jacobian_fn=None,
+        num_chains=1,
         **blackjax_kwargs,
     ):
+        # --- Single warmup run; adapted parameters are shared across all chains. ---
         warmup = blackjax.window_adaptation(
             self.algorithm_factory,
             self.log_likelihood_func,
@@ -476,8 +483,8 @@ class BlackJAXSampler(Sampler):
         )
 
         rng_key = random.PRNGKey(seed)
-        _, warmup_key, sample_key = random.split(rng_key, 3)
-        (state, warmup_parameters), _ = warmup.run(
+        rng_key, warmup_key, sample_key = random.split(rng_key, 3)
+        (initial_state, warmup_parameters), _ = warmup.run(
             warmup_key,
             initial_position,
             num_steps=num_warmup,
@@ -486,18 +493,63 @@ class BlackJAXSampler(Sampler):
         algorithm = self.algorithm_factory(self.log_likelihood_func, **warmup_parameters)
         kernel = algorithm.step
 
-        def one_step(current_state, rng_key_):
-            next_state, info = kernel(rng_key_, current_state)
-            return next_state, (next_state, info)
+        # --- Per-chain sampling loop (captures initial_state and kernel). ---
+        def run_one_chain(chain_sample_key):
+            def one_step(current_state, rng_k):
+                next_state, info = kernel(rng_k, current_state)
+                return next_state, (next_state, info)
 
-        def inference_loop(sample_rng_key, initial_state):
-            keys = random.split(sample_rng_key, num_samples)
-            return lax.scan(one_step, initial_state, keys)
+            chain_keys = random.split(chain_sample_key, num_samples)
+            _, (chain_states, chain_infos) = lax.scan(one_step, initial_state, chain_keys)
+            return chain_states, chain_infos
 
-        if jit:
-            inference_loop = jax.jit(inference_loop)
+        if num_chains == 1:
+            # Original single-chain path.
+            if jit:
+                run_one_chain = jax.jit(run_one_chain)
+            states, infos = run_one_chain(sample_key)
+        else:
+            # Multi-chain path: distribute chains across devices using shard_map + vmap.
+            # Each device runs chains_per_device independent chains using the same adapted
+            # warmup parameters but different RNG seeds.
+            n_devices = jax.local_device_count()
+            effective_devices = min(n_devices, num_chains)
+            chains_per_device = max(1, num_chains // effective_devices)
 
-        _, (states, infos) = inference_loop(sample_key, state)
+            if effective_devices > 1:
+                mesh = jax.make_mesh((effective_devices,), ('devices',))
+
+                def run_device_chains(base_key):
+                    # Derive a unique sample key per device from the shared base key,
+                    # then vmap over chains_per_device independent chains.
+                    device_idx = lax.axis_index('devices')
+                    device_key = random.fold_in(base_key, device_idx)
+                    per_chain_keys = random.split(device_key, chains_per_device)
+                    return jax.vmap(run_one_chain)(per_chain_keys)
+
+                run_all = jax.shard_map(
+                    run_device_chains,
+                    mesh=mesh,
+                    in_specs=P(),           # base_key replicated to every device
+                    out_specs=P('devices'), # outputs concatenated along axis 0 across devices
+                )
+                if jit:
+                    run_all = jax.jit(run_all)
+                all_states, all_infos = run_all(sample_key)
+            else:
+                # Single device: vmap over all chains.
+                chain_keys = random.split(sample_key, num_chains)
+                run_all_single = jax.vmap(run_one_chain)
+                if jit:
+                    run_all_single = jax.jit(run_all_single)
+                all_states, all_infos = run_all_single(chain_keys)
+
+            # Flatten [num_chains, num_samples, ...] → [num_chains * num_samples, ...]
+            def _flatten(x):
+                return x.reshape(-1, *x.shape[2:]) if x.ndim >= 2 else x
+
+            states = jax.tree_util.tree_map(_flatten, all_states)
+            infos = jax.tree_util.tree_map(_flatten, all_infos)
 
         unconstrained_samples = np.asarray(states.position)
         transformed_samples = states.position if self.prior_func is None else self.prior_func(states.position)
@@ -519,6 +571,7 @@ class BlackJAXSampler(Sampler):
             'algorithm': self.algorithm_name,
             'num_samples': num_samples,
             'num_warmup': num_warmup,
+            'num_chains': num_chains,
             'seed': seed,
             'parameter_names': parameter_names,
         }
@@ -657,7 +710,7 @@ class NumPyroSampler(Sampler):
             'log_jacobian_fn': log_jacobian,
             'num_chains': sampler_kwargs.pop('num_chains', 1),
             'thinning': sampler_kwargs.pop('thinning', 1),
-            'chain_method': sampler_kwargs.pop('chain_method', 'parallel'),
+            'chain_method': sampler_kwargs.pop('chain_method', 'vectorized'),
         }
         if algorithm_name == 'hmc':
             numpyro_num_steps = sampler_kwargs.pop('num_integration_steps', None)
@@ -810,7 +863,7 @@ class NumPyroSampler(Sampler):
         log_jacobian_fn=None,
         num_chains=1,
         thinning=1,
-        chain_method='parallel',
+        chain_method='vectorized',
         **numpyro_kwargs,
     ):
         kernel_kwargs = self._prepare_kernel_kwargs(
@@ -829,39 +882,103 @@ class NumPyroSampler(Sampler):
                 RuntimeWarning,
             )
 
-        kernel = self.kernel_class(**kernel_kwargs)
-        self.mcmc = NumPyroMCMC(
-            kernel,
-            num_warmup=num_warmup,
-            num_samples=num_samples,
-            num_chains=num_chains,
-            thinning=thinning,
-            progress_bar=progress_bar,
-            chain_method=chain_method,
-            jit_model_args=False,
-        )
-
         extra_fields = ('potential_energy', 'accept_prob', 'diverging', 'num_steps')
         rng_key = random.PRNGKey(seed)
-        self.mcmc.run(
-            rng_key,
-            init_params=initial_position,
-            extra_fields=extra_fields,
-        )
+        n_devices = jax.local_device_count()
+        use_multi_device = (n_devices > 1 and num_chains > 1 and chain_method != 'sequential')
 
-        unconstrained_samples = np.asarray(self.mcmc.get_samples(group_by_chain=False))
+        if use_multi_device:
+            # Multi-device path: distribute chains across devices via shard_map.
+            # Each device runs chains_per_device chains with chain_method='vectorized',
+            # using a unique per-device RNG key derived from lax.axis_index + fold_in.
+            effective_devices = min(n_devices, num_chains)
+            chains_per_device = max(1, num_chains // effective_devices)
+            _kernel_class = self.kernel_class
+            _kernel_kwargs = kernel_kwargs
+            _initial_position = initial_position
+            mesh = jax.make_mesh((effective_devices,), ('devices',))
+
+            def run_on_device(base_key):
+                device_idx = lax.axis_index('devices')
+                device_key = random.fold_in(base_key, device_idx)
+                device_kernel = _kernel_class(**_kernel_kwargs)
+                device_mcmc = NumPyroMCMC(
+                    device_kernel,
+                    num_warmup=num_warmup,
+                    num_samples=num_samples,
+                    num_chains=chains_per_device,
+                    thinning=thinning,
+                    progress_bar=False,  # must be False inside shard_map
+                    chain_method='vectorized',
+                    jit_model_args=False,
+                )
+                device_mcmc.run(device_key, init_params=_initial_position, extra_fields=extra_fields)
+                unc = device_mcmc.get_samples(group_by_chain=False)
+                ex = device_mcmc.get_extra_fields(group_by_chain=False)
+                adapt = device_mcmc.last_state.adapt_state
+                # Return a flat tuple so out_specs can be an explicit matching tuple.
+                return (
+                    unc,
+                    ex['potential_energy'],
+                    ex['accept_prob'],
+                    ex['diverging'],
+                    ex['num_steps'],
+                    adapt.step_size,
+                    adapt.inverse_mass_matrix,
+                )
+
+            run_sharded = jax.shard_map(
+                run_on_device,
+                mesh=mesh,
+                in_specs=P(),              # base_key replicated to every device
+                out_specs=(P('devices'),) * 7,  # all 7 outputs concatenated along axis 0
+            )
+            all_unc, all_pe, all_accept, all_diverge, all_steps, all_step_sizes, all_imm = run_sharded(rng_key)
+
+            unconstrained_samples = np.asarray(all_unc)
+            potential_energy = np.asarray(all_pe)
+            logdensity = -potential_energy
+            acceptance_rate = np.asarray(all_accept)
+            is_divergent = np.asarray(all_diverge)
+            num_integration_steps = np.asarray(all_steps)
+            warmup_parameters = {
+                'step_size': float(np.mean(np.asarray(all_step_sizes))),
+                'inverse_mass_matrix': np.mean(np.asarray(all_imm), axis=0),
+            }
+            self.mcmc = None
+        else:
+            # Single-device path (also handles num_chains=1 on any device count).
+            kernel = self.kernel_class(**kernel_kwargs)
+            self.mcmc = NumPyroMCMC(
+                kernel,
+                num_warmup=num_warmup,
+                num_samples=num_samples,
+                num_chains=num_chains,
+                thinning=thinning,
+                progress_bar=progress_bar,
+                chain_method=chain_method,
+                jit_model_args=False,
+            )
+            self.mcmc.run(rng_key, init_params=initial_position, extra_fields=extra_fields)
+
+            unconstrained_samples = np.asarray(self.mcmc.get_samples(group_by_chain=False))
+            extra = self.mcmc.get_extra_fields(group_by_chain=False)
+            potential_energy = np.asarray(extra.get('potential_energy')) if 'potential_energy' in extra else None
+            logdensity = -potential_energy if potential_energy is not None else None
+            acceptance_rate = np.asarray(extra.get('accept_prob')) if 'accept_prob' in extra else None
+            is_divergent = np.asarray(extra.get('diverging')) if 'diverging' in extra else None
+            num_integration_steps = np.asarray(extra.get('num_steps')) if 'num_steps' in extra else None
+            adapt_state = self.mcmc.last_state.adapt_state
+            warmup_parameters = {
+                'step_size': np.asarray(adapt_state.step_size),
+                'inverse_mass_matrix': np.asarray(adapt_state.inverse_mass_matrix),
+            }
+
         transformed_samples = (
             unconstrained_samples
             if self.prior_func is None
             else np.asarray(self.prior_func(jnp.asarray(unconstrained_samples)))
         )
-
-        extra = self.mcmc.get_extra_fields(group_by_chain=False)
-        potential_energy = np.asarray(extra.get('potential_energy')) if 'potential_energy' in extra else None
-        logdensity = -potential_energy if potential_energy is not None else None
-        acceptance_rate = np.asarray(extra.get('accept_prob')) if 'accept_prob' in extra else None
-        is_divergent = np.asarray(extra.get('diverging')) if 'diverging' in extra else None
-        num_integration_steps = np.asarray(extra.get('num_steps')) if 'num_steps' in extra else None
 
         model_log_likelihood = None
         if logdensity is not None and log_jacobian_fn is not None:
@@ -869,11 +986,6 @@ class NumPyroSampler(Sampler):
                 logdensity - np.asarray(log_jacobian_fn(jnp.asarray(unconstrained_samples)))
             )
 
-        adapt_state = self.mcmc.last_state.adapt_state
-        warmup_parameters = {
-            'step_size': np.asarray(adapt_state.step_size),
-            'inverse_mass_matrix': np.asarray(adapt_state.inverse_mass_matrix),
-        }
         metadata = {
             'algorithm': self.algorithm_name,
             'num_samples': num_samples,
