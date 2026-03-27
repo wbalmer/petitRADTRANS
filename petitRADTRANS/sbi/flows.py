@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 import equinox as eqx
-import jax
+from jax import Array, vmap, random, nn
 import jax.numpy as jnp
 
 
@@ -36,7 +36,7 @@ class CouplingConditioner(eqx.Module):
     context_dim: int = eqx.field(static=True)
     output_dim: int = eqx.field(static=True)
 
-    def __init__(self, input_dim: int, context_dim: int, output_dim: int, hidden_dim: int, key: jax.Array):
+    def __init__(self, input_dim: int, context_dim: int, output_dim: int, hidden_dim: int, key: Array):
         self.input_dim = int(input_dim)
         self.context_dim = int(context_dim)
         self.output_dim = int(output_dim)
@@ -59,7 +59,7 @@ class _ScalarSplineConditioner(eqx.Module):
     context_dim: int = eqx.field(static=True)
     output_dim: int = eqx.field(static=True)
 
-    def __init__(self, context_dim: int, output_dim: int, hidden_dim: int, key: jax.Array):
+    def __init__(self, context_dim: int, output_dim: int, hidden_dim: int, key: Array):
         self.context_dim = int(context_dim)
         self.output_dim = int(output_dim)
         self.network = eqx.nn.MLP(
@@ -79,7 +79,7 @@ def _normalize_bin_sizes(
     min_bin_size: float,
     total_size: float,
 ) -> jnp.ndarray:
-    probabilities = jax.nn.softmax(unnormalized)
+    probabilities = nn.softmax(unnormalized)
     n_bins = unnormalized.shape[0]
     return min_bin_size + (total_size - min_bin_size * n_bins) * probabilities
 
@@ -105,7 +105,7 @@ def _rational_quadratic_spline_forward(
 
     widths = _normalize_bin_sizes(unnormalized_widths, min_bin_width, 2.0 * bound)
     heights = _normalize_bin_sizes(unnormalized_heights, min_bin_height, 2.0 * bound)
-    derivatives = min_derivative + jax.nn.softplus(unnormalized_derivatives)
+    derivatives = min_derivative + nn.softplus(unnormalized_derivatives)
 
     cumwidths = jnp.concatenate(
         (jnp.asarray([-bound], dtype=dtype), -bound_value + jnp.cumsum(widths, axis=0)),
@@ -166,7 +166,7 @@ def _rational_quadratic_spline_inverse(
 
     widths = _normalize_bin_sizes(unnormalized_widths, min_bin_width, 2.0 * bound)
     heights = _normalize_bin_sizes(unnormalized_heights, min_bin_height, 2.0 * bound)
-    derivatives = min_derivative + jax.nn.softplus(unnormalized_derivatives)
+    derivatives = min_derivative + nn.softplus(unnormalized_derivatives)
 
     cumwidths = jnp.concatenate(
         (jnp.asarray([-bound], dtype=dtype), -bound_value + jnp.cumsum(widths, axis=0)),
@@ -331,7 +331,7 @@ class ConditionalRationalQuadraticSplineCoupling(eqx.Module):
         inverse_mask = 1.0 - mask
         masked_x = x * mask
         widths, heights, derivatives = self._parameters(masked_x, context)
-        transformed, log_det = jax.vmap(
+        transformed, log_det = vmap(
             lambda value, layer_widths, layer_heights, layer_derivatives: _rational_quadratic_spline_forward(
                 value,
                 layer_widths,
@@ -365,7 +365,7 @@ class ConditionalRationalQuadraticSplineCoupling(eqx.Module):
         inverse_mask = 1.0 - mask
         masked_y = y * mask
         widths, heights, derivatives = self._parameters(masked_y, context)
-        transformed, log_det = jax.vmap(
+        transformed, log_det = vmap(
             lambda value, layer_widths, layer_heights, layer_derivatives: _rational_quadratic_spline_inverse(
                 value,
                 layer_widths,
@@ -507,14 +507,14 @@ class _ConditionalFlowStack(eqx.Module):
         base_log_prob = -0.5 * jnp.sum(latent ** 2 + math.log(2.0 * math.pi))
         return base_log_prob + log_det
 
-    def sample(self, context: jnp.ndarray, n_samples: int, key: jax.Array) -> jnp.ndarray:
-        latent_samples = jax.random.normal(key, shape=(n_samples, self.parameter_dim), dtype=context.dtype)
+    def sample(self, context: jnp.ndarray, n_samples: int, key: Array) -> jnp.ndarray:
+        latent_samples = random.normal(key, shape=(n_samples, self.parameter_dim), dtype=context.dtype)
 
         def sample_single(latent_sample: jnp.ndarray) -> jnp.ndarray:
             sample, _ = self.inverse(latent_sample, context)
             return sample
 
-        return jax.vmap(sample_single)(latent_samples)
+        return vmap(sample_single)(latent_samples)
 
 
 class ConditionalAffineFlow(_ConditionalFlowStack):
@@ -545,14 +545,14 @@ class ConditionalAffineFlow(_ConditionalFlowStack):
         context_dim: int,
         num_layers: int = 4,
         hidden_dim: int = 128,
-        key: jax.Array | None = None,
+        key: Array | None = None,
     ):
         if key is None:
-            key = jax.random.PRNGKey(0)
+            key = random.PRNGKey(0)
 
         self.parameter_dim = int(parameter_dim)
         self.context_dim = int(context_dim)
-        layer_keys = jax.random.split(key, num_layers)
+        layer_keys = random.split(key, num_layers)
         layers = []
 
         for index, layer_key in enumerate(layer_keys):
@@ -624,10 +624,10 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
         min_bin_width: float = 1e-3,
         min_bin_height: float = 1e-3,
         min_derivative: float = 1e-3,
-        key: jax.Array | None = None,
+        key: Array | None = None,
     ):
         if key is None:
-            key = jax.random.PRNGKey(0)
+            key = random.PRNGKey(0)
 
         self.parameter_dim = int(parameter_dim)
         self.context_dim = int(context_dim)
@@ -637,7 +637,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
         self.min_bin_height = float(min_bin_height)
         self.min_derivative = float(min_derivative)
 
-        layer_keys = jax.random.split(key, num_layers)
+        layer_keys = random.split(key, num_layers)
         layers = []
 
         if self.parameter_dim == 1:

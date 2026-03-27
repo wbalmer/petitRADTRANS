@@ -3,14 +3,12 @@
 from typing import Literal
 
 import numpy as np
-import jax
 from jax import lax, jit
 from jax.typing import ArrayLike
 from jaxtyping import Array, Float
 import jax.numpy as jnp
 from jax.scipy.special import erf, erfinv
 from scipy.special import lambertw
-from jax.scipy.signal import correlate
 
 
 def bayes_factor2sigma(bayes_factor: float) -> [float, ArrayLike]:

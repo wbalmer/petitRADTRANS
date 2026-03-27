@@ -25,11 +25,10 @@ import logging
 from typing import Any, Mapping, TYPE_CHECKING
 import warnings
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
-from jax import tree_util
+from jax import lax, vmap, nn, tree_util, debug
 
 from petitRADTRANS.retrieval.jax_parameter import JAX_DTYPE, Parameter
 
@@ -384,7 +383,7 @@ def compute_observation_log_likelihood(
     """
     from petitRADTRANS.retrieval.log_likelihood import LogLikelihood
 
-    return jax.lax.cond(
+    return lax.cond(
         jnp.isnan(model_spectrum).any(),
         lambda _: INVALID_LOG_LIKELIHOOD,
         lambda _: LogLikelihood(
@@ -1171,7 +1170,7 @@ class RetrievalRuntime:
     ) -> float:
         """Evaluate the posterior through a JAX-compatible execution path.
 
-        All control flow uses ``jax.lax.cond`` / ``jnp.where`` so the function
+        All control flow uses ``lax.cond`` / ``jnp.where`` so the function
         is safe to pass through ``jax.jit`` and ``jax.grad``.  Invalid model
         evaluations are detected via the NaN-spectrum sentinel produced by
         ``ModelResult.make_nan_result`` rather than Python-level string
@@ -1232,7 +1231,7 @@ class RetrievalRuntime:
         total = jnp.where(jnp.abs(total) < tiny, jnp.asarray(tiny, dtype=JAX_DTYPE), total)
 
         if print_log_likelihood_for_debugging:
-            jax.debug.print('log_likelihood + log_prior {}', total)
+            debug.print('log_likelihood + log_prior {}', total)
 
         return total
 
@@ -1246,7 +1245,7 @@ class RetrievalRuntime:
         """Evaluate one or many parameter vectors with JAX vectorization.
 
         A one-dimensional input is evaluated as a single sample. Higher-rank
-        inputs are mapped over the leading dimension with ``jax.vmap``.
+        inputs are mapped over the leading dimension with ``vmap``.
         """
         def evaluate_single(single_values: Any) -> Any:
             physical_params = self.parameter_layout.physical_params_from_free_values(single_values)
@@ -1261,7 +1260,7 @@ class RetrievalRuntime:
         if jnp.ndim(free_parameter_values) == 1:
             return evaluate_single(free_parameter_values)
 
-        return jax.vmap(evaluate_single)(free_parameter_values)
+        return vmap(evaluate_single)(free_parameter_values)
 
     def _project_dataset_observation(
         self,
@@ -1504,13 +1503,13 @@ class ParameterLayout:
         if jnp.ndim(cube_positions) == 1:
             return self.transform_cube_to_physical(cube_positions)[jnp.newaxis, :]
 
-        return jax.vmap(self.transform_cube_to_physical)(cube_positions)
+        return vmap(self.transform_cube_to_physical)(cube_positions)
 
     def cube_from_unconstrained(self, unconstrained_position: Any) -> jnp.ndarray:
         """Map unconstrained coordinates onto the open unit cube."""
         unconstrained_position = jnp.asarray(unconstrained_position, dtype=JAX_DTYPE)
         return jnp.clip(
-            jax.nn.sigmoid(unconstrained_position),
+            nn.sigmoid(unconstrained_position),
             self.cube_epsilon,
             1.0 - self.cube_epsilon,
         )
@@ -1519,7 +1518,7 @@ class ParameterLayout:
         """Map one or many unconstrained positions onto the open unit cube."""
         unconstrained_positions = jnp.asarray(unconstrained_positions, dtype=JAX_DTYPE)
         return jnp.clip(
-            jax.nn.sigmoid(unconstrained_positions),
+            nn.sigmoid(unconstrained_positions),
             self.cube_epsilon,
             1.0 - self.cube_epsilon,
         )
@@ -1536,7 +1535,7 @@ class ParameterLayout:
         """Return the log-Jacobian term for one unconstrained position."""
         unconstrained_position = jnp.asarray(unconstrained_position, dtype=JAX_DTYPE)
         return jnp.sum(
-            -jax.nn.softplus(-unconstrained_position) - jax.nn.softplus(unconstrained_position)
+            -nn.softplus(-unconstrained_position) - nn.softplus(unconstrained_position)
         )
 
     def log_jacobian(self, unconstrained_positions: Any) -> jnp.ndarray:
@@ -1546,7 +1545,7 @@ class ParameterLayout:
         if jnp.ndim(unconstrained_positions) == 1:
             return self.log_jacobian_single(unconstrained_positions)
 
-        return jax.vmap(self.log_jacobian_single)(unconstrained_positions)
+        return vmap(self.log_jacobian_single)(unconstrained_positions)
 
     def physical_params_from_vector(self, values: npt.ArrayLike) -> PhysicalParams:
         """Build ``PhysicalParams`` from a flat vector of free values."""

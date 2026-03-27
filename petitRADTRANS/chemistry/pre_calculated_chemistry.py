@@ -3,10 +3,10 @@
 import os
 
 import h5py
-import jax
+from jax.typing import Arraylike
 import jax.numpy as jnp
 import numpy as np  # For file I/O, as JAX doesn't handle it directly
-from jax import lax, config
+from jax import lax, config, vmap
 
 from jax.typing import ArrayLike
 
@@ -18,21 +18,21 @@ if config.jax_enable_x64:
     JAX_DTYPE = jnp.float64
 
 def interpolate_chemical_table(
-        co_ratios: jax.typing.ArrayLike,            # (n_layers,)
-        log10_metallicities: jax.typing.ArrayLike,  # (n_layers,)
-        temperatures: jax.typing.ArrayLike,         # (n_layers,)
-        pressures: jax.typing.ArrayLike,            # (n_layers,)
-        largest_co_ratios_indices: jax.typing.ArrayLike,      # (n_layers,) int, 1-based
-        largest_metallicities_indices: jax.typing.ArrayLike,  # (n_layers,) int, 1-based
-        largest_temperatures_indices: jax.typing.ArrayLike,   # (n_layers,) int, 1-based
-        largest_pressures_indices: jax.typing.ArrayLike,      # (n_layers,) int, 1-based
-        table_metallicities: jax.typing.ArrayLike,  # (n_metallicities_table_axis,)
-        table_co_ratios: jax.typing.ArrayLike,      # (n_co_ratios_table_axis,)
-        table_pressures: jax.typing.ArrayLike,      # (n_pressures_table_axis,)
-        table_temperatures: jax.typing.ArrayLike,   # (n_temperatures_table_axis,)
-        chemistry_table: jax.typing.ArrayLike,      # (n_species, n_temperatures, n_pressures, n_co_ratios, n_metallicities)
+        co_ratios: ArrayLike,            # (n_layers,)
+        log10_metallicities: ArrayLike,  # (n_layers,)
+        temperatures: ArrayLike,         # (n_layers,)
+        pressures: ArrayLike,            # (n_layers,)
+        largest_co_ratios_indices: ArrayLike,      # (n_layers,) int, 1-based
+        largest_metallicities_indices: ArrayLike,  # (n_layers,) int, 1-based
+        largest_temperatures_indices: ArrayLike,   # (n_layers,) int, 1-based
+        largest_pressures_indices: ArrayLike,      # (n_layers,) int, 1-based
+        table_metallicities: ArrayLike,  # (n_metallicities_table_axis,)
+        table_co_ratios: ArrayLike,      # (n_co_ratios_table_axis,)
+        table_pressures: ArrayLike,      # (n_pressures_table_axis,)
+        table_temperatures: ArrayLike,   # (n_temperatures_table_axis,)
+        chemistry_table: ArrayLike,      # (n_species, n_temperatures, n_pressures, n_co_ratios, n_metallicities)
         is_mass_fraction: bool
-        ) -> jax.typing.ArrayLike:
+        ) -> ArrayLike:
     """
     Performs 4D linear interpolation on the chemical table for n_layers.
     Input indices (largest_..._indices) are 1-based and point to the upper
@@ -99,7 +99,7 @@ def interpolate_chemical_table(
     # Vectorize the single_layer interpolation over all layers
     # Inputs are (n_layers, ...)
     # Output will be (n_layers, n_species)
-    chemical_table_interp_flat = jax.vmap(
+    chemical_table_interp_flat = vmap(
         _interpolate_single_layer,
         in_axes=(0, 0, 0, 0, 0, 0, 0, 0)  # Map over the first axis of all 8 input arrays
     )(co_ratios, log10_metallicities, temperatures, pressures,
@@ -127,13 +127,13 @@ class PreCalculatedEquilibriumChemistryTable:
     def __init__(self):
         self._loaded: bool = False
 
-        self.mass_fractions: jax.typing.ArrayLike = None
-        self.mean_molar_masses: jax.typing.ArrayLike = None
-        self.nabla_adiabatic: jax.typing.ArrayLike = None
-        self.log10_metallicities: jax.typing.ArrayLike = None
-        self.co_ratios: jax.typing.ArrayLike = None
-        self.temperatures: jax.typing.ArrayLike = None
-        self.pressures: jax.typing.ArrayLike = None
+        self.mass_fractions: ArrayLike = None
+        self.mean_molar_masses: ArrayLike = None
+        self.nabla_adiabatic: ArrayLike = None
+        self.log10_metallicities: ArrayLike = None
+        self.co_ratios: ArrayLike = None
+        self.temperatures: ArrayLike = None
+        self.pressures: ArrayLike = None
         self.species: tuple[str] = None
 
     @staticmethod

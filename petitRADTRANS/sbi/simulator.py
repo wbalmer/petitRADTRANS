@@ -6,7 +6,7 @@ import abc
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-import jax
+from jax import Array, random
 import jax.numpy as jnp
 import numpy as np
 
@@ -114,7 +114,7 @@ class RuntimeSimulator(BatchedSimulator):
         if initial_seed is None:
             initial_seed = 0
 
-        self._rng_key = jax.random.PRNGKey(int(initial_seed))
+        self._rng_key = random.PRNGKey(int(initial_seed))
         self._validate_task_support()
 
     def _validate_task_support(self) -> None:
@@ -122,8 +122,8 @@ class RuntimeSimulator(BatchedSimulator):
             if data.__class__.__name__ == 'TimeSeriesData':
                 raise NotImplementedError('RuntimeSimulator does not support time series data in the current phase.')
 
-    def _next_key(self) -> jax.Array:
-        self._rng_key, next_key = jax.random.split(self._rng_key)
+    def _next_key(self) -> Array:
+        self._rng_key, next_key = random.split(self._rng_key)
         return next_key
 
     def _sample_prior_parameter_batch(self, n_samples: int) -> dict[str, jnp.ndarray]:
@@ -136,7 +136,7 @@ class RuntimeSimulator(BatchedSimulator):
             }
 
         cube_key = self._next_key()
-        cube_samples = jax.random.uniform(
+        cube_samples = random.uniform(
             cube_key,
             shape=(n_samples, self.task.parameter_layout.n_free_parameters),
             dtype=JAX_DTYPE,
@@ -177,14 +177,14 @@ class RuntimeSimulator(BatchedSimulator):
         if covariance is not None:
             covariance = jnp.asarray(covariance, dtype=JAX_DTYPE)
             mean = jnp.zeros(covariance.shape[0], dtype=JAX_DTYPE)
-            noise = jax.random.multivariate_normal(key, mean=mean, cov=covariance)
+            noise = random.multivariate_normal(key, mean=mean, cov=covariance)
             return values + noise, uncertainties, covariance
 
         if uncertainties is None:
             return values, uncertainties, covariance
 
         uncertainties = jnp.asarray(uncertainties, dtype=JAX_DTYPE)
-        noise = jax.random.normal(key, shape=values.shape, dtype=JAX_DTYPE) * uncertainties
+        noise = random.normal(key, shape=values.shape, dtype=JAX_DTYPE) * uncertainties
         return values + noise, uncertainties, covariance
 
     @staticmethod

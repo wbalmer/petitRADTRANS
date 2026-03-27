@@ -2,15 +2,11 @@
 JAX implementation of fortran_core.core
 - rayleigh scattering moved to jax_rayleigh_scattering
 """
-import sys
 from typing import Any, Optional
-import jax
 import jax.numpy as jnp
 from jax import Array, config, jit, vmap, lax, ShapeDtypeStruct, pure_callback, debug
 from interpax import interp1d
 
-import numpy as np
-from functools import partial
 import petitRADTRANS.physical_constants as cst
 import petitRADTRANS.radtrans_core.physics_core as physics_core
 import petitRADTRANS.radtrans_core.linalg as linalg
@@ -1083,7 +1079,7 @@ def compute_feautrier_radiative_transfer(
     # Vectorised sliding-window construction — avoids Python for-loop
     # that would be unrolled at trace time.
     _chunk_starts = jnp.arange(n_chunks) * feautrier_chunk_size
-    frequencies_bin_edges_chunks = jax.vmap(
+    frequencies_bin_edges_chunks = vmap(
         lambda s: lax.dynamic_slice(frequencies_bin_edges_padded, (s,), (feautrier_chunk_size + 1,))
     )(_chunk_starts)
 

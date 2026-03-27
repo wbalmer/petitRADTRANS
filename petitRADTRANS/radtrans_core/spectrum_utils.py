@@ -1,6 +1,5 @@
-import jax
 import jax.numpy as jnp
-from jax import jit, lax
+from jax import jit, lax, vmap, debug
 from jax.typing import ArrayLike
 import numpy as np
 from interpax import interp1d
@@ -106,7 +105,7 @@ def convolve_variable_resolution(input_wavelength, input_flux, resolutions):
         convolved_spectrum - same units as input_flux
     """
 
-    # Vectorized implementation using jax.vmap to replace the explicit Python loop.
+    # Vectorized implementation using vmap to replace the explicit Python loop.
     # For each output channel (center wavelength and corresponding R) compute
     # the Gaussian LSF over the full input wavelength grid, normalize it and
     # take the dot-product with the input flux.
@@ -117,7 +116,7 @@ def convolve_variable_resolution(input_wavelength, input_flux, resolutions):
         gauss = gauss / jnp.sum(gauss)
         return jnp.sum(gauss * input_flux)
 
-    convolved_spectrum = jax.vmap(_convolve_at)(input_wavelength, resolutions)
+    convolved_spectrum = vmap(_convolve_at)(input_wavelength, resolutions)
 
     return convolved_spectrum
 
@@ -239,7 +238,7 @@ def _convolve_running(input_spectrum, sigma_lsf_gauss_filter, **kwargs):
         return convolved
 
     operand = (convolved_spectrum, input_spectrum, central_index, n_dims_non_wavelength)
-    convolved_spectrum = jax.lax.cond(predicate, _true_fun, _false_fun, operand)
+    convolved_spectrum = lax.cond(predicate, _true_fun, _false_fun, operand)
 
     return convolved_spectrum
 
@@ -405,7 +404,7 @@ def linear_spline_interpolation(x_knots, x_samples, spline_degree=3):
 
         # Vmap over chunk indices to evaluate all basis functions
         chunk_indices = jnp.arange(n_nodes)
-        basis_evals = jax.vmap(_eval_basis)(chunk_indices)  # shape: (n_nodes, n_samples)
+        basis_evals = vmap(_eval_basis)(chunk_indices)  # shape: (n_nodes, n_samples)
 
         return basis_evals.T  # (n_samples, n_nodes)
 
@@ -495,7 +494,7 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
     n_rebin = rebinned_wavelengths.size
     rebinned_spectrum = jnp.zeros(n_rebin, dtype=rebin_dtype)
 
-    jax.debug.callback(_raise_small_size, n_rebin)
+    debug.callback(_raise_small_size, n_rebin)
 
     rebin_bin_low = jnp.zeros(n_rebin, dtype=rebin_dtype)
     rebin_bin_high = jnp.zeros(n_rebin, dtype=rebin_dtype)
@@ -512,7 +511,7 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
         rebinned_wavelengths[-1] + (rebinned_wavelengths[-1] - rebinned_wavelengths[-2]) * 0.5
         )
 
-    jax.debug.callback(_raise_incomplete_wavelength_range, (input_wavelengths, rebinned_wavelengths))
+    debug.callback(_raise_incomplete_wavelength_range, (input_wavelengths, rebinned_wavelengths))
 
     rebinned_spectrum = rebinning_interpolation(
         input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin

@@ -30,8 +30,7 @@ except Exception:
     ultranest = None  # Mark ultranest as not available
 
 try:
-    import jax
-    from jax import lax, random, tree
+    from jax import lax, random, tree, vmap, tree_util, jit, local_device_count, make_mesh, shard_map, devices
     import jax.numpy as jnp
     from jax.sharding import NamedSharding, PartitionSpec as P
 except Exception:
@@ -165,7 +164,7 @@ def _build_unconstrained_mcmc_interface(context: SamplerContext):
     def transform_positions(unconstrained_positions):
         if jnp.ndim(unconstrained_positions) == 1:
             return transform_single(unconstrained_positions)
-        return jax.vmap(transform_single)(unconstrained_positions)
+        return vmap(transform_single)(unconstrained_positions)
 
     def log_jacobian_single(unconstrained_position):
         return parameter_layout.log_jacobian_single(unconstrained_position)
@@ -466,7 +465,7 @@ class BlackJAXSampler(Sampler):
         is_mass_matrix_diagonal=True,
         progress_bar=False,
         seed=42654,
-        jit=True,
+        use_jit=True,
         log_jacobian_fn=None,
         num_chains=1,
         **blackjax_kwargs,
@@ -505,19 +504,19 @@ class BlackJAXSampler(Sampler):
 
         if num_chains == 1:
             # Original single-chain path.
-            if jit:
-                run_one_chain = jax.jit(run_one_chain)
+            if use_jit:
+                run_one_chain = jit(run_one_chain)
             states, infos = run_one_chain(sample_key)
         else:
             # Multi-chain path: distribute chains across devices using shard_map + vmap.
             # Each device runs chains_per_device independent chains using the same adapted
             # warmup parameters but different RNG seeds.
-            n_devices = jax.local_device_count()
+            n_devices = local_device_count()
             effective_devices = min(n_devices, num_chains)
             chains_per_device = max(1, num_chains // effective_devices)
 
             if effective_devices > 1:
-                mesh = jax.make_mesh((effective_devices,), ('devices',))
+                mesh = make_mesh((effective_devices,), ('devices',))
 
                 def run_device_chains(base_key):
                     # Derive a unique sample key per device from the shared base key,
@@ -525,31 +524,31 @@ class BlackJAXSampler(Sampler):
                     device_idx = lax.axis_index('devices')
                     device_key = random.fold_in(base_key, device_idx)
                     per_chain_keys = random.split(device_key, chains_per_device)
-                    return jax.vmap(run_one_chain)(per_chain_keys)
+                    return vmap(run_one_chain)(per_chain_keys)
 
-                run_all = jax.shard_map(
+                run_all = shard_map(
                     run_device_chains,
                     mesh=mesh,
                     in_specs=P(),           # base_key replicated to every device
                     out_specs=P('devices'), # outputs concatenated along axis 0 across devices
                 )
-                if jit:
-                    run_all = jax.jit(run_all)
+                if use_jit:
+                    run_all = jit(run_all)
                 all_states, all_infos = run_all(sample_key)
             else:
                 # Single device: vmap over all chains.
                 chain_keys = random.split(sample_key, num_chains)
-                run_all_single = jax.vmap(run_one_chain)
-                if jit:
-                    run_all_single = jax.jit(run_all_single)
+                run_all_single = vmap(run_one_chain)
+                if use_jit:
+                    run_all_single = jit(run_all_single)
                 all_states, all_infos = run_all_single(chain_keys)
 
             # Flatten [num_chains, num_samples, ...] → [num_chains * num_samples, ...]
             def _flatten(x):
                 return x.reshape(-1, *x.shape[2:]) if x.ndim >= 2 else x
 
-            states = jax.tree_util.tree_map(_flatten, all_states)
-            infos = jax.tree_util.tree_map(_flatten, all_infos)
+            states = tree_util.tree_map(_flatten, all_states)
+            infos = tree_util.tree_map(_flatten, all_infos)
 
         unconstrained_samples = np.asarray(states.position)
         transformed_samples = states.position if self.prior_func is None else self.prior_func(states.position)
@@ -859,7 +858,7 @@ class NumPyroSampler(Sampler):
         is_mass_matrix_diagonal=True,
         progress_bar=False,
         seed=42654,
-        jit=True,
+        use_jit=True,
         log_jacobian_fn=None,
         num_chains=1,
         thinning=1,
@@ -884,7 +883,7 @@ class NumPyroSampler(Sampler):
 
         extra_fields = ('potential_energy', 'accept_prob', 'diverging', 'num_steps')
         rng_key = random.PRNGKey(seed)
-        n_devices = jax.local_device_count()
+        n_devices = local_device_count()
         use_multi_device = (n_devices > 1 and num_chains > 1 and chain_method != 'sequential')
 
         if use_multi_device:
@@ -896,7 +895,7 @@ class NumPyroSampler(Sampler):
             _kernel_class = self.kernel_class
             _kernel_kwargs = kernel_kwargs
             _initial_position = initial_position
-            mesh = jax.make_mesh((effective_devices,), ('devices',))
+            mesh = make_mesh((effective_devices,), ('devices',))
 
             def run_on_device(base_key):
                 device_idx = lax.axis_index('devices')
@@ -927,7 +926,7 @@ class NumPyroSampler(Sampler):
                     adapt.inverse_mass_matrix,
                 )
 
-            run_sharded = jax.shard_map(
+            run_sharded = shard_map(
                 run_on_device,
                 mesh=mesh,
                 in_specs=P(),              # base_key replicated to every device
@@ -1563,7 +1562,7 @@ class JAXNSSampler(Sampler):
             's': sampler_kwargs.pop('s', 4),
             'k': sampler_kwargs.pop('k', 0),
             'c': sampler_kwargs.pop('c', 200),
-            'devices': sampler_kwargs.pop('devices', jax.devices()),
+            'devices': sampler_kwargs.pop('devices', devices()),
             'difficult_model': sampler_kwargs.pop('difficult_model', False),
             'parameter_estimation': sampler_kwargs.pop('parameter_estimation', False),
             'shell_fraction': sampler_kwargs.pop('shell_fraction', 0.5),
@@ -1572,7 +1571,7 @@ class JAXNSSampler(Sampler):
             'verbose': sampler_kwargs.pop('verbose', False),
         }
         jaxns_kwargs['seed'] = sampler_kwargs.pop('seed', 42654)
-        jit = sampler_kwargs.pop('jit', True)
+        use_jit = sampler_kwargs.pop('jit', True)
         jaxns_kwargs.update(sampler_kwargs)
 
         sampler = cls(
@@ -1582,7 +1581,7 @@ class JAXNSSampler(Sampler):
             retrieval_name=context.retrieval_name,
         )
 
-        run_kwargs = {'jit': jit, **jaxns_kwargs}
+        run_kwargs = {'jit': use_jit, **jaxns_kwargs}
         summary_parameters = {
             **jaxns_kwargs,
             'sampler_type': 'jaxns',
@@ -1595,7 +1594,7 @@ class JAXNSSampler(Sampler):
         results = self.get_results()
         return results, {'stats': results}
 
-    def run_sampler(self, jit=True, parameters={}, **jaxns_kwargs):
+    def run_sampler(self, use_use_jit=True, parameters={}, **jaxns_kwargs):
         """
         Run the JAXNS sampler.
         """
@@ -1607,7 +1606,7 @@ class JAXNSSampler(Sampler):
             's': jaxns_kwargs.pop('s', 4),
             'k': jaxns_kwargs.pop('k', 0),
             'c': jaxns_kwargs.pop('c', 200),
-            'devices': jaxns_kwargs.pop('devices', jax.devices()),
+            'devices': jaxns_kwargs.pop('devices', devices()),
             'difficult_model': jaxns_kwargs.pop('difficult_model', False),
             'parameter_estimation': jaxns_kwargs.pop('parameter_estimation', False),
             'shell_fraction': jaxns_kwargs.pop('shell_fraction', 0.5),
@@ -1632,8 +1631,8 @@ class JAXNSSampler(Sampler):
 
         print(f"Starting JAXNS retrieval: {self.retrieval_name}")
 
-        if jit:
-            termination_reason, state = jax.jit(self.sampler)(jax_random_key)
+        if use_jit:
+            termination_reason, state = jit(self.sampler)(jax_random_key)
         else:
             termination_reason, state = self.sampler(jax_random_key)
 
@@ -1728,7 +1727,7 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
         self.sampler = None
         self.results = None
 
-    def run_sampler(self, jit=True, **jaxns_kwargs):
+    def run_sampler(self, use_jit=True, **jaxns_kwargs):
         """
         Run the JAXNS sampler.
         """
@@ -1738,7 +1737,7 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
             'num_live_points': jaxns_kwargs.pop('num_live_points', 400),
             'sampler': jaxns_kwargs.pop('sampler', 400),
             'max_samples': jaxns_kwargs.pop('max_samples', 1e7),
-            'devices': jaxns_kwargs.pop('devices', jax.devices()),
+            'devices': jaxns_kwargs.pop('devices', devices()),
             'difficult_model': jaxns_kwargs.pop('difficult_model', False),
             'verbose': jaxns_kwargs.pop('verbose', False),
         }
@@ -1759,8 +1758,8 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
 
         print(f"Starting JAXNS retrieval: {self.retrieval_name}")
 
-        if jit:
-            termination_reason, state = jax.jit(self.sampler)(jax_random_key)
+        if use_jit:
+            termination_reason, state = jit(self.sampler)(jax_random_key)
         else:
             termination_reason, state = self.sampler(jax_random_key)
 

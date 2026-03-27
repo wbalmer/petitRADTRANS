@@ -2,7 +2,6 @@ import copy
 import sys
 import warnings
 
-import jax
 import jax.numpy as jnp
 from jax import lax, jit, vmap
 from jax.experimental import checkify

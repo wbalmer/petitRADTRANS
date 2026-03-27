@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import equinox as eqx
-import jax
+from jax import lax, vmap, nn, random
 import jax.numpy as jnp
 import numpy as np
 
@@ -33,7 +33,7 @@ class _FlowMatchingVelocityField(eqx.Module):
             out_size=int(parameter_dim),
             width_size=int(hidden_dim),
             depth=int(depth),
-            activation=jax.nn.gelu,
+            activation=nn.gelu,
             key=key,
         )
 
@@ -112,7 +112,7 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
         self.checkpoint_backend = checkpoint_backend
         self.resume_from_checkpoint = bool(resume_from_checkpoint)
 
-        encoder_key, vector_field_key = jax.random.split(jax.random.PRNGKey(self.seed))
+        encoder_key, vector_field_key = random.split(random.PRNGKey(self.seed))
         self.model = _FlowMatchingModel(
             encoder=HierarchicalObservationEncoder(
                 embedding_dim=self.embedding_dim,
@@ -146,10 +146,10 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
         )
         batch_indices = batch.metadata.get('batch_indices', [0])
         batch_seed = int(sum(batch_indices)) % (2**31) if batch_indices else 0
-        base_key = jax.random.PRNGKey(batch_seed)
-        noise_key, time_key = jax.random.split(base_key)
-        base_noise = jax.random.normal(noise_key, shape=parameters.shape, dtype=jnp.float32)
-        interpolation_time = jax.random.uniform(
+        base_key = random.PRNGKey(batch_seed)
+        noise_key, time_key = random.split(base_key)
+        base_noise = random.normal(noise_key, shape=parameters.shape, dtype=jnp.float32)
+        interpolation_time = random.uniform(
             time_key,
             shape=(parameters.shape[0], 1),
             minval=0.0,
@@ -158,7 +158,7 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
         )
         interpolated_state = ((1.0 - interpolation_time) * base_noise) + (interpolation_time * parameters)
         target_velocity = parameters - base_noise
-        predicted_velocity = jax.vmap(model.velocity_field)(
+        predicted_velocity = vmap(model.velocity_field)(
             interpolated_state,
             interpolation_time[:, 0],
             embeddings,
@@ -311,8 +311,8 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
         seed: int | None = None,
     ) -> PosteriorSamples:
         sample_seed = self.seed if seed is None else int(seed)
-        state = jax.random.normal(
-            jax.random.PRNGKey(sample_seed),
+        state = random.normal(
+            random.PRNGKey(sample_seed),
             shape=(int(n_samples), self.parameter_dim),
             dtype=jnp.float32,
         )
@@ -326,12 +326,12 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
 
         def integration_step(current_state: jnp.ndarray, step_index: jnp.ndarray) -> tuple[jnp.ndarray, None]:
             time = (jnp.asarray(step_index, dtype=jnp.float32) + jnp.asarray(0.5, dtype=jnp.float32)) * step_size
-            velocity = jax.vmap(lambda value: self.model.velocity_field(value, time, context))(current_state)
+            velocity = vmap(lambda value: self.model.velocity_field(value, time, context))(current_state)
             velocity = jnp.asarray(velocity, dtype=jnp.float32)
             next_state = current_state + (step_size * velocity)
             return next_state, None
 
-        state, _ = jax.lax.scan(
+        state, _ = lax.scan(
             integration_step,
             state,
             jnp.arange(self.integration_steps, dtype=jnp.int32),

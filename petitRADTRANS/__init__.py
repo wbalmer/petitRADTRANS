@@ -1,7 +1,6 @@
 import importlib.metadata
 import os
 import sys
-import jax
 os.environ["DYLB_LIBRARY_PATH"] = "/Users/nasedkin/Software/Multinest/lib"
 
 __version__ = importlib.metadata.version("petitRADTRANS")

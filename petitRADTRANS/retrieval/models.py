@@ -27,7 +27,7 @@ import re
 from functools import wraps
 from numbers import Number
 from types import SimpleNamespace
-import jax
+from  jax import vmap
 import jax.numpy as jnp
 
 from petitRADTRANS.chemistry import clouds
@@ -2928,7 +2928,7 @@ def time_series_gradient_emission(
 
     # Interpolate along the time axis for each wavelength bin to produce
     # spectra at the actual observation times: (N_obs, N_wavelength)
-    observed_spectra = jax.vmap(
+    observed_spectra = vmap(
         lambda wl_col: jnp.interp(observation_times, model_times, wl_col),
         in_axes=1, out_axes=1,
     )(model_spectra_2d)

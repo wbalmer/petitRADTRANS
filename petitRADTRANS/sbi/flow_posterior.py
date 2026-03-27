@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import equinox as eqx
-import jax
+from jax import Array, random, vmap
 import jax.numpy as jnp
 import numpy as np
 
@@ -125,7 +125,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.checkpoint_backend = checkpoint_backend
         self.resume_from_checkpoint = bool(resume_from_checkpoint)
 
-        encoder_key, flow_key = jax.random.split(jax.random.PRNGKey(self.seed))
+        encoder_key, flow_key = random.split(random.PRNGKey(self.seed))
         self.model = _PosteriorModel(
             encoder=HierarchicalObservationEncoder(
                 embedding_dim=self.embedding_dim,
@@ -134,7 +134,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             flow=self._build_flow(flow_key),
         )
 
-    def _build_flow(self, key: jax.Array) -> Any:
+    def _build_flow(self, key: Array) -> Any:
         if self.flow_family == 'affine':
             self.effective_flow_family = 'affine'
             return ConditionalAffineFlow(
@@ -169,7 +169,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
     def _loss(model: _PosteriorModel, batch: PosteriorBatch) -> jnp.ndarray:
         parameters = jnp.asarray(batch.parameters, dtype=jnp.float32)
         embeddings = ConditionalFlowPosterior._batch_embeddings(model, batch.observations)
-        log_probabilities = jax.vmap(model.flow.log_prob)(parameters, embeddings)
+        log_probabilities = vmap(model.flow.log_prob)(parameters, embeddings)
         log_probabilities = jnp.nan_to_num(log_probabilities, nan=-1e6, neginf=-1e6, posinf=1e6)
         return -jnp.mean(log_probabilities)
 
@@ -391,7 +391,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         samples = self.model.flow.sample(
             context=jnp.asarray(observation.embedding, dtype=jnp.float32),
             n_samples=n_samples,
-            key=jax.random.PRNGKey(sample_seed),
+            key=random.PRNGKey(sample_seed),
         )
         return PosteriorSamples(samples=np.nan_to_num(np.asarray(samples), nan=0.0, posinf=1e6, neginf=-1e6))
 
@@ -418,7 +418,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         if parameter_values.ndim == 1:
             return jnp.nan_to_num(self.model.flow.log_prob(parameter_values, context), nan=-1e6, neginf=-1e6)
 
-        return jax.vmap(
+        return vmap(
             lambda value: jnp.nan_to_num(self.model.flow.log_prob(value, context), nan=-1e6, neginf=-1e6)
         )(parameter_values)
 

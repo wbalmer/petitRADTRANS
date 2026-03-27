@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import equinox as eqx
-import jax
+from jax import Array, vmap, random
 import jax.numpy as jnp
 
 from .observation import EncodedObservation, ObservationBlock, ObservationEncoder, ObservationModality
@@ -108,12 +108,12 @@ class SpectralPatchEncoder(eqx.Module):
         embedding_dim: int = 64,
         patch_size: int = 32,
         hidden_dim: int = 96,
-        key: jax.Array | None = None,
+        key: Array | None = None,
     ):
         if key is None:
-            key = jax.random.PRNGKey(0)
+            key = random.PRNGKey(0)
 
-        mlp_key, projection_key = jax.random.split(key)
+        mlp_key, projection_key = random.split(key)
         self.embedding_dim = int(embedding_dim)
         self.patch_size = int(patch_size)
         self.patch_mlp = eqx.nn.MLP(18, self.embedding_dim, hidden_dim, 2, key=mlp_key)
@@ -175,8 +175,8 @@ class SpectralPatchEncoder(eqx.Module):
         def _patch_summary(v, vm, u, um, c, cm):
             return jnp.concatenate((_summaries(v, vm), _summaries(u, um), _summaries(c, cm)))
 
-        summaries = jax.vmap(_patch_summary)(values_2d, mask_2d, unc_2d, unc_mask_2d, coord_2d, coord_mask_2d)
-        patch_embeddings = jax.vmap(self.patch_mlp)(summaries)
+        summaries = vmap(_patch_summary)(values_2d, mask_2d, unc_2d, unc_mask_2d, coord_2d, coord_mask_2d)
+        patch_embeddings = vmap(self.patch_mlp)(summaries)
         pooled = jnp.mean(patch_embeddings, axis=0)
         return self.output_projection(pooled)
 
@@ -203,11 +203,11 @@ class PhotometryPointEncoder(eqx.Module):
     output_projection: eqx.nn.Linear
     embedding_dim: int = eqx.field(static=True)
 
-    def __init__(self, embedding_dim: int = 64, hidden_dim: int = 96, key: jax.Array | None = None):
+    def __init__(self, embedding_dim: int = 64, hidden_dim: int = 96, key: Array | None = None):
         if key is None:
-            key = jax.random.PRNGKey(1)
+            key = random.PRNGKey(1)
 
-        mlp_key, projection_key = jax.random.split(key)
+        mlp_key, projection_key = random.split(key)
         self.embedding_dim = int(embedding_dim)
         self.point_mlp = eqx.nn.MLP(4, self.embedding_dim, hidden_dim, 2, key=mlp_key)
         self.output_projection = eqx.nn.Linear(self.embedding_dim, self.embedding_dim, key=projection_key)
@@ -240,7 +240,7 @@ class PhotometryPointEncoder(eqx.Module):
 
         widths = jnp.concatenate((jnp.diff(coordinates), jnp.zeros((1,), dtype=coordinates.dtype)), axis=0)
         point_features = jnp.stack((values, uncertainties, coordinates, widths), axis=-1)
-        encoded_points = jax.vmap(self.point_mlp)(point_features)
+        encoded_points = vmap(self.point_mlp)(point_features)
         valid_weights = (~mask).astype(jnp.float32)[:, None]
         pooled = jnp.sum(encoded_points * valid_weights, axis=0) / jnp.maximum(jnp.sum(valid_weights), 1.0)
         return self.output_projection(pooled)
@@ -263,11 +263,11 @@ class DatasetSetAggregator(eqx.Module):
     output_projection: eqx.nn.Linear
     embedding_dim: int = eqx.field(static=True)
 
-    def __init__(self, embedding_dim: int = 128, hidden_dim: int = 128, key: jax.Array | None = None):
+    def __init__(self, embedding_dim: int = 128, hidden_dim: int = 128, key: Array | None = None):
         if key is None:
-            key = jax.random.PRNGKey(2)
+            key = random.PRNGKey(2)
 
-        mlp_key, projection_key = jax.random.split(key)
+        mlp_key, projection_key = random.split(key)
         self.embedding_dim = int(embedding_dim)
         self.block_projection = eqx.nn.MLP(self.embedding_dim, self.embedding_dim, hidden_dim, 2, key=mlp_key)
         self.output_projection = eqx.nn.Linear(self.embedding_dim * 3, self.embedding_dim, key=projection_key)
@@ -289,7 +289,7 @@ class DatasetSetAggregator(eqx.Module):
             return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
 
         stacked = jnp.stack(block_embeddings, axis=0)
-        projected = jax.vmap(self.block_projection)(stacked)
+        projected = vmap(self.block_projection)(stacked)
         pooled = jnp.concatenate(
             (jnp.mean(projected, axis=0), jnp.max(projected, axis=0), jnp.std(projected, axis=0)),
             axis=0,
@@ -334,12 +334,12 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
         photometry_embedding_dim: int = 64,
         patch_size: int = 32,
         hidden_dim: int = 128,
-        key: jax.Array | None = None,
+        key: Array | None = None,
     ):
         if key is None:
-            key = jax.random.PRNGKey(3)
+            key = random.PRNGKey(3)
 
-        spectrum_key, photometry_key, aggregator_key = jax.random.split(key, 3)
+        spectrum_key, photometry_key, aggregator_key = random.split(key, 3)
         self.embedding_dim = int(embedding_dim)
         self.spectrum_encoder = SpectralPatchEncoder(spectrum_embedding_dim, patch_size, hidden_dim, spectrum_key)
         self.photometry_encoder = PhotometryPointEncoder(photometry_embedding_dim, hidden_dim, photometry_key)

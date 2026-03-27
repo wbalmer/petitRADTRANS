@@ -17,7 +17,6 @@ from scipy.special import erfcinv, gamma
 from typing import Tuple, Union, Optional
 import copy
 
-import jax
 from jax import lax, numpy as jnp
 import numpy as np
 

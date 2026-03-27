@@ -10,8 +10,7 @@ import numpy.typing as npt
 from typing import Callable
 
 from scipy.stats import binned_statistic
-import jax
-from jax import lax, random, devices, config, numpy as jnp
+from jax import vmap, lax, random, devices, config, numpy as jnp
 import tensorflow_probability.substrates.jax as tfp
 tfpd = tfp.distributions
 
@@ -3308,7 +3307,7 @@ class Retrieval:
             if jnp.ndim(unconstrained_positions) == 1:
                 return transform_single(unconstrained_positions)
 
-            return jax.vmap(transform_single)(unconstrained_positions)
+            return vmap(transform_single)(unconstrained_positions)
 
         def log_jacobian_single(unconstrained_position):
             return parameter_layout.log_jacobian_single(unconstrained_position)
@@ -3352,7 +3351,7 @@ class Retrieval:
             'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
             'progress_bar': sampler_kwargs.pop('progress_bar', False),
             'seed': sampler_kwargs.pop('seed', 42654),
-            'jit': sampler_kwargs.pop('jit', True),
+            'use_jit': sampler_kwargs.pop('use_jit', True),
             'log_jacobian_fn': log_jacobian,
         }
         if algorithm_name == 'hmc':
@@ -3379,7 +3378,7 @@ class Retrieval:
             'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
             'progress_bar': sampler_kwargs.pop('progress_bar', False),
             'seed': sampler_kwargs.pop('seed', 42654),
-            'jit': sampler_kwargs.pop('jit', True),
+            'use_jit': sampler_kwargs.pop('use_jit', True),
             'log_jacobian_fn': log_jacobian,
             'num_chains': sampler_kwargs.pop('num_chains', 1),
             'thinning': sampler_kwargs.pop('thinning', 1),
@@ -3425,7 +3424,7 @@ class Retrieval:
             'target_acceptance_rate': sampler_kwargs['target_acceptance_rate'],
             'is_mass_matrix_diagonal': sampler_kwargs['is_mass_matrix_diagonal'],
             'seed': sampler_kwargs['seed'],
-            'jit': sampler_kwargs['jit'],
+            'use_jit': sampler_kwargs['use_jit'],
         }
         if 'num_integration_steps' in sampler_kwargs:
             summary_parameters['num_integration_steps'] = sampler_kwargs['num_integration_steps']
@@ -3448,7 +3447,7 @@ class Retrieval:
             'thinning': sampler_kwargs['thinning'],
             'chain_method': sampler_kwargs['chain_method'],
             'seed': sampler_kwargs['seed'],
-            'jit': sampler_kwargs['jit'],
+            'use_jit': sampler_kwargs['use_jit'],
         }
         if 'num_steps' in sampler_kwargs:
             summary_parameters['num_integration_steps'] = sampler_kwargs['num_steps']

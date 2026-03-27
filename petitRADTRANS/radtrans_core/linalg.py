@@ -1,6 +1,6 @@
 from functools import partial
 
-import jax
+from jax import default_backend
 import jax.numpy as jnp
 from jax import lax, jit, config
 
@@ -11,7 +11,7 @@ if config.jax_enable_x64:
     HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
 
 # Detect GPU once at import time to choose optimal tridiagonal solver.
-_USE_GPU = jax.default_backend() != 'cpu'
+_USE_GPU = default_backend() != 'cpu'
 
 
 @jit
