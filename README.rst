@@ -36,19 +36,12 @@ Welcome to the repository of petitRADTRANS, an easy-to-use code for the calculat
 petitRADTRANS allows the calculation of emission or transmission spectra, at low or high resolution, clear or cloudy,
 and includes a retrieval module to fit a petitRADTRANS model to your spectral data.
 
-Please note that version 4.0 is experimental, use with caution!
+petitRADTRANS version 4 is in alpha, and is still under active development. Most functionality works as intended, but proceed with caution!
+If you run into any problems please raise an issue using the gitlab issue tracker.
 
 Documentation
 =============
 The code documentation, installation guide, and tutorial can be found at `https://petitradtrans.readthedocs.io <https://petitradtrans.readthedocs.io>`_.
-
-Saved SBI Artifacts
-===================
-The amortized SBI package now stores an explicit estimator-family identifier in
-saved posterior artifacts. User-facing examples load saved SBI models through
-``petitRADTRANS.sbi.load_posterior_estimator(...)`` rather than calling a
-concrete class loader directly. Existing saved flow posteriors without the new
-metadata field remain loadable through the compatibility path.
 
 Attribution
 ===========
