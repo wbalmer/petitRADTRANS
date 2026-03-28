@@ -1320,6 +1320,9 @@ class SpectralModel(Radtrans):
             emissivities: npt.NDArray[np.floating] = None,
             additional_absorption_opacities_function: Callable = None,
             additional_scattering_opacities_function: Callable = None,
+            adaptive_feautrier_iterations: bool = False,
+            chunk_feautrier: bool = False,
+            feautrier_chunk_size: int = 1024,
             frequencies_to_wavelengths: bool = True,
             return_contribution: bool = False,
             return_clear_spectrum: bool = False,
@@ -1371,6 +1374,9 @@ class SpectralModel(Radtrans):
             emissivities=emissivities,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function,
+            adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+            chunk_feautrier=chunk_feautrier,
+            feautrier_chunk_size=feautrier_chunk_size,
             frequencies_to_wavelengths=frequencies_to_wavelengths,
             return_contribution=return_contribution,
             return_clear_spectrum=return_clear_spectrum,
@@ -1667,6 +1673,9 @@ class SpectralModel(Radtrans):
             complete_coverage_clouds: list[str] = None,
             additional_absorption_opacities_function: Callable = None,
             additional_scattering_opacities_function: Callable = None,
+            adaptive_feautrier_iterations: bool = False,
+            chunk_feautrier: bool = False,
+            feautrier_chunk_size: int = 1024,
             frequencies_to_wavelengths: bool = True,
             return_contribution: bool = False,
             return_clear_spectrum: bool = False,
@@ -1704,6 +1713,9 @@ class SpectralModel(Radtrans):
             complete_coverage_clouds=complete_coverage_clouds,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function,
+            adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+            chunk_feautrier=chunk_feautrier,
+            feautrier_chunk_size=feautrier_chunk_size,
             frequencies_to_wavelengths=frequencies_to_wavelengths,
             return_contribution=return_contribution,
             return_clear_spectrum=return_clear_spectrum,
@@ -1812,6 +1824,13 @@ class SpectralModel(Radtrans):
         _ = kwargs  # kwargs is not used in this function, this is intended
 
         return eddy_diffusion_coefficients
+
+    @staticmethod
+    def compute_feautrier_chunk_size(feautrier_chunk_size: int = 1024, **kwargs):
+        """Get the feautrier_chunk_size parameter. No calculation performed."""
+        _ = kwargs  # kwargs is not used in this function, this is intended
+
+        return feautrier_chunk_size
 
     @staticmethod
     def compute_equilibrium_mass_fractions(pressures, temperatures, co_ratio, metallicity,
