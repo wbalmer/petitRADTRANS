@@ -3,7 +3,6 @@
 import os
 
 import h5py
-from jax.typing import Arraylike
 import jax.numpy as jnp
 import numpy as np  # For file I/O, as JAX doesn't handle it directly
 from jax import lax, config, vmap
