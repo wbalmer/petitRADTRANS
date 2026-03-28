@@ -744,12 +744,19 @@ class RetrievalConfig:
             use_equilibrium_chemistry : bool
                 Does the retrieval model use an equilibrium cloud model. This restricts the available species!
             free_mass_fraction_limits : tuple(float,float)
-                If eq is True, this sets the scaling factor for the equilibrium condensate abundance, typical
-                range would be (-3,1). If eq is false, this sets the range on the actual cloud abundance,
-                with a typical range being (-5,0).
+                If use_equilibrium_chemistry is True, this sets the prior range on the log mass fraction of the
+                cloud species relative to the equilibrium abundance, with a typical range being (-3.5, 1.5).
+                If use_equilibrium_chemistry is False, this sets the prior range on the actual log mass fraction
+                abundance of the cloud species, with a typical range being (-5.0, 0.0).
+                The abundance limits must be given in log10 units of the mass fraction.
             cloud_base_pressure_limits : tuple(float,float)
-                Only used if not using an equilibrium model. Sets the limits on the log of the cloud base pressure.
-                Obsolete.
+                Only used if not using an equilibrium model. Sets the prior range on the log10 of the cloud base
+                pressure in bar, e.g. (-3, 3). If None, no cloud base pressure parameter is added.
+            equilbrium_mass_fraction_scaling_factor : tuple(float,float)
+                If provided, adds a free parameter ``eq_scaling_{cloud_name}`` that scales the equilibrium
+                condensate mass fraction. The tuple defines the (lower, upper) bounds of the uniform prior on
+                this scaling factor in log10 space, e.g. (-3.0, 1.0). Only used when
+                use_equilibrium_chemistry is True. If None, no scaling parameter is added.
             fixed_mass_fraction_value : Optional(float)
                 A vertically constant log mass fraction abundance for the cloud species. If set, this will not be
                 a free parameter in the retrieval. Only compatible with non-equilibrium clouds.
@@ -757,8 +764,6 @@ class RetrievalConfig:
                 The log cloud base pressure. If set, fixes this parameter to a constant value, and it will not be
                 a free parameter in the retrieval. Only compatible with non-equilibrium clouds. Not yet compatible
                 with most built in pRT models.
-            scaling_factor :
-                # TODO complete docstring
         """
         if eq is not _UNSET:
             warnings.warn(
@@ -893,8 +898,6 @@ class RetrievalConfig:
                     value=fixed_base_pressure_value
                 )
 
-    # TODO @Evert complete docstring
-    # TODO [4.0.0] remove radvel as it is not used
     def add_data(self,
                  name: str,
                  path_to_observations: str,
@@ -907,7 +910,6 @@ class RetrievalConfig:
                  fit_flux_offset: bool = False,
                  fit_instrumental_resolution: bool = False,
                  subtract_continuum: bool = False,
-                 radvel: bool = False,
                  photometry: bool = False,
                  photometric_transformation_function: Callable | None = None,
                  photometric_bin_edges: tuple[float, float] | None = None,
