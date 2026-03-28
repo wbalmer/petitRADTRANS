@@ -141,7 +141,7 @@ def _build_unconstrained_mcmc_interface(context: SamplerContext):
 
     Returns ``(free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian)``.
     """
-    from petitRADTRANS.retrieval.jax_parameter import JAX_DTYPE
+    from petitRADTRANS.retrieval.parameter import JAX_DTYPE
 
     _check_runtime_native_support(context, 'Gradient-based JAX samplers')
     parameter_layout = context.parameter_layout

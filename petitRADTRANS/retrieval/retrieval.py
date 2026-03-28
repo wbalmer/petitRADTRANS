@@ -32,7 +32,7 @@ from petitRADTRANS.physics import wavelength2frequency, shift_wavelengths_by_rad
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
-from petitRADTRANS.retrieval.jax_parameter import Parameter, RetrievalParameter
+from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.models import (
     _build_model_context_from_parameters,
     _model_result_to_legacy_output,

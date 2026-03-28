@@ -30,7 +30,7 @@ import numpy as np
 import numpy.typing as npt
 from jax import lax, vmap, nn, tree_util, debug
 
-from petitRADTRANS.retrieval.jax_parameter import JAX_DTYPE, Parameter
+from petitRADTRANS.retrieval.parameter import JAX_DTYPE, Parameter
 
 if TYPE_CHECKING:
     from petitRADTRANS.radtrans import Radtrans

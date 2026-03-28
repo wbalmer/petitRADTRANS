@@ -502,7 +502,7 @@ def test_parameter_layout_batch_transforms_and_metadata_serialization():
     }
     del parameters
 
-    from petitRADTRANS.retrieval.jax_parameter import Parameter
+    from petitRADTRANS.retrieval.parameter import Parameter
 
     layout = ParameterLayout.from_parameters({
         'amplitude': Parameter(

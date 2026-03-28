@@ -5,7 +5,6 @@ py.install_sources([
     'models.py',
     'parameter.py',
     'plotting.py',
-    'jax_parameter.py',
     'log_likelihood.py',
     'preparing.py',
     'retrieval.py',

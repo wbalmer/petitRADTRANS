@@ -23,7 +23,7 @@ tfpd = tfp.distributions
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
 from petitRADTRANS.opacities.opacities import Opacity, CorrelatedKOpacity
 from petitRADTRANS.retrieval.data import Data
-from petitRADTRANS.retrieval.jax_parameter import Parameter
+from petitRADTRANS.retrieval.parameter import Parameter
 from petitRADTRANS.retrieval.models import (
     MODEL_CONTRACT_RUNTIME_LEGACY_ADAPTER,
     MODEL_CONTRACT_RUNTIME_NATIVE,

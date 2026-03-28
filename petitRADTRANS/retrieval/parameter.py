@@ -1,12 +1,29 @@
-import numpy as np
-
+import os
+import jax.numpy as jnp
+from jax import config
 from petitRADTRANS.retrieval.utils import log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
+from jax import tree_util
 
+JAX_DTYPE = jnp.float32
+if config.jax_enable_x64:
+    JAX_DTYPE = jnp.float64
+
+
+def _build_jaxns_prior(distribution, name):
+    try:
+        from jaxns import Prior
+    except Exception as error:
+        raise ImportError(
+            "JAXNS is required to build Prior objects for JAXNS retrievals, but it could not be imported."
+        ) from error
+
+    return Prior(distribution, name=name)
 
 class Parameter:
-    r"""Allow easy translation between the pyMultinest hypercube and the physical unit space.
-
-    Each parameter includes a name, which can be used
+    """
+    Parameter
+    This class allows easy translation between the pyMultinest hypercube and
+    the physical unit space. Each parameter includes a name, which can be used
     as a reference in the model function, a value, a flag of whether it's a free parameter,
     and if it's free, a function that translates the unit hypercube into physical space.
     The remainder of the arguments deal with the corner plots.
@@ -33,7 +50,8 @@ class Parameter:
     def __init__(self,
                  name,
                  is_free_parameter,
-                 value=None,
+                 value=0.0,
+                 distribution=None,
                  transform_prior_cube_coordinate=None,
                  plot_in_corner=False,
                  corner_ranges=None,
@@ -43,16 +61,42 @@ class Parameter:
         self.name = name
         self.is_free_parameter = is_free_parameter
         self.value = value
-        self.transform_prior_cube_coordinate = \
-            transform_prior_cube_coordinate
+        self.distribution = distribution
+        self.prior_sample = None
+        self.transform_prior_cube_coordinate = transform_prior_cube_coordinate
         self.plot_in_corner = plot_in_corner
         self.corner_ranges = corner_ranges
         self.corner_transform = corner_transform
         self.corner_label = corner_label
 
+    def _tree_flatten(self):
+        children = (self.value,)  # arrays / dynamic values
+        aux_data = {'name': self.name,
+                    'is_free_parameter': self.is_free_parameter,
+                    'distribution': self.distribution,
+                    'transform_prior_cube_coordinate': self.transform_prior_cube_coordinate,
+                    'plot_in_corner': self.plot_in_corner,
+                    'corner_ranges': self.corner_ranges,
+                    'corner_transform': self.corner_transform,
+                    'corner_label': self.corner_label}  # static values
+        return (children, aux_data)
+
+    @classmethod
+    def _tree_unflatten(cls, aux_data, children):
+        return cls(value=children[0], **aux_data)
+
     def get_param_uniform(self, cube):
         if self.is_free_parameter:
-            return self.transform_prior_cube_coordinate(cube)
+            if self.transform_prior_cube_coordinate is not None:
+                return self.transform_prior_cube_coordinate(cube)
+
+            if self.distribution is not None:
+                return self.distribution.quantile(cube)
+
+            raise ValueError(
+                f"Error! Free parameter '{self.name}' has neither a prior transform "
+                f"nor a distribution with a quantile method"
+            )
 
         raise ValueError(f"Error! Parameter '{self.name}' is not a free parameter")
 
@@ -72,12 +116,12 @@ class Parameter:
             for i, v in enumerate(values):
                 v = self.get_flattened_value(value=v)
                 k = self.get_flattened_value(value=[keys[i]])
-                flattened_dict = np.concatenate((k, v))
+                flattened_dict = jnp.concatenate((k, v))
                 _value.append(flattened_dict.flatten())
         else:
             _value = value
 
-        return np.array(_value).flatten()
+        return jnp.array(_value).flatten()
 
     def set_param(self, value):
         if self.is_free_parameter:
@@ -86,24 +130,11 @@ class Parameter:
 
         raise ValueError(f"Error! Parameter '{self.name}' is not a free parameter")
 
+    def set_prior(self):
+        return _build_jaxns_prior(self.distribution, name=self.name)
+        #return self.prior_sample
 
 class RetrievalParameter:
-    """Used to set up retrievals.
-
-    Stores the prior function. Prior parameters depends on the type of prior. e.g., for uniform and log prior, these
-    are the bounds of the prior. For gaussian priors and alike, these are the values of the mean and full width
-    half maximum.
-
-    Args:
-        name:
-            name of the parameter to retrieve, must match the corresponding model parameter of a SpectralModel
-        prior_parameters:
-            list of two values for the prior parameters, depends on the prior type
-        prior_type:
-            type of prior to use, the available types are stored into available_priors
-        custom_prior:
-            function with arguments (cube, *args), args being positional arguments in prior_parameters
-    """
     __available_priors = [
         'log',
         'uniform',
@@ -114,14 +145,25 @@ class RetrievalParameter:
     ]
 
     def __init__(self, name, prior_parameters, prior_type='uniform', custom_prior=None):
+        """Used to set up retrievals.
+        Stores the prior function. Prior parameters depends on the type of prior. e.g., for uniform and log prior, these
+        are the bounds of the prior. For gaussian priors and alike, these are the values of the mean and full width
+        half maximum.
+
+        Args:
+            name: name of the parameter to retrieve, must match the corresponding model parameter of a SpectralModel
+            prior_parameters: list of two values for the prior parameters, depends on the prior type
+            prior_type: type of prior to use, the available types are stored into available_priors
+            custom_prior: function with arguments (cube, *args), args being positional arguments in prior_parameters
+        """
         # Check prior parameters validity
         if not hasattr(prior_parameters, '__iter__'):
             raise ValueError(
                 f"'prior_parameters' must be an iterable of size 2, but is of type '{type(prior_parameters)}'"
             )
-        elif np.size(prior_parameters) < 2:
+        elif jnp.size(prior_parameters) < 2:
             raise ValueError(
-                f"'prior_parameters' must be of size 2, but is of size '{np.size(prior_parameters)}'"
+                f"'prior_parameters' must be of size 2, but is of size '{jnp.size(prior_parameters)}'"
             )
         elif prior_parameters[0] > prior_parameters[1] and (prior_type == 'log' or prior_type == 'uniform'):
             raise ValueError(
@@ -226,3 +268,8 @@ class RetrievalParameter:
         }
 
         return dictionary
+
+tree_util.register_pytree_node(Parameter,
+                               Parameter._tree_flatten,
+                               Parameter._tree_unflatten
+                               )

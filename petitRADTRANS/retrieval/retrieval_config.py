@@ -1,6 +1,7 @@
 import logging
 import os
-from typing import Callable
+import warnings
+from typing import Any, Callable
 
 import numpy as np
 import jax.numpy as jnp
@@ -9,7 +10,7 @@ from jax.typing import ArrayLike
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
 from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity
-from petitRADTRANS.retrieval.jax_parameter import Parameter
+from petitRADTRANS.retrieval.parameter import Parameter
 from petitRADTRANS.retrieval.utils import uniform_prior
 from petitRADTRANS.synthetic_photometry import SyntheticPhotometry
 # Import prior distributions
@@ -17,6 +18,7 @@ import tensorflow_probability.substrates.jax as tfp
 tfpd = tfp.distributions
 
 # MPI Multiprocessing
+_UNSET = object()  # Sentinel for deprecated argument detection
 rank = 0
 comm = None
 
@@ -58,10 +60,20 @@ class RetrievalConfig:
     def __init__(self,
                  retrieval_name: str = "retrieval_name",
                  run_mode: str = "retrieval",
-                 sampler_type='pymultinest',
+                 sampler_type: str = 'pymultinest',
                  adaptive_mesh_refinement: str = False,
                  scattering_in_emission: bool = False,
-                 pressures: ArrayLike | None = None):
+                 pressures: ArrayLike | None = None,
+                 # --- deprecated arguments ---
+                 amr=_UNSET):
+
+        if amr is not _UNSET:
+            warnings.warn(
+                "The 'amr' argument is deprecated; use 'adaptive_mesh_refinement' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            adaptive_mesh_refinement = amr
 
         self.retrieval_name = retrieval_name
         self.run_mode = run_mode
@@ -92,7 +104,7 @@ class RetrievalConfig:
         self.add_parameter("pressure_width", False, value=1)
         self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
 
-    def _setup_pres(self, scaling=10, width=3):
+    def _setup_pres(self, scaling: int = 10, width: int = 3) -> ArrayLike:
         """
         This converts the standard pressure grid into the correct length
         for the AMR pressure grid. The scaling adjusts the resolution of the
@@ -124,15 +136,17 @@ class RetrievalConfig:
 
     def add_parameter(
             self,
-            name,
-            is_free_parameter,
-            value=None,
-            distribution=None,
-            plot_in_corner=False,
-            corner_ranges=None,
-            corner_transform=None,
-            transform_prior_cube_coordinate=None,
-            corner_label=None):
+            name: str,
+            is_free_parameter: bool,
+            value: float | None = None,
+            distribution: Any | None = None,
+            plot_in_corner: bool = False,
+            corner_ranges: tuple[float, float] | None = None,
+            corner_transform: Callable | None = None,
+            transform_prior_cube_coordinate: Callable | None = None,
+            corner_label: str | None = None,
+            # --- deprecated arguments ---
+            free=_UNSET) -> None:
         """
         This function adds a Parameter (see parameter.py) to the dictionary of parameters. A Parameter
         has a name and a boolean parameter to set whether it is a free or fixed parameter during the retrieval.
@@ -150,6 +164,14 @@ class RetrievalConfig:
                 A function that transforms the unit interval to the physical units of the parameter.
                 Typically given as a lambda function.
         """
+
+        if free is not _UNSET:
+            warnings.warn(
+                "The 'free' argument is deprecated; use 'is_free_parameter' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            is_free_parameter = free
 
         self.parameters[name] = Parameter(
             name=name,
@@ -264,7 +286,7 @@ class RetrievalConfig:
                 )
 
     @staticmethod
-    def list_available_line_species():
+    def list_available_line_species() -> set[str]:
         """
         List the currently installed opacity tables that are available for species that contribute to the line opacity.
         """
@@ -288,7 +310,7 @@ class RetrievalConfig:
         return files.union(lbl)
 
     @staticmethod
-    def list_available_cloud_species():
+    def list_available_cloud_species() -> set[str]:
         """
         List the currently installed opacity tables that are available for cloud species.
         """
@@ -304,7 +326,7 @@ class RetrievalConfig:
         return files
 
     @staticmethod
-    def list_available_cia_species():
+    def list_available_cia_species() -> set[str]:
         """
         List the currently installed opacity tables that are available for CIA species.
         """
@@ -321,10 +343,14 @@ class RetrievalConfig:
 
     def set_line_species(
             self,
-            line_species,
-            use_equilibrium_chemistry=False,
-            free_mass_fraction_limits=(-6.0, -0.5),
-            plot_in_corner=True):
+            line_species: list[str],
+            use_equilibrium_chemistry: bool = False,
+            free_mass_fraction_limits: tuple[float, float] = (-6.0, -0.5),
+            plot_in_corner: bool = True,
+            # --- deprecated arguments ---
+            linelist=_UNSET,
+            eq=_UNSET,
+            abund_lim=_UNSET) -> None:
         """
         Set RadTrans.line_species
 
@@ -349,6 +375,28 @@ class RetrievalConfig:
                 each species in line_species. The range of the prior goes from free_mass_fraction_limits[0] to free_mass_fraction_limits[1].
                 The abundance limits must be given in log10 units of the mass fraction.
         """
+        if linelist is not _UNSET:
+            warnings.warn(
+                "The 'linelist' argument is deprecated; use 'line_species' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            line_species = linelist
+        if eq is not _UNSET:
+            warnings.warn(
+                "The 'eq' argument is deprecated; use 'use_equilibrium_chemistry' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            use_equilibrium_chemistry = eq
+        if abund_lim is not _UNSET:
+            warnings.warn(
+                "The 'abund_lim' argument is deprecated; use 'free_mass_fraction_limits' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            free_mass_fraction_limits = abund_lim
+
         if free_mass_fraction_limits[1] > 0.0:
             raise ValueError(
                 f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! Please set abundance limits as (low, high)"
@@ -384,7 +432,7 @@ class RetrievalConfig:
                         corner_ranges=free_mass_fraction_limits
                     )
 
-    def set_rayleigh_species(self, rayleigh_species):
+    def set_rayleigh_species(self, rayleigh_species: list[str] = _UNSET, linelist=_UNSET) -> None:
         """
         Set the list of species that contribute to the rayleigh scattering in the pRT object.
 
@@ -392,10 +440,19 @@ class RetrievalConfig:
             rayleigh_species : List(str)
                 A list of species that contribute to the rayleigh opacity.
         """
+        if linelist is not _UNSET:
+            warnings.warn(
+                "The 'linelist' argument is deprecated; use 'rayleigh_species' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            rayleigh_species = linelist
+        if rayleigh_species is _UNSET:
+            raise TypeError("set_rayleigh_species() missing required argument: 'rayleigh_species'")
 
         self.rayleigh_species = rayleigh_species
 
-    def set_continuum_opacities(self, continuum_opacities):
+    def set_continuum_opacities(self, continuum_opacities: list[str] = _UNSET, linelist=_UNSET) -> None:
         """
         Set the list of species that contribute to the continuum opacity in the pRT object.
 
@@ -403,18 +460,31 @@ class RetrievalConfig:
             continuum_opacities : List(str)
                 A list of species that contribute to the continuum opacity.
         """
+        if linelist is not _UNSET:
+            warnings.warn(
+                "The 'linelist' argument is deprecated; use 'continuum_opacities' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            continuum_opacities = linelist
+        if continuum_opacities is _UNSET:
+            raise TypeError("set_continuum_opacities() missing required argument: 'continuum_opacities'")
 
         self.continuum_opacities = continuum_opacities
 
     def add_line_species(
             self,
-            species,
-            use_equilibrium_chemistry=False,
-            free_mass_fraction_limits=(-6.0, -0.5),
-            fixed_mass_fraction_value=None,
-            plot_in_corner=True,
-            corner_label=None,
-            corner_ranges=None):
+            species: str,
+            use_equilibrium_chemistry: bool = False,
+            free_mass_fraction_limits: tuple[float, float] = (-6.0, -0.5),
+            fixed_mass_fraction_value: float | None = None,
+            plot_in_corner: bool = True,
+            corner_label: str | None = None,
+            corner_ranges: tuple[float, float] | None = None,
+            # --- deprecated arguments ---
+            eq=_UNSET,
+            abund_lim=_UNSET,
+            fixed_abund=_UNSET) -> None:
         """
         This function adds a single species to the pRT object that will define the line opacities of the model.
         The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
@@ -438,6 +508,27 @@ class RetrievalConfig:
                 The log-mass fraction abundance of the species. Currently only supports vertically constant
                 abundances. If this is set, then the species will not be a free parameter in the retrieval.
         """
+        if eq is not _UNSET:
+            warnings.warn(
+                "The 'eq' argument is deprecated; use 'use_equilibrium_chemistry' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            use_equilibrium_chemistry = eq
+        if abund_lim is not _UNSET:
+            warnings.warn(
+                "The 'abund_lim' argument is deprecated; use 'free_mass_fraction_limits' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            free_mass_fraction_limits = abund_lim
+        if fixed_abund is not _UNSET:
+            warnings.warn(
+                "The 'fixed_abund' argument is deprecated; use 'fixed_mass_fraction_value' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            fixed_mass_fraction_value = fixed_abund
 
         # parameter passed through loglike is log10 abundance
         if free_mass_fraction_limits[1] > 0.0:
@@ -487,14 +578,16 @@ class RetrievalConfig:
 
     def add_pressure_varying_line_species(
             self,
-            species,
-            mode='linear',
-            pressure_spacing='relative',
-            n_nodes=3,
-            free_mass_fraction_limits=(-7.0, 0.0),
-            log_pressure_range_prior=(0, 9),
-            fixed_pressure_node_species=None
-            ):
+            species: str,
+            mode: str = 'linear',
+            pressure_spacing: str = 'relative',
+            n_nodes: int = 3,
+            free_mass_fraction_limits: tuple[float, float] = (-7.0, 0.0),
+            log_pressure_range_prior: tuple[float, float] = (0, 9),
+            fixed_pressure_node_species: str | None = None,
+            # --- deprecated arguments ---
+            abund_lim=_UNSET
+            ) -> None:
         """
         This function adds a single species to the Radtrans object that will define the line opacities of the model.
         The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
@@ -532,6 +625,14 @@ class RetrievalConfig:
                 Note that this species must already have been added to the retrieval with
                 add_pressure_varying_line_species.
         """
+        if abund_lim is not _UNSET:
+            warnings.warn(
+                "The 'abund_lim' argument is deprecated; use 'free_mass_fraction_limits' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            free_mass_fraction_limits = abund_lim
+
         Opacity.check_name(species)
         species_opacity = Opacity([species])
         species_full_name = species_opacity.get_full_name().split('.R')[0]
@@ -587,7 +688,7 @@ class RetrievalConfig:
                 (free_mass_fraction_limits[1] - free_mass_fraction_limits[0]) * x
             )
 
-    def remove_species_lines(self, species, free=False):
+    def remove_species_lines(self, species: str, free: bool = False) -> None:
         """
         This function removes a species from the pRT line list, and if using a free chemistry retrieval,
         removes the associated Parameter of the species.
@@ -610,13 +711,20 @@ class RetrievalConfig:
             self.parameters.pop(species_full_name, None)
 
     def add_cloud_species(self,
-                          species,
-                          use_equilibrium_chemistry=True,
-                          free_mass_fraction_limits=(-3.5, 1.5),
-                          cloud_base_pressure_limits=None,
-                          equilbrium_mass_fraction_scaling_factor=None,
-                          fixed_mass_fraction_value=None,
-                          fixed_base_pressure_value=None):
+                          species: str,
+                          use_equilibrium_chemistry: bool = True,
+                          free_mass_fraction_limits: tuple[float, float] = (-3.5, 1.5),
+                          cloud_base_pressure_limits: tuple[float, float] | None = None,
+                          equilbrium_mass_fraction_scaling_factor: tuple[float, float] | None = None,
+                          fixed_mass_fraction_value: float | None = None,
+                          fixed_base_pressure_value: float | None = None,
+                          # --- deprecated arguments ---
+                          eq=_UNSET,
+                          abund_lim=_UNSET,
+                          p_base_lim=_UNSET,
+                          scaling_factor=_UNSET,
+                          fixed_abund=_UNSET,
+                          fixed_base=_UNSET) -> None:
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
@@ -652,6 +760,48 @@ class RetrievalConfig:
             scaling_factor :
                 # TODO complete docstring
         """
+        if eq is not _UNSET:
+            warnings.warn(
+                "The 'eq' argument is deprecated; use 'use_equilibrium_chemistry' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            use_equilibrium_chemistry = eq
+        if abund_lim is not _UNSET:
+            warnings.warn(
+                "The 'abund_lim' argument is deprecated; use 'free_mass_fraction_limits' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            free_mass_fraction_limits = abund_lim
+        if p_base_lim is not _UNSET:
+            warnings.warn(
+                "The 'p_base_lim' argument is deprecated; use 'cloud_base_pressure_limits' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            cloud_base_pressure_limits = p_base_lim
+        if scaling_factor is not _UNSET:
+            warnings.warn(
+                "The 'scaling_factor' argument is deprecated; use 'equilbrium_mass_fraction_scaling_factor' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            equilbrium_mass_fraction_scaling_factor = scaling_factor
+        if fixed_abund is not _UNSET:
+            warnings.warn(
+                "The 'fixed_abund' argument is deprecated; use 'fixed_mass_fraction_value' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            fixed_mass_fraction_value = fixed_abund
+        if fixed_base is not _UNSET:
+            warnings.warn(
+                "The 'fixed_base' argument is deprecated; use 'fixed_base_pressure_value' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            fixed_base_pressure_value = fixed_base
 
         if species.endswith("(c)"):
             logging.warning("Ensure you set the cloud particle shape!")
@@ -746,42 +896,47 @@ class RetrievalConfig:
     # TODO @Evert complete docstring
     # TODO [4.0.0] remove radvel as it is not used
     def add_data(self,
-                 name,
-                 path_to_observations,
-                 model_generating_function,
-                 data_resolution=None,
-                 model_resolution=None,
-                 system_distance=None,
-                 scale_flux=False,
-                 scale_uncertainties=False,
-                 fit_flux_offset=False,
-                 fit_instrumental_resolution=False,
-                 subtract_continuum=False,
-                 radvel=False,
-                 photometry=False,
-                 photometric_transformation_function=None,
-                 photometric_bin_edges=None,
-                 wavelength_boundaries=None,
-                 external_radtrans_reference=None,
-                 line_opacity_mode='c-k',
-                 wavelength_bin_widths=None,
-                 radtrans_grid=False,
-                 radtrans_object=None,
-                 wavelengths=None,
-                 spectrum=None,
-                 uncertainties=None,
-                 mask=None,
-                 covariance=None,
-                 fit_covariance=False,
-                 covariance_mode='none',
-                 global_covariance_kernel='squared_exponential',
-                 local_covariance_kernel='squared_exponential',
-                 n_local_covariance_kernels=0,
-                 covariance_jitter=0.0,
-                 covariance_parameter_priors=None,
-                 concatenate_flux_epochs_variability=False,
-                 variability_atmospheric_column_model_flux_return_mode=False,
-                 atmospheric_column_flux_mixer=None):
+                 name: str,
+                 path_to_observations: str,
+                 model_generating_function: Callable,
+                 data_resolution: float | None = None,
+                 model_resolution: float | None = None,
+                 system_distance: float | None = None,
+                 scale_flux: bool = False,
+                 scale_uncertainties: bool = False,
+                 fit_flux_offset: bool = False,
+                 fit_instrumental_resolution: bool = False,
+                 subtract_continuum: bool = False,
+                 radvel: bool = False,
+                 photometry: bool = False,
+                 photometric_transformation_function: Callable | None = None,
+                 photometric_bin_edges: tuple[float, float] | None = None,
+                 wavelength_boundaries: tuple[float, float] | None = None,
+                 external_radtrans_reference: str | None = None,
+                 line_opacity_mode: str = 'c-k',
+                 wavelength_bin_widths: ArrayLike | None = None,
+                 radtrans_grid: bool = False,
+                 radtrans_object: Any | None = None,
+                 wavelengths: ArrayLike | None = None,
+                 spectrum: ArrayLike | None = None,
+                 uncertainties: ArrayLike | None = None,
+                 mask: ArrayLike | None = None,
+                 covariance: ArrayLike | None = None,
+                 fit_covariance: bool = False,
+                 covariance_mode: str = 'none',
+                 global_covariance_kernel: str = 'squared_exponential',
+                 local_covariance_kernel: str = 'squared_exponential',
+                 n_local_covariance_kernels: int = 0,
+                 covariance_jitter: float = 0.0,
+                 covariance_parameter_priors: dict | None = None,
+                 # --- deprecated arguments ---
+                 scale=_UNSET,
+                 scale_err=_UNSET,
+                 offset_bool=_UNSET,
+                 resample=_UNSET,
+                 concatenate_flux_epochs_variability=_UNSET,
+                 variability_atmospheric_column_model_flux_return_mode=_UNSET,
+                 atmospheric_column_flux_mixer=_UNSET) -> None:
         """
         Create a Data class object.
 
@@ -838,6 +993,56 @@ class RetrievalConfig:
                 Supported keys are ``'global_amp'``, ``'global_length'``, ``'local_amp'``, ``'local_length'``,
                 and ``'local_center'``.
         """
+        if scale is not _UNSET:
+            warnings.warn(
+                "The 'scale' argument is deprecated; use 'scale_flux' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            scale_flux = scale
+        if scale_err is not _UNSET:
+            warnings.warn(
+                "The 'scale_err' argument is deprecated; use 'scale_uncertainties' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            scale_uncertainties = scale_err
+        if offset_bool is not _UNSET:
+            warnings.warn(
+                "The 'offset_bool' argument is deprecated; use 'fit_flux_offset' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            fit_flux_offset = offset_bool
+        if resample is not _UNSET:
+            warnings.warn(
+                "The 'resample' argument is deprecated; use 'fit_instrumental_resolution' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            fit_instrumental_resolution = resample
+        if concatenate_flux_epochs_variability is not _UNSET:
+            warnings.warn(
+                "The 'concatenate_flux_epochs_variability' argument is deprecated and has been removed from "
+                "add_data(). Use add_time_series_data() for time-variable retrievals.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if variability_atmospheric_column_model_flux_return_mode is not _UNSET:
+            warnings.warn(
+                "The 'variability_atmospheric_column_model_flux_return_mode' argument is deprecated and has been "
+                "removed from add_data(). Use add_time_series_data() for time-variable retrievals.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if atmospheric_column_flux_mixer is not _UNSET:
+            warnings.warn(
+                "The 'atmospheric_column_flux_mixer' argument is deprecated and has been removed from "
+                "add_data(). Use add_time_series_data() for time-variable retrievals.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         data_object = Data(
             name=name,
             path_to_observations=path_to_observations,

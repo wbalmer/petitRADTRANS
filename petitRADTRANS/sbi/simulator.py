@@ -10,7 +10,7 @@ from jax import Array, random
 import jax.numpy as jnp
 import numpy as np
 
-from petitRADTRANS.retrieval.jax_parameter import JAX_DTYPE
+from petitRADTRANS.retrieval.parameter import JAX_DTYPE
 
 from .task import SBITask
 
