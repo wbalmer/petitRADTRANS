@@ -111,13 +111,17 @@ class LockedDict(dict):
         self._locked = False
 
     def tree_flatten(self):
-        children = tuple(self.values())
-        aux_data = tuple(self.keys())
+        children = list(self.values())
+        aux_data = (tuple(self.keys()), self._locked)
         return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        return cls().build_and_lock(dict(zip(aux_data, children)))
+        keys, locked = aux_data
+        instance = cls.build_and_lock(dict(zip(keys, children)))
+        if not locked:
+            instance.unlock()
+        return instance
 
 
 def check_all_close(a, b, **kwargs):

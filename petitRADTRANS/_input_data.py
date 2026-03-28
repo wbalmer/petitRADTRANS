@@ -2,9 +2,13 @@ import os
 import warnings
 from typing import Callable
 
-from petitRADTRANS.cli.prt_cli import download_input_data, get_keeper_files_url_paths
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.utils import list_str2str, user_input
+
+
+def _get_cli_functions():
+    from petitRADTRANS.cli.prt_cli import download_input_data, get_keeper_files_url_paths
+    return download_input_data, get_keeper_files_url_paths
 
 
 def _get_input_data_file_not_found_error_message(file: str) -> str:
@@ -40,6 +44,7 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
     if sub_path is None:
         sub_path = full_path.split(path_input_data, 1)[1]
 
+    download_input_data, get_keeper_files_url_paths = _get_cli_functions()
     url_paths = get_keeper_files_url_paths(
         path=full_path,
         ext=ext,

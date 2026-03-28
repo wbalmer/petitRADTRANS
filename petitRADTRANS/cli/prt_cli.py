@@ -11,19 +11,29 @@ import urllib.parse
 import urllib.request
 import warnings
 
-from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.common.exceptions import SessionNotCreatedException, TimeoutException
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions
-from selenium.webdriver.support.ui import WebDriverWait
-
 from petitRADTRANS.config import petitradtrans_config_parser
+
+
+def _import_selenium():
+    """Lazily import selenium components (only needed for Keeper downloads)."""
+    global webdriver, SessionNotCreatedException, TimeoutException, By, expected_conditions, WebDriverWait
+    from selenium import webdriver
+    from selenium.common.exceptions import SessionNotCreatedException, TimeoutException
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support import expected_conditions
+    from selenium.webdriver.support.ui import WebDriverWait
+
+
+def _import_bs4():
+    """Lazily import BeautifulSoup (only needed for Keeper downloads)."""
+    global BeautifulSoup
+    from bs4 import BeautifulSoup
 
 __megabyte = 9.5367431640625e-07  # 1 / 1024 ** 2 (B to MB)
 
 
 def _get_html(options, url, timeout):
+    _import_selenium()
     with webdriver.Chrome(options) as driver:
         print("Done.")
         print(f"Rendering webpage ({url})... ", end='')
@@ -268,6 +278,8 @@ def download_input_data(destination, source=None, rewrite=False,
 
 
 def get_keeper_files_url_paths(path, ext='h5', timeout=3, path_input_data=None, url_input_data=None):
+    _import_selenium()
+    _import_bs4()
     url = _path2keeper_url(
         path=path,
         path_input_data=path_input_data,

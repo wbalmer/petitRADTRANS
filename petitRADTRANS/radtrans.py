@@ -6,14 +6,12 @@ import sys
 import warnings
 from typing import Any, Callable
 
-import h5py
 import jax.numpy as jnp
 from jax import jit, vmap, lax, config, tree_util, debug
 from jax.typing import ArrayLike
 
 import numpy as np
 import numpy.typing as npt
-from interpax import interp1d
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.config import petitradtrans_config_parser
@@ -1117,6 +1115,7 @@ class Radtrans:
         optical_depths,
         radius_hydrostatic_equilibrium,
     ):
+        from interpax import interp1d
         # TODO replace interp1d
         radius_interp = interp1d(self._pressures, radius_hydrostatic_equilibrium)
         photosphere_radius = jnp.zeros(self._frequencies.size, dtype=JAX_DTYPE)
@@ -1599,6 +1598,7 @@ class Radtrans:
         return transit_radii, radius_hydrostatic_equilibrium, transmission_contribution
 
     def _init_frequency_grid(self):
+        import h5py
         """Initialize the Radtrans frequency grid, used to calculate the spectra.
         The frequency grid comes from the requested opacity files, in the following priority order:
             1. lines,
@@ -1708,6 +1708,7 @@ class Radtrans:
         return frequencies, frequency_bins_edges
 
     def _init_frequency_grid_from_lines(self):
+        import h5py
         if self._line_opacity_mode == 'c-k':  # correlated-k
             # Get dimensions of molecular opacity arrays for a given P-T point, they define the resolution
             # Use the first entry of self.line_species for this, if given
@@ -3896,6 +3897,7 @@ class Radtrans:
     def load_hdf5_ktables(
         cls, file_path_hdf5, frequencies, g_size, temperature_pressure_grid_size, return_radtrans_opacities=True
     ):
+        import h5py
         """Load k-coefficient tables in HDF5 format, based on the ExoMol setup."""
         with h5py.File(file_path_hdf5, 'r') as f:
             k_table = np.array(f['kcoeff'])
@@ -3981,6 +3983,7 @@ class Radtrans:
 
 
     def load_line_opacities(self, path_input_data):
+        import h5py
         """Load the line opacities for spectral calculation.
         The default pressure-temperature grid is a log-uniform (10, 13) grid.
 

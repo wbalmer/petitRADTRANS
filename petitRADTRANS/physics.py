@@ -4,7 +4,6 @@
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 from jax import custom_gradient, config, Array
-from scipy.interpolate import interp1d, PchipInterpolator
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.math import running_mean
 

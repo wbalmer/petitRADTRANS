@@ -8,10 +8,10 @@ import sys
 import warnings
 from typing import Any, Callable
 
+import jax.numpy as jnp
 import h5py
 import numpy as np
 import numpy.typing as npt
-from scipy.ndimage import gaussian_filter1d as scipy_gaussian_filter1d
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
@@ -29,14 +29,21 @@ from petitRADTRANS.physics import (
     hz2um,
 )
 from petitRADTRANS.profiles import temperature_profile_function_guillot_metallic
-from petitRADTRANS.radtrans_core.spectrum_utils import rebin_spectrum, rebin_spectrum_bin
+from petitRADTRANS.radtrans_core.spectrum_utils import (
+    convolve_constant_resolution,
+    rebin_spectrum,
+    rebin_spectrum_bin,
+    _convolve_running as _su_convolve_running,
+)
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
-from petitRADTRANS.retrieval.parameter import RetrievalParameter
+from petitRADTRANS.retrieval.jax_parameter import RetrievalParameter
+from petitRADTRANS.retrieval.models import mark_model_function_runtime_native
 from petitRADTRANS.retrieval.preparing import polyfit
 from petitRADTRANS.retrieval.retrieval import Retrieval
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
+from petitRADTRANS.retrieval.runtime import ModelContext, ModelResult, PhysicalParams
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.stellar_spectra.phoenix import PhoenixStarTable
 from petitRADTRANS.utils import (
@@ -707,13 +714,13 @@ class SpectralModel(Radtrans):
 
         for species in line_species:
             if species in parameters:
-                imposed_mass_fractions[species] = 10 ** parameters[species] * np.ones(n_layers)
+                imposed_mass_fractions[species] = 10 ** parameters[species] * jnp.ones(n_layers)
 
                 del parameters[species]
 
         for species in parameters['imposed_mass_fractions']:
             if species in parameters and species not in line_species:
-                imposed_mass_fractions[species] = 10 ** parameters[species] * np.ones(n_layers)
+                imposed_mass_fractions[species] = 10 ** parameters[species] * jnp.ones(n_layers)
 
                 del parameters[species]
 
@@ -853,46 +860,41 @@ class SpectralModel(Radtrans):
         """
         _ = kwargs  # kwargs is not used in this function, this is intended
 
-        transit_fractional_light_loss = np.zeros(np.shape(planet_star_centers_distance))
+        z = planet_star_centers_distance
 
         if planet_radius_normalized_squared is None:
             planet_radius_normalized_squared = planet_radius_normalized ** 2
 
-        partial_transit = np.nonzero(
-            np.logical_and(
-                np.less(planet_star_centers_distance, 1 + planet_radius_normalized),
-                np.greater(planet_star_centers_distance, np.abs(1 - planet_radius_normalized))
+        rsq = planet_radius_normalized_squared
+        r = planet_radius_normalized
+
+        # Boolean masks for each transit regime (all computed without dynamic indexing for JAX compatibility)
+        partial_mask = jnp.logical_and(
+            jnp.less(z, 1 + r),
+            jnp.greater(z, jnp.abs(1 - r))
+        )
+        full_mask = jnp.less_equal(z, 1 - r)
+        eclipsed_mask = jnp.less_equal(z, r - 1)
+
+        z_squared = z ** 2
+
+        # Safe denominators: avoid division by zero outside the partial-transit mask
+        safe_rz = jnp.where(partial_mask, 2 * r * z, 1.0)
+        safe_z = jnp.where(partial_mask, z, 1.0)
+
+        kappa_0 = jnp.arccos(jnp.clip((rsq + z_squared - 1) / safe_rz, -1.0, 1.0))
+        kappa_1 = jnp.arccos(jnp.clip((1 - rsq + z_squared) / (2 * safe_z), -1.0, 1.0))
+        square_root = jnp.sqrt(jnp.maximum((4 * z_squared - (1 + z_squared - rsq) ** 2) / 4, 0.0))
+
+        partial_value = (rsq * kappa_0 + kappa_1 - square_root) / jnp.pi
+
+        transit_fractional_light_loss = jnp.where(
+            eclipsed_mask, jnp.ones_like(z),
+            jnp.where(
+                full_mask, rsq,
+                jnp.where(partial_mask, partial_value, jnp.zeros_like(z))
             )
         )
-        full_transit = np.nonzero(np.less_equal(planet_star_centers_distance, 1 - planet_radius_normalized))
-        star_totally_eclipsed = np.nonzero(np.less_equal(planet_star_centers_distance, planet_radius_normalized - 1))
-
-        if partial_transit[0].size > 0:
-            z = planet_star_centers_distance[partial_transit]
-            z_squared = z ** 2
-
-            kappa_0 = np.arccos(
-                (planet_radius_normalized_squared[partial_transit] + z_squared - 1)
-                / (2 * planet_radius_normalized[partial_transit] * z)
-            )
-
-            kappa_1 = np.arccos(
-                (1 - planet_radius_normalized_squared[partial_transit] + z_squared)
-                / (2 * z)
-            )
-
-            square_root = np.sqrt(
-                (
-                    4 * z_squared
-                    - (1 + z_squared - planet_radius_normalized_squared[partial_transit]) ** 2
-                ) / 4
-            )
-
-            transit_fractional_light_loss[partial_transit] = \
-                (planet_radius_normalized_squared[partial_transit] * kappa_0 + kappa_1 - square_root) / np.pi
-
-        transit_fractional_light_loss[full_transit] = planet_radius_normalized_squared[full_transit]
-        transit_fractional_light_loss[star_totally_eclipsed] = 1
 
         return transit_fractional_light_loss
 
@@ -915,27 +917,15 @@ class SpectralModel(Radtrans):
             input_wavelengths: (cm) wavelengths of the input spectrum
             input_spectrum: input spectrum
             convolve_resolving_power: resolving power of output spectrum
+            input_resolving_power: unused; kept for API compatibility
 
         Returns:
             convolved_spectrum: the convolved spectrum at the new resolving power
         """
         _ = kwargs  # kwargs is not used in this function, this is intended
+        _ = input_resolving_power  # per-wavelength sigma is computed internally by convolve_constant_resolution
 
-        # Get input wavelengths over input wavelength steps
-        if input_resolving_power is None:
-            input_resolving_power = np.mean(SpectralModel.compute_bins_resolving_power(input_wavelengths))
-
-        # Calculate the sigma to be used in the Gaussian filter in units of input wavelength bins
-        # Conversion from FWHM to Gaussian sigma
-        sigma_lsf_gauss_filter = input_resolving_power / convolve_resolving_power / (2 * np.sqrt(2 * np.log(2)))
-
-        convolved_spectrum = scipy_gaussian_filter1d(
-            input=input_spectrum,
-            sigma=sigma_lsf_gauss_filter,
-            mode='reflect'
-        )
-
-        return convolved_spectrum
+        return convolve_constant_resolution(input_wavelengths, input_spectrum, convolve_resolving_power)
 
     @staticmethod
     def _convolve_running(input_wavelengths, input_spectrum, convolve_resolving_power, input_resolving_power=None,
@@ -972,70 +962,23 @@ class SpectralModel(Radtrans):
         if input_resolving_power is None:
             input_resolving_power = SpectralModel.compute_bins_resolving_power(input_wavelengths)
 
-        sigma_lsf_gauss_filter = input_resolving_power / convolve_resolving_power / (2 * np.sqrt(2 * np.log(2)))
-        weights = gaussian_weights_running(sigma_lsf_gauss_filter)
-
-        input_length = weights.shape[1]
-        central_index = int(input_length / 2)
-
-        # Create a matrix
-        input_matrix = np.moveaxis(
-            np.array([np.roll(input_spectrum, i - central_index, axis=-1) for i in range(input_length)]),
-            0,
-            -1
+        sigma_lsf_gauss_filter = input_resolving_power / convolve_resolving_power / (
+            2 * jnp.sqrt(2 * jnp.log(2))
         )
 
-        convolved_spectrum = np.sum(input_matrix * weights, axis=-1)
-        n_dims_non_wavelength = len(input_spectrum.shape[:-1])
-
-        # Replace non-valid convolved values by non-convolved values (inaccurate but better than 'reflect' or 0 padding)
-        for i in range(input_length):
-            if i - central_index < 0:
-                ind = np.arange(0, central_index - i, dtype=int)
-
-                for j in range(n_dims_non_wavelength):
-                    ind = np.expand_dims(ind, axis=0)
-
-                np.put_along_axis(
-                    convolved_spectrum,
-                    ind,
-                    np.take_along_axis(
-                        input_spectrum,
-                        ind,
-                        axis=-1
-                    ),
-                    axis=-1
-                )
-            elif i - central_index > 0:
-                ind = -np.arange(1, i - central_index + 1, dtype=int)
-
-                for j in range(n_dims_non_wavelength):
-                    ind = np.expand_dims(ind, axis=0)
-
-                np.put_along_axis(
-                    convolved_spectrum,
-                    ind,
-                    np.take_along_axis(
-                        input_spectrum,
-                        ind,
-                        axis=-1
-                    ),
-                    axis=-1
-                )
-
-        return convolved_spectrum
+        return _su_convolve_running(input_spectrum, sigma_lsf_gauss_filter)
 
     @staticmethod
     def _convolve_wrap(wavelengths, convolve_function, spectrum, **kwargs):
         """Convolution wrapping function."""
-        if np.ndim(wavelengths) <= 1:
+        if jnp.ndim(wavelengths) <= 1:
             spectrum = convolve_function(
                 input_wavelengths=wavelengths,
                 input_spectrum=spectrum,
                 **kwargs
             )
         else:
-            spectrum = np.array([convolve_function(
+            spectrum = jnp.array([convolve_function(
                 input_wavelengths=wavelength,
                 input_spectrum=spectrum[i],
                 **kwargs
@@ -1688,7 +1631,7 @@ class SpectralModel(Radtrans):
                     **parameters
                 )
         else:
-            parameters['preparation_matrix'] = np.ones(spectrum.shape)
+            parameters['preparation_matrix'] = jnp.ones(spectrum.shape)
 
             if 'data_uncertainties' in parameters:
                 parameters['prepared_uncertainties'] = \
@@ -1891,12 +1834,12 @@ class SpectralModel(Radtrans):
             A dict with species names as keys and mass fractions as values.
         """
         if np.size(co_ratio) == 1:
-            co_ratios = np.ones_like(pressures) * co_ratio
+            co_ratios = jnp.ones_like(pressures) * co_ratio
         else:
             co_ratios = co_ratio
 
         if np.size(metallicity) == 1:
-            log10_metallicities = np.ones_like(pressures) * metallicity
+            log10_metallicities = jnp.ones_like(pressures) * metallicity
         else:
             log10_metallicities = metallicity
 
@@ -2344,9 +2287,9 @@ class SpectralModel(Radtrans):
 
         if temperature_profile_mode == 'isothermal':
             if np.size(temperature) == 1:
-                temperatures = np.ones(np.shape(pressures)) * temperature
+                temperatures = jnp.ones_like(pressures) * temperature
             elif np.size(temperature) == np.size(pressures):
-                temperatures = np.asarray(temperature)
+                temperatures = jnp.asarray(temperature)
             else:
                 raise ValueError(f"could not initialize isothermal temperature profile ; "
                                  f"possible inputs are a scalar, "
@@ -3134,7 +3077,7 @@ class SpectralModel(Radtrans):
 
             retrieval_configuration.add_parameter(
                 name=parameter.name,
-                free=True,
+                is_free_parameter=True,
                 value=None,
                 transform_prior_cube_coordinate=parameter.prior_function
             )
@@ -3146,7 +3089,7 @@ class SpectralModel(Radtrans):
             if parameter not in retrieved_parameters_names and 'log10_' + parameter not in retrieved_parameters_names:
                 retrieval_configuration.add_parameter(
                     name=parameter,
-                    free=False,
+                    is_free_parameter=False,
                     value=model_parameters[parameter],
                     transform_prior_cube_coordinate=None
                 )

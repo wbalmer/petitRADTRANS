@@ -8,7 +8,6 @@ from jax.typing import ArrayLike
 from jaxtyping import Array, Float
 import jax.numpy as jnp
 from jax.scipy.special import erf, erfinv
-from scipy.special import lambertw
 
 
 def bayes_factor2sigma(bayes_factor: float) -> [float, ArrayLike]:
@@ -23,6 +22,8 @@ def bayes_factor2sigma(bayes_factor: float) -> [float, ArrayLike]:
     """
     molliere_threshold = 72004899337  # ~exp(25), roughly where numerical errors start to be significant
     is_scalar = False
+
+    from scipy.special import lambertw
 
     if not hasattr(bayes_factor, '__iter__'):
         is_scalar = True
