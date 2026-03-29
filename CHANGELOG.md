@@ -13,7 +13,6 @@ As of version 4.0.0a6 most functionality should "work". Tests still fail, but mo
 As of version 4.0.0a10 everything required for a retrieval should be JIT compilable.
 
 ### TODO
-- Numerical issues: line-by-line calculations and transit calculations?
 - Feature completion: Implement hansen cloud opacities in `cloud_core`.
 - Feature completion: Finish reimplementing contribution functions.
 - Feature completion: Implement adaptive mesh refinement with constant size pressure array.
