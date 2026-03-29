@@ -13,22 +13,40 @@ As of version 4.0.0a6 most functionality should "work". Tests still fail, but mo
 As of version 4.0.0a10 everything required for a retrieval should be JIT compilable.
 
 ### TODO
+- Numerical issues: line-by-line calculations and transit calculations?
 - Feature completion: Implement hansen cloud opacities in `cloud_core`.
 - Feature completion: Finish reimplementing contribution functions.
 - Feature completion: Implement adaptive mesh refinement with constant size pressure array.
-- Feature completion: Figure out how to implement additional_outputs in jax compatible way.
-- Add new cloud opacities to be compatible with new condensation curves.
-- Optimisation: make everything deeper than `calculate_flux` JIT-compileable (done) and fast(still working on it).
+- Feature completion: Figure out how to implement `additional_outputs` in jax compatible way.
+- Feature completion: New cloud opacities to be compatible with new condensation curves.
+- Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
 - Optimisation: profile code for new bottlenecks.
+- Optimisation: Ensure imports are optimised.
 - Testing: ensure compatibility of spectral_model.
 - Testing: write unit tests for new JAX functions.
-- Architecture: Make sure all chi2 calculations use LogLikelihood class.
+- Testing: resolve remaining compatibility issues with unit tests.
+- Testing: generate new reference files where necessary, once commited to changes (e.g. chemistry update).
+- Testing: write smaller versions of autodiff, retrieval, and SBI tests to reduce memory and runtime.
+- Testing: Optimise Feautrier chunk size hyper parameters for GPU.
+- Testing: write 32 bit test suite.
+- Architecture: Verify all chi2 calculations use LogLikelihood class.
+- Architecture: Set stricter dependency version limits.
+- Architecture: Optional: include ability to use FORTRAN backend, or fully deprecate legacy code.
 - Documentation: Add docstrings to all new JAX functions.
-- Documentation: Update tutorials to be v4 compatible.
+- Documentation: Verify tutorials to be v4 compatible.
 - Documentation: Reintroduce error checking where removed.
 - Documentation: Add typing throughout
-- Address all remaining TODOs in code.
-- Clean up comment blocks.
+- Documentation: Add further example scripts (ready-to-use) to examples directory.
+- Documentation: Update installation instructions.
+- Documentation: Update contribution section with JAX philosophy and links.
+- Housekeeping: Address all remaining TODOs in code.
+- Housekeeping: Clean up comment blocks.
+- Housekeeping: Decide on function to use for calculate_flux.
+- Ensure Flake8 compatibility and linting.
+- Future goals: JAXify EasyChem
+- Future goals: Incorporate next pRT developments (pRT orange, multi-dimensional retrievals etc.)
+- Future goals: Times series retrieval plotting
+- Future goals: Implement additional radiative transfer methods.
 
 ### Changed
 - a16: Shard_map parallelisation for MCMC samplers
@@ -64,11 +82,13 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 
 ### Added
 - a16: Time-variable model function parameterisation
-- a14: Added autodiff version of calculate_transit_radii function.
-- a13: Added autodiff version of calculate_flux functions.
+- a15 Added RetrievalPlotter class, replacing plotting functions and `plot_kwargs` from the Retrieval class.
+- a15 Added automatic calculation of BIC, AIC and BPICS following retrievals.
 - a15 Added covariance fitting for spectroscopic retrieval datasets, including automatic covariance hyperparameters in `RetrievalConfig`, covariance construction in `Data`, and Cholesky-based covariance likelihood evaluation in `LogLikelihood`.
 - a15 Added a dedicated runtime-native JAX emission retrieval tutorial using the built-in runtime model exports.
 - a15 Added the `petitRADTRANS.sbi` package scaffold for simulation-based inference workflows built on the retrieval runtime.
+- a14: Added autodiff version of calculate_transit_radii function.
+- a13: Added autodiff version of calculate_flux functions.
 - Reimplemented synthetic photometry calculations from `species` to avoid circular dependencies.
 - Implemented new `Sampler` package to allow easier selection of `pymultinest`, `jaxns` or `ultranest`
 - Implemented new `LogLikelihood` class to ensure consistent chi2 calculations.
