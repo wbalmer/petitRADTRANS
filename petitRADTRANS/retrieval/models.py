@@ -24,6 +24,7 @@ All models must take the same set of inputs:
         For example, using the fixed_length_adaptive_mesh_refinement function defined below.
 """
 import re
+import inspect
 from functools import wraps
 from numbers import Number
 from types import SimpleNamespace
@@ -2011,11 +2012,35 @@ def run_legacy_model_adapter(
         pt_plot_mode: bool = False,
 ) -> ModelResult:
     legacy_parameters = _minimal_legacy_parameter_dict(physical_params)
+
+    # The Radtrans object may carry rebinned species names (e.g. R120)
+    # while the parameter dict still uses the original config names (e.g.
+    # R1000).  Build a base-name index so that legacy model functions that
+    # iterate prt_object.line_species can find the matching parameter.
+    _base_index: dict[str, str] = {}
+    for name in legacy_parameters:
+        base = name.split('.', 1)[0]
+        _base_index.setdefault(base, name)
+
+    radtrans = model_context.radtrans
+    if radtrans is not None:
+        for species in getattr(radtrans, 'line_species', ()):
+            if species not in legacy_parameters:
+                base = species.split('.', 1)[0]
+                original = _base_index.get(base)
+                if original is not None:
+                    legacy_parameters[species] = legacy_parameters[original]
+
+    kwargs = {'pt_plot_mode': pt_plot_mode}
+
+    sig = inspect.signature(model_function)
+    if 'adaptive_mesh_refinement' in sig.parameters:
+        kwargs['adaptive_mesh_refinement'] = model_context.adaptive_mesh_refinement
+
     model_output = model_function(
-        model_context.radtrans,
+        radtrans,
         legacy_parameters,
-        pt_plot_mode=pt_plot_mode,
-        adaptive_mesh_refinement=model_context.adaptive_mesh_refinement,
+        **kwargs,
     )
     return _normalize_model_output(model_output, pt_plot_mode=pt_plot_mode)
 

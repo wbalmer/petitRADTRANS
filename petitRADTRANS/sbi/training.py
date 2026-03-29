@@ -201,6 +201,7 @@ class SBITrainer:
             if config.checkpoint_directory is not None
             else None
         )
+        self._checkpoint_backend_fallback_reason: str | None = None
 
     @property
     def _latest_checkpoint_directory(self) -> Path | None:
@@ -231,14 +232,17 @@ class SBITrainer:
 
         try:
             payload['checkpoint_backend'] = self.checkpoint_backend.name
+            if self._checkpoint_backend_fallback_reason is not None:
+                payload['checkpoint_backend_fallback_reason'] = self._checkpoint_backend_fallback_reason
             self.checkpoint_backend.save(state, checkpoint_path, payload)
         except ValueError as error:
             if self.checkpoint_backend.name != 'orbax' or not _is_orbax_unsupported_type_error(error):
                 raise
 
             self.checkpoint_backend = instantiate_checkpoint_backend('equinox')
+            self._checkpoint_backend_fallback_reason = 'orbax_unsupported_type'
             payload['checkpoint_backend'] = self.checkpoint_backend.name
-            payload['checkpoint_backend_fallback_reason'] = 'orbax_unsupported_type'
+            payload['checkpoint_backend_fallback_reason'] = self._checkpoint_backend_fallback_reason
             self.checkpoint_backend.save(state, checkpoint_path, payload)
 
     def _restore_checkpoint(

@@ -107,9 +107,22 @@ class _RecordingUltranestSampler:
         self.run_kwargs = None
         type(self).last_instance = self
 
+    @classmethod
+    def prepare(cls, context, **kwargs):
+        instance = cls(
+            log_likelihood_func=context.log_likelihood_func,
+            prior_func=context.prior_func,
+            output_directory=context.output_directory,
+            retrieval_name=context.retrieval_name,
+        )
+        return instance, kwargs, {}
+
     def run_sampler(self, **kwargs):
         self.run_kwargs = kwargs
         return {'status': 'ok', 'run_kwargs': kwargs}
+
+    def post_run(self, results):
+        return results, {}
 
     def pretty_print_results(self):
         return None
@@ -1813,7 +1826,6 @@ def test_get_samples_loads_named_archive_for_non_pymultinest_sampler(tmp_path):
     retrieval.latest_sampler_results = None
 
     sample_dict, parameter_dict = retrieval.get_samples(
-        ultranest=False,
         names=['archived_jaxns'],
         output_directory=str(tmp_path),
     )
@@ -2147,7 +2159,6 @@ def test_simple_retrieval():
     # Check if 'get_samples' works
     # noinspection PyUnusedLocal
     sample_dict, parameter_dict = retrieval.get_samples(
-        ultranest=False,
         names=retrieval.corner_files,
         output_directory=retrieval.output_directory
     )

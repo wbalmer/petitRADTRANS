@@ -585,6 +585,8 @@ class Radtrans:
 
         if complete_coverage_clouds is None:
             complete_coverage_clouds = ()
+        else:
+            complete_coverage_clouds = tuple(complete_coverage_clouds)
 
         spectrum_clear = None
 
@@ -693,6 +695,9 @@ class Radtrans:
     def _normalize_optional_mapping(mapping):
         if mapping is None or isinstance(mapping, (int, float)):
             return mapping  # scalars pass through unchanged
+
+        if isinstance(mapping, (np.ndarray, jnp.ndarray)):
+            return jnp.array(mapping, dtype=JAX_DTYPE)
 
         normalized_mapping = {}
 

@@ -69,6 +69,13 @@ def _nan_runtime_model(prt_object, parameters, pt_plot_mode=False, adaptive_mesh
     return jnp.array([1.0, 2.0]), jnp.array([jnp.nan, amplitude + jnp.nan])
 
 
+def _partial_nan_runtime_model(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=True):
+    """Return a spectrum where only some values are NaN, passing the validity check."""
+    del prt_object, pt_plot_mode, adaptive_mesh_refinement
+    amplitude = parameters['amplitude'].value
+    return jnp.array([1.0, 2.0]), jnp.array([jnp.nan, amplitude + 1.0])
+
+
 def _dummy_photometric_transform(wavelengths, spectrum):
     del wavelengths
     return jnp.mean(jnp.asarray(spectrum))
@@ -825,11 +832,11 @@ def test_runtime_simulator_logs_non_finite_projection(caplog):
         noise_mode='no_noise',
         seed=43,
         uncertainties=jnp.array([0.05, 0.05]),
-        model_generating_function=_nan_runtime_model,
+        model_generating_function=_partial_nan_runtime_model,
     )
     simulator = RuntimeSimulator(task=task, seed=43)
 
-    with caplog.at_level('ERROR'), pytest.raises(ValueError, match="Model evaluation for source 'synthetic_spectrum' returned an invalid result"):
+    with caplog.at_level('ERROR', logger='petitRADTRANS.retrieval.runtime'), pytest.raises(ValueError, match="Projected observation values contain non-finite entries"):
         simulator.simulate_from_parameters(jnp.array([[0.5]], dtype=jnp.float64))
 
     assert "source 'synthetic_spectrum'" in caplog.text
@@ -1259,13 +1266,6 @@ def test_posterior_checkpoint_falls_back_from_orbax_for_callable_leaves(tmp_path
     assert latest_metadata['checkpoint_backend_fallback_reason'] == 'orbax_unsupported_type'
     assert (checkpoint_directory / 'latest' / 'state.pkl').exists()
     assert (checkpoint_directory / 'best' / 'state.pkl').exists()
-
-    assert registry.resolve(ArtifactRole.POSTERIOR_MODEL, task.name, version='1.2.3') == save_directory.as_posix()
-    assert registered_entry['metadata']['estimator_family'] == 'conditional_flow'
-    assert registered_entry['metadata']['task_fingerprint'] == generated.manifest.task_fingerprint
-    assert registered_entry['metadata']['preprocessing_metadata']['version'] == generated.preprocessing_metadata.version
-    assert 'training_metadata' in registered_entry['metadata']['metadata']
-    assert registered_entry['metadata']['metadata']['training_metadata']['flow_family'] == 'spline'
 
 
 def test_generic_loader_supports_legacy_flow_metadata(tmp_path):

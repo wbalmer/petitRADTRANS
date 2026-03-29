@@ -166,7 +166,8 @@ def calculate_gas_mass_fractions(pressures, temperatures=None, imposed_mass_frac
 
     # Free chemistry species
     for species in imposed_mass_fractions:
-        abund = 10 ** imposed_mass_fractions[species]
+        raw = imposed_mass_fractions[species]
+        abund = jnp.where(raw < 0, 10 ** raw, raw)
         mass_fractions[species] = abund * jnp.ones_like(pressures)
         m_sum_imposed_species += mass_fractions[species]
 

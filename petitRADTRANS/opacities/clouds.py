@@ -122,6 +122,16 @@ def _init_cloud_background_continuum(
     power_law_opacity_coefficient,
     compute_clear_opacities,
 ):
+    # Convert None sentinels to traceable JAX arrays so that lax.cond and
+    # _maybe_add_opaque_cloud_deck / _maybe_add_power_law_cloud_scattering
+    # always receive array-like inputs.
+    if opaque_cloud_top_pressure is None:
+        opaque_cloud_top_pressure = _MISSING_FLOAT
+    if power_law_opacity_350nm is None:
+        power_law_opacity_350nm = _MISSING_FLOAT
+    if power_law_opacity_coefficient is None:
+        power_law_opacity_coefficient = _MISSING_FLOAT
+
     cloudy_continuum_opacities, cloudy_continuum_opacities_scattering, _, _, _, _ = (
         _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
     )
@@ -389,6 +399,12 @@ def _initialize_hansen_b(cloud_hansen_b, cloud_particles_radius_distribution, pr
         return cloud_hansen_b
 
     if isinstance(cloud_hansen_b, jnp.ndarray):
+        if cloud_hansen_b.ndim == 0:
+            # Scalar jnp.ndarray (e.g. from JIT tracing) — treat like float
+            return jnp.array(
+                jnp.tile(cloud_hansen_b * jnp.ones_like(pressures), (n_clouds, 1)),
+                dtype=JAX_DTYPE,
+            ).T
         if cloud_hansen_b.shape != (pressures.size, n_clouds):
             raise ValueError(
                 "cloud_hansen_b must be a float, a dictionary with arrays for each cloud species, "
@@ -916,6 +932,8 @@ def compute_cloud_continuum_opacities( # TODO: revert to previous logic
     )
 
     if len(cloud_species) > 0:
+        if clouds_particles_porosity_factor is None:
+            clouds_particles_porosity_factor = {}
         clouds_particles_porosity_factor = init_clouds_particles_porosity_factor(
             clouds_particles_porosity_factor=clouds_particles_porosity_factor,
             cloud_species=cloud_species
@@ -1189,6 +1207,22 @@ def _compute_cloud_opacities(
             clouds_loaded_opacities=clouds_loaded_opacities,
             cloud_particle_number_density_grid=cloud_particle_number_density_grid,
         )
+        # Provide traceable sentinel arrays for optional inputs that may be
+        # None so that lax.cond can trace through this branch without error.
+        # The _validate_missing_cloud_radius_arguments callback above will
+        # still raise at runtime when these values are genuinely required.
+        _eddy = (
+            eddy_diffusion_coefficients
+            if eddy_diffusion_coefficients is not None
+            else jnp.zeros_like(pressures)
+        )
+        _cloud_f_sed = cloud_f_sed if cloud_f_sed is not None else {}
+        _sigma = (
+            cloud_particle_radius_distribution_std
+            if cloud_particle_radius_distribution_std is not None
+            and cloud_particle_radius_distribution_std is not _MISSING_FLOAT
+            else jnp.array(1.05, dtype=JAX_DTYPE)
+        )
         (
             clouds_total_absorption_opacities,
             clouds_total_scattering_opacities,
@@ -1201,11 +1235,11 @@ def _compute_cloud_opacities(
             cloud_particles_density=_cloud_particles_density,
             temperatures=temperatures,
             mean_molar_masses=mean_molar_masses,
-            cloud_f_sed=cloud_f_sed,
+            cloud_f_sed=_cloud_f_sed,
             cloud_species=cloud_species,
             pressures=pressures,
-            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-            eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+            cloud_particle_radius_distribution_std=_sigma,
+            eddy_diffusion_coefficients=_eddy,
             cloud_hansen_b=cloud_hansen_b,
             cloud_species_mass_fractions_grid=_cloud_species_mass_fractions,
             cloud_species_mass_fractions=cloud_species_mass_fractions,
