@@ -467,13 +467,19 @@ def _initialize_cloud_species_inputs(
 
 
 def _standardize_f_sed(cloud_f_sed, cloud_species, pressures_size):
+    if isinstance(cloud_f_sed, dict) and len(cloud_f_sed) == 0:
+        cloud_f_sed = None  # treat empty dict as no per-species f_sed
     f_seds = jnp.zeros((pressures_size, len(cloud_species)), dtype=JAX_DTYPE)
 
     for i_spec, cloud in enumerate(cloud_species):
         if isinstance(cloud_f_sed, dict):
             f_seds = f_seds.at[:, i_spec].set(cloud_f_sed[cloud])
-        else:
+        elif isinstance(cloud_f_sed, jnp.ndarray):
             f_seds = f_seds.at[:, i_spec].set(cloud_f_sed)
+        elif isinstance(cloud_f_sed, float):
+            f_seds = f_seds.at[:, i_spec].set(jnp.ones_like(pressures_size) * cloud_f_sed)
+        elif cloud_f_sed is None or cloud_f_sed is _MISSING_FLOAT:
+            f_seds = f_seds.at[:, i_spec].set(jnp.zeros_like(pressures_size))
 
     return f_seds
 

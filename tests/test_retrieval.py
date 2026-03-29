@@ -24,6 +24,7 @@ from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
 from petitRADTRANS.opacities.opacities import Opacity, CorrelatedKOpacity
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import Parameter
+from petitRADTRANS.retrieval.plotting import RetrievalPlotter
 from petitRADTRANS.retrieval.models import (
     MODEL_CONTRACT_RUNTIME_LEGACY_ADAPTER,
     MODEL_CONTRACT_RUNTIME_NATIVE,
@@ -32,6 +33,7 @@ from petitRADTRANS.retrieval.models import (
     calculate_transmission_spectrum,
     calculate_transmission_spectrum_runtime,
     coerce_model_generating_function,
+    mark_model_function_runtime_native,
     run_legacy_model_adapter,
     run_runtime_model_adapter,
     emission_model_diseq_patchy_clouds,
@@ -310,7 +312,7 @@ def test_data_materializes_observation_and_likelihood_state():
     assert observation_state.name == 'test_dataset'
     assert observation_state.model_contract == 'runtime_native'
     assert observation_state.model_generating_function is data.model_generating_function
-    assert observation_state.metadata['scale_flux'] is True
+    assert observation_state.scale_flux is True
     np.testing.assert_array_equal(observation_state.mask, jnp.array([False, True]))
 
     assert likelihood_state.n_free_parameters == 3
@@ -462,6 +464,7 @@ def test_retrieval_runtime_initializes_missing_radtrans_objects(monkeypatch):
 
 
 def test_runtime_construction_auto_detects_runtime_native_model_functions():
+    @mark_model_function_runtime_native
     def runtime_native_model(context, params, pt_plot_mode=False):
         del context, pt_plot_mode
         amplitude = params.get('amplitude')
@@ -882,7 +885,7 @@ def test_sampler_summary_helpers_build_expected_payloads():
             'target_acceptance_rate': 0.9,
             'is_mass_matrix_diagonal': True,
             'seed': 7,
-            'jit': True,
+            'use_jit': True,
         },
     )
     assert blackjax_summary['sampler_type'] == 'nuts'
@@ -900,7 +903,7 @@ def test_sampler_summary_helpers_build_expected_payloads():
             'thinning': 1,
             'chain_method': 'parallel',
             'seed': 7,
-            'jit': True,
+            'use_jit': True,
             'num_steps': 15,
         },
     )
@@ -1232,8 +1235,8 @@ def test_runtime_evaluation_adds_runtime_model_log_prior_weight_once():
     runtime = RetrievalRuntime.from_configuration(configuration)
     physical_params = ParameterLayout.from_parameters(configuration.parameters).physical_params_from_vector(np.array([0.0]))
 
-    base_log_likelihood = base_runtime.evaluate_scalar(base_configuration, physical_params, uncertainties_mode='default')
-    log_likelihood = runtime.evaluate_scalar(configuration, physical_params, uncertainties_mode='default')
+    base_log_likelihood = base_runtime.evaluate_scalar(physical_params)
+    log_likelihood = runtime.evaluate_scalar(physical_params)
 
     assert np.isfinite(log_likelihood)
     np.testing.assert_allclose(log_likelihood - base_log_likelihood, 1.25)
@@ -1273,7 +1276,7 @@ def test_model_group_evaluation_is_reused_across_external_references():
     runtime = RetrievalRuntime.from_configuration(configuration)
     physical_params = ParameterLayout.from_parameters(configuration.parameters).physical_params_from_vector(np.array([2.0]))
 
-    log_likelihood = runtime.evaluate_scalar(configuration, physical_params, uncertainties_mode='default')
+    log_likelihood = runtime.evaluate_scalar(physical_params)
 
     assert np.isfinite(log_likelihood)
     assert call_counter['count'] == 1
@@ -1548,7 +1551,7 @@ def test_run_ultranest_vectorized_mode_stays_enabled_for_runtime_native_retrieva
     retrieval.sampler = None
     retrieval.latest_sampler_results = None
 
-    monkeypatch.setattr(petitRADTRANS.retrieval.retrieval, 'UltranestSampler', _RecordingUltranestSampler)
+    monkeypatch.setitem(petitRADTRANS.retrieval.retrieval.SAMPLER_DISPATCH, 'ultranest', _RecordingUltranestSampler)
     retrieval.generate_retrieval_summary = lambda *args, **kwargs: None
 
     retrieval.run(error_checking=False, vectorized=True)
@@ -1648,7 +1651,7 @@ def test_ultranest_vectorized_mode_is_disabled_for_unsupported_runtime_groups(mo
             ),
         )
 
-    monkeypatch.setattr(petitRADTRANS.retrieval.retrieval, 'UltranestSampler', _RecordingUltranestSampler)
+    monkeypatch.setitem(petitRADTRANS.retrieval.retrieval.SAMPLER_DISPATCH, 'ultranest', _RecordingUltranestSampler)
     retrieval.generate_retrieval_summary = lambda *args, **kwargs: None
 
     with pytest.warns(RuntimeWarning, match=warning_text):
@@ -1693,6 +1696,7 @@ def test_run_regenerates_summary_for_non_pymultinest_sampler(tmp_path):
     retrieval.sampler = None
     retrieval.latest_sampler_results = None
     retrieval.ultranest = False
+    retrieval.plotter = RetrievalPlotter(retrieval)
 
     os.makedirs(tmp_path / 'evaluate_non_pmn_summary', exist_ok=True)
 
@@ -1744,6 +1748,7 @@ def test_run_saves_named_sample_archive_for_completed_retrieval(tmp_path):
     retrieval.sampler = None
     retrieval.latest_sampler_results = None
     retrieval.ultranest = False
+    retrieval.plotter = RetrievalPlotter(retrieval)
 
     os.makedirs(tmp_path / 'evaluate_archived_summary', exist_ok=True)
 
@@ -1797,6 +1802,7 @@ def test_get_samples_loads_named_archive_for_non_pymultinest_sampler(tmp_path):
     retrieval.sampler = None
     retrieval.latest_sampler_results = None
     retrieval.ultranest = False
+    retrieval.plotter = RetrievalPlotter(retrieval)
 
     os.makedirs(tmp_path / 'evaluate_archived_jaxns', exist_ok=True)
 
@@ -2078,9 +2084,8 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, adaptive
     m_sum = 0.0  # Check that the total mass fraction of all species is <1
 
     for species in prt_object.line_species:
-        spec = Opacity([species]).get_full_name().split('.R')[0]  # deal with the naming scheme for binned down opacities
-        abundances[spec] = 10 ** parameters[spec].value * np.ones_like(pressures)
-        m_sum += 10 ** parameters[spec].value
+        abundances[species] = 10 ** parameters[species].value * np.ones_like(pressures)
+        m_sum += 10 ** parameters[species].value
 
     abundances['H2'] = test_parameters['mass_fractions_correlated_k']['H2'] * (1.0 - m_sum) * np.ones_like(pressures)
     abundances['He'] = test_parameters['mass_fractions_correlated_k']['He'] * (1.0 - m_sum) * np.ones_like(pressures)

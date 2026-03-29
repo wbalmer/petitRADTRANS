@@ -971,7 +971,7 @@ class RetrievalConfig:
                 required to compute the log likelihood of both datasets.
             line_opacity_mode : str
                 Should the retrieval be run using correlated-k opacities (default, 'c-k'),
-                or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
+                or line by line ('lbl') opacities? If 'lbl' is selected, git push origin --delete it is HIGHLY
                 recommended to set the model_resolution parameter.
             radtrans_grid: bool
                 Set to true if data has been binned to a pRT opacity grid, exactly.

@@ -808,7 +808,7 @@ def test_generate_simulation_dataset_aborts_on_non_finite_observations(tmp_path)
         model_generating_function=_nan_runtime_model,
     )
 
-    with pytest.raises(ValueError, match="Projected observation values contain non-finite entries"):
+    with pytest.raises(ValueError, match="Model evaluation for source 'synthetic_spectrum' returned an invalid result"):
         generate_simulation_dataset(
             task=task,
             storage_uri=(tmp_path / 'invalid_dataset.zarr').as_posix(),
@@ -829,7 +829,7 @@ def test_runtime_simulator_logs_non_finite_projection(caplog):
     )
     simulator = RuntimeSimulator(task=task, seed=43)
 
-    with caplog.at_level('ERROR'), pytest.raises(ValueError, match='Projected observation values contain non-finite'):
+    with caplog.at_level('ERROR'), pytest.raises(ValueError, match="Model evaluation for source 'synthetic_spectrum' returned an invalid result"):
         simulator.simulate_from_parameters(jnp.array([[0.5]], dtype=jnp.float64))
 
     assert "source 'synthetic_spectrum'" in caplog.text
@@ -1229,8 +1229,7 @@ def test_posterior_checkpoint_falls_back_from_orbax_for_callable_leaves(tmp_path
             raise AssertionError('restore should not be called in this test')
 
     monkeypatch.setattr(
-        petitRADTRANS.sbi.training,
-        'resolve_checkpoint_backend',
+        'petitRADTRANS.sbi.training.resolve_checkpoint_backend',
         lambda preferred='auto': _FailingOrbaxBackend(),
     )
 

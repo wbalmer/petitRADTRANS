@@ -262,7 +262,6 @@ class RuntimeSimulator(BatchedSimulator):
             if log_likelihood is not None:
                 log_likelihood.append(
                     self.runtime.evaluate_scalar(
-                        configuration=self.task.retrieval_config,
                         physical_params=physical_params,
                     )
                 )

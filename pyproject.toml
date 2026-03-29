@@ -35,7 +35,7 @@ dependencies = [
     "numpy>2.0",
     "jax>0.8",
     "scipy",
-    "astropy>=5.2",  # introduces the CAHA observing site
+    "astropy>=7.0",  # introduces the CAHA observing site
     "molmass",
     "h5py",
     "dill",

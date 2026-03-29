@@ -52,7 +52,7 @@ def test_chemistry_atmosphere_quench():
         log10_metallicities=metallicities,
         temperatures=temperature_guillot_2010,
         pressures=test_parameters['pressures'],
-        carbon_pressure_quench=test_parameters['chemical_parameters']['pressure_quench_carbon'],
+        carbon_quench_pressure=test_parameters['chemical_parameters']['pressure_quench_carbon'],
         full=True
     )
 

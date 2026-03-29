@@ -691,8 +691,8 @@ class Radtrans:
 
     @staticmethod
     def _normalize_optional_mapping(mapping):
-        if mapping is None:
-            return None
+        if mapping is None or isinstance(mapping, (int, float)):
+            return mapping  # scalars pass through unchanged
 
         normalized_mapping = {}
 
@@ -1263,6 +1263,9 @@ class Radtrans:
 
         if anisotropic_cloud_scattering is None:
             anisotropic_cloud_scattering = self._anisotropic_cloud_scattering
+
+        if anisotropic_cloud_scattering == 'auto':
+            anisotropic_cloud_scattering = self._scattering_in_emission
 
         # Initialization
         if len(self._line_species) > 0:
