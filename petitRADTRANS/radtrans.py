@@ -3651,14 +3651,14 @@ class Radtrans:
         #if return_abundances:
         #    additional_outputs['mass_fractions'] = mass_fractions
 
-        #if frequencies_to_wavelengths:
-        return (
-            frequency2wavelength(self._frequencies),
-            transit_radii,
-            additional_outputs
-        )
-        #else:
-        #    return self._frequencies, transit_radii, additional_outputs
+        if frequencies_to_wavelengths:
+            return (
+                frequency2wavelength(self._frequencies),
+                transit_radii,
+                additional_outputs
+            )
+        else:
+            return self._frequencies, transit_radii, additional_outputs
 
     def calculate_transit_radii_autodiff(
             self,
