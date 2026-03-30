@@ -12,7 +12,6 @@ JAX Implementation of fortran_convolve and fortran_rebin
 """
 
 
-
 def compute_bins_edges(middle_bin_points: ArrayLike) -> ArrayLike:
     """Calculate bin edges for middle bin points.
 
@@ -22,31 +21,39 @@ def compute_bins_edges(middle_bin_points: ArrayLike) -> ArrayLike:
     Returns:
         array of size N+1 containing the bins edges
     """
-    bin_edges = [middle_bin_points[0] - (middle_bin_points[1] - middle_bin_points[0]) / 2]
+    bin_edges = [
+        middle_bin_points[0] - (middle_bin_points[1] - middle_bin_points[0]) / 2
+    ]
 
     for i in range(int(len(middle_bin_points)) - 1):
-        bin_edges.append(middle_bin_points[i] + (middle_bin_points[i + 1] - middle_bin_points[i]) / 2)
+        bin_edges.append(
+            middle_bin_points[i] + (middle_bin_points[i + 1] - middle_bin_points[i]) / 2
+        )
 
     bin_edges.append(
         middle_bin_points[len(middle_bin_points) - 1]
-        + (middle_bin_points[len(middle_bin_points) - 1] - middle_bin_points[len(middle_bin_points) - 2]) / 2
+        + (
+            middle_bin_points[len(middle_bin_points) - 1]
+            - middle_bin_points[len(middle_bin_points) - 2]
+        )
+        / 2
     )
 
     return jnp.array(bin_edges)
 
 
 def continuum_subtract_spectrum(
-        wavelengths: ArrayLike,
-        spectrum: ArrayLike,
-        parameters: dict,
-        method: str = 'spline',
-        name: str = None) -> ArrayLike:
-    """
-    """
+    wavelengths: ArrayLike,
+    spectrum: ArrayLike,
+    parameters: dict,
+    method: str = "spline",
+    name: str = None,
+) -> ArrayLike:
+    """ """
 
-    if method == 'spline':
+    if method == "spline":
         nodes = wavelengths[0]
-        if name is not None and + (name + "_nodes" in parameters.keys()):
+        if name is not None and +(name + "_nodes" in parameters.keys()):
             nodes = parameters[name + "_nodes"].value
         elif "continuum_subtract_nodes" in parameters.keys():
             nodes = parameters["continuum_subtract_nodes"].value
@@ -54,29 +61,33 @@ def continuum_subtract_spectrum(
             raise ValueError("No nodes available to create spline.")
         x_nodes = jnp.linspace(wavelengths[0], wavelengths[-1], nodes)
         return filter_spectrum_with_spline(wavelengths, spectrum, x_nodes=x_nodes)
-    elif method == 'medfilt':
+    elif method == "medfilt":
         median_filter_width = 10
-        if name is not None and + (name + "_median_filter_width" in parameters.keys()):
+        if name is not None and +(name + "_median_filter_width" in parameters.keys()):
             median_filter_width = parameters[name + "_median_filter_width"].value
         elif "median_filter_width" in parameters.keys():
             median_filter_width = parameters["median_filter_width"].value
         return median_filter_spectrum(np.ndarray(spectrum), size=median_filter_width)
-    elif method == 'savgol':
+    elif method == "savgol":
         window_length = 10
         polyorder = 3
-        if name is not None and + (name + "_savgol_window_length" in parameters.keys()):
+        if name is not None and +(name + "_savgol_window_length" in parameters.keys()):
             window_length = parameters[name + "_savgol_window_length"].value
         elif "savgol_window_length" in parameters.keys():
             window_length = parameters["savgol_window_length"].value
 
-        if name is not None and + (name + "_savgol_polyorder" in parameters.keys()):
+        if name is not None and +(name + "_savgol_polyorder" in parameters.keys()):
             polyorder = parameters[name + "_savgol_polyorder"].value
         elif "savgol_polyorder" in parameters.keys():
             polyorder = parameters["savgol_polyorder"].value
-        return savgol_filter_spectrum(np.ndarray(spectrum), window_length=window_length, polyorder=polyorder)
+        return savgol_filter_spectrum(
+            np.ndarray(spectrum), window_length=window_length, polyorder=polyorder
+        )
 
 
-def convolve_constant_resolution(input_wavelength: ArrayLike, input_flux: ArrayLike, instrument_res: any) -> ArrayLike:
+def convolve_constant_resolution(
+    input_wavelength: ArrayLike, input_flux: ArrayLike, instrument_res: any
+) -> ArrayLike:
     sigma_lsf = input_wavelength / (2.0 * jnp.sqrt(2.0 * jnp.log(2.0)) * instrument_res)
     # Calculate the spacing of the wavelength array
     spacing = jnp.abs(input_wavelength - jnp.roll(input_wavelength, 1))
@@ -112,7 +123,7 @@ def convolve_variable_resolution(input_wavelength, input_flux, resolutions):
     def _convolve_at(center_wv, res):
         # sigma is FWHM / 2.355
         sigma = (center_wv / res) / 2.355
-        gauss = jnp.exp(-(input_wavelength - center_wv) ** 2 / (2 * sigma ** 2))
+        gauss = jnp.exp(-((input_wavelength - center_wv) ** 2) / (2 * sigma**2))
         gauss = gauss / jnp.sum(gauss)
         return jnp.sum(gauss * input_flux)
 
@@ -121,7 +132,9 @@ def convolve_variable_resolution(input_wavelength, input_flux, resolutions):
     return convolved_spectrum
 
 
-def convolve(input_wavelength: ArrayLike, input_flux: ArrayLike, instrument_res: any) -> ArrayLike:
+def convolve(
+    input_wavelength: ArrayLike, input_flux: ArrayLike, instrument_res: any
+) -> ArrayLike:
     """
     Convolve a model spectrum with a given instrument resolution.
     This method replicates the logic from petitRADTRANS.retrieval.data.Data.convolve().
@@ -139,12 +152,14 @@ def convolve(input_wavelength: ArrayLike, input_flux: ArrayLike, instrument_res:
         flux_lsf : ArrayLike
             The convolved flux array.
     """
-    if isinstance(instrument_res, jnp.ndarray) or isinstance(instrument_res, np.ndarray):
+    if isinstance(instrument_res, jnp.ndarray) or isinstance(
+        instrument_res, np.ndarray
+    ):
         # Variable width convolution
         flux_lsf = convolve_variable_resolution(
             input_wavelength,
             input_flux,
-            instrument_res  # This is expected to be sigma_lsf values per wavelength by variable_width_convolution
+            instrument_res,  # This is expected to be sigma_lsf values per wavelength by variable_width_convolution
         )
     else:
         # Constant resolution convolution using Gaussian filter
@@ -152,7 +167,7 @@ def convolve(input_wavelength: ArrayLike, input_flux: ArrayLike, instrument_res:
         flux_lsf = convolve_constant_resolution(
             input_wavelength,
             input_flux,
-            instrument_res  # This is expected to be sigma_lsf values per wavelength by variable_width_convolution
+            instrument_res,  # This is expected to be sigma_lsf values per wavelength by variable_width_convolution
         )
 
     return flux_lsf
@@ -191,12 +206,17 @@ def _convolve_running(input_spectrum, sigma_lsf_gauss_filter, **kwargs):
     # Expect weights to have static second dimension for JIT; allow passing a
     # precomputed weights array or compute weights with a user-provided
     # ``max_radius`` via kwargs.
-    if isinstance(sigma_lsf_gauss_filter, jnp.ndarray) and sigma_lsf_gauss_filter.ndim == 2:
+    if (
+        isinstance(sigma_lsf_gauss_filter, jnp.ndarray)
+        and sigma_lsf_gauss_filter.ndim == 2
+    ):
         weights = sigma_lsf_gauss_filter
     else:
         # Allow callers to pass max_radius for static sizing
-        max_radius = kwargs.pop('max_radius', 20)
-        weights = gaussian_weights_running(sigma_lsf_gauss_filter, max_radius=max_radius)
+        max_radius = kwargs.pop("max_radius", 20)
+        weights = gaussian_weights_running(
+            sigma_lsf_gauss_filter, max_radius=max_radius
+        )
 
     input_length = weights.shape[1]
     central_index = int(input_length // 2)
@@ -204,7 +224,13 @@ def _convolve_running(input_spectrum, sigma_lsf_gauss_filter, **kwargs):
     # Create a matrix of rolled versions of the input spectrum. The comprehension
     # iterates over a static range (input_length) so it is JIT-friendly when
     # input_length is fixed at compile time.
-    rolled = jnp.stack([jnp.roll(input_spectrum, shift=i - central_index, axis=-1) for i in range(input_length)], axis=0)
+    rolled = jnp.stack(
+        [
+            jnp.roll(input_spectrum, shift=i - central_index, axis=-1)
+            for i in range(input_length)
+        ],
+        axis=0,
+    )
     # Move the rolled axis to the last position to get shape (..., input_length)
     input_matrix = jnp.moveaxis(rolled, 0, -1)
 
@@ -244,12 +270,8 @@ def _convolve_running(input_spectrum, sigma_lsf_gauss_filter, **kwargs):
 
 
 def convolve_and_sample_variable_resolution_breads(
-        wavelengths,
-        resolutions,
-        model_wavelengths,
-        model_fluxes,
-        num_sigma=3
-        ):
+    wavelengths, resolutions, model_wavelengths, model_fluxes, num_sigma=3
+):
     """
     Simulate the observations of a model.
     Convolves the model with a variable Gaussian LSF, sampled at each desired spectral channel.
@@ -275,34 +297,48 @@ def convolve_and_sample_variable_resolution_breads(
 
     # JX added to use function with input R, instead of LSF FWHM.
     # first get FWHM of LSF from lambda / R. Then convert FWHM to stddev of Gaussian
-    sigmas_wvs = wavelengths / (resolutions * 2 * np.sqrt(2 * np.log(2)))  # corrected a math error here, July 15 2024
+    sigmas_wvs = wavelengths / (
+        resolutions * 2 * np.sqrt(2 * np.log(2))
+    )  # corrected a math error here, July 15 2024
 
-    model_in_range = np.where((model_wavelengths >= np.min(wavelengths)) & (model_wavelengths < np.max(wavelengths)))
-    dwv_model = np.abs(model_wavelengths[model_in_range] - np.roll(model_wavelengths[model_in_range], 1))
+    model_in_range = np.where(
+        (model_wavelengths >= np.min(wavelengths))
+        & (model_wavelengths < np.max(wavelengths))
+    )
+    dwv_model = np.abs(
+        model_wavelengths[model_in_range]
+        - np.roll(model_wavelengths[model_in_range], 1)
+    )
     dwv_model[0] = dwv_model[1]
 
-    filter_size = int(np.ceil(np.max((2 * num_sigma * sigmas_wvs)/np.min(dwv_model))))
+    filter_size = int(np.ceil(np.max((2 * num_sigma * sigmas_wvs) / np.min(dwv_model))))
     filter_coords = np.linspace(-num_sigma, num_sigma, filter_size)
 
     # Commenting out try-except block from breads, doesn't seem to do anything.
     # try:
-    filter_coords = np.tile(filter_coords, [wavelengths.shape[0], 1])  # shape of (N_output, filter_size)
+    filter_coords = np.tile(
+        filter_coords, [wavelengths.shape[0], 1]
+    )  # shape of (N_output, filter_size)
     # except Exception as e:
     # print(e)
     # print('reached exception for ' + str(filter_size))
 
-    filter_wv_coords = filter_coords * sigmas_wvs[:, None] + wavelengths[:, None]  # model wavelengths we want
-    lsf = np.exp(-filter_coords**2/2)/np.sqrt(2*np.pi)
+    filter_wv_coords = (
+        filter_coords * sigmas_wvs[:, None] + wavelengths[:, None]
+    )  # model wavelengths we want
+    lsf = np.exp(-(filter_coords**2) / 2) / np.sqrt(2 * np.pi)
 
-    model_interp = interp1d(model_wavelengths, model_fluxes, method='cubic')
+    model_interp = interp1d(model_wavelengths, model_fluxes, method="cubic")
     filter_model = model_interp(filter_wv_coords)
 
-    output_model = np.nansum(filter_model * lsf, axis=1)/np.sum(lsf, axis=1)
+    output_model = np.nansum(filter_model * lsf, axis=1) / np.sum(lsf, axis=1)
 
     return output_model
 
 
-def filter_spectrum_with_spline(wavelengths, fluxes, uncertainties=None, x_nodes=None, m_spline=None):
+def filter_spectrum_with_spline(
+    wavelengths, fluxes, uncertainties=None, x_nodes=None, m_spline=None
+):
     """
     Use spline interpolation produce a high-pass filtered version of the input spectrum.
 
@@ -332,8 +368,8 @@ def filter_spectrum_with_spline(wavelengths, fluxes, uncertainties=None, x_nodes
     if m_spline is None:
         m_spline = linear_spline_interpolation(x_nodes, wavelengths, spline_degree=3)
 
-    normalised_spline_matrix = m_spline/uncertainties[:, None]
-    weighted_fluxes = fluxes/uncertainties
+    normalised_spline_matrix = m_spline / uncertainties[:, None]
+    weighted_fluxes = fluxes / uncertainties
     where_finite = np.where(np.isfinite(weighted_fluxes))
     normalised_spline_matrix = normalised_spline_matrix[where_finite[0], :]
     weighted_fluxes = weighted_fluxes[where_finite]
@@ -343,9 +379,9 @@ def filter_spectrum_with_spline(wavelengths, fluxes, uncertainties=None, x_nodes
     residuals = weighted_fluxes - spline_model
 
     # LPF_fluxes = np.zeros(fluxes.shape)+np.nan
-    high_pass_filtered_fluxes = np.zeros(fluxes.shape)+np.nan
+    high_pass_filtered_fluxes = np.zeros(fluxes.shape) + np.nan
     # LPF_fluxes[where_finite] = m*uncertainties[where_finite]
-    high_pass_filtered_fluxes[where_finite] = residuals*uncertainties[where_finite]
+    high_pass_filtered_fluxes[where_finite] = residuals * uncertainties[where_finite]
 
     return high_pass_filtered_fluxes  # ,LPF_spec
 
@@ -399,7 +435,9 @@ def linear_spline_interpolation(x_knots, x_samples, spline_degree=3):
             """Evaluate the basis function for index chunk_idx using interpax cubic spline."""
             tmp_y_vec = jnp.zeros(n_nodes).at[chunk_idx].set(1.0)
             # interpax.interp1d(xq, x, f, method='cubic') - query points, knots, values
-            evals = interp1d(x_samples_arr, nodes, tmp_y_vec, method='cubic', extrap=0.0)
+            evals = interp1d(
+                x_samples_arr, nodes, tmp_y_vec, method="cubic", extrap=0.0
+            )
             return jnp.where(mask, evals, 0.0)
 
         # Vmap over chunk indices to evaluate all basis functions
@@ -412,7 +450,7 @@ def linear_spline_interpolation(x_knots, x_samples, spline_degree=3):
     return jnp.concatenate(M_list, axis=1)
 
 
-def median_filter_spectrum(spectrum, size=10, mode='nearest'):
+def median_filter_spectrum(spectrum, size=10, mode="nearest"):
     """
     High-pass filter spectrum using median filtering.
     Returns the residuals after subtracting the median-filtered (low-pass) version.
@@ -429,10 +467,14 @@ def median_filter_spectrum(spectrum, size=10, mode='nearest'):
     return spectrum - median_filtered_spectrum
 
 
-def rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin):
+def rebinning_interpolation(
+    input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin
+):
     del n_rebin  # inferred from the output bin arrays
 
-    rebin_dtype = jnp.result_type(input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high)
+    rebin_dtype = jnp.result_type(
+        input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high
+    )
     input_wavelengths = jnp.asarray(input_wavelengths, dtype=rebin_dtype)
     input_spectrum = jnp.asarray(input_spectrum, dtype=rebin_dtype)
     rebin_bin_low = jnp.asarray(rebin_bin_low, dtype=rebin_dtype)
@@ -451,9 +493,8 @@ def rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, re
         overlap_high = jnp.minimum(high, rebin_bin_high)
         overlap_width = jnp.maximum(overlap_high - overlap_low, 0.0)
 
-        segment_integral = (
-            intercept * overlap_width
-            + 0.5 * slope * (overlap_high ** 2.0 - overlap_low ** 2.0)
+        segment_integral = intercept * overlap_width + 0.5 * slope * (
+            overlap_high**2.0 - overlap_low**2.0
         )
         segment_integral = jnp.where(overlap_width > 0.0, segment_integral, 0.0)
 
@@ -461,14 +502,18 @@ def rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, re
 
     initial_integrals = jnp.zeros_like(rebin_bin_low)
     scan_inputs = (segment_low, segment_high, segment_slope, segment_intercept)
-    integrated_flux, _ = lax.scan(accumulate_bin_integrals, initial_integrals, scan_inputs)
+    integrated_flux, _ = lax.scan(
+        accumulate_bin_integrals, initial_integrals, scan_inputs
+    )
 
     return integrated_flux / bin_widths
 
 
 def _raise_small_size(x):
     if x < 2:
-        raise ValueError(f"Error: output wavelength array size must be >= 2, but is of size {x}")
+        raise ValueError(
+            f"Error: output wavelength array size must be >= 2, but is of size {x}"
+        )
 
 
 def _raise_incomplete_wavelength_range(args):
@@ -476,17 +521,23 @@ def _raise_incomplete_wavelength_range(args):
     half_bin_width_low = (output_array[1] - output_array[0]) * 0.5
     half_bin_width_high = (output_array[-1] - output_array[-2]) * 0.5
 
-    if (input_array[0] >= (output_array[0] - half_bin_width_low)) \
-       or (input_array[-1] <= (output_array[-1] + half_bin_width_high)):
-        raise ValueError(f"Error: input wavelength array needs to extend at least half a bin width further "
-                         f"than output wavelength array on both sides:\n"
-                         f"input interval: {input_array[0]} -- {input_array[-1]}\n"
-                         f"required interval: {output_array[0]-half_bin_width_low} "
-                         f"-- {output_array[-1]+half_bin_width_high}")
+    if (input_array[0] >= (output_array[0] - half_bin_width_low)) or (
+        input_array[-1] <= (output_array[-1] + half_bin_width_high)
+    ):
+        raise ValueError(
+            f"Error: input wavelength array needs to extend at least half a bin width further "
+            f"than output wavelength array on both sides:\n"
+            f"input interval: {input_array[0]} -- {input_array[-1]}\n"
+            f"required interval: {output_array[0]-half_bin_width_low} "
+            f"-- {output_array[-1]+half_bin_width_high}"
+        )
+
 
 @jit
 def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
-    rebin_dtype = jnp.result_type(input_wavelengths, input_spectrum, rebinned_wavelengths)
+    rebin_dtype = jnp.result_type(
+        input_wavelengths, input_spectrum, rebinned_wavelengths
+    )
     input_wavelengths = jnp.asarray(input_wavelengths, dtype=rebin_dtype)
     input_spectrum = jnp.asarray(input_spectrum, dtype=rebin_dtype)
     rebinned_wavelengths = jnp.asarray(rebinned_wavelengths, dtype=rebin_dtype)
@@ -500,27 +551,36 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
     rebin_bin_high = jnp.zeros(n_rebin, dtype=rebin_dtype)
 
     rebin_bin_low = rebin_bin_low.at[0].set(
-        rebinned_wavelengths[0] - (rebinned_wavelengths[1] - rebinned_wavelengths[0]) * 0.5
-        )
+        rebinned_wavelengths[0]
+        - (rebinned_wavelengths[1] - rebinned_wavelengths[0]) * 0.5
+    )
     rebin_bin_low = rebin_bin_low.at[1:].set(
-        rebinned_wavelengths[1:] - (rebinned_wavelengths[1:] - rebinned_wavelengths[:-1]) * 0.5
-        )
+        rebinned_wavelengths[1:]
+        - (rebinned_wavelengths[1:] - rebinned_wavelengths[:-1]) * 0.5
+    )
 
     rebin_bin_high = rebin_bin_high.at[:-1].set(rebin_bin_low[1:])
     rebin_bin_high = rebin_bin_high.at[-1].set(
-        rebinned_wavelengths[-1] + (rebinned_wavelengths[-1] - rebinned_wavelengths[-2]) * 0.5
-        )
+        rebinned_wavelengths[-1]
+        + (rebinned_wavelengths[-1] - rebinned_wavelengths[-2]) * 0.5
+    )
 
-    debug.callback(_raise_incomplete_wavelength_range, (input_wavelengths, rebinned_wavelengths))
+    debug.callback(
+        _raise_incomplete_wavelength_range, (input_wavelengths, rebinned_wavelengths)
+    )
 
     rebinned_spectrum = rebinning_interpolation(
         input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin
-        )
+    )
     return rebinned_spectrum
 
 
-def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths):
-    rebin_dtype = jnp.result_type(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths)
+def rebin_spectrum_bin(
+    input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths
+):
+    rebin_dtype = jnp.result_type(
+        input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths
+    )
     input_wavelengths = jnp.asarray(input_wavelengths, dtype=rebin_dtype)
     input_spectrum = jnp.asarray(input_spectrum, dtype=rebin_dtype)
     rebinned_wavelengths = jnp.asarray(rebinned_wavelengths, dtype=rebin_dtype)
@@ -530,21 +590,27 @@ def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, 
     rebinned_spectrum = jnp.zeros(n_rebin, dtype=rebin_dtype)
 
     if n_rebin < 2:
-        raise ValueError(f"Error: output wavelength array size must be >= 2, but is of size {n_rebin}")
+        raise ValueError(
+            f"Error: output wavelength array size must be >= 2, but is of size {n_rebin}"
+        )
 
     rebin_bin_low = rebinned_wavelengths - (bin_widths * 0.5)
     rebin_bin_high = rebinned_wavelengths + (bin_widths * 0.5)
 
-    #if (input_wavelengths[0] >= rebin_bin_low[0]) or (input_wavelengths[-1] <= rebin_bin_high[-1]):
+    # if (input_wavelengths[0] >= rebin_bin_low[0]) or (input_wavelengths[-1] <= rebin_bin_high[-1]):
     #    raise ValueError(f"Error: input wavelength array needs to extend at least half a bin width further than output wavelength array on both sides:\n"
     #                     f"input interval: {input_wavelengths[0]} -- {input_wavelengths[-1]}\n"
     #                     f"required interval: {rebin_bin_low[0]} -- {rebin_bin_high[-1]}")
 
-    rebinned_spectrum = rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin)
+    rebinned_spectrum = rebinning_interpolation(
+        input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin
+    )
     return rebinned_spectrum
 
 
-def savgol_filter_spectrum(spectrum, window_length: int = 11, polyorder: int = 3, mode: str = 'nearest'):
+def savgol_filter_spectrum(
+    spectrum, window_length: int = 11, polyorder: int = 3, mode: str = "nearest"
+):
     """
     High-pass filter spectrum using Savitzky-Golay filtering.
     Returns the residuals after subtracting the smoothed (low-pass) version.
@@ -558,6 +624,7 @@ def savgol_filter_spectrum(spectrum, window_length: int = 11, polyorder: int = 3
     Returns:
         High-pass filtered spectrum (original - smoothed)
     """
-    savgol_filtered_spectrum = savgol_filter(spectrum, window_length=window_length,
-                                             polyorder=polyorder, mode=mode)
+    savgol_filtered_spectrum = savgol_filter(
+        spectrum, window_length=window_length, polyorder=polyorder, mode=mode
+    )
     return spectrum - savgol_filtered_spectrum

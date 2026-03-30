@@ -2,7 +2,7 @@ import numpy as np
 from jax import jit, vmap, lax, debug, Array
 from jax.typing import ArrayLike
 import jax.numpy as jnp
-import jax.scipy.special as jsp # For gamma function
+import jax.scipy.special as jsp  # For gamma function
 from jax.scipy.ndimage import map_coordinates
 
 import petitRADTRANS.physical_constants as cst
@@ -10,10 +10,15 @@ from petitRADTRANS.radtrans_core.radiative_transfer_core import integrate_opacit
 from petitRADTRANS.radtrans_core.linalg import linear_fit
 
 
+# TODO: decide if internal functions need JIT
 @jit
 def compute_turbulent_settling_speed(
-    x, reference_gravity, rho, clouds_particles_densities,
-    temperatures, mean_molar_masses
+    x,
+    reference_gravity,
+    rho,
+    clouds_particles_densities,
+    temperatures,
+    mean_molar_masses,
 ):
     """
     Calculates the turbulent settling speed of cloud particles.
@@ -36,8 +41,7 @@ def compute_turbulent_settling_speed(
     epsilon = 59.7 * cst.kB
 
     # N_Knudsen: Knudsen number
-    N_Knudsen = (mean_molar_masses * cst.amu) / \
-                (jnp.pi * rho * diameter**2.0 * x)
+    N_Knudsen = (mean_molar_masses * cst.amu) / (jnp.pi * rho * diameter**2.0 * x)
 
     # psi: Cunningham slip correction factor
     psi = 1.0 + N_Knudsen * (1.249 + 0.42 * jnp.exp(-0.87 * N_Knudsen))
@@ -46,13 +50,23 @@ def compute_turbulent_settling_speed(
     # The original Fortran formula for eta:
     # eta = 15d0/16d0*sqrt(cst_pi*2d0*cst_amu*cst_k*temperatures)/(cst_pi*d**2d0) &
     #       *(cst_k*temperatures/epsilon)**0.16d0/1.22d0
-    eta = (15.0 / 16.0) * jnp.sqrt(jnp.pi * 2.0 * cst.amu * cst.kB * temperatures) / \
-          (jnp.pi * diameter**2.0) * \
-          (cst.kB * temperatures / epsilon)**0.16 / 1.22
+    eta = (
+        (15.0 / 16.0)
+        * jnp.sqrt(jnp.pi * 2.0 * cst.amu * cst.kB * temperatures)
+        / (jnp.pi * diameter**2.0)
+        * (cst.kB * temperatures / epsilon) ** 0.16
+        / 1.22
+    )
 
     # CdNreSq: Product of drag coefficient and Reynolds number squared
-    CdNreSq = 32.0 * rho * reference_gravity * x**3.0 * \
-              (clouds_particles_densities - rho) / (3.0 * eta**2.0)
+    CdNreSq = (
+        32.0
+        * rho
+        * reference_gravity
+        * x**3.0
+        * (clouds_particles_densities - rho)
+        / (3.0 * eta**2.0)
+    )
 
     # Nre: Reynolds number (empirical fit)
     # Note: log is natural logarithm (ln) in jnp.log, equivalent to Fortran's log
@@ -65,22 +79,28 @@ def compute_turbulent_settling_speed(
         Nre < 1.0,
         lambda _: 24.0,
         lambda _: lax.cond(
-            Nre > 1.0e3,
-            lambda __: 0.45,
-            lambda ___: CdNreSq / Nre**2.0,
-            None
+            Nre > 1.0e3, lambda __: 0.45, lambda ___: CdNreSq / Nre**2.0, None
         ),
-        None
+        None,
     )
 
     # v_settling_visc: Settling speed in the viscous (Stokes) regime
-    v_settling_visc = 2.0 * x**2.0 * (clouds_particles_densities - rho) * \
-                      psi * reference_gravity / (9.0 * eta)
+    v_settling_visc = (
+        2.0
+        * x**2.0
+        * (clouds_particles_densities - rho)
+        * psi
+        * reference_gravity
+        / (9.0 * eta)
+    )
 
     # turbulent_settling_speed_ret: Settling speed in the turbulent regime
     turbulent_settling_speed_ret = psi * jnp.sqrt(
-        8.0 * reference_gravity * x * (clouds_particles_densities - rho) /
-        (3.0 * Cd * rho)
+        8.0
+        * reference_gravity
+        * x
+        * (clouds_particles_densities - rho)
+        / (3.0 * Cd * rho)
     )
 
     # Final selection of settling speed
@@ -91,7 +111,7 @@ def compute_turbulent_settling_speed(
         (Nre < 1.0) & (v_settling_visc < turbulent_settling_speed_ret),
         lambda _: v_settling_visc,
         lambda _: turbulent_settling_speed_ret,
-        None
+        None,
     )
     return turbulent_settling_speed_ret
 
@@ -105,7 +125,7 @@ def compute_cloud_particles_mean_radius(
     mean_molar_masses,
     f_seds,
     cloud_particle_radius_distribution_std,
-    eddy_diffusion_coefficients
+    eddy_diffusion_coefficients,
 ):
     """
     Calculates the mean radius of cloud particles for each layer and species.
@@ -138,12 +158,16 @@ def compute_cloud_particles_mean_radius(
 
     # Vmap the core function over the flattened dimension
     mean_radius_flat = vmap(
-        _compute_mean_radius_single,
-        in_axes=(None, 0, 0, 0, 0, 0, None, 0)
+        _compute_mean_radius_single, in_axes=(None, 0, 0, 0, 0, 0, None, 0)
     )(
-        reference_gravity, rho_flat, cloud_dens_flat, temp_flat,
-        mean_molar_mass_flat, f_sed_flat, cloud_particle_radius_distribution_std,
-        eddy_diff_flat
+        reference_gravity,
+        rho_flat,
+        cloud_dens_flat,
+        temp_flat,
+        mean_molar_mass_flat,
+        f_sed_flat,
+        cloud_particle_radius_distribution_std,
+        eddy_diff_flat,
     )
 
     # Reshape the result back to (n_layers, n_clouds)
@@ -154,8 +178,14 @@ def compute_cloud_particles_mean_radius(
 
 @jit
 def compute_cloud_particles_mean_radius_hansen(
-    reference_gravity, rho, clouds_particles_densities, temperatures,
-    mean_molar_masses, f_seds, clouds_b_hansen, eddy_diffusion_coefficients
+    reference_gravity,
+    rho,
+    clouds_particles_densities,
+    temperatures,
+    mean_molar_masses,
+    f_seds,
+    clouds_b_hansen,
+    eddy_diffusion_coefficients,
 ):
     """
     Calculates the 'a' parameter for the Hansen distribution for cloud particles.
@@ -188,11 +218,16 @@ def compute_cloud_particles_mean_radius_hansen(
 
     # Vmap the core function over the flattened dimension
     a_hansen_flat = vmap(
-        _compute_mean_radius_hansen_single,
-        in_axes=(None, 0, 0, 0, 0, 0, 0, 0)
+        _compute_mean_radius_hansen_single, in_axes=(None, 0, 0, 0, 0, 0, 0, 0)
     )(
-        reference_gravity, rho_flat, cloud_dens_flat, temp_flat,
-        mean_molar_mass_flat, f_sed_flat, b_hansen_flat, eddy_diff_flat
+        reference_gravity,
+        rho_flat,
+        cloud_dens_flat,
+        temp_flat,
+        mean_molar_mass_flat,
+        f_sed_flat,
+        b_hansen_flat,
+        eddy_diff_flat,
     )
 
     # Reshape the result back to (n_layers, n_clouds)
@@ -212,7 +247,7 @@ def compute_cloud_log_normal_particles_distribution_opacities(
     cloud_particles_radii,
     clouds_absorption_opacities,
     clouds_scattering_opacities,
-    clouds_particles_asymmetry_parameters
+    clouds_particles_asymmetry_parameters,
 ):
     r"""This function reimplements calc_cloud_opas from fortran_radiative_transfer_core.f90.
     This function integrates the cloud opacity through the different layers of the atmosphere to get the total
@@ -255,64 +290,86 @@ def compute_cloud_log_normal_particles_distribution_opacities(
     )
 
     n = (  # (n_layers, n_clouds)
-            3.0
-            * clouds_mass_fractions
-            * atmosphere_densities[:, None]
-            / (4.0 * jnp.pi * clouds_particles_densities * (safe_mean_radii ** 3))
-            * jnp.exp(-4.5 * safe_log_std ** 2)
+        3.0
+        * clouds_mass_fractions
+        * atmosphere_densities[:, None]
+        / (4.0 * jnp.pi * clouds_particles_densities * (safe_mean_radii**3))
+        * jnp.exp(-4.5 * safe_log_std**2)
     )
 
     diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(safe_mean_radii)
     dn_dr = (  # (n_radii, n_layers, n_clouds)
-        n / (
-            cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi)
-            * safe_log_std
-        )
-        * jnp.exp(-diff ** 2 / (2.0 * safe_log_std ** 2))
+        n
+        / (cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi) * safe_log_std)
+        * jnp.exp(-(diff**2) / (2.0 * safe_log_std**2))
     )
 
     integrand_scale = (  # (n_radii, n_layers, n_clouds)
-            (4.0 * jnp.pi / 3.0)
-            * cloud_particles_radii[:, None, None] ** 3
-            * clouds_particles_densities
-            * dn_dr
+        (4.0 * jnp.pi / 3.0)
+        * cloud_particles_radii[:, None, None] ** 3
+        * clouds_particles_densities
+        * dn_dr
     )
 
-    integrand_absorption = integrand_scale[:, None] * clouds_absorption_opacities[:, :, None]
-    integrand_scattering = integrand_scale[:, None] * clouds_scattering_opacities[:, :, None]
-    integrand_anisotropy = integrand_scattering * (1.0 - clouds_particles_asymmetry_parameters[:, :, None])
+    integrand_absorption = (
+        integrand_scale[:, None] * clouds_absorption_opacities[:, :, None]
+    )
+    integrand_scattering = (
+        integrand_scale[:, None] * clouds_scattering_opacities[:, :, None]
+    )
+    integrand_anisotropy = integrand_scattering * (
+        1.0 - clouds_particles_asymmetry_parameters[:, :, None]
+    )
 
-    widths = jnp.diff(cloud_particles_radii_bins)[:, None, None, None]  # (n_radii, 1, 1, 1)
+    widths = jnp.diff(cloud_particles_radii_bins)[
+        :, None, None, None
+    ]  # (n_radii, 1, 1, 1)
 
-    _cloud_absorption_opacities = jnp.sum(integrand_absorption * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
-    _cloud_scattering_opacities = jnp.sum(integrand_scattering * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
-    cloud_anisotropic_fraction = jnp.sum(integrand_anisotropy * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
-    _cloud_scattering_opacities, cloud_anisotropic_fraction = _compute_cloud_scattering_reduction_factor(
-        cloud_scattering_weighted_reduction=cloud_anisotropic_fraction,
-        cloud_scattering_opacities=_cloud_scattering_opacities,
+    _cloud_absorption_opacities = jnp.sum(
+        integrand_absorption * widths, axis=(0, 3)
+    )  # (n_wavelengths, n_layers)
+    _cloud_scattering_opacities = jnp.sum(
+        integrand_scattering * widths, axis=(0, 3)
+    )  # (n_wavelengths, n_layers)
+    cloud_anisotropic_fraction = jnp.sum(
+        integrand_anisotropy * widths, axis=(0, 3)
+    )  # (n_wavelengths, n_layers)
+    _cloud_scattering_opacities, cloud_anisotropic_fraction = (
+        _compute_cloud_scattering_reduction_factor(
+            cloud_scattering_weighted_reduction=cloud_anisotropic_fraction,
+            cloud_scattering_opacities=_cloud_scattering_opacities,
+        )
     )
 
     _cloud_absorption_opacities = _cloud_absorption_opacities / atmosphere_densities
     _cloud_scattering_opacities = _cloud_scattering_opacities / atmosphere_densities
 
-    return _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_anisotropic_fraction
+    return (
+        _cloud_absorption_opacities,
+        _cloud_scattering_opacities,
+        cloud_anisotropic_fraction,
+    )
 
 
 @jit
-def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opacities,
-                                cloud_scattering_reduction_factor, cloud_wavelengths,
-                                frequencies_bin_edges):
-    #TODO: just read in wavelength centers
-    #TODO Read in pressure coords
+def interpolate_cloud_opacities(
+    cloud_absorption_opacities,
+    cloud_scattering_opacities,
+    cloud_scattering_reduction_factor,
+    cloud_wavelengths,
+    frequencies_bin_edges,
+):
+    # TODO: just read in wavelength centers
+    # TODO Read in pressure coords
 
-    edges_wlen = cst.c/frequencies_bin_edges #* 1e4# cm
-    bin_centers = edges_wlen[1:] - jnp.diff(edges_wlen)/2.0
+    edges_wlen = cst.c / frequencies_bin_edges  # * 1e4# cm
+    bin_centers = edges_wlen[1:] - jnp.diff(edges_wlen) / 2.0
 
-    #n_layers_test
-    #transformed_wavelength_coords = (((edges_wlen - cloud_wavelengths[0])/cloud_wavelengths[-1]) * cloud_wavelengths.shape[0]).astype(int)[:-1]
+    # n_layers_test
+    # transformed_wavelength_coords = (((edges_wlen - cloud_wavelengths[0])/cloud_wavelengths[-1]) * cloud_wavelengths.shape[0]).astype(int)[:-1]
 
     def interp_index(bin_center):
-        idx = jnp.searchsorted(cloud_wavelengths, bin_center, side='left')
+        idx = jnp.searchsorted(cloud_wavelengths, bin_center, side="left")
         idx = jnp.clip(idx, 1, cloud_wavelengths.shape[0] - 1)
         x0 = cloud_wavelengths[idx - 1]
         x1 = cloud_wavelengths[idx]
@@ -320,58 +377,56 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
         frac = (bin_center - x0) / (x1 - x0 + 1e-30)
         return (idx - 1) + frac
 
-    transformed_wavelength_coords = vmap(interp_index)(bin_centers)#.astype(int)  # shape (n_bins,)
-    #from jax import debug
-    #debug.print("transformed_wavelength_coords: {}", transformed_wavelength_coords)
-    #debug.print("transformed_wavelength_coords_test: {}", transformed_wavelength_coords_test)
+    transformed_wavelength_coords = vmap(interp_index)(
+        bin_centers
+    )  # .astype(int)  # shape (n_bins,)
+    # from jax import debug
+    # debug.print("transformed_wavelength_coords: {}", transformed_wavelength_coords)
+    # debug.print("transformed_wavelength_coords_test: {}", transformed_wavelength_coords_test)
 
     pressure_coords = jnp.linspace(
         0,
-        cloud_absorption_opacities.shape[1]-1,
+        cloud_absorption_opacities.shape[1] - 1,
         cloud_absorption_opacities.shape[1],
-        dtype=int)
+        dtype=int,
+    )
     coordinate_grid = jnp.meshgrid(
-        transformed_wavelength_coords,
-        pressure_coords,
-        indexing='ij'
-        )
+        transformed_wavelength_coords, pressure_coords, indexing="ij"
+    )
 
     cloud_absorption_opacities_output = map_coordinates(
-        cloud_absorption_opacities,
-        coordinate_grid,
-        order=1,
-        mode='nearest'
-        )
+        cloud_absorption_opacities, coordinate_grid, order=1, mode="nearest"
+    )
     cloud_scattering_opacities_output = map_coordinates(
-        cloud_scattering_opacities,
-        coordinate_grid,
-        order=1,
-        mode='nearest'
-        )
+        cloud_scattering_opacities, coordinate_grid, order=1, mode="nearest"
+    )
     cloud_scattering_reduction_factor_output = map_coordinates(
-        cloud_scattering_reduction_factor,
-        coordinate_grid,
-        order=1,
-        mode='nearest'
-        )
+        cloud_scattering_reduction_factor, coordinate_grid, order=1, mode="nearest"
+    )
 
-    cloud_anisotropic_extinctions = (
-        cloud_absorption_opacities_output
-        + (cloud_scattering_opacities_output * cloud_scattering_reduction_factor_output)
-        )
-    cloud_isotropic_extinctions = cloud_anisotropic_extinctions + cloud_scattering_opacities_output
+    cloud_anisotropic_extinctions = cloud_absorption_opacities_output + (
+        cloud_scattering_opacities_output * cloud_scattering_reduction_factor_output
+    )
+    cloud_isotropic_extinctions = (
+        cloud_anisotropic_extinctions + cloud_scattering_opacities_output
+    )
 
-    return (cloud_absorption_opacities_output,
-            cloud_anisotropic_extinctions,
-            cloud_scattering_reduction_factor_output,
-            cloud_isotropic_extinctions
-            )
+    return (
+        cloud_absorption_opacities_output,
+        cloud_anisotropic_extinctions,
+        cloud_scattering_reduction_factor_output,
+        cloud_isotropic_extinctions,
+    )
 
 
 @jit
-def interpolate_cloud_opacities_fortran(cloud_absorption_opacities, cloud_scattering_opacities,
-                                cloud_scattering_reduction_factor, cloud_wavelengths,
-                                frequencies_bin_edges):
+def interpolate_cloud_opacities_fortran(
+    cloud_absorption_opacities,
+    cloud_scattering_opacities,
+    cloud_scattering_reduction_factor,
+    cloud_wavelengths,
+    frequencies_bin_edges,
+):
     """Interpolate cloud opacities to actual radiative transfer wavelength grid."""
 
     n_cloud_wavelengths, n_layers = cloud_absorption_opacities.shape
@@ -381,24 +436,39 @@ def interpolate_cloud_opacities_fortran(cloud_absorption_opacities, cloud_scatte
     clouds_final_absorption_opacities = jnp.zeros((n_frequencies_bins - 1, n_layers))
     cloud_anisotropic_extinctions = jnp.zeros((n_frequencies_bins - 1, n_layers))
     cloud_isotropic_extinctions = jnp.zeros((n_frequencies_bins - 1, n_layers))
-    cloud_scattering_reduction_factor_out = jnp.zeros((n_frequencies_bins - 1, n_layers))
+    cloud_scattering_reduction_factor_out = jnp.zeros(
+        (n_frequencies_bins - 1, n_layers)
+    )
 
     # Wavelengths
     HIT_border_lamb = cst.c / frequencies_bin_edges
 
     def loop_body(HIT_i_lamb, carry):
         # Loop over every output frequency bin
-        (clouds_final_absorption_opacities,
-         cloud_anisotropic_extinctions,
-         cloud_isotropic_extinctions,
-         cloud_scattering_reduction_factor_out) = carry
+        (
+            clouds_final_absorption_opacities,
+            cloud_anisotropic_extinctions,
+            cloud_isotropic_extinctions,
+            cloud_scattering_reduction_factor_out,
+        ) = carry
 
         # Find the indices of the cloud wavelengths that are closest to
         # the HIT border wavelengths for this bin
-        intp_index_small_min = jnp.argmin(jnp.abs(cloud_wavelengths - HIT_border_lamb[HIT_i_lamb]))
-        intp_index_small_max = jnp.argmin(jnp.abs(cloud_wavelengths - HIT_border_lamb[HIT_i_lamb+1]))
+        intp_index_small_min = jnp.argmin(
+            jnp.abs(cloud_wavelengths - HIT_border_lamb[HIT_i_lamb])
+        )
+        intp_index_small_max = jnp.argmin(
+            jnp.abs(cloud_wavelengths - HIT_border_lamb[HIT_i_lamb + 1])
+        )
 
-        def integrate_section(start_index, lambda_low, lambda_high, kappa_integ, kappa_scat_integ, red_fac_aniso_integ):
+        def integrate_section(
+            start_index,
+            lambda_low,
+            lambda_high,
+            kappa_integ,
+            kappa_scat_integ,
+            red_fac_aniso_integ,
+        ):
             start_index = start_index.astype(int)
             # One iteration of the integration for the opacities, scatetring and reduction factors.
             kappa_integ += integrate_opacities(
@@ -406,41 +476,45 @@ def interpolate_cloud_opacities_fortran(cloud_absorption_opacities, cloud_scatte
                 cloud_absorption_opacities,
                 cloud_wavelengths,
                 lambda_low,
-                lambda_high
-                )
+                lambda_high,
+            )
             kappa_scat_integ += integrate_opacities(
                 start_index,
                 cloud_scattering_opacities,
                 cloud_wavelengths,
                 lambda_low,
-                lambda_high
-                )
+                lambda_high,
+            )
             red_fac_aniso_integ += integrate_opacities(
                 start_index,
                 cloud_scattering_reduction_factor,
                 cloud_wavelengths,
                 lambda_low,
-                lambda_high
-                )
+                lambda_high,
+            )
             return kappa_integ, kappa_scat_integ, red_fac_aniso_integ
 
-        def integrate_twice(index_min, index_max, kappa_integ, kappa_scat_integ, red_fac_aniso_integ):
+        def integrate_twice(
+            index_min, index_max, kappa_integ, kappa_scat_integ, red_fac_aniso_integ
+        ):
             # Used for the last bins
             # Runs if (intp_index_small_max - intp_index_small_min) == 1
             kappa_integ, kappa_scat_integ, red_fac_aniso_integ = integrate_section(
                 index_min,
                 HIT_border_lamb[HIT_i_lamb],
-                cloud_wavelengths[index_min+1],
+                cloud_wavelengths[index_min + 1],
                 kappa_integ,
                 kappa_scat_integ,
-                red_fac_aniso_integ)
+                red_fac_aniso_integ,
+            )
             kappa_integ, kappa_scat_integ, red_fac_aniso_integ = integrate_section(
                 index_max,
                 cloud_wavelengths[index_max],
                 HIT_border_lamb[HIT_i_lamb + 1],
                 kappa_integ,
                 kappa_scat_integ,
-                red_fac_aniso_integ)
+                red_fac_aniso_integ,
+            )
             return kappa_integ, kappa_scat_integ, red_fac_aniso_integ
 
         def inner_loop_body(carry):
@@ -449,37 +523,39 @@ def interpolate_cloud_opacities_fortran(cloud_absorption_opacities, cloud_scatte
             kappa_integ, kappa_scat_integ, red_fac_aniso_integ = integrate_section(
                 new_small_ind,
                 cloud_wavelengths[new_small_ind],
-                cloud_wavelengths[new_small_ind+1],
+                cloud_wavelengths[new_small_ind + 1],
                 kappa_integ,
                 kappa_scat_integ,
-                red_fac_aniso_integ)
+                red_fac_aniso_integ,
+            )
             return new_small_ind + 1, kappa_integ, kappa_scat_integ, red_fac_aniso_integ
 
-        def integrate_and_loop(index_min, index_max, kappa_integ, kappa_scat_integ, red_fac_aniso_integ):
+        def integrate_and_loop(
+            index_min, index_max, kappa_integ, kappa_scat_integ, red_fac_aniso_integ
+        ):
             # Used between the first and the last bins
             # Runs while (intp_index_small_max - intp_index_small_min) != (0 or 1)
             kappa_integ, kappa_scat_integ, red_fac_aniso_integ = integrate_section(
                 index_min,
                 HIT_border_lamb[HIT_i_lamb],
-                cloud_wavelengths[index_min+1],
+                cloud_wavelengths[index_min + 1],
                 kappa_integ,
                 kappa_scat_integ,
-                red_fac_aniso_integ)
+                red_fac_aniso_integ,
+            )
             _, kappa_integ, kappa_scat_integ, red_fac_aniso_integ = lax.while_loop(
-                            lambda val: val[0] < index_max,
-                            inner_loop_body,
-                            (index_min + 1,
-                             kappa_integ,
-                             kappa_scat_integ,
-                             red_fac_aniso_integ)
-                            )
+                lambda val: val[0] < index_max,
+                inner_loop_body,
+                (index_min + 1, kappa_integ, kappa_scat_integ, red_fac_aniso_integ),
+            )
             kappa_integ, kappa_scat_integ, red_fac_aniso_integ = integrate_section(
                 index_max,
                 cloud_wavelengths[index_max],
-                HIT_border_lamb[HIT_i_lamb+1],
+                HIT_border_lamb[HIT_i_lamb + 1],
                 kappa_integ,
                 kappa_scat_integ,
-                red_fac_aniso_integ)
+                red_fac_aniso_integ,
+            )
             return kappa_integ, kappa_scat_integ, red_fac_aniso_integ
 
         # Initialize the arrays for the integrated values
@@ -496,7 +572,8 @@ def interpolate_cloud_opacities_fortran(cloud_absorption_opacities, cloud_scatte
                 HIT_border_lamb[HIT_i_lamb + 1],
                 kappa_integ,
                 kappa_scat_integ,
-                red_fac_aniso_integ),
+                red_fac_aniso_integ,
+            ),
             lambda: lax.cond(
                 (intp_index_small_max - intp_index_small_min) == 1,
                 integrate_twice,
@@ -505,50 +582,77 @@ def interpolate_cloud_opacities_fortran(cloud_absorption_opacities, cloud_scatte
                 intp_index_small_max,
                 kappa_integ,
                 kappa_scat_integ,
-                red_fac_aniso_integ)
-            )
+                red_fac_aniso_integ,
+            ),
+        )
 
         # Normalisation to bin width
-        kappa_integ = kappa_integ / (HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb])
-        kappa_scat_integ = kappa_scat_integ / (HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb])
-        red_fac_aniso_integ = red_fac_aniso_integ / (HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb])
+        kappa_integ = kappa_integ / (
+            HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb]
+        )
+        kappa_scat_integ = kappa_scat_integ / (
+            HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb]
+        )
+        red_fac_aniso_integ = red_fac_aniso_integ / (
+            HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb]
+        )
 
         # Add the integrated values to the final arrays
-        clouds_final_absorption_opacities = clouds_final_absorption_opacities.at[HIT_i_lamb, :].add(kappa_integ)
-        cloud_anisotropic_extinctions =\
-            cloud_anisotropic_extinctions.at[HIT_i_lamb, :].add(kappa_integ + (kappa_scat_integ * red_fac_aniso_integ))
-        cloud_isotropic_extinctions =\
-            cloud_isotropic_extinctions.at[HIT_i_lamb, :].add(kappa_integ + kappa_scat_integ)
-        cloud_scattering_reduction_factor_out =\
-            cloud_scattering_reduction_factor_out.at[HIT_i_lamb, :].add(red_fac_aniso_integ)
+        clouds_final_absorption_opacities = clouds_final_absorption_opacities.at[
+            HIT_i_lamb, :
+        ].add(kappa_integ)
+        cloud_anisotropic_extinctions = cloud_anisotropic_extinctions.at[
+            HIT_i_lamb, :
+        ].add(kappa_integ + (kappa_scat_integ * red_fac_aniso_integ))
+        cloud_isotropic_extinctions = cloud_isotropic_extinctions.at[HIT_i_lamb, :].add(
+            kappa_integ + kappa_scat_integ
+        )
+        cloud_scattering_reduction_factor_out = (
+            cloud_scattering_reduction_factor_out.at[HIT_i_lamb, :].add(
+                red_fac_aniso_integ
+            )
+        )
 
-        return (clouds_final_absorption_opacities,
-                cloud_anisotropic_extinctions,
-                cloud_isotropic_extinctions,
-                cloud_scattering_reduction_factor_out
-                )
+        return (
+            clouds_final_absorption_opacities,
+            cloud_anisotropic_extinctions,
+            cloud_isotropic_extinctions,
+            cloud_scattering_reduction_factor_out,
+        )
 
-    carry = (clouds_final_absorption_opacities,
-             cloud_anisotropic_extinctions,
-             cloud_isotropic_extinctions,
-             cloud_scattering_reduction_factor_out)
+    carry = (
+        clouds_final_absorption_opacities,
+        cloud_anisotropic_extinctions,
+        cloud_isotropic_extinctions,
+        cloud_scattering_reduction_factor_out,
+    )
 
     # Loop over the output frequency bins
-    (clouds_final_absorption_opacities,
-     cloud_anisotropic_extinctions,
-     cloud_isotropic_extinctions,
-     cloud_scattering_reduction_factor_out) = lax.fori_loop(0, n_frequencies_bins - 1, loop_body, carry)
+    (
+        clouds_final_absorption_opacities,
+        cloud_anisotropic_extinctions,
+        cloud_isotropic_extinctions,
+        cloud_scattering_reduction_factor_out,
+    ) = lax.fori_loop(0, n_frequencies_bins - 1, loop_body, carry)
 
-    return (clouds_final_absorption_opacities,
-            cloud_anisotropic_extinctions,
-            cloud_scattering_reduction_factor_out,
-            cloud_isotropic_extinctions)
+    return (
+        clouds_final_absorption_opacities,
+        cloud_anisotropic_extinctions,
+        cloud_scattering_reduction_factor_out,
+        cloud_isotropic_extinctions,
+    )
 
 
 @jit
 def particle_radius(
-    x1, x2, reference_gravity, rho, clouds_particles_densities,
-    temperatures, mean_molar_masses, w_star
+    x1,
+    x2,
+    reference_gravity,
+    rho,
+    clouds_particles_densities,
+    temperatures,
+    mean_molar_masses,
+    w_star,
 ):
     """
     Finds the particle radius where its turbulent settling speed matches w_star,
@@ -574,14 +678,22 @@ def particle_radius(
     b = x2
 
     fa_val = compute_turbulent_settling_speed(
-        a, reference_gravity, rho, clouds_particles_densities,
-        temperatures, mean_molar_masses
+        a,
+        reference_gravity,
+        rho,
+        clouds_particles_densities,
+        temperatures,
+        mean_molar_masses,
     )
     fa = fa_val - w_star
 
     fb_val = compute_turbulent_settling_speed(
-        b, reference_gravity, rho, clouds_particles_densities,
-        temperatures, mean_molar_masses
+        b,
+        reference_gravity,
+        rho,
+        clouds_particles_densities,
+        temperatures,
+        mean_molar_masses,
     )
     fb = fb_val - w_star
 
@@ -614,14 +726,16 @@ def particle_radius(
 
         return lax.cond(done, keep_state, do_iteration, state)
 
-    a_final, b_final, _, _, _, _ = lax.fori_loop(0, ITMAX, iteration_body, initial_state)
+    a_final, b_final, _, _, _, _ = lax.fori_loop(
+        0, ITMAX, iteration_body, initial_state
+    )
     c_final = particle_radius_midpoint(a_final, b_final)
 
     # Handle the case where the root was not bracketed initially
     result_radius = lax.cond(
         root_not_bracketed,
         lambda: 1e-17,
-        lambda: c_final  # c_final is the 'c' from the last iteration
+        lambda: c_final,  # c_final is the 'c' from the last iteration
     )
 
     return result_radius
@@ -631,8 +745,8 @@ def particle_radius(
 def particle_radius_midpoint(a, b):
     return lax.cond(
         jnp.abs(jnp.log10(a / b)) > 1.0,
-        lambda: 10.0**(jnp.log10(a * b) / 2.0),
-        lambda: (a + b) / 2.0
+        lambda: 10.0 ** (jnp.log10(a * b) / 2.0),
+        lambda: (a + b) / 2.0,
     )
 
 
@@ -643,18 +757,29 @@ def particle_radius_bisection_iteration(val):
     Needed for the fixed-iteration root solve.
     """
     a, b, fa, fb, w_star, particle_params = val
-    reference_gravity, rho, clouds_particles_densities, temperatures, mean_molar_masses = particle_params
+    (
+        reference_gravity,
+        rho,
+        clouds_particles_densities,
+        temperatures,
+        mean_molar_masses,
+    ) = particle_params
 
     c = particle_radius_midpoint(a, b)
 
     fc_val = compute_turbulent_settling_speed(
-        c, reference_gravity, rho, clouds_particles_densities,
-        temperatures, mean_molar_masses
+        c,
+        reference_gravity,
+        rho,
+        clouds_particles_densities,
+        temperatures,
+        mean_molar_masses,
     )
     fc = fc_val - w_star
 
-    condition = jnp.logical_or(jnp.logical_and((fc > 0.0), (fa > 0.0)),
-                               jnp.logical_and((fc < 0.0), (fa < 0.0)))
+    condition = jnp.logical_or(
+        jnp.logical_and((fc > 0.0), (fa > 0.0)), jnp.logical_and((fc < 0.0), (fa < 0.0))
+    )
 
     new_a = lax.cond(condition, lambda: c, lambda: a)
     new_fa = lax.cond(condition, lambda: fc, lambda: fa)
@@ -663,7 +788,7 @@ def particle_radius_bisection_iteration(val):
     del_val = lax.cond(
         condition,
         lambda: 2.0 * jnp.abs(a - c) / (a + b),  # a was updated
-        lambda: 2.0 * jnp.abs(b - c) / (a + b)   # b was updated
+        lambda: 2.0 * jnp.abs(b - c) / (a + b),  # b was updated
     )
 
     return new_a, new_b, new_fa, new_fb, del_val
@@ -672,7 +797,14 @@ def particle_radius_bisection_iteration(val):
 # --- Core Functions for Vmapping ---
 @jit
 def _compute_mean_radius_single(
-    ref_g, rho_i, cloud_dens_j, temp_i, mean_molar_mass_i, f_sed_ij, std_dev, eddy_diff_i
+    ref_g,
+    rho_i,
+    cloud_dens_j,
+    temp_i,
+    mean_molar_mass_i,
+    f_sed_ij,
+    std_dev,
+    eddy_diff_i,
 ):
     """
     Core function for compute_cloud_particles_mean_radius, operating on single
@@ -721,8 +853,8 @@ def _compute_mean_radius_single(
 
         # call linear_fit(log(rad), log(vel/w_star(i_str)), N_fit, a, b)
         # Handle potential log of non-positive values
-        log_rad = jnp.log(jnp.maximum(rad, 1e-30)) # Clamp to avoid log(0) or log(neg)
-        log_vel_ratio = jnp.log(jnp.maximum(vel / w_star_i, 1e-30)) # Clamp
+        log_rad = jnp.log(jnp.maximum(rad, 1e-30))  # Clamp to avoid log(0) or log(neg)
+        log_vel_ratio = jnp.log(jnp.maximum(vel / w_star_i, 1e-30))  # Clamp
 
         a, b = linear_fit(log_rad, log_vel_ratio)
 
@@ -731,22 +863,20 @@ def _compute_mean_radius_single(
         # r_w(i_str,i_spec) = exp(-a/b)
         # Handle potential division by zero if b is zero
         r_w_refined_ij = lax.cond(
-            jnp.abs(alpha_ij) < 1e-15,
-            lambda: r_w_val,
-            lambda: jnp.exp(-a / alpha_ij)
+            jnp.abs(alpha_ij) < 1e-15, lambda: r_w_val, lambda: jnp.exp(-a / alpha_ij)
         )
 
         # Handle potential division by zero for 1d0/alpha
         exponent = lax.cond(
-             jnp.abs(alpha_ij) < 1e-15,
-             lambda: 0.0,
-             lambda: 1.0 / alpha_ij
+            jnp.abs(alpha_ij) < 1e-15, lambda: 0.0, lambda: 1.0 / alpha_ij
         )
         f_sed_term = f_sed_ij**exponent
         log_std_dev_sq = jnp.log(std_dev_clamped) ** 2.0
 
-        mean_radius_ij = r_w_refined_ij * f_sed_term * jnp.exp(
-            -(alpha_ij + 6.0) / 2.0 * log_std_dev_sq
+        mean_radius_ij = (
+            r_w_refined_ij
+            * f_sed_term
+            * jnp.exp(-(alpha_ij + 6.0) / 2.0 * log_std_dev_sq)
         )
 
         return mean_radius_ij
@@ -758,17 +888,23 @@ def _compute_mean_radius_single(
         return 1e-17
 
     mean_radius_ij = lax.cond(
-        r_w_ij > 1e-16,
-        lambda: compute_valid_radius(r_w_ij),
-        handle_invalid_radius
+        r_w_ij > 1e-16, lambda: compute_valid_radius(r_w_ij), handle_invalid_radius
     )
 
     # Handle potential NaN results from valid radius calculation
     return jnp.where(jnp.isfinite(mean_radius_ij), mean_radius_ij, 1e-17)
 
+
 @jit
 def _compute_mean_radius_hansen_single(
-    ref_g, rho_i, cloud_dens_j, temp_i, mean_molar_mass_i, f_sed_ij, b_hansen_ij, eddy_diff_i
+    ref_g,
+    rho_i,
+    cloud_dens_j,
+    temp_i,
+    mean_molar_mass_i,
+    f_sed_ij,
+    b_hansen_ij,
+    eddy_diff_i,
 ):
     """
     Core function for compute_cloud_particles_mean_radius_hansen, operating on single
@@ -787,7 +923,7 @@ def _compute_mean_radius_hansen_single(
     x_gamma_ij = lax.cond(
         jnp.abs(b_hansen_ij) < 1e-15,
         lambda: jnp.inf * jnp.sign(1.0),  # 1/0 -> inf
-        lambda: 1.0 + 1.0 / b_hansen_ij
+        lambda: 1.0 + 1.0 / b_hansen_ij,
     )
 
     # r_w(i_str,i_spec) = particle_radius(...)
@@ -810,7 +946,7 @@ def _compute_mean_radius_hansen_single(
             rad_end = lax.cond(
                 jnp.abs(b_hansen_ij) < 1e-15,
                 lambda: jnp.inf * jnp.sign(r_w_val),  # r_w / 0 -> inf
-                lambda: r_w_val / b_hansen_ij
+                lambda: r_w_val / b_hansen_ij,
             )
             rad_start = r_w_val
 
@@ -840,9 +976,7 @@ def _compute_mean_radius_hansen_single(
         # r_w(i_str,i_spec) = exp(-a / b)
         # Handle potential division by zero if b is zero
         r_w_refined_ij = lax.cond(
-            jnp.abs(alpha_ij) < 1e-15,
-            lambda: r_w_val,
-            lambda: jnp.exp(-a / alpha_ij)
+            jnp.abs(alpha_ij) < 1e-15, lambda: r_w_val, lambda: jnp.exp(-a / alpha_ij)
         )
 
         # Calculate clouds_a_hansen
@@ -850,15 +984,15 @@ def _compute_mean_radius_hansen_single(
         def use_gamma_function():
             # Handle potential division by zero for 1d0/alpha
             exponent = lax.cond(
-                 jnp.abs(alpha_ij) < 1e-15,
-                 lambda: jnp.inf * jnp.sign(1.0),
-                 lambda: 1.0 / alpha_ij
+                jnp.abs(alpha_ij) < 1e-15,
+                lambda: jnp.inf * jnp.sign(1.0),
+                lambda: 1.0 / alpha_ij,
             )
 
             term1 = b_hansen_ij ** (-1.0 * alpha_ij)
-            term2 = r_w_refined_ij ** alpha_ij
+            term2 = r_w_refined_ij**alpha_ij
             term3 = f_sed_ij
-            term4 = (b_hansen_ij ** 3.0 * b_hansen_ij ** alpha_ij - b_hansen_ij + 1.0)
+            term4 = b_hansen_ij**3.0 * b_hansen_ij**alpha_ij - b_hansen_ij + 1.0
 
             # Handle potential issues with gamma arguments
             gamma_arg1 = x_gamma_ij
@@ -867,7 +1001,7 @@ def _compute_mean_radius_hansen_single(
             term5_numerator = lax.cond(
                 gamma_arg1 > 0, lambda: jsp.gamma(gamma_arg1), lambda: jnp.nan
             )
-            term5_denominator_factor1 = (b_hansen_ij * alpha_ij + 2.0 * b_hansen_ij + 1.0)
+            term5_denominator_factor1 = b_hansen_ij * alpha_ij + 2.0 * b_hansen_ij + 1.0
             term5_denominator_factor2 = lax.cond(
                 gamma_arg2 > 0, lambda: jsp.gamma(gamma_arg2), lambda: jnp.nan
             )
@@ -875,9 +1009,11 @@ def _compute_mean_radius_hansen_single(
 
             # Handle potential division by zero or NaN in term5_denominator
             term5 = lax.cond(
-                jnp.isnan(term5_numerator) | jnp.isnan(term5_denominator) | (jnp.abs(term5_denominator) < 1e-15),
+                jnp.isnan(term5_numerator)
+                | jnp.isnan(term5_denominator)
+                | (jnp.abs(term5_denominator) < 1e-15),
                 lambda: jnp.nan,  # Propagate NaN or handle division by zero
-                lambda: term5_numerator / term5_denominator
+                lambda: term5_numerator / term5_denominator,
             )
 
             base = term1 * term2 * term3 * term4 * term5
@@ -886,13 +1022,15 @@ def _compute_mean_radius_hansen_single(
             a_hansen_ij = lax.cond(
                 jnp.isnan(base) | jnp.isinf(exponent),
                 lambda: lax.cond(
-                    jnp.isnan(base), lambda: jnp.nan,  # Propagate NaN
+                    jnp.isnan(base),
+                    lambda: jnp.nan,  # Propagate NaN
                     lambda: lax.cond(  # Handle base**inf
-                        base > 1.0, lambda: jnp.inf,
-                        lambda: lax.cond(base < 1.0, lambda: 0.0, lambda: 1.0)
-                    )
+                        base > 1.0,
+                        lambda: jnp.inf,
+                        lambda: lax.cond(base < 1.0, lambda: 0.0, lambda: 1.0),
+                    ),
                 ),
-                lambda: base**exponent
+                lambda: base**exponent,
             )
 
             return a_hansen_ij
@@ -901,27 +1039,27 @@ def _compute_mean_radius_hansen_single(
         def use_gamma_approximation():
             # Handle potential division by zero for 1d0/alpha
             exponent = lax.cond(
-                 jnp.abs(alpha_ij) < 1e-15,
-                 lambda: jnp.inf * jnp.sign(1.0),
-                 lambda: 1.0 / alpha_ij
+                jnp.abs(alpha_ij) < 1e-15,
+                lambda: jnp.inf * jnp.sign(1.0),
+                lambda: 1.0 / alpha_ij,
             )
 
             term1 = b_hansen_ij ** (-1.0 * alpha_ij)
-            term2 = r_w_refined_ij ** alpha_ij
+            term2 = r_w_refined_ij**alpha_ij
             term3 = f_sed_ij
-            term4 = (b_hansen_ij ** 3.0 * b_hansen_ij ** alpha_ij - b_hansen_ij + 1.0)
+            term4 = b_hansen_ij**3.0 * b_hansen_ij**alpha_ij - b_hansen_ij + 1.0
 
             # Handle potential issues with x_gamma_ij ** (-alpha_ij)
             term5_numerator = lax.cond(
                 x_gamma_ij > 0, lambda: x_gamma_ij ** (-alpha_ij), lambda: jnp.nan
             )
-            term5_denominator = (b_hansen_ij * alpha_ij + 2.0 * b_hansen_ij + 1.0)
+            term5_denominator = b_hansen_ij * alpha_ij + 2.0 * b_hansen_ij + 1.0
 
             # Handle potential division by zero or NaN in term5_denominator
             term5 = lax.cond(
                 jnp.isnan(term5_numerator) | (jnp.abs(term5_denominator) < 1e-15),
                 lambda: jnp.nan,
-                lambda: term5_numerator / term5_denominator
+                lambda: term5_numerator / term5_denominator,
             )
 
             base = term1 * term2 * term3 * term4 * term5
@@ -930,13 +1068,15 @@ def _compute_mean_radius_hansen_single(
             a_hansen_ij = lax.cond(
                 jnp.isnan(base) | jnp.isinf(exponent),
                 lambda: lax.cond(
-                    jnp.isnan(base), lambda: jnp.nan,
+                    jnp.isnan(base),
+                    lambda: jnp.nan,
                     lambda: lax.cond(
-                        base > 1.0, lambda: jnp.inf,
-                        lambda: lax.cond(base < 1.0, lambda: 0.0, lambda: 1.0)
-                    )
+                        base > 1.0,
+                        lambda: jnp.inf,
+                        lambda: lax.cond(base < 1.0, lambda: 0.0, lambda: 1.0),
+                    ),
                 ),
-                lambda: base**exponent
+                lambda: base**exponent,
             )
 
             return a_hansen_ij
@@ -944,7 +1084,7 @@ def _compute_mean_radius_hansen_single(
         a_hansen_ij = lax.cond(
             x_gamma_ij + alpha_ij < x_gamma_max,
             use_gamma_function,
-            use_gamma_approximation
+            use_gamma_approximation,
         )
         return a_hansen_ij
 
@@ -955,17 +1095,11 @@ def _compute_mean_radius_hansen_single(
         return 1e-17
 
     a_hansen_ij = lax.cond(
-        r_w_ij > 1e-16,
-        lambda: compute_valid_radius(r_w_ij),
-        handle_invalid_radius
+        r_w_ij > 1e-16, lambda: compute_valid_radius(r_w_ij), handle_invalid_radius
     )
 
     # Handle potential NaN results from valid radius calculation
-    return lax.cond(
-        jnp.isnan(a_hansen_ij),
-        lambda: 1e-17,
-        lambda: a_hansen_ij
-    )
+    return lax.cond(jnp.isnan(a_hansen_ij), lambda: 1e-17, lambda: a_hansen_ij)
 
 
 def compute_cloud_hansen_opacities():
@@ -974,8 +1108,8 @@ def compute_cloud_hansen_opacities():
 
 
 def _compute_cloud_scattering_reduction_factor(
-        cloud_scattering_weighted_reduction,
-        cloud_scattering_opacities,
+    cloud_scattering_weighted_reduction,
+    cloud_scattering_opacities,
 ):
     peak_scattering_opacity = jnp.max(lax.stop_gradient(cloud_scattering_opacities))
     min_scattering_opacity = jnp.maximum(
@@ -1013,18 +1147,18 @@ def _compute_cloud_scattering_reduction_factor(
 
 
 def _integrate_cloud_opacities_from_dn_dr(
-            dn_dr,
-            atmosphere_densities,
-            clouds_particles_densities,
-            cloud_particles_radii_bins,
-            cloud_particles_radii,
-            clouds_absorption_opacities,
-            clouds_scattering_opacities,
-            clouds_particles_asymmetry_parameters,
-            pressures,
-            target_particle_radii,
-            target_pressure,
-            ):
+    dn_dr,
+    atmosphere_densities,
+    clouds_particles_densities,
+    cloud_particles_radii_bins,
+    cloud_particles_radii,
+    clouds_absorption_opacities,
+    clouds_scattering_opacities,
+    clouds_particles_asymmetry_parameters,
+    pressures,
+    target_particle_radii,
+    target_pressure,
+):
     """
     Shared integration backend for both cloud opacity methods.
     Operates purely on dn/dr and handles all integration logic.
@@ -1032,16 +1166,22 @@ def _integrate_cloud_opacities_from_dn_dr(
 
     # Scale factor
     integrand_scale = (
-            (4.0 * np.pi / 3.0)
-            * cloud_particles_radii[:, None, None] ** 3
-            * clouds_particles_densities
-            * dn_dr
+        (4.0 * np.pi / 3.0)
+        * cloud_particles_radii[:, None, None] ** 3
+        * clouds_particles_densities
+        * dn_dr
     )
 
     # Opacities
-    integrand_absorption = integrand_scale[:, None] * clouds_absorption_opacities[:, :, None]
-    integrand_scattering = integrand_scale[:, None] * clouds_scattering_opacities[:, :, None]
-    integrand_anisotropy = integrand_scattering * (1.0 - clouds_particles_asymmetry_parameters[:, :, None])
+    integrand_absorption = (
+        integrand_scale[:, None] * clouds_absorption_opacities[:, :, None]
+    )
+    integrand_scattering = (
+        integrand_scale[:, None] * clouds_scattering_opacities[:, :, None]
+    )
+    integrand_anisotropy = integrand_scattering * (
+        1.0 - clouds_particles_asymmetry_parameters[:, :, None]
+    )
 
     # Selectively disable bins
     # TODO: make JIT compileable
@@ -1067,36 +1207,48 @@ def _integrate_cloud_opacities_from_dn_dr(
     # Integrate over radius
     widths = jnp.diff(cloud_particles_radii_bins)[:, None, None, None]
 
-    _cloud_absorption_opacities = jnp.sum(integrand_absorption * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
-    _cloud_scattering_opacities = jnp.sum(integrand_scattering * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
-    cloud_anisotropic_fraction = jnp.sum(integrand_anisotropy * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
+    _cloud_absorption_opacities = jnp.sum(
+        integrand_absorption * widths, axis=(0, 3)
+    )  # (n_wavelengths, n_layers)
+    _cloud_scattering_opacities = jnp.sum(
+        integrand_scattering * widths, axis=(0, 3)
+    )  # (n_wavelengths, n_layers)
+    cloud_anisotropic_fraction = jnp.sum(
+        integrand_anisotropy * widths, axis=(0, 3)
+    )  # (n_wavelengths, n_layers)
 
-    _cloud_scattering_opacities, cloud_anisotropic_fraction = _compute_cloud_scattering_reduction_factor(
-        cloud_scattering_weighted_reduction=cloud_anisotropic_fraction,
-        cloud_scattering_opacities=_cloud_scattering_opacities,
+    _cloud_scattering_opacities, cloud_anisotropic_fraction = (
+        _compute_cloud_scattering_reduction_factor(
+            cloud_scattering_weighted_reduction=cloud_anisotropic_fraction,
+            cloud_scattering_opacities=_cloud_scattering_opacities,
+        )
     )
 
     _cloud_absorption_opacities = _cloud_absorption_opacities / atmosphere_densities
     _cloud_scattering_opacities = _cloud_scattering_opacities / atmosphere_densities
 
-    return _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_anisotropic_fraction
+    return (
+        _cloud_absorption_opacities,
+        _cloud_scattering_opacities,
+        cloud_anisotropic_fraction,
+    )
 
 
 def compute_cloud_log_normal_particles_distribution_opacities_grid(
-        atmosphere_densities,
-        clouds_particles_densities,
-        clouds_mass_fractions,
-        cloud_particles_mean_radii,
-        cloud_particles_distribution_std,
-        cloud_particles_radii_bins,
-        cloud_particles_radii,
-        clouds_absorption_opacities,
-        clouds_scattering_opacities,
-        clouds_particles_asymmetry_parameters,
-        pressures,
-        target_particle_radii,
-        target_pressure
-    ):
+    atmosphere_densities,
+    clouds_particles_densities,
+    clouds_mass_fractions,
+    cloud_particles_mean_radii,
+    cloud_particles_distribution_std,
+    cloud_particles_radii_bins,
+    cloud_particles_radii,
+    clouds_absorption_opacities,
+    clouds_scattering_opacities,
+    clouds_particles_asymmetry_parameters,
+    pressures,
+    target_particle_radii,
+    target_pressure,
+):
     r"""
     This function integrates the cloud opacity through the different layers of the atmosphere to get the total
     optical depth, scattering and anisotropic fraction.
@@ -1138,25 +1290,23 @@ def compute_cloud_log_normal_particles_distribution_opacities_grid(
 
     # Compute dn/dr from log-normal distribution
     n = (  # (n_layers, n_clouds)
-            3.0
-            * clouds_mass_fractions
-            * atmosphere_densities[:, None]
-            / (4.0 * jnp.pi * clouds_particles_densities * (safe_mean_radii ** 3))
-            * jnp.exp(-4.5 * safe_log_std ** 2)
+        3.0
+        * clouds_mass_fractions
+        * atmosphere_densities[:, None]
+        / (4.0 * jnp.pi * clouds_particles_densities * (safe_mean_radii**3))
+        * jnp.exp(-4.5 * safe_log_std**2)
     )
 
     diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(safe_mean_radii)
 
     dn_dr = (  # (n_radii, n_layers, n_clouds)
-        n / (
-            cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi)
-            * safe_log_std
-        )
-        * jnp.exp(-diff ** 2 / (2.0 * safe_log_std ** 2))
+        n
+        / (cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi) * safe_log_std)
+        * jnp.exp(-(diff**2) / (2.0 * safe_log_std**2))
     )
 
     # Delegate to shared integrator
-    _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g =\
+    _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g = (
         _integrate_cloud_opacities_from_dn_dr(
             dn_dr,
             atmosphere_densities,
@@ -1168,26 +1318,27 @@ def compute_cloud_log_normal_particles_distribution_opacities_grid(
             clouds_particles_asymmetry_parameters,
             pressures,
             target_particle_radii,
-            target_pressure
-            )
+            target_pressure,
+        )
+    )
 
     return _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g
 
 
 def _compute_cloud_opacities_using_particle_size_grid(
-        atmosphere_densities,
-        clouds_mass_fractions,
-        cloud_particle_number_density_grid,
-        clouds_particles_densities,
-        cloud_particles_radii_bins,
-        cloud_particles_radii,
-        clouds_absorption_opacities,
-        clouds_scattering_opacities,
-        clouds_particles_asymmetry_parameters,
-        pressures,
-        target_particle_radii,
-        target_pressure
-        ):
+    atmosphere_densities,
+    clouds_mass_fractions,
+    cloud_particle_number_density_grid,
+    clouds_particles_densities,
+    cloud_particles_radii_bins,
+    cloud_particles_radii,
+    clouds_absorption_opacities,
+    clouds_scattering_opacities,
+    clouds_particles_asymmetry_parameters,
+    pressures,
+    target_particle_radii,
+    target_pressure,
+):
     r"""
     # TODO vectorize on/off code
     Args:
@@ -1229,7 +1380,7 @@ def _compute_cloud_opacities_using_particle_size_grid(
     else:
         dn_dr = cloud_particle_number_density_grid
 
-    _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g = \
+    _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g = (
         _integrate_cloud_opacities_from_dn_dr(
             dn_dr,
             atmosphere_densities,
@@ -1241,7 +1392,8 @@ def _compute_cloud_opacities_using_particle_size_grid(
             clouds_particles_asymmetry_parameters,
             pressures,
             target_particle_radii,
-            target_pressure
+            target_pressure,
         )
+    )
 
     return _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g

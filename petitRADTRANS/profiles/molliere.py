@@ -1,6 +1,5 @@
 import jax.numpy as jnp
-from jax import jit, config
-from jax.typing import ArrayLike
+from scipy.interpolate import interp1d
 
 
 def spline_eddington_adiabatic_temperature_profile(rad_trans_params):

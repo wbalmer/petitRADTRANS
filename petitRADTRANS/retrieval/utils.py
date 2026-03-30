@@ -7,29 +7,25 @@ These functions are designed to be JIT-compilable and to improve the clarity
 and maintainability of the log_likelihood_jax method.
 
 """
+
 import json
 import os
 import warnings
-
 import numpy as np
 from scipy.special import erfcinv, gamma
-
 from typing import Tuple, Union, Optional
 import copy
-
 from jax import lax, numpy as jnp
-import numpy as np
-
 from petitRADTRANS.physics import shift_wavelengths_by_radial_velocity
 from petitRADTRANS.radtrans_core.spectrum_utils import (
     continuum_subtract_spectrum,
     convolve,
     convolve_and_sample_variable_resolution_breads,
-    rebin_spectrum_bin
+    rebin_spectrum_bin,
 )
 from petitRADTRANS.retrieval.log_likelihood import LogLikelihood
 
-SQRT2 = np.sqrt(2)
+SQRT2 = jnp.sqrt(2.0)
 
 
 # Prior Functions
@@ -57,7 +53,7 @@ def delta_prior(cube, x1, x2):
 
 
 def inverse_gamma_prior(cube, a, b):
-    return ((b ** a) / gamma(a)) * (1 / cube) ** (a + 1) * np.exp(-b / cube)
+    return ((b**a) / gamma(a)) * (1 / cube) ** (a + 1) * np.exp(-b / cube)
 
 
 # Sanity checks on parameter ranges
@@ -65,7 +61,7 @@ def b_range(x, b):
     if x > b:
         return -np.inf
     else:
-        return 0.
+        return 0.0
 
 
 def a_b_range(x, a, b):
@@ -74,29 +70,35 @@ def a_b_range(x, a, b):
     elif x > b:
         return -np.inf
     else:
-        return 0.
+        return 0.0
 
 
 # File Formatting
-def get_pymultinest_sample_dict(output_dir, name=None, add_log_likelihood=False, add_stats=False):
+def get_pymultinest_sample_dict(
+    output_dir, name=None, add_log_likelihood=False, add_stats=False
+):
     if name is None:
         name = output_dir.rsplit(os.sep, 1)[1]
 
     if not os.path.isdir(output_dir):
         raise NotADirectoryError(f"output directory '{output_dir}' does not exist")
 
-    sample_file = os.path.join(output_dir, 'out_PMN', name + '_post_equal_weights.dat')
-    parameter_names_file = os.path.join(output_dir, 'out_PMN', name + '_params.json')
+    sample_file = os.path.join(output_dir, "out_PMN", name + "_post_equal_weights.dat")
+    parameter_names_file = os.path.join(output_dir, "out_PMN", name + "_params.json")
 
     if not os.path.isfile(sample_file):
         raise FileNotFoundError(f"sample file '{sample_file}' does not exist")
 
     if not os.path.isfile(parameter_names_file):
-        raise FileNotFoundError(f"parameter names file '{parameter_names_file}' does not exist")
+        raise FileNotFoundError(
+            f"parameter names file '{parameter_names_file}' does not exist"
+        )
 
-    samples = np.genfromtxt(str(os.path.join(output_dir, 'out_PMN', name + '_post_equal_weights.dat')))
+    samples = np.genfromtxt(
+        str(os.path.join(output_dir, "out_PMN", name + "_post_equal_weights.dat"))
+    )
 
-    with open(parameter_names_file, 'r') as f:
+    with open(parameter_names_file, "r") as f:
         parameters_read = json.load(f)
 
     samples_dict = {}
@@ -113,13 +115,13 @@ def get_pymultinest_sample_dict(output_dir, name=None, add_log_likelihood=False,
         samples_dict[key] = samples[:, i]
 
     if add_log_likelihood:
-        samples_dict['log_likelihood'] = samples[:, -1]
+        samples_dict["log_likelihood"] = samples[:, -1]
 
     if add_stats:
-        with open(os.path.join(output_dir, 'out_PMN', name + '_stats.json'), 'r') as f:
+        with open(os.path.join(output_dir, "out_PMN", name + "_stats.json"), "r") as f:
             parameters_read = json.load(f)
 
-        samples_dict['stats'] = parameters_read
+        samples_dict["stats"] = parameters_read
 
     return samples_dict
 
@@ -149,27 +151,34 @@ def get_calculate_flux_return_values(parameters):
         return_abundances = parameters["return_abundances"].value
         return_any = True
     if "return_radius_hydrostatic_equilibrium" in parameters.keys():
-        return_radius_hydrostatic_equilibrium = parameters["return_radius_hydrostatic_equilibrium"].value
+        return_radius_hydrostatic_equilibrium = parameters[
+            "return_radius_hydrostatic_equilibrium"
+        ].value
         return_any = True
     if "return_rosseland_optical_depths" in parameters.keys():
-        return_rosseland_optical_depths = parameters["return_rosseland_optical_depths"].value
+        return_rosseland_optical_depths = parameters[
+            "return_rosseland_optical_depths"
+        ].value
         return_any = True
     if "return_cloud_contribution" in parameters.keys():
         return_cloud_contribution = parameters["return_cloud_contribution"].value
         return_any = True
-    return (return_contribution,
-            return_opacities,
-            return_photosphere_radius,
-            return_rosseland_optical_depths,
-            return_radius_hydrostatic_equilibrium,
-            return_cloud_contribution,
-            return_abundances,
-            return_any)
+    return (
+        return_contribution,
+        return_opacities,
+        return_photosphere_radius,
+        return_rosseland_optical_depths,
+        return_radius_hydrostatic_equilibrium,
+        return_cloud_contribution,
+        return_abundances,
+        return_any,
+    )
+
 
 def unpack_model_output(
     model_returned_values: Union[tuple, list],
     retrieve_uncertainties: bool,
-    variability_atmospheric_column_model_flux_return_mode: bool
+    variability_atmospheric_column_model_flux_return_mode: bool,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, float, float, Optional[jnp.ndarray]]:
     """
     Unified handler for parsing model_returned_values from the model generating function.
@@ -194,14 +203,20 @@ def unpack_model_output(
 
     if retrieve_uncertainties:
         if len(model_returned_values) == 4:
-            wavelengths_model, spectrum_model, beta, additional_log_l = model_returned_values
+            wavelengths_model, spectrum_model, beta, additional_log_l = (
+                model_returned_values
+            )
         else:
             wavelengths_model, spectrum_model, beta = model_returned_values
             additional_log_l = 0.0
     else:
         if variability_atmospheric_column_model_flux_return_mode:
-            (wavelengths_model, spectrum_model, additional_log_l,
-             atmospheric_model_column_fluxes) = model_returned_values
+            (
+                wavelengths_model,
+                spectrum_model,
+                additional_log_l,
+                atmospheric_model_column_fluxes,
+            ) = model_returned_values
         elif len(model_returned_values) == 3:
             wavelengths_model, spectrum_model, additional_log_l = model_returned_values
         else:
@@ -212,7 +227,13 @@ def unpack_model_output(
     if additional_log_l is None:
         additional_log_l = 0.0
 
-    return wavelengths_model, spectrum_model, beta, additional_log_l, atmospheric_model_column_fluxes
+    return (
+        wavelengths_model,
+        spectrum_model,
+        beta,
+        additional_log_l,
+        atmospheric_model_column_fluxes,
+    )
 
 
 def extract_spectrum_parameters(parameters: dict, data_name: str) -> dict:
@@ -230,24 +251,22 @@ def extract_spectrum_parameters(parameters: dict, data_name: str) -> dict:
     param_dict = {}
 
     # Resolution parameters
-    param_dict['resolution_slope'] = (
-        parameters.get(data_name + "_R_slope", None)
-    )
-    param_dict['resolution_intersect'] = (
-        parameters.get(data_name + "_R_int", None)
-    )
+    param_dict["resolution_slope"] = parameters.get(data_name + "_R_slope", None)
+    param_dict["resolution_intersect"] = parameters.get(data_name + "_R_int", None)
 
     # Radial velocity parameters - check both data-specific and system-wide
     if data_name + "_radial_velocity" in parameters:
-        param_dict['radial_velocity'] = parameters[data_name + "_radial_velocity"].value * 1e5
+        param_dict["radial_velocity"] = (
+            parameters[data_name + "_radial_velocity"].value * 1e5
+        )
     elif "system_radial_velocity" in parameters:
-        param_dict['radial_velocity'] = parameters["system_radial_velocity"].value * 1e5
+        param_dict["radial_velocity"] = parameters["system_radial_velocity"].value * 1e5
     else:
-        param_dict['radial_velocity'] = None
+        param_dict["radial_velocity"] = None
 
     # Continuum subtraction method
-    param_dict['continuum_subtraction_method'] = (
-        parameters.get('continuum_subtraction_method', None)
+    param_dict["continuum_subtraction_method"] = parameters.get(
+        "continuum_subtraction_method", None
     )
 
     return param_dict
@@ -259,7 +278,7 @@ def process_spectrum_pipeline(
     data,
     parameters: dict,
     data_name: str,
-    spectrum_params: Optional[dict] = None
+    spectrum_params: Optional[dict] = None,
 ) -> jnp.ndarray:
     """
     Execute the spectrum processing pipeline: convolution, rebin, RV shift, continuum subtraction.
@@ -283,17 +302,16 @@ def process_spectrum_pipeline(
 
     # Handle variable resolution convolution and rebin
     if data.fit_instrumental_resolution:
-        resolution_slope = spectrum_params['resolution_slope']
-        resolution_intersect = spectrum_params['resolution_intersect']
+        resolution_slope = spectrum_params["resolution_slope"]
+        resolution_intersect = spectrum_params["resolution_intersect"]
         if resolution_slope is not None and resolution_intersect is not None:
             resolution_slope = resolution_slope.value
             resolution_intersect = resolution_intersect.value
-            resolution_array = (data.wavelengths * resolution_slope) + resolution_intersect
+            resolution_array = (
+                data.wavelengths * resolution_slope
+            ) + resolution_intersect
             model_spectrum_rebinned = convolve_and_sample_variable_resolution_breads(
-                data.wavelengths,
-                resolution_array,
-                data.wavelengths,
-                spectrum_model
+                data.wavelengths, resolution_array, data.wavelengths, spectrum_model
             )
         else:
             model_spectrum_rebinned = spectrum_model
@@ -304,16 +322,15 @@ def process_spectrum_pipeline(
     model_spectrum_convolved = spectrum_model
     if data.data_resolution is not None:
         model_spectrum_convolved = convolve(
-            wavelengths_model,
-            spectrum_model,
-            data.data_resolution
+            wavelengths_model, spectrum_model, data.data_resolution
         )
 
     # Apply radial velocity shift
     wavelengths_model_shifted = wavelengths_model.copy()
-    if spectrum_params['radial_velocity'] is not None:
-        wavelengths_model_shifted = wavelengths_model_shifted * shift_wavelengths_by_radial_velocity(
-            spectrum_params['radial_velocity']
+    if spectrum_params["radial_velocity"] is not None:
+        wavelengths_model_shifted = (
+            wavelengths_model_shifted
+            * shift_wavelengths_by_radial_velocity(spectrum_params["radial_velocity"])
         )
 
     # Rebin to data wavelengths if not already done
@@ -329,26 +346,28 @@ def process_spectrum_pipeline(
                 wavelengths_model_shifted,
                 model_spectrum_convolved,
                 data.wavelengths,
-                data.wavelength_bin_widths
+                data.wavelength_bin_widths,
             )
 
     # Continuum subtraction if needed
     if data.subtract_continuum:
-        method = 'spline'
-        if spectrum_params['continuum_subtraction_method'] is not None:
-            method = spectrum_params['continuum_subtraction_method'].value
+        method = "spline"
+        if spectrum_params["continuum_subtraction_method"] is not None:
+            method = spectrum_params["continuum_subtraction_method"].value
         model_spectrum_rebinned = continuum_subtract_spectrum(
             wavelengths=data.wavelengths,
             spectrum=model_spectrum_rebinned,
             parameters=parameters,
             method=method,
-            name=data_name
+            name=data_name,
         )
 
     return model_spectrum_rebinned
 
 
-def broadcast_spectrum_to_mask(spectrum_model: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
+def broadcast_spectrum_to_mask(
+    spectrum_model: jnp.ndarray, mask: jnp.ndarray
+) -> jnp.ndarray:
     """
     Apply mask to spectrum, handling different dimensionality combinations.
 
@@ -373,7 +392,7 @@ def compute_log_likelihood_for_spectrum(
     n_free_parameters: int,
     use_log_likelihood_object: bool = False,
     beta: float = 1.0,
-    beta_mode: str = "multiply"
+    beta_mode: str = "multiply",
 ) -> float:
     """
     Compute log likelihood for a single spectrum, handling different approaches.
@@ -419,7 +438,7 @@ def compute_log_likelihood_for_spectrum(
                 data_spectrum=data_spectrum,
                 data_uncertainties=data_uncertainties,
                 data_covariance=data_covariance,
-                n_free_parameters=n_free_parameters
+                n_free_parameters=n_free_parameters,
             ).calculate_log_likelihood()
         else:
             # This assumes data has a log_likelihood method
@@ -428,15 +447,11 @@ def compute_log_likelihood_for_spectrum(
                 data_spectrum_masked,
                 data_uncertainties_masked,
                 beta=beta,
-                beta_mode=beta_mode
+                beta_mode=beta_mode,
             )
 
     # Return NaN compensation or computed value
-    return lax.cond(
-        has_nans,
-        lambda: -1e99,
-        compute_likelihood
-    )
+    return lax.cond(has_nans, lambda: -1e99, compute_likelihood)
 
 
 def handle_dimenstionality_dispatch(
@@ -446,7 +461,7 @@ def handle_dimenstionality_dispatch(
     data_uncertainties: jnp.ndarray,
     use_data_log_likelihood_method: bool = False,
     beta: float = 1.0,
-    beta_mode: str = "multiply"
+    beta_mode: str = "multiply",
 ) -> float:
     """
     Dispatch log likelihood computation based on spectrum dimensionality.
@@ -476,20 +491,41 @@ def handle_dimenstionality_dispatch(
     if spectrum_ndim == 1 and model_ndim == 1:
         # 1D-1D case
         return compute_log_likelihood_for_spectrum(
-            spectrum_model, data_spectrum, data_uncertainties, None,
-            data_mask, 0, use_data_log_likelihood_method, beta, beta_mode
+            spectrum_model,
+            data_spectrum,
+            data_uncertainties,
+            None,
+            data_mask,
+            0,
+            use_data_log_likelihood_method,
+            beta,
+            beta_mode,
         )
     elif spectrum_ndim == 1 and model_ndim == 2:
         # Take first row of model
         return compute_log_likelihood_for_spectrum(
-            spectrum_model[0, :], data_spectrum, data_uncertainties, None,
-            None, 0, use_data_log_likelihood_method, beta, beta_mode
+            spectrum_model[0, :],
+            data_spectrum,
+            data_uncertainties,
+            None,
+            None,
+            0,
+            use_data_log_likelihood_method,
+            beta,
+            beta_mode,
         )
     elif spectrum_ndim == 1 and model_ndim == 3:
         # Take first element of first two dimensions
         return compute_log_likelihood_for_spectrum(
-            spectrum_model[0, 0, :], data_spectrum, data_uncertainties, None,
-            None, 0, use_data_log_likelihood_method, beta, beta_mode
+            spectrum_model[0, 0, :],
+            data_spectrum,
+            data_uncertainties,
+            None,
+            None,
+            0,
+            use_data_log_likelihood_method,
+            beta,
+            beta_mode,
         )
     elif spectrum_ndim == 2 and model_ndim == 2:
         # 2D-2D case: loop over first dimension
@@ -498,12 +534,19 @@ def handle_dimenstionality_dispatch(
             for i in range(data_spectrum.shape[0]):
                 log_l_contributions.append(
                     compute_log_likelihood_for_spectrum(
-                        spectrum_model[i, :], data_spectrum[i, :],
-                        data_uncertainties[i, :], None, data_mask[i, :],
-                        0, use_data_log_likelihood_method, beta, beta_mode
+                        spectrum_model[i, :],
+                        data_spectrum[i, :],
+                        data_uncertainties[i, :],
+                        None,
+                        data_mask[i, :],
+                        0,
+                        use_data_log_likelihood_method,
+                        beta,
+                        beta_mode,
                     )
                 )
             return jnp.sum(jnp.array(log_l_contributions))
+
         return compute_log_l_2d()
     elif spectrum_ndim == 3 and model_ndim == 3:
         # 3D-3D case: loop over first two dimensions
@@ -513,12 +556,19 @@ def handle_dimenstionality_dispatch(
                 for j in range(data_spectrum.shape[1]):
                     log_l_contributions.append(
                         compute_log_likelihood_for_spectrum(
-                            spectrum_model[i, j, :], data_spectrum[i, j, :],
-                            data_uncertainties[i, j, :], None, data_mask[i, j, :],
-                            0, use_data_log_likelihood_method, beta, beta_mode
+                            spectrum_model[i, j, :],
+                            data_spectrum[i, j, :],
+                            data_uncertainties[i, j, :],
+                            None,
+                            data_mask[i, j, :],
+                            0,
+                            use_data_log_likelihood_method,
+                            beta,
+                            beta_mode,
                         )
                     )
             return jnp.sum(jnp.array(log_l_contributions))
+
         return compute_log_l_3d()
     else:
         # Unhandled dimensionality combination
@@ -529,8 +579,7 @@ def handle_dimenstionality_dispatch(
 
 
 def validate_model_output(
-    spectrum_model: Optional[jnp.ndarray],
-    wavelengths_model: Optional[jnp.ndarray]
+    spectrum_model: Optional[jnp.ndarray], wavelengths_model: Optional[jnp.ndarray]
 ) -> bool:
     """
     Validate model output for NaNs and None values.
@@ -548,18 +597,12 @@ def validate_model_output(
     if isinstance(spectrum_model, np.ma.MaskedArray):
         spectrum_model = spectrum_model.filled(0)
 
-    value = lax.cond(
-        jnp.isnan(spectrum_model).any(),
-        lambda: False,
-        lambda: True
-    )
+    value = lax.cond(jnp.isnan(spectrum_model).any(), lambda: False, lambda: True)
 
     return value
 
 
-def ensure_jax_array(
-    array: Union[np.ndarray, jnp.ndarray]
-) -> jnp.ndarray:
+def ensure_jax_array(array: Union[np.ndarray, jnp.ndarray]) -> jnp.ndarray:
     """
     Ensure array is in JAX format for JIT compilation.
 

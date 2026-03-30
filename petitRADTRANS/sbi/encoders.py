@@ -8,7 +8,12 @@ import equinox as eqx
 from jax import Array, vmap, random
 import jax.numpy as jnp
 
-from .observation import EncodedObservation, ObservationBlock, ObservationEncoder, ObservationModality
+from .observation import (
+    EncodedObservation,
+    ObservationBlock,
+    ObservationEncoder,
+    ObservationModality,
+)
 
 
 def _as_vector(values: Any) -> jnp.ndarray:
@@ -42,7 +47,7 @@ def _summaries(values: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
     valid_count = jnp.maximum(1.0, jnp.sum(~mask).astype(jnp.float32))
     mean_value = jnp.sum(valid) / valid_count
     centered = jnp.where(mask, jnp.zeros_like(values), values - mean_value)
-    std_value = jnp.sqrt(jnp.sum(centered ** 2) / valid_count)
+    std_value = jnp.sqrt(jnp.sum(centered**2) / valid_count)
 
     return jnp.asarray(
         [
@@ -61,7 +66,7 @@ def _resize_embedding(features: jnp.ndarray, embedding_dim: int) -> jnp.ndarray:
     features = jnp.ravel(jnp.asarray(features, dtype=jnp.float32))
 
     if embedding_dim <= 0:
-        raise ValueError('embedding_dim must be positive.')
+        raise ValueError("embedding_dim must be positive.")
 
     if features.shape[0] == embedding_dim:
         return features
@@ -117,7 +122,9 @@ class SpectralPatchEncoder(eqx.Module):
         self.embedding_dim = int(embedding_dim)
         self.patch_size = int(patch_size)
         self.patch_mlp = eqx.nn.MLP(18, self.embedding_dim, hidden_dim, 2, key=mlp_key)
-        self.output_projection = eqx.nn.Linear(self.embedding_dim, self.embedding_dim, key=projection_key)
+        self.output_projection = eqx.nn.Linear(
+            self.embedding_dim, self.embedding_dim, key=projection_key
+        )
 
     def encode_block(self, block: ObservationBlock) -> jnp.ndarray:
         """Encode one spectral observation block.
@@ -149,14 +156,18 @@ class SpectralPatchEncoder(eqx.Module):
 
         padding_indicator = jnp.arange(padded_length) >= n
 
-        values_padded = jnp.concatenate([values, jnp.zeros(pad_size, dtype=jnp.float32)])
+        values_padded = jnp.concatenate(
+            [values, jnp.zeros(pad_size, dtype=jnp.float32)]
+        )
         mask_padded = jnp.concatenate([mask, jnp.ones(pad_size, dtype=bool)])
         values_2d = values_padded.reshape(n_patches, ps)
         mask_2d = mask_padded.reshape(n_patches, ps)
 
         if uncertainties.shape[0] > 0:
             unc_pad = max(0, padded_length - uncertainties.shape[0])
-            unc_padded = jnp.concatenate([uncertainties, jnp.zeros(unc_pad, dtype=jnp.float32)])[:padded_length]
+            unc_padded = jnp.concatenate(
+                [uncertainties, jnp.zeros(unc_pad, dtype=jnp.float32)]
+            )[:padded_length]
             unc_mask_2d = padding_indicator.reshape(n_patches, ps)
         else:
             unc_padded = jnp.zeros(padded_length, dtype=jnp.float32)
@@ -165,7 +176,9 @@ class SpectralPatchEncoder(eqx.Module):
 
         if coordinates.shape[0] > 0:
             coord_pad = max(0, padded_length - coordinates.shape[0])
-            coord_padded = jnp.concatenate([coordinates, jnp.zeros(coord_pad, dtype=jnp.float32)])[:padded_length]
+            coord_padded = jnp.concatenate(
+                [coordinates, jnp.zeros(coord_pad, dtype=jnp.float32)]
+            )[:padded_length]
             coord_mask_2d = padding_indicator.reshape(n_patches, ps)
         else:
             coord_padded = jnp.zeros(padded_length, dtype=jnp.float32)
@@ -173,9 +186,13 @@ class SpectralPatchEncoder(eqx.Module):
         coord_2d = coord_padded.reshape(n_patches, ps)
 
         def _patch_summary(v, vm, u, um, c, cm):
-            return jnp.concatenate((_summaries(v, vm), _summaries(u, um), _summaries(c, cm)))
+            return jnp.concatenate(
+                (_summaries(v, vm), _summaries(u, um), _summaries(c, cm))
+            )
 
-        summaries = vmap(_patch_summary)(values_2d, mask_2d, unc_2d, unc_mask_2d, coord_2d, coord_mask_2d)
+        summaries = vmap(_patch_summary)(
+            values_2d, mask_2d, unc_2d, unc_mask_2d, coord_2d, coord_mask_2d
+        )
         patch_embeddings = vmap(self.patch_mlp)(summaries)
         pooled = jnp.mean(patch_embeddings, axis=0)
         return self.output_projection(pooled)
@@ -203,14 +220,18 @@ class PhotometryPointEncoder(eqx.Module):
     output_projection: eqx.nn.Linear
     embedding_dim: int = eqx.field(static=True)
 
-    def __init__(self, embedding_dim: int = 64, hidden_dim: int = 96, key: Array | None = None):
+    def __init__(
+        self, embedding_dim: int = 64, hidden_dim: int = 96, key: Array | None = None
+    ):
         if key is None:
             key = random.PRNGKey(1)
 
         mlp_key, projection_key = random.split(key)
         self.embedding_dim = int(embedding_dim)
         self.point_mlp = eqx.nn.MLP(4, self.embedding_dim, hidden_dim, 2, key=mlp_key)
-        self.output_projection = eqx.nn.Linear(self.embedding_dim, self.embedding_dim, key=projection_key)
+        self.output_projection = eqx.nn.Linear(
+            self.embedding_dim, self.embedding_dim, key=projection_key
+        )
 
     def encode_block(self, block: ObservationBlock) -> jnp.ndarray:
         """Encode one photometric observation block.
@@ -238,11 +259,17 @@ class PhotometryPointEncoder(eqx.Module):
         if coordinates.shape[0] == 0:
             coordinates = jnp.zeros_like(values)
 
-        widths = jnp.concatenate((jnp.diff(coordinates), jnp.zeros((1,), dtype=coordinates.dtype)), axis=0)
-        point_features = jnp.stack((values, uncertainties, coordinates, widths), axis=-1)
+        widths = jnp.concatenate(
+            (jnp.diff(coordinates), jnp.zeros((1,), dtype=coordinates.dtype)), axis=0
+        )
+        point_features = jnp.stack(
+            (values, uncertainties, coordinates, widths), axis=-1
+        )
         encoded_points = vmap(self.point_mlp)(point_features)
         valid_weights = (~mask).astype(jnp.float32)[:, None]
-        pooled = jnp.sum(encoded_points * valid_weights, axis=0) / jnp.maximum(jnp.sum(valid_weights), 1.0)
+        pooled = jnp.sum(encoded_points * valid_weights, axis=0) / jnp.maximum(
+            jnp.sum(valid_weights), 1.0
+        )
         return self.output_projection(pooled)
 
 
@@ -263,14 +290,20 @@ class DatasetSetAggregator(eqx.Module):
     output_projection: eqx.nn.Linear
     embedding_dim: int = eqx.field(static=True)
 
-    def __init__(self, embedding_dim: int = 128, hidden_dim: int = 128, key: Array | None = None):
+    def __init__(
+        self, embedding_dim: int = 128, hidden_dim: int = 128, key: Array | None = None
+    ):
         if key is None:
             key = random.PRNGKey(2)
 
         mlp_key, projection_key = random.split(key)
         self.embedding_dim = int(embedding_dim)
-        self.block_projection = eqx.nn.MLP(self.embedding_dim, self.embedding_dim, hidden_dim, 2, key=mlp_key)
-        self.output_projection = eqx.nn.Linear(self.embedding_dim * 3, self.embedding_dim, key=projection_key)
+        self.block_projection = eqx.nn.MLP(
+            self.embedding_dim, self.embedding_dim, hidden_dim, 2, key=mlp_key
+        )
+        self.output_projection = eqx.nn.Linear(
+            self.embedding_dim * 3, self.embedding_dim, key=projection_key
+        )
 
     def aggregate(self, block_embeddings: list[jnp.ndarray]) -> jnp.ndarray:
         """Aggregate a list of block embeddings into one observation embedding.
@@ -291,7 +324,11 @@ class DatasetSetAggregator(eqx.Module):
         stacked = jnp.stack(block_embeddings, axis=0)
         projected = vmap(self.block_projection)(stacked)
         pooled = jnp.concatenate(
-            (jnp.mean(projected, axis=0), jnp.max(projected, axis=0), jnp.std(projected, axis=0)),
+            (
+                jnp.mean(projected, axis=0),
+                jnp.max(projected, axis=0),
+                jnp.std(projected, axis=0),
+            ),
             axis=0,
         )
         return self.output_projection(pooled)
@@ -341,9 +378,15 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
 
         spectrum_key, photometry_key, aggregator_key = random.split(key, 3)
         self.embedding_dim = int(embedding_dim)
-        self.spectrum_encoder = SpectralPatchEncoder(spectrum_embedding_dim, patch_size, hidden_dim, spectrum_key)
-        self.photometry_encoder = PhotometryPointEncoder(photometry_embedding_dim, hidden_dim, photometry_key)
-        self.aggregator = DatasetSetAggregator(self.embedding_dim, hidden_dim, aggregator_key)
+        self.spectrum_encoder = SpectralPatchEncoder(
+            spectrum_embedding_dim, patch_size, hidden_dim, spectrum_key
+        )
+        self.photometry_encoder = PhotometryPointEncoder(
+            photometry_embedding_dim, hidden_dim, photometry_key
+        )
+        self.aggregator = DatasetSetAggregator(
+            self.embedding_dim, hidden_dim, aggregator_key
+        )
 
     def _encode_block(self, block: ObservationBlock) -> jnp.ndarray:
         """Encode one observation block with modality-aware dispatch.
@@ -386,15 +429,15 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
             embedding=_resize_embedding(aggregated_embedding, self.embedding_dim),
             mask=None,
             metadata={
-                'n_blocks': len(blocks),
-                'modalities': [block.modality.value for block in blocks],
+                "n_blocks": len(blocks),
+                "modalities": [block.modality.value for block in blocks],
             },
         )
 
 
 __all__ = [
-    'DatasetSetAggregator',
-    'HierarchicalObservationEncoder',
-    'PhotometryPointEncoder',
-    'SpectralPatchEncoder',
+    "DatasetSetAggregator",
+    "HierarchicalObservationEncoder",
+    "PhotometryPointEncoder",
+    "SpectralPatchEncoder",
 ]

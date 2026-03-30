@@ -10,10 +10,18 @@ from dataclasses import dataclass, field
 import importlib.metadata
 from typing import Any, Mapping
 
-from petitRADTRANS.sbi.compatibility import CompatibilityReport, TaskFingerprint, compare_named_mappings
+from petitRADTRANS.sbi.compatibility import (
+    CompatibilityReport,
+    TaskFingerprint,
+    compare_named_mappings,
+)
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
-from petitRADTRANS.retrieval.runtime import ObservationState, ParameterLayout, RetrievalRuntime
+from petitRADTRANS.retrieval.runtime import (
+    ObservationState,
+    ParameterLayout,
+    RetrievalRuntime,
+)
 
 
 @dataclass(frozen=True)
@@ -29,7 +37,7 @@ class NoiseModelConfig:
             Optional deterministic seed for repeatable simulation pipelines.
     """
 
-    mode: str = 'observational'
+    mode: str = "observational"
     parameters: Mapping[str, Any] = field(default_factory=dict)
     seed: int | None = None
 
@@ -92,11 +100,11 @@ class SBITask:
     parameter_layout: ParameterLayout
     observation_schema: ObservationSchema
     simulation_config: SimulationConfig = field(default_factory=SimulationConfig)
-    task_version: str = '0.1.0'
-    preprocessing_version: str = '0.1.0'
-    forward_model_family: str = 'unknown'
+    task_version: str = "0.1.0"
+    preprocessing_version: str = "0.1.0"
+    forward_model_family: str = "unknown"
     petitradtrans_version: str = field(
-        default_factory=lambda: importlib.metadata.version('petitRADTRANS')
+        default_factory=lambda: importlib.metadata.version("petitRADTRANS")
     )
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
@@ -106,7 +114,7 @@ class SBITask:
         retrieval_config: RetrievalConfig,
         simulation_config: SimulationConfig | None = None,
         metadata: Mapping[str, Any] | None = None,
-    ) -> 'SBITask':
+    ) -> "SBITask":
         """Create an SBI task from an existing retrieval configuration.
 
         Parameters
@@ -145,8 +153,8 @@ class SBITask:
             modalities=modalities,
             metadata={
                 name: {
-                    'line_opacity_mode': data.line_opacity_mode,
-                    'photometry': data.photometry,
+                    "line_opacity_mode": data.line_opacity_mode,
+                    "photometry": data.photometry,
                 }
                 for name, data in retrieval_config.data.items()
             },
@@ -159,11 +167,13 @@ class SBITask:
             parameter_layout=parameter_layout,
             observation_schema=observation_schema,
             simulation_config=simulation_config or SimulationConfig(),
-            task_version=str(metadata_dict.pop('task_version', '0.1.0')),
-            preprocessing_version=str(metadata_dict.pop('preprocessing_version', '0.1.0')),
+            task_version=str(metadata_dict.pop("task_version", "0.1.0")),
+            preprocessing_version=str(
+                metadata_dict.pop("preprocessing_version", "0.1.0")
+            ),
             forward_model_family=str(
                 metadata_dict.pop(
-                    'forward_model_family',
+                    "forward_model_family",
                     cls._infer_forward_model_family(retrieval_config),
                 )
             ),
@@ -187,15 +197,15 @@ class SBITask:
     def fingerprint_payload(self) -> Mapping[str, Any]:
         """Return the deterministic payload used to fingerprint the task family."""
         return {
-            'name': self.name,
-            'task_version': self.task_version,
-            'preprocessing_version': self.preprocessing_version,
-            'forward_model_family': self.forward_model_family,
-            'petitradtrans_version': self.petitradtrans_version,
-            'parameter_names': self.parameter_names,
-            'dataset_names': self.observation_schema.dataset_names,
-            'modalities': dict(self.observation_schema.modalities),
-            'line_opacity_modes': dict(self.line_opacity_modes),
+            "name": self.name,
+            "task_version": self.task_version,
+            "preprocessing_version": self.preprocessing_version,
+            "forward_model_family": self.forward_model_family,
+            "petitradtrans_version": self.petitradtrans_version,
+            "parameter_names": self.parameter_names,
+            "dataset_names": self.observation_schema.dataset_names,
+            "modalities": dict(self.observation_schema.modalities),
+            "line_opacity_modes": dict(self.line_opacity_modes),
         }
 
     @property
@@ -203,7 +213,9 @@ class SBITask:
         """Return the deterministic fingerprint of the task family."""
         return TaskFingerprint.from_payload(self.fingerprint_payload)
 
-    def validate_observation_schema(self, observation_schema: ObservationSchema) -> CompatibilityReport:
+    def validate_observation_schema(
+        self, observation_schema: ObservationSchema
+    ) -> CompatibilityReport:
         """Compare an external observation schema with the task expectation.
 
         Parameters
@@ -218,17 +230,17 @@ class SBITask:
             Structured compatibility report containing mismatches, if any.
         """
         expected_payload = {
-            'dataset_names': self.observation_schema.dataset_names,
-            'modalities': dict(self.observation_schema.modalities),
+            "dataset_names": self.observation_schema.dataset_names,
+            "modalities": dict(self.observation_schema.modalities),
         }
         observed_payload = {
-            'dataset_names': observation_schema.dataset_names,
-            'modalities': dict(observation_schema.modalities),
+            "dataset_names": observation_schema.dataset_names,
+            "modalities": dict(observation_schema.modalities),
         }
         return compare_named_mappings(
             expected=expected_payload,
             observed=observed_payload,
-            prefix='observation_schema',
+            prefix="observation_schema",
         )
 
     def validate_artifact_metadata(self, artifact_metadata: Any) -> CompatibilityReport:
@@ -250,31 +262,39 @@ class SBITask:
         the task module to the artifact module.
         """
         expected_payload = {
-            'task_version': self.task_version,
-            'preprocessing_version': self.preprocessing_version,
-            'forward_model_family': self.forward_model_family,
-            'petitradtrans_version': self.petitradtrans_version,
-            'task_fingerprint': self.task_fingerprint.digest,
-            'observation_schema': {
-                'dataset_names': self.observation_schema.dataset_names,
-                'modalities': dict(self.observation_schema.modalities),
+            "task_version": self.task_version,
+            "preprocessing_version": self.preprocessing_version,
+            "forward_model_family": self.forward_model_family,
+            "petitradtrans_version": self.petitradtrans_version,
+            "task_fingerprint": self.task_fingerprint.digest,
+            "observation_schema": {
+                "dataset_names": self.observation_schema.dataset_names,
+                "modalities": dict(self.observation_schema.modalities),
             },
         }
         observed_payload = {
-            'task_version': getattr(artifact_metadata, 'task_version', None),
-            'preprocessing_version': getattr(artifact_metadata, 'preprocessing_version', None),
-            'forward_model_family': getattr(artifact_metadata, 'forward_model_family', None),
-            'petitradtrans_version': getattr(artifact_metadata, 'petitradtrans_version', None),
-            'task_fingerprint': getattr(artifact_metadata, 'task_fingerprint', None),
-            'observation_schema': getattr(artifact_metadata, 'observation_schema', {}),
+            "task_version": getattr(artifact_metadata, "task_version", None),
+            "preprocessing_version": getattr(
+                artifact_metadata, "preprocessing_version", None
+            ),
+            "forward_model_family": getattr(
+                artifact_metadata, "forward_model_family", None
+            ),
+            "petitradtrans_version": getattr(
+                artifact_metadata, "petitradtrans_version", None
+            ),
+            "task_fingerprint": getattr(artifact_metadata, "task_fingerprint", None),
+            "observation_schema": getattr(artifact_metadata, "observation_schema", {}),
         }
         return compare_named_mappings(
             expected=expected_payload,
             observed=observed_payload,
-            prefix='artifact_metadata',
+            prefix="artifact_metadata",
         )
 
-    def build_observation_states(self, model_contract: str = 'runtime_native') -> dict[str, ObservationState]:
+    def build_observation_states(
+        self, model_contract: str = "runtime_native"
+    ) -> dict[str, ObservationState]:
         """Materialize immutable runtime observations for the task datasets.
 
         Parameters
@@ -313,11 +333,11 @@ class SBITask:
 
     @staticmethod
     def _infer_modality(data: Data) -> str:
-        if getattr(data, 'photometry', False):
-            return 'photometry'
-        if data.__class__.__name__ == 'TimeSeriesData':
-            return 'time_series'
-        return 'spectrum'
+        if getattr(data, "photometry", False):
+            return "photometry"
+        if data.__class__.__name__ == "TimeSeriesData":
+            return "time_series"
+        return "spectrum"
 
     @staticmethod
     def _infer_forward_model_family(retrieval_config: RetrievalConfig) -> str:
@@ -326,11 +346,11 @@ class SBITask:
         for data in retrieval_config.data.values():
             model_function = data.model_generating_function
             if model_function is None:
-                model_names.append('external_radtrans_reference')
+                model_names.append("external_radtrans_reference")
                 continue
 
-            module = getattr(model_function, '__module__', '__callable__')
-            qualname = getattr(model_function, '__qualname__', repr(model_function))
-            model_names.append(f'{module}.{qualname}')
+            module = getattr(model_function, "__module__", "__callable__")
+            qualname = getattr(model_function, "__qualname__", repr(model_function))
+            model_names.append(f"{module}.{qualname}")
 
-        return '|'.join(sorted(set(model_names))) if model_names else 'unknown'
+        return "|".join(sorted(set(model_names))) if model_names else "unknown"

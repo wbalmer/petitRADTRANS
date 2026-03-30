@@ -112,7 +112,9 @@ def _coerce_sample_array(samples: Any) -> np.ndarray:
     if sample_array.ndim == 3:
         return sample_array
 
-    raise ValueError(f'Expected posterior samples with 1, 2, or 3 dimensions, got shape {sample_array.shape}.')
+    raise ValueError(
+        f"Expected posterior samples with 1, 2, or 3 dimensions, got shape {sample_array.shape}."
+    )
 
 
 def _coerce_truth_array(truths: Any) -> np.ndarray:
@@ -131,20 +133,30 @@ def _selected_case_indices(n_cases: int, max_cases: int | None) -> list[int]:
     return list(range(min(int(max_cases), n_cases)))
 
 
-def _posterior_space_to_physical(task: SBITask, samples: Any, parameter_space: str) -> np.ndarray:
+def _posterior_space_to_physical(
+    task: SBITask, samples: Any, parameter_space: str
+) -> np.ndarray:
     sample_array = np.asarray(samples, dtype=float)
 
-    if parameter_space == 'physical':
+    if parameter_space == "physical":
         return sample_array
-    if parameter_space == 'cube':
-        return np.asarray(task.parameter_layout.transform_cube_to_physical_batch(sample_array), dtype=float)
-    if parameter_space == 'unconstrained':
-        return np.asarray(task.parameter_layout.transform_unconstrained_batch(sample_array), dtype=float)
+    if parameter_space == "cube":
+        return np.asarray(
+            task.parameter_layout.transform_cube_to_physical_batch(sample_array),
+            dtype=float,
+        )
+    if parameter_space == "unconstrained":
+        return np.asarray(
+            task.parameter_layout.transform_unconstrained_batch(sample_array),
+            dtype=float,
+        )
 
     raise ValueError(f"Unsupported parameter_space: {parameter_space!r}")
 
 
-def central_credible_interval(samples: Any, level: float = 0.8) -> tuple[np.ndarray, np.ndarray]:
+def central_credible_interval(
+    samples: Any, level: float = 0.8
+) -> tuple[np.ndarray, np.ndarray]:
     """Compute a central credible interval from posterior samples.
 
     Parameters
@@ -164,7 +176,9 @@ def central_credible_interval(samples: Any, level: float = 0.8) -> tuple[np.ndar
 
     sample_array = _coerce_sample_array(samples)
     if sample_array.ndim == 3:
-        raise ValueError('central_credible_interval expects samples for one posterior, not a batch of posteriors.')
+        raise ValueError(
+            "central_credible_interval expects samples for one posterior, not a batch of posteriors."
+        )
 
     alpha = max(0.0, min(1.0, 1.0 - float(level))) / 2.0
     lower = np.quantile(sample_array, alpha, axis=0)
@@ -197,7 +211,9 @@ def empirical_interval_coverage(samples: Any, truths: Any, level: float = 0.8) -
     if sample_array.ndim == 2:
         sample_array = sample_array[:, :, None]
     if sample_array.ndim != 3:
-        raise ValueError(f'empirical_interval_coverage expects a 2D or 3D sample array, got {sample_array.shape}.')
+        raise ValueError(
+            f"empirical_interval_coverage expects a 2D or 3D sample array, got {sample_array.shape}."
+        )
 
     alpha = max(0.0, min(1.0, 1.0 - float(level))) / 2.0
     lower = np.quantile(sample_array, alpha, axis=1)
@@ -239,25 +255,39 @@ def simulation_based_calibration_report(
     if sample_array.ndim == 2:
         sample_array = sample_array[:, :, None]
     if sample_array.ndim != 3:
-        raise ValueError(f'simulation_based_calibration_report expects a 3D sample array, got {sample_array.shape}.')
+        raise ValueError(
+            f"simulation_based_calibration_report expects a 3D sample array, got {sample_array.shape}."
+        )
     if sample_array.shape[0] != truth_array.shape[0]:
-        raise ValueError('Samples and truths must agree on the number of held-out observations.')
+        raise ValueError(
+            "Samples and truths must agree on the number of held-out observations."
+        )
 
     n_draws = int(sample_array.shape[1])
     ranks = np.sum(sample_array < truth_array[:, None, :], axis=1, dtype=int)
     rank_histogram_counts = np.stack(
-        [np.bincount(ranks[:, dimension], minlength=n_draws + 1) for dimension in range(ranks.shape[1])],
+        [
+            np.bincount(ranks[:, dimension], minlength=n_draws + 1)
+            for dimension in range(ranks.shape[1])
+        ],
         axis=0,
     )
     posterior_means = np.mean(sample_array, axis=1)
     mean_rank = np.mean(ranks, axis=0)
     expected_mean_rank = n_draws / 2.0
-    normalized_mean_rank_error = np.abs(mean_rank - expected_mean_rank) / max(expected_mean_rank, 1.0)
+    normalized_mean_rank_error = np.abs(mean_rank - expected_mean_rank) / max(
+        expected_mean_rank, 1.0
+    )
     coverages = tuple(
         CoverageLevelReport(
             level=float(level),
-            empirical_coverage=empirical_interval_coverage(sample_array, truth_array, level=level),
-            absolute_error=abs(empirical_interval_coverage(sample_array, truth_array, level=level) - float(level)),
+            empirical_coverage=empirical_interval_coverage(
+                sample_array, truth_array, level=level
+            ),
+            absolute_error=abs(
+                empirical_interval_coverage(sample_array, truth_array, level=level)
+                - float(level)
+            ),
         )
         for level in levels
     )
@@ -317,7 +347,9 @@ def generate_sbc_report(
         SBC summary computed from the requested dataset split.
     """
 
-    resolved_parameter_space = parameter_space or getattr(posterior, 'parameter_space', 'physical')
+    resolved_parameter_space = parameter_space or getattr(
+        posterior, "parameter_space", "physical"
+    )
     posterior_draws = []
     truths = []
     base_seed = 0 if seed is None else int(seed)
@@ -347,18 +379,20 @@ def generate_sbc_report(
             break
 
     if not posterior_draws:
-        raise ValueError(f"Split '{split.value}' did not yield any observations for SBC evaluation.")
+        raise ValueError(
+            f"Split '{split.value}' did not yield any observations for SBC evaluation."
+        )
 
     return simulation_based_calibration_report(
         np.asarray(posterior_draws, dtype=float),
         np.asarray(truths, dtype=float),
         levels=levels,
         metadata={
-            'split': split.value,
-            'n_cases': len(posterior_draws),
-            'n_posterior_samples': int(n_posterior_samples),
-            'parameter_space': resolved_parameter_space,
-            'task_name': dataset_reader.dataset.manifest.task_name,
+            "split": split.value,
+            "n_cases": len(posterior_draws),
+            "n_posterior_samples": int(n_posterior_samples),
+            "parameter_space": resolved_parameter_space,
+            "task_name": dataset_reader.dataset.manifest.task_name,
         },
     )
 
@@ -367,7 +401,7 @@ def posterior_predictive_report_from_samples(
     task: SBITask,
     posterior_samples: Any,
     observation_blocks: Sequence[Any],
-    parameter_space: str = 'physical',
+    parameter_space: str = "physical",
     interval_level: float = 0.9,
     simulator: RuntimeSimulator | None = None,
     seed: int | None = None,
@@ -406,7 +440,9 @@ def posterior_predictive_report_from_samples(
     """
 
     sample_array = _coerce_sample_array(posterior_samples)
-    physical_parameters = _posterior_space_to_physical(task, sample_array, parameter_space)
+    physical_parameters = _posterior_space_to_physical(
+        task, sample_array, parameter_space
+    )
     simulator = simulator or RuntimeSimulator(task=task, seed=seed)
     predictive_batch = simulator.simulate_from_parameters(physical_parameters)
 
@@ -424,16 +460,22 @@ def posterior_predictive_report_from_samples(
         if observation_name not in blocks_by_name:
             continue
 
-        predictive_values = np.asarray(payload['values'], dtype=float)
-        lower, upper = central_credible_interval(predictive_values, level=interval_level)
-        observed_value = np.asarray(blocks_by_name[observation_name].values, dtype=float)
+        predictive_values = np.asarray(payload["values"], dtype=float)
+        lower, upper = central_credible_interval(
+            predictive_values, level=interval_level
+        )
+        observed_value = np.asarray(
+            blocks_by_name[observation_name].values, dtype=float
+        )
 
         observed_values[observation_name] = observed_value
         predictive_mean[observation_name] = np.mean(predictive_values, axis=0)
         predictive_std[observation_name] = np.std(predictive_values, axis=0)
         interval_lower[observation_name] = lower
         interval_upper[observation_name] = upper
-        interval_coverage[observation_name] = float(np.mean((observed_value >= lower) & (observed_value <= upper)))
+        interval_coverage[observation_name] = float(
+            np.mean((observed_value >= lower) & (observed_value <= upper))
+        )
         mean_absolute_error[observation_name] = float(
             np.mean(np.abs(predictive_mean[observation_name] - observed_value))
         )
@@ -447,11 +489,11 @@ def posterior_predictive_report_from_samples(
         interval_coverage=interval_coverage,
         mean_absolute_error=mean_absolute_error,
         metadata={
-            'n_cases': 1,
-            'n_posterior_samples': int(sample_array.shape[0]),
-            'interval_level': float(interval_level),
-            'parameter_space': parameter_space,
-            'task_name': task.name,
+            "n_cases": 1,
+            "n_posterior_samples": int(sample_array.shape[0]),
+            "interval_level": float(interval_level),
+            "parameter_space": parameter_space,
+            "task_name": task.name,
         },
     )
 
@@ -502,7 +544,9 @@ def generate_posterior_predictive_report(
     """
 
     raw_split = dataset_reader.dataset.read_split(split)
-    raw_blocks_batch = build_observation_block_batch(raw_split['observations'], task.observation_schema.modalities)
+    raw_blocks_batch = build_observation_block_batch(
+        raw_split["observations"], task.observation_schema.modalities
+    )
     normalized_blocks_batch = [
         normalize_observation_blocks(blocks, dataset_reader.preprocessing_metadata)
         for blocks in raw_blocks_batch
@@ -510,9 +554,11 @@ def generate_posterior_predictive_report(
     selected_indices = _selected_case_indices(len(normalized_blocks_batch), max_cases)
 
     if not selected_indices:
-        raise ValueError(f"Split '{split.value}' did not yield any observations for posterior-predictive evaluation.")
+        raise ValueError(
+            f"Split '{split.value}' did not yield any observations for posterior-predictive evaluation."
+        )
 
-    resolved_parameter_space = getattr(posterior, 'parameter_space', 'physical')
+    resolved_parameter_space = getattr(posterior, "parameter_space", "physical")
     simulator = simulator or RuntimeSimulator(task=task, seed=seed)
     observed_values: dict[str, list[np.ndarray]] = {}
     predictive_mean: dict[str, list[np.ndarray]] = {}
@@ -530,23 +576,33 @@ def generate_posterior_predictive_report(
             n_samples=n_posterior_samples,
             seed=base_seed + case_offset,
         ).samples
-        physical_parameters = _posterior_space_to_physical(task, posterior_samples, resolved_parameter_space)
+        physical_parameters = _posterior_space_to_physical(
+            task, posterior_samples, resolved_parameter_space
+        )
         predictive_batch = simulator.simulate_from_parameters(physical_parameters)
 
         for observation_name, payload in predictive_batch.observations.items():
-            predictive_values = np.asarray(payload['values'], dtype=float)
-            lower, upper = central_credible_interval(predictive_values, level=interval_level)
+            predictive_values = np.asarray(payload["values"], dtype=float)
+            lower, upper = central_credible_interval(
+                predictive_values, level=interval_level
+            )
             observed_value = np.asarray(
-                raw_split['observations'][observation_name]['values'][sample_index],
+                raw_split["observations"][observation_name]["values"][sample_index],
                 dtype=float,
             )
 
             observed_values.setdefault(observation_name, []).append(observed_value)
-            predictive_mean.setdefault(observation_name, []).append(np.mean(predictive_values, axis=0))
-            predictive_std.setdefault(observation_name, []).append(np.std(predictive_values, axis=0))
+            predictive_mean.setdefault(observation_name, []).append(
+                np.mean(predictive_values, axis=0)
+            )
+            predictive_std.setdefault(observation_name, []).append(
+                np.std(predictive_values, axis=0)
+            )
             interval_lower.setdefault(observation_name, []).append(lower)
             interval_upper.setdefault(observation_name, []).append(upper)
-            interval_hits.setdefault(observation_name, []).append((observed_value >= lower) & (observed_value <= upper))
+            interval_hits.setdefault(observation_name, []).append(
+                (observed_value >= lower) & (observed_value <= upper)
+            )
 
     observed_arrays = {
         name: np.asarray(values, dtype=float)
@@ -557,23 +613,22 @@ def generate_posterior_predictive_report(
         for name, values in predictive_mean.items()
     }
     predictive_std_arrays = {
-        name: np.asarray(values, dtype=float)
-        for name, values in predictive_std.items()
+        name: np.asarray(values, dtype=float) for name, values in predictive_std.items()
     }
     interval_lower_arrays = {
-        name: np.asarray(values, dtype=float)
-        for name, values in interval_lower.items()
+        name: np.asarray(values, dtype=float) for name, values in interval_lower.items()
     }
     interval_upper_arrays = {
-        name: np.asarray(values, dtype=float)
-        for name, values in interval_upper.items()
+        name: np.asarray(values, dtype=float) for name, values in interval_upper.items()
     }
     interval_coverage = {
         name: float(np.mean(np.asarray(values, dtype=bool)))
         for name, values in interval_hits.items()
     }
     mean_absolute_error = {
-        name: float(np.mean(np.abs(predictive_mean_arrays[name] - observed_arrays[name])))
+        name: float(
+            np.mean(np.abs(predictive_mean_arrays[name] - observed_arrays[name]))
+        )
         for name in observed_arrays
     }
 
@@ -586,24 +641,24 @@ def generate_posterior_predictive_report(
         interval_coverage=interval_coverage,
         mean_absolute_error=mean_absolute_error,
         metadata={
-            'split': split.value,
-            'n_cases': len(selected_indices),
-            'n_posterior_samples': int(n_posterior_samples),
-            'interval_level': float(interval_level),
-            'parameter_space': resolved_parameter_space,
-            'task_name': task.name,
+            "split": split.value,
+            "n_cases": len(selected_indices),
+            "n_posterior_samples": int(n_posterior_samples),
+            "interval_level": float(interval_level),
+            "parameter_space": resolved_parameter_space,
+            "task_name": task.name,
         },
     )
 
 
 __all__ = [
-    'CoverageLevelReport',
-    'PosteriorPredictiveReport',
-    'SimulationBasedCalibrationReport',
-    'central_credible_interval',
-    'empirical_interval_coverage',
-    'generate_posterior_predictive_report',
-    'generate_sbc_report',
-    'posterior_predictive_report_from_samples',
-    'simulation_based_calibration_report',
+    "CoverageLevelReport",
+    "PosteriorPredictiveReport",
+    "SimulationBasedCalibrationReport",
+    "central_credible_interval",
+    "empirical_interval_coverage",
+    "generate_posterior_predictive_report",
+    "generate_sbc_report",
+    "posterior_predictive_report_from_samples",
+    "simulation_based_calibration_report",
 ]

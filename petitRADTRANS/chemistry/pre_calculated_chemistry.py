@@ -1,5 +1,5 @@
-"""Manage equilibrium chemistry pre-calculated table.
-"""
+"""Manage equilibrium chemistry pre-calculated table."""
+
 import os
 
 import h5py
@@ -10,28 +10,32 @@ from jax import lax, config, vmap
 from jax.typing import ArrayLike
 
 from petitRADTRANS._input_data import find_input_file
-from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
+from petitRADTRANS.config.configuration import (
+    get_input_data_subpaths,
+    petitradtrans_config_parser,
+)
 
 JAX_DTYPE = jnp.float32
 if config.jax_enable_x64:
     JAX_DTYPE = jnp.float64
 
+
 def interpolate_chemical_table(
-        co_ratios: ArrayLike,            # (n_layers,)
-        log10_metallicities: ArrayLike,  # (n_layers,)
-        temperatures: ArrayLike,         # (n_layers,)
-        pressures: ArrayLike,            # (n_layers,)
-        largest_co_ratios_indices: ArrayLike,      # (n_layers,) int, 1-based
-        largest_metallicities_indices: ArrayLike,  # (n_layers,) int, 1-based
-        largest_temperatures_indices: ArrayLike,   # (n_layers,) int, 1-based
-        largest_pressures_indices: ArrayLike,      # (n_layers,) int, 1-based
-        table_metallicities: ArrayLike,  # (n_metallicities_table_axis,)
-        table_co_ratios: ArrayLike,      # (n_co_ratios_table_axis,)
-        table_pressures: ArrayLike,      # (n_pressures_table_axis,)
-        table_temperatures: ArrayLike,   # (n_temperatures_table_axis,)
-        chemistry_table: ArrayLike,      # (n_species, n_temperatures, n_pressures, n_co_ratios, n_metallicities)
-        is_mass_fraction: bool
-        ) -> ArrayLike:
+    co_ratios: ArrayLike,  # (n_layers,)
+    log10_metallicities: ArrayLike,  # (n_layers,)
+    temperatures: ArrayLike,  # (n_layers,)
+    pressures: ArrayLike,  # (n_layers,)
+    largest_co_ratios_indices: ArrayLike,  # (n_layers,) int, 1-based
+    largest_metallicities_indices: ArrayLike,  # (n_layers,) int, 1-based
+    largest_temperatures_indices: ArrayLike,  # (n_layers,) int, 1-based
+    largest_pressures_indices: ArrayLike,  # (n_layers,) int, 1-based
+    table_metallicities: ArrayLike,  # (n_metallicities_table_axis,)
+    table_co_ratios: ArrayLike,  # (n_co_ratios_table_axis,)
+    table_pressures: ArrayLike,  # (n_pressures_table_axis,)
+    table_temperatures: ArrayLike,  # (n_temperatures_table_axis,)
+    chemistry_table: ArrayLike,  # (n_species, n_temperatures, n_pressures, n_co_ratios, n_metallicities)
+    is_mass_fraction: bool,
+) -> ArrayLike:
     """
     Performs 4D linear interpolation on the chemical table for n_layers.
     Input indices (largest_..._indices) are 1-based and point to the upper
@@ -44,14 +48,22 @@ def interpolate_chemical_table(
     table_FeH_jax = jnp.asarray(table_metallicities)
 
     # Define the core interpolation logic for a single layer
-    def _interpolate_single_layer(target_co, target_log_feh, target_T, target_P,
-                                    idx_T_up, idx_P_up, idx_CO_up, idx_FeH_up):
+    def _interpolate_single_layer(
+        target_co,
+        target_log_feh,
+        target_T,
+        target_P,
+        idx_T_up,
+        idx_P_up,
+        idx_CO_up,
+        idx_FeH_up,
+    ):
 
         # Determine 0-based lower and upper indices for each dimension
         # These are scalar integer JAX arrays for a single layer computation
-        t_indices   = jnp.array([idx_T_up - 1, idx_T_up])
-        p_indices   = jnp.array([idx_P_up - 1, idx_P_up])
-        co_indices  = jnp.array([idx_CO_up - 1, idx_CO_up])
+        t_indices = jnp.array([idx_T_up - 1, idx_T_up])
+        p_indices = jnp.array([idx_P_up - 1, idx_P_up])
+        co_indices = jnp.array([idx_CO_up - 1, idx_CO_up])
         feh_indices = jnp.array([idx_FeH_up - 1, idx_FeH_up])
 
         # It's crucial that indices are within bounds.
@@ -64,13 +76,13 @@ def interpolate_chemical_table(
             t_indices[:, None, None, None],
             p_indices[None, :, None, None],
             co_indices[None, None, :, None],
-            feh_indices[None, None, None, :]
+            feh_indices[None, None, None, :],
         ]
 
         # Gather the grid coordinates for these corner points
-        coords_T   = table_T_jax[t_indices]
-        coords_P   = table_P_jax[p_indices]
-        coords_CO  = table_CO_jax[co_indices]
+        coords_T = table_T_jax[t_indices]
+        coords_P = table_P_jax[p_indices]
+        coords_CO = table_CO_jax[co_indices]
         coords_FeH = table_FeH_jax[feh_indices]
 
         # Helper for 1D linear interpolation
@@ -86,10 +98,14 @@ def interpolate_chemical_table(
             return y0 + (y1 - y0) * weight
 
         # Perform sequential 1D interpolations
-        interp_val = _linear_interp_1d(intp_bound, coords_FeH, target_log_feh) # Along FeH
-        interp_val = _linear_interp_1d(interp_val, coords_CO, target_co)       # Along C/O
-        interp_val = _linear_interp_1d(interp_val, coords_P, target_P)         # Along Pressure
-        interp_val = _linear_interp_1d(interp_val, coords_T, target_T)         # Along Temperature
+        interp_val = _linear_interp_1d(
+            intp_bound, coords_FeH, target_log_feh
+        )  # Along FeH
+        interp_val = _linear_interp_1d(interp_val, coords_CO, target_co)  # Along C/O
+        interp_val = _linear_interp_1d(interp_val, coords_P, target_P)  # Along Pressure
+        interp_val = _linear_interp_1d(
+            interp_val, coords_T, target_T
+        )  # Along Temperature
         # interp_val now has shape (n_species,)
 
         # Replace NaN with -50.0 (as in Fortran)
@@ -100,9 +116,26 @@ def interpolate_chemical_table(
     # Output will be (n_layers, n_species)
     chemical_table_interp_flat = vmap(
         _interpolate_single_layer,
-        in_axes=(0, 0, 0, 0, 0, 0, 0, 0)  # Map over the first axis of all 8 input arrays
-    )(co_ratios, log10_metallicities, temperatures, pressures,
-        largest_temperatures_indices, largest_pressures_indices, largest_co_ratios_indices, largest_metallicities_indices)
+        in_axes=(
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ),  # Map over the first axis of all 8 input arrays
+    )(
+        co_ratios,
+        log10_metallicities,
+        temperatures,
+        pressures,
+        largest_temperatures_indices,
+        largest_pressures_indices,
+        largest_co_ratios_indices,
+        largest_metallicities_indices,
+    )
 
     # Transpose to Fortran's output shape: (n_species, n_layers)
     # TODO: not sure this is necessary now that we're not using fotran
@@ -123,6 +156,7 @@ class PreCalculatedEquilibriumChemistryTable:
 
     The interpolate_mass_fractions function can be used to get mass fractions at given thermochemical conditions.
     """
+
     def __init__(self):
         self._loaded: bool = False
 
@@ -140,17 +174,25 @@ class PreCalculatedEquilibriumChemistryTable:
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
-        return str(os.path.join(
-            path_input_data,
-            get_input_data_subpaths()["pre_calculated_chemistry"],
-            "equilibrium_chemistry",
-            "equilibrium_chemistry.chemtable.petitRADTRANS.h5"
-        ))
+        return str(
+            os.path.join(
+                path_input_data,
+                get_input_data_subpaths()["pre_calculated_chemistry"],
+                "equilibrium_chemistry",
+                "equilibrium_chemistry.chemtable.petitRADTRANS.h5",
+            )
+        )
 
-    def interpolate_mass_fractions(self, co_ratios: iter, log10_metallicities: iter,
-                                   temperatures: iter, pressures: iter,
-                                   carbon_quench_pressure: float = None, full: bool = False,
-                                   numpy_compatible=False):
+    def interpolate_mass_fractions(
+        self,
+        co_ratios: iter,
+        log10_metallicities: iter,
+        temperatures: iter,
+        pressures: iter,
+        carbon_quench_pressure: float = None,
+        full: bool = False,
+        numpy_compatible=False,
+    ):
         """Interpolate mass fractions from a pre-calculated table to the desired parameters.
 
         Args:
@@ -169,8 +211,16 @@ class PreCalculatedEquilibriumChemistryTable:
                 respect to pressure in the adiabatic case (nabla_ad) in addition to the pre-calculated mass fractions
         """
         if not self._loaded:
-            (self.mass_fractions, self.mean_molar_masses, self.nabla_adiabatic, self.log10_metallicities,
-             self.co_ratios, self.temperatures, self.pressures, self.species) = self.load()
+            (
+                self.mass_fractions,
+                self.mean_molar_masses,
+                self.nabla_adiabatic,
+                self.log10_metallicities,
+                self.co_ratios,
+                self.temperatures,
+                self.pressures,
+                self.species,
+            ) = self.load()
             self._loaded = True
         co_ratios: ArrayLike = jnp.array(co_ratios).reshape(-1)
         log10_metallicities: ArrayLike = jnp.array(log10_metallicities).reshape(-1)
@@ -199,7 +249,7 @@ class PreCalculatedEquilibriumChemistryTable:
         pressures = jnp.clip(
             pressures,
             min=jnp.min(self.pressures) + 1e-6,
-            max=jnp.max(self.pressures) - 1e-6
+            max=jnp.max(self.pressures) - 1e-6,
         )
 
         # Get interpolation indices
@@ -222,7 +272,7 @@ class PreCalculatedEquilibriumChemistryTable:
             self.pressures,
             self.temperatures,
             self.mass_fractions,
-            True
+            True,
         )
 
         # Sort in output format of this function
@@ -246,7 +296,7 @@ class PreCalculatedEquilibriumChemistryTable:
                 self.pressures,
                 self.temperatures,
                 self.mean_molar_masses[jnp.newaxis],
-                False
+                False,
             )[0]
 
             nabla_adiabatic = interpolate_chemical_table(
@@ -263,7 +313,7 @@ class PreCalculatedEquilibriumChemistryTable:
                 self.pressures,
                 self.temperatures,
                 self.nabla_adiabatic[jnp.newaxis],
-                False
+                False,
             )[0]
         else:
             mean_molar_masses = None
@@ -271,28 +321,30 @@ class PreCalculatedEquilibriumChemistryTable:
 
         # Carbon quenching, assumes pressures_goal is sorted in ascending order
         if carbon_quench_pressure is not None:
+
             def apply_carbon_quench(mass_fractions):
                 q_index = jnp.clip(
                     jnp.searchsorted(pressures, carbon_quench_pressure),
-                    0, pressures.size - 1
+                    0,
+                    pressures.size - 1,
                 )
 
-                mass_fractions['CH4'] = jnp.where(
+                mass_fractions["CH4"] = jnp.where(
                     pressures < carbon_quench_pressure,
-                    mass_fractions['CH4'][q_index],
-                    mass_fractions['CH4']
+                    mass_fractions["CH4"][q_index],
+                    mass_fractions["CH4"],
                 )
 
-                mass_fractions['CO'] = jnp.where(
+                mass_fractions["CO"] = jnp.where(
                     pressures < carbon_quench_pressure,
-                    mass_fractions['CO'][q_index],
-                    mass_fractions['CO']
+                    mass_fractions["CO"][q_index],
+                    mass_fractions["CO"],
                 )
 
-                mass_fractions['H2O'] = jnp.where(
+                mass_fractions["H2O"] = jnp.where(
                     pressures < carbon_quench_pressure,
-                    mass_fractions['H2O'][q_index],
-                    mass_fractions['H2O']
+                    mass_fractions["H2O"][q_index],
+                    mass_fractions["H2O"],
                 )
                 return mass_fractions
 
@@ -303,7 +355,7 @@ class PreCalculatedEquilibriumChemistryTable:
                 carbon_quench_pressure > jnp.min(pressures),
                 apply_carbon_quench,
                 no_carbon_quench,
-                mass_fractions
+                mass_fractions,
             )
         if numpy_compatible:
             for key, value in mass_fractions.items():
@@ -316,7 +368,7 @@ class PreCalculatedEquilibriumChemistryTable:
 
         return mass_fractions
 
-    def load(self, path: str = None, path_input_data: str = None, file: str = ''):
+    def load(self, path: str = None, path_input_data: str = None, file: str = ""):
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
@@ -330,23 +382,26 @@ class PreCalculatedEquilibriumChemistryTable:
                 sub_path=None,
                 match_function=None,  # use the default match function
                 find_all=False,
-                search_online=True
+                search_online=True,
             )
 
-        print(f"Loading chemical equilibrium chemistry table from file '{file}'... ", end='')
+        print(
+            f"Loading chemical equilibrium chemistry table from file '{file}'... ",
+            end="",
+        )
 
-        with h5py.File(file, 'r') as f:
-            log10_metallicities = f['log10_metallicities'][()]
-            co_ratios = f['co_ratios'][()]
-            temperatures = f['temperatures'][()]
-            pressures = f['pressures'][()]
+        with h5py.File(file, "r") as f:
+            log10_metallicities = f["log10_metallicities"][()]
+            co_ratios = f["co_ratios"][()]
+            temperatures = f["temperatures"][()]
+            pressures = f["pressures"][()]
 
-            species = f['species'][()]
-            species = tuple([name.decode('utf-8') for name in species])
+            species = f["species"][()]
+            species = tuple([name.decode("utf-8") for name in species])
 
-            mass_fractions = f['mass_fractions'][()]
-            mean_molar_masses = f['mean_molar_masses'][()]
-            nabla_adiabatic = f['nabla_adiabatic'][()]
+            mass_fractions = f["mass_fractions"][()]
+            mean_molar_masses = f["mean_molar_masses"][()]
+            nabla_adiabatic = f["nabla_adiabatic"][()]
 
         # Change array ordering for more efficient fortran calculation (this takes time, so it is done during loading)
         mass_fractions = jnp.array(mass_fractions, dtype=JAX_DTYPE)
@@ -358,8 +413,16 @@ class PreCalculatedEquilibriumChemistryTable:
         pressures = jnp.array(pressures, dtype=JAX_DTYPE)
 
         print("Done.")
-        return (mass_fractions, mean_molar_masses, nabla_adiabatic,
-                log10_metallicities, co_ratios, temperatures, pressures, species)
+        return (
+            mass_fractions,
+            mean_molar_masses,
+            nabla_adiabatic,
+            log10_metallicities,
+            co_ratios,
+            temperatures,
+            pressures,
+            species,
+        )
 
 
 pre_calculated_equilibrium_chemistry_table = PreCalculatedEquilibriumChemistryTable()

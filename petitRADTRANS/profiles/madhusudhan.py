@@ -1,5 +1,4 @@
 import jax.numpy as jnp
-from jax import jit, config, Array
 from jax.typing import ArrayLike
 
 

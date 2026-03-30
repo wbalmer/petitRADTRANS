@@ -19,17 +19,21 @@ from .posterior_base import (
 )
 
 __all__ = [
-    'ConditionalFlowPosterior',
-    'ConditionalSplineFlowPosterior',
-    'FlowMatchingPosterior',
-    'PersistentPosteriorEstimator',
-    'POSTERIOR_METADATA_SCHEMA_VERSION',
-    'PosteriorBatch',
-    'PosteriorEstimator',
-    'PosteriorSamples',
-    'TrainingArtifacts',
+    "ConditionalFlowPosterior",
+    "ConditionalSplineFlowPosterior",
+    "FlowMatchingPosterior",
+    "PersistentPosteriorEstimator",
+    "POSTERIOR_METADATA_SCHEMA_VERSION",
+    "PosteriorBatch",
+    "PosteriorEstimator",
+    "PosteriorSamples",
+    "TrainingArtifacts",
 ]
 
 
-register_posterior_estimator(ConditionalFlowPosterior.estimator_family, ConditionalFlowPosterior)
-register_posterior_estimator(FlowMatchingPosterior.estimator_family, FlowMatchingPosterior)
+register_posterior_estimator(
+    ConditionalFlowPosterior.estimator_family, ConditionalFlowPosterior
+)
+register_posterior_estimator(
+    FlowMatchingPosterior.estimator_family, FlowMatchingPosterior
+)

@@ -80,7 +80,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
     registration paths.
     """
 
-    estimator_family = 'conditional_flow'
+    estimator_family = "conditional_flow"
 
     def __init__(
         self,
@@ -91,14 +91,14 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         learning_rate: float = 1e-3,
         batch_size: int = 32,
         num_epochs: int = 5,
-        parameter_space: str = 'unconstrained',
-        flow_family: str = 'spline',
+        parameter_space: str = "unconstrained",
+        flow_family: str = "spline",
         num_spline_bins: int = 8,
         spline_bound: float = 5.0,
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
         checkpoint_directory: str | None = None,
-        checkpoint_backend: str = 'auto',
+        checkpoint_backend: str = "auto",
         resume_from_checkpoint: bool = False,
         seed: int = 0,
         task_metadata: Mapping[str, Any] | None = None,
@@ -119,7 +119,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.effective_flow_family = self.flow_family
         self.num_spline_bins = int(num_spline_bins)
         self.spline_bound = float(spline_bound)
-        self.early_stopping_patience = None if early_stopping_patience is None else int(early_stopping_patience)
+        self.early_stopping_patience = (
+            None if early_stopping_patience is None else int(early_stopping_patience)
+        )
         self.early_stopping_min_delta = float(early_stopping_min_delta)
         self.checkpoint_directory = checkpoint_directory
         self.checkpoint_backend = checkpoint_backend
@@ -135,8 +137,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         )
 
     def _build_flow(self, key: Array) -> Any:
-        if self.flow_family == 'affine':
-            self.effective_flow_family = 'affine'
+        if self.flow_family == "affine":
+            self.effective_flow_family = "affine"
             return ConditionalAffineFlow(
                 parameter_dim=self.parameter_dim,
                 context_dim=self.embedding_dim,
@@ -144,8 +146,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 hidden_dim=self.hidden_dim,
                 key=key,
             )
-        if self.flow_family == 'spline':
-            self.effective_flow_family = 'spline'
+        if self.flow_family == "spline":
+            self.effective_flow_family = "spline"
             return ConditionalSplineFlow(
                 parameter_dim=self.parameter_dim,
                 context_dim=self.embedding_dim,
@@ -168,9 +170,13 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
     @staticmethod
     def _loss(model: _PosteriorModel, batch: PosteriorBatch) -> jnp.ndarray:
         parameters = jnp.asarray(batch.parameters, dtype=jnp.float32)
-        embeddings = ConditionalFlowPosterior._batch_embeddings(model, batch.observations)
+        embeddings = ConditionalFlowPosterior._batch_embeddings(
+            model, batch.observations
+        )
         log_probabilities = vmap(model.flow.log_prob)(parameters, embeddings)
-        log_probabilities = jnp.nan_to_num(log_probabilities, nan=-1e6, neginf=-1e6, posinf=1e6)
+        log_probabilities = jnp.nan_to_num(
+            log_probabilities, nan=-1e6, neginf=-1e6, posinf=1e6
+        )
         return -jnp.mean(log_probabilities)
 
     def fit(self, dataset: Any) -> TrainingArtifacts:
@@ -195,12 +201,14 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         those are cached on the posterior so they can be saved and reused by the
         inference and artifact layers.
         """
-        manifest = getattr(getattr(dataset, 'dataset', None), 'manifest', None)
+        manifest = getattr(getattr(dataset, "dataset", None), "manifest", None)
         if manifest is not None:
-            self.task_name = str(getattr(manifest, 'task_name', self.task_name or 'unknown_task'))
-            self.task_fingerprint = getattr(manifest, 'task_fingerprint', None)
-            self.observation_schema = dict(getattr(manifest, 'observation_schema', {}))
-        preprocessing_metadata = getattr(dataset, 'preprocessing_metadata', None)
+            self.task_name = str(
+                getattr(manifest, "task_name", self.task_name or "unknown_task")
+            )
+            self.task_fingerprint = getattr(manifest, "task_fingerprint", None)
+            self.observation_schema = dict(getattr(manifest, "observation_schema", {}))
+        preprocessing_metadata = getattr(dataset, "preprocessing_metadata", None)
         if preprocessing_metadata is not None:
             self.preprocessing_metadata_payload = preprocessing_metadata.to_payload()
 
@@ -234,15 +242,15 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             history=history,
             validation_metrics=validation_metrics,
             metadata={
-                'parameter_dim': self.parameter_dim,
-                'parameter_space': self.parameter_space,
-                'task_metadata': dict(self.task_metadata),
-                'task_name': self.task_name,
-                'task_fingerprint': self.task_fingerprint,
-                'flow_family': self.flow_family,
-                'effective_flow_family': self.effective_flow_family,
-                'num_spline_bins': self.num_spline_bins,
-                'spline_bound': self.spline_bound,
+                "parameter_dim": self.parameter_dim,
+                "parameter_space": self.parameter_space,
+                "task_metadata": dict(self.task_metadata),
+                "task_name": self.task_name,
+                "task_fingerprint": self.task_fingerprint,
+                "flow_family": self.flow_family,
+                "effective_flow_family": self.effective_flow_family,
+                "num_spline_bins": self.num_spline_bins,
+                "spline_bound": self.spline_bound,
                 **training_metadata,
             },
         )
@@ -250,103 +258,115 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
 
     def _build_estimator_config(self) -> dict[str, Any]:
         return {
-            'embedding_dim': self.embedding_dim,
-            'num_coupling_layers': self.num_coupling_layers,
-            'hidden_dim': self.hidden_dim,
-            'learning_rate': self.learning_rate,
-            'batch_size': self.batch_size,
-            'num_epochs': self.num_epochs,
-            'flow_family': self.flow_family,
-            'effective_flow_family': self.effective_flow_family,
-            'num_spline_bins': self.num_spline_bins,
-            'spline_bound': self.spline_bound,
-            'early_stopping_patience': self.early_stopping_patience,
-            'early_stopping_min_delta': self.early_stopping_min_delta,
-            'checkpoint_directory': self.checkpoint_directory,
-            'checkpoint_backend': self.checkpoint_backend,
-            'resume_from_checkpoint': self.resume_from_checkpoint,
+            "embedding_dim": self.embedding_dim,
+            "num_coupling_layers": self.num_coupling_layers,
+            "hidden_dim": self.hidden_dim,
+            "learning_rate": self.learning_rate,
+            "batch_size": self.batch_size,
+            "num_epochs": self.num_epochs,
+            "flow_family": self.flow_family,
+            "effective_flow_family": self.effective_flow_family,
+            "num_spline_bins": self.num_spline_bins,
+            "spline_bound": self.spline_bound,
+            "early_stopping_patience": self.early_stopping_patience,
+            "early_stopping_min_delta": self.early_stopping_min_delta,
+            "checkpoint_directory": self.checkpoint_directory,
+            "checkpoint_backend": self.checkpoint_backend,
+            "resume_from_checkpoint": self.resume_from_checkpoint,
         }
 
     def _build_serialized_metadata(self, artifact_metadata) -> dict[str, Any]:
         metadata = super()._build_serialized_metadata(artifact_metadata)
-        metadata.update({
-            'embedding_dim': self.embedding_dim,
-            'num_coupling_layers': self.num_coupling_layers,
-            'hidden_dim': self.hidden_dim,
-            'learning_rate': self.learning_rate,
-            'batch_size': self.batch_size,
-            'num_epochs': self.num_epochs,
-            'flow_family': self.flow_family,
-            'effective_flow_family': self.effective_flow_family,
-            'num_spline_bins': self.num_spline_bins,
-            'spline_bound': self.spline_bound,
-            'early_stopping_patience': self.early_stopping_patience,
-            'early_stopping_min_delta': self.early_stopping_min_delta,
-            'checkpoint_directory': self.checkpoint_directory,
-            'checkpoint_backend': self.checkpoint_backend,
-            'resume_from_checkpoint': self.resume_from_checkpoint,
-        })
+        metadata.update(
+            {
+                "embedding_dim": self.embedding_dim,
+                "num_coupling_layers": self.num_coupling_layers,
+                "hidden_dim": self.hidden_dim,
+                "learning_rate": self.learning_rate,
+                "batch_size": self.batch_size,
+                "num_epochs": self.num_epochs,
+                "flow_family": self.flow_family,
+                "effective_flow_family": self.effective_flow_family,
+                "num_spline_bins": self.num_spline_bins,
+                "spline_bound": self.spline_bound,
+                "early_stopping_patience": self.early_stopping_patience,
+                "early_stopping_min_delta": self.early_stopping_min_delta,
+                "checkpoint_directory": self.checkpoint_directory,
+                "checkpoint_backend": self.checkpoint_backend,
+                "resume_from_checkpoint": self.resume_from_checkpoint,
+            }
+        )
         return metadata
 
     @staticmethod
     def _resolve_estimator_config(metadata: Mapping[str, Any]) -> dict[str, Any]:
-        estimator_config = metadata.get('estimator_config')
+        estimator_config = metadata.get("estimator_config")
         if isinstance(estimator_config, Mapping):
             return dict(estimator_config)
 
         return {
-            'embedding_dim': metadata['embedding_dim'],
-            'num_coupling_layers': metadata['num_coupling_layers'],
-            'hidden_dim': metadata['hidden_dim'],
-            'learning_rate': metadata['learning_rate'],
-            'batch_size': metadata['batch_size'],
-            'num_epochs': metadata['num_epochs'],
-            'flow_family': metadata.get('flow_family', 'affine'),
-            'effective_flow_family': metadata.get('effective_flow_family', metadata.get('flow_family', 'affine')),
-            'num_spline_bins': metadata.get('num_spline_bins', 8),
-            'spline_bound': metadata.get('spline_bound', 5.0),
-            'early_stopping_patience': metadata.get('early_stopping_patience'),
-            'early_stopping_min_delta': metadata.get('early_stopping_min_delta', 0.0),
-            'checkpoint_directory': metadata.get('checkpoint_directory'),
-            'checkpoint_backend': metadata.get('checkpoint_backend', 'auto'),
-            'resume_from_checkpoint': metadata.get('resume_from_checkpoint', False),
+            "embedding_dim": metadata["embedding_dim"],
+            "num_coupling_layers": metadata["num_coupling_layers"],
+            "hidden_dim": metadata["hidden_dim"],
+            "learning_rate": metadata["learning_rate"],
+            "batch_size": metadata["batch_size"],
+            "num_epochs": metadata["num_epochs"],
+            "flow_family": metadata.get("flow_family", "affine"),
+            "effective_flow_family": metadata.get(
+                "effective_flow_family", metadata.get("flow_family", "affine")
+            ),
+            "num_spline_bins": metadata.get("num_spline_bins", 8),
+            "spline_bound": metadata.get("spline_bound", 5.0),
+            "early_stopping_patience": metadata.get("early_stopping_patience"),
+            "early_stopping_min_delta": metadata.get("early_stopping_min_delta", 0.0),
+            "checkpoint_directory": metadata.get("checkpoint_directory"),
+            "checkpoint_backend": metadata.get("checkpoint_backend", "auto"),
+            "resume_from_checkpoint": metadata.get("resume_from_checkpoint", False),
         }
 
     def hydrate_loaded_metadata(self, metadata: Mapping[str, Any]) -> None:
         super().hydrate_loaded_metadata(metadata)
         self.effective_flow_family = str(
-            self._resolve_estimator_config(metadata).get('effective_flow_family', self.effective_flow_family)
+            self._resolve_estimator_config(metadata).get(
+                "effective_flow_family", self.effective_flow_family
+            )
         )
 
     @classmethod
-    def from_serialized_metadata(cls, metadata: Mapping[str, Any]) -> 'ConditionalFlowPosterior':
+    def from_serialized_metadata(
+        cls, metadata: Mapping[str, Any]
+    ) -> "ConditionalFlowPosterior":
         estimator_config = cls._resolve_estimator_config(metadata)
         return cls(
-            parameter_dim=int(metadata['parameter_dim']),
-            embedding_dim=int(estimator_config['embedding_dim']),
-            num_coupling_layers=int(estimator_config['num_coupling_layers']),
-            hidden_dim=int(estimator_config['hidden_dim']),
-            learning_rate=float(estimator_config['learning_rate']),
-            batch_size=int(estimator_config['batch_size']),
-            num_epochs=int(estimator_config['num_epochs']),
-            parameter_space=str(metadata['parameter_space']),
-            flow_family=str(estimator_config.get('flow_family', 'affine')),
-            num_spline_bins=int(estimator_config.get('num_spline_bins', 8)),
-            spline_bound=float(estimator_config.get('spline_bound', 5.0)),
-            early_stopping_patience=estimator_config.get('early_stopping_patience'),
-            early_stopping_min_delta=float(estimator_config.get('early_stopping_min_delta', 0.0)),
-            checkpoint_directory=estimator_config.get('checkpoint_directory'),
-            checkpoint_backend=str(estimator_config.get('checkpoint_backend', 'auto')),
-            resume_from_checkpoint=bool(estimator_config.get('resume_from_checkpoint', False)),
-            seed=int(metadata['seed']),
-            task_metadata=dict(metadata.get('task_metadata', {})),
+            parameter_dim=int(metadata["parameter_dim"]),
+            embedding_dim=int(estimator_config["embedding_dim"]),
+            num_coupling_layers=int(estimator_config["num_coupling_layers"]),
+            hidden_dim=int(estimator_config["hidden_dim"]),
+            learning_rate=float(estimator_config["learning_rate"]),
+            batch_size=int(estimator_config["batch_size"]),
+            num_epochs=int(estimator_config["num_epochs"]),
+            parameter_space=str(metadata["parameter_space"]),
+            flow_family=str(estimator_config.get("flow_family", "affine")),
+            num_spline_bins=int(estimator_config.get("num_spline_bins", 8)),
+            spline_bound=float(estimator_config.get("spline_bound", 5.0)),
+            early_stopping_patience=estimator_config.get("early_stopping_patience"),
+            early_stopping_min_delta=float(
+                estimator_config.get("early_stopping_min_delta", 0.0)
+            ),
+            checkpoint_directory=estimator_config.get("checkpoint_directory"),
+            checkpoint_backend=str(estimator_config.get("checkpoint_backend", "auto")),
+            resume_from_checkpoint=bool(
+                estimator_config.get("resume_from_checkpoint", False)
+            ),
+            seed=int(metadata["seed"]),
+            task_metadata=dict(metadata.get("task_metadata", {})),
         )
 
     def save_backend_state(self, output_path: Path) -> None:
-        eqx.tree_serialise_leaves(output_path / 'model.eqx', self.model)
+        eqx.tree_serialise_leaves(output_path / "model.eqx", self.model)
 
     def load_backend_state(self, input_path: Path) -> None:
-        self.model = eqx.tree_deserialise_leaves(input_path / 'model.eqx', self.model)
+        self.model = eqx.tree_deserialise_leaves(input_path / "model.eqx", self.model)
 
     def encode_observation(self, blocks: list[ObservationBlock]) -> EncodedObservation:
         """Encode one structured observation into the posterior context space.
@@ -393,7 +413,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             n_samples=n_samples,
             key=random.PRNGKey(sample_seed),
         )
-        return PosteriorSamples(samples=np.nan_to_num(np.asarray(samples), nan=0.0, posinf=1e6, neginf=-1e6))
+        return PosteriorSamples(
+            samples=np.nan_to_num(np.asarray(samples), nan=0.0, posinf=1e6, neginf=-1e6)
+        )
 
     def log_prob(self, observation: EncodedObservation, parameters: Any) -> Any:
         """Evaluate posterior log-density for one or many parameter vectors.
@@ -416,10 +438,16 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         context = jnp.asarray(observation.embedding, dtype=jnp.float32)
 
         if parameter_values.ndim == 1:
-            return jnp.nan_to_num(self.model.flow.log_prob(parameter_values, context), nan=-1e6, neginf=-1e6)
+            return jnp.nan_to_num(
+                self.model.flow.log_prob(parameter_values, context),
+                nan=-1e6,
+                neginf=-1e6,
+            )
 
         return vmap(
-            lambda value: jnp.nan_to_num(self.model.flow.log_prob(value, context), nan=-1e6, neginf=-1e6)
+            lambda value: jnp.nan_to_num(
+                self.model.flow.log_prob(value, context), nan=-1e6, neginf=-1e6
+            )
         )(parameter_values)
 
 
@@ -433,11 +461,11 @@ class ConditionalSplineFlowPosterior(ConditionalFlowPosterior):
     """
 
     def __init__(self, *args: Any, **kwargs: Any):
-        kwargs.setdefault('flow_family', 'spline')
+        kwargs.setdefault("flow_family", "spline")
         super().__init__(*args, **kwargs)
 
 
 __all__ = [
-    'ConditionalFlowPosterior',
-    'ConditionalSplineFlowPosterior',
+    "ConditionalFlowPosterior",
+    "ConditionalSplineFlowPosterior",
 ]

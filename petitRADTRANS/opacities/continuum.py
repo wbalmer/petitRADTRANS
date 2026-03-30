@@ -1,10 +1,10 @@
-import copy
 import jax.numpy as jnp
-from jax import debug, jit, config
-from jax.typing import ArrayLike
+from jax import config
 from petitRADTRANS.radtrans_core import radiative_transfer_core
 from petitRADTRANS.opacities.cia import compute_cia_opacities
-from petitRADTRANS.opacities.hminus import compute_non_cia_gas_induced_continuum_opacities
+from petitRADTRANS.opacities.hminus import (
+    compute_non_cia_gas_induced_continuum_opacities,
+)
 from petitRADTRANS.opacities.rayleigh import compute_rayleigh_scattering_opacities
 
 JAX_DTYPE = jnp.float32
@@ -17,36 +17,38 @@ _MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=JAX_DTYPE)
 
 
 def compute_continuum_opacities(
-    frequencies, frequency_bins_edges,
-    pressures, temperatures, mass_fractions, mean_molar_masses,
-    cias_loaded_opacities, gas_continuum_contributors, gray_opacity
-    ):
+    frequencies,
+    frequency_bins_edges,
+    pressures,
+    temperatures,
+    mass_fractions,
+    mean_molar_masses,
+    cias_loaded_opacities,
+    gas_continuum_contributors,
+    gray_opacity,
+):
     # Reset
     continuum_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
 
     # Add CIA opacities
-    continuum_opacities += (
-        compute_cia_opacities(
-            cia_dicts=cias_loaded_opacities,
-            mass_fractions=mass_fractions,
-            pressures=pressures,
-            temperatures=temperatures,
-            frequencies=frequencies,
-            mean_molar_masses=mean_molar_masses,
-        )
+    continuum_opacities += compute_cia_opacities(
+        cia_dicts=cias_loaded_opacities,
+        mass_fractions=mass_fractions,
+        pressures=pressures,
+        temperatures=temperatures,
+        frequencies=frequencies,
+        mean_molar_masses=mean_molar_masses,
     )
 
     # Add other gas continuum opacities
-    continuum_opacities += (
-        compute_non_cia_gas_induced_continuum_opacities(
-            gas_continuum_contributors=gas_continuum_contributors,
-            mass_fractions=mass_fractions,
-            pressures=pressures,
-            temperatures=temperatures,
-            frequencies=frequencies,
-            frequency_bins_edges=frequency_bins_edges,
-            mean_molar_masses=mean_molar_masses
-        )
+    continuum_opacities += compute_non_cia_gas_induced_continuum_opacities(
+        gas_continuum_contributors=gas_continuum_contributors,
+        mass_fractions=mass_fractions,
+        pressures=pressures,
+        temperatures=temperatures,
+        frequencies=frequencies,
+        frequency_bins_edges=frequency_bins_edges,
+        mean_molar_masses=mean_molar_masses,
     )
 
     if gray_opacity is not None:
@@ -55,15 +57,21 @@ def compute_continuum_opacities(
     return continuum_opacities
 
 
-#@jit(static_argnames=['line_species', 'line_opacity_mode', 'sum_opacities'])
+# @jit(static_argnames=['line_species', 'line_opacity_mode', 'sum_opacities'])
 def compute_combined_opacities(
-    opacities, continuum_opacities,
-    line_species, line_species_mass_fractions, line_opacity_mode,
-    sum_opacities, g_gauss, weights_gauss,
-    g_combination_weights=None, g_combination_weights_sum=None,
-    input_layout='ng_f_s_l'
-    ):
-    if line_opacity_mode == 'c-k' and sum_opacities:
+    opacities,
+    continuum_opacities,
+    line_species,
+    line_species_mass_fractions,
+    line_opacity_mode,
+    sum_opacities,
+    g_gauss,
+    weights_gauss,
+    g_combination_weights=None,
+    g_combination_weights_sum=None,
+    input_layout="ng_f_s_l",
+):
+    if line_opacity_mode == "c-k" and sum_opacities:
         # Similar to the line-by-line case below, if sum_opacities is True, we will put the total opacity
         # into the first species slot and then carry the remaining radiative transfer steps only over that 0 index
         # In c-k mode, sum_opacities is True only in emission if scattering_in_emission is True
@@ -82,10 +90,10 @@ def compute_combined_opacities(
     opacities = combine_opacities(
         line_species_mass_fractions=line_species_mass_fractions,
         opacities=opacities,
-        continuum_opacities=continuum_opacities  # added to the first species slot
+        continuum_opacities=continuum_opacities,  # added to the first species slot
     )
 
-    if line_opacity_mode == 'lbl' and len(line_species) > 1:
+    if line_opacity_mode == "lbl" and len(line_species) > 1:
         # In the line-by-line case we can simply add the opacities of different species in frequency space
         # All opacities are stored in the first species index slot
         opacities = opacities.at[:, :, 0, :].set(jnp.sum(opacities, axis=2))
@@ -94,14 +102,15 @@ def compute_combined_opacities(
 
 
 def combine_ck_opacities(
-        opacities,
-        continuum_opacities,
-        line_species_mass_fractions,
-        g_gauss,
-        weights_gauss,
-        g_combination_weights=None,
-        g_combination_weights_sum=None,
-        input_layout='ng_f_s_l'):
+    opacities,
+    continuum_opacities,
+    line_species_mass_fractions,
+    g_gauss,
+    weights_gauss,
+    g_combination_weights=None,
+    g_combination_weights_sum=None,
+    input_layout="ng_f_s_l",
+):
     combined_opacities = radiative_transfer_core.combine_ck_opacities(
         opacities,
         g_gauss,
@@ -126,27 +135,31 @@ def combine_opacities(line_species_mass_fractions, opacities, continuum_opacitie
 
 def compute_continuum_scattering_opacities(
     frequencies,
-    pressures, temperatures, mass_fractions, mean_molar_masses,
-    rayleigh_species, haze_factor
+    pressures,
+    temperatures,
+    mass_fractions,
+    mean_molar_masses,
+    rayleigh_species,
+    haze_factor,
 ):
     # Reset
-    continuum_opacities_scattering = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
+    continuum_opacities_scattering = jnp.zeros(
+        (frequencies.size, pressures.size), dtype=JAX_DTYPE
+    )
     scattering_in_transmission = False
 
     # Add rayleigh scattering opacities
     if len(rayleigh_species) > 0:
         scattering_in_transmission = True
 
-        continuum_opacities_scattering += (
-            compute_rayleigh_scattering_opacities(
-                rayleigh_species=rayleigh_species,
-                pressures=pressures,
-                temperatures=temperatures,
-                mass_fractions=mass_fractions,
-                mean_molar_masses=mean_molar_masses,
-                frequencies=frequencies,
-                haze_factor=haze_factor,
-            )
+        continuum_opacities_scattering += compute_rayleigh_scattering_opacities(
+            rayleigh_species=rayleigh_species,
+            pressures=pressures,
+            temperatures=temperatures,
+            mass_fractions=mass_fractions,
+            mean_molar_masses=mean_molar_masses,
+            frequencies=frequencies,
+            haze_factor=haze_factor,
         )
 
     return continuum_opacities_scattering, scattering_in_transmission

@@ -64,14 +64,18 @@ class Simulator(abc.ABC):
         self.task = task
 
     @abc.abstractmethod
-    def sample_parameters(self, n_samples: int, proposal: ProposalSampler | None = None) -> Any:
+    def sample_parameters(
+        self, n_samples: int, proposal: ProposalSampler | None = None
+    ) -> Any:
         """Sample free-parameter vectors from the task prior or a proposal."""
 
     @abc.abstractmethod
     def simulate_from_parameters(self, parameters: Any) -> SimulationBatch:
         """Run the forward model and noise pipeline for pre-specified parameters."""
 
-    def simulate_batch(self, n_samples: int, proposal: ProposalSampler | None = None) -> SimulationBatch:
+    def simulate_batch(
+        self, n_samples: int, proposal: ProposalSampler | None = None
+    ) -> SimulationBatch:
         """Sample parameters and simulate one batch in a single call."""
         parameters = self.sample_parameters(n_samples=n_samples, proposal=proposal)
         return self.simulate_from_parameters(parameters)
@@ -89,13 +93,19 @@ class BatchedSimulator(Simulator):
         super().__init__(task=task)
         self.runtime = runtime
 
-    def sample_parameters(self, n_samples: int, proposal: ProposalSampler | None = None) -> Any:
+    def sample_parameters(
+        self, n_samples: int, proposal: ProposalSampler | None = None
+    ) -> Any:
         if proposal is not None:
             return proposal.sample(n_samples=n_samples, task=self.task)
-        raise NotImplementedError('Sampling from RetrievalConfig priors should be implemented by the concrete backend.')
+        raise NotImplementedError(
+            "Sampling from RetrievalConfig priors should be implemented by the concrete backend."
+        )
 
     def simulate_from_parameters(self, parameters: Any) -> SimulationBatch:
-        raise NotImplementedError('Concrete batched simulators must connect task parameters to the retrieval runtime.')
+        raise NotImplementedError(
+            "Concrete batched simulators must connect task parameters to the retrieval runtime."
+        )
 
 
 class RuntimeSimulator(BatchedSimulator):
@@ -106,7 +116,9 @@ class RuntimeSimulator(BatchedSimulator):
     using ``RetrievalRuntime``.
     """
 
-    def __init__(self, task: SBITask, runtime: Any | None = None, seed: int | None = None):
+    def __init__(
+        self, task: SBITask, runtime: Any | None = None, seed: int | None = None
+    ):
         super().__init__(task=task, runtime=runtime or task.build_runtime())
         initial_seed = seed
         if initial_seed is None:
@@ -119,8 +131,10 @@ class RuntimeSimulator(BatchedSimulator):
 
     def _validate_task_support(self) -> None:
         for data in self.task.retrieval_config.data.values():
-            if data.__class__.__name__ == 'TimeSeriesData':
-                raise NotImplementedError('RuntimeSimulator does not support time series data in the current phase.')
+            if data.__class__.__name__ == "TimeSeriesData":
+                raise NotImplementedError(
+                    "RuntimeSimulator does not support time series data in the current phase."
+                )
 
     def _next_key(self) -> Array:
         self._rng_key, next_key = random.split(self._rng_key)
@@ -130,9 +144,9 @@ class RuntimeSimulator(BatchedSimulator):
         if self.task.parameter_layout.n_free_parameters == 0:
             empty = jnp.zeros((n_samples, 0), dtype=JAX_DTYPE)
             return {
-                'parameters': empty,
-                'cube_parameters': empty,
-                'unconstrained_parameters': empty,
+                "parameters": empty,
+                "cube_parameters": empty,
+                "unconstrained_parameters": empty,
             }
 
         cube_key = self._next_key()
@@ -146,16 +160,20 @@ class RuntimeSimulator(BatchedSimulator):
         unconstrained_samples = jnp.log(cube_samples) - jnp.log1p(-cube_samples)
 
         return {
-            'parameters': self.task.parameter_layout.transform_cube_to_physical_batch(cube_samples),
-            'cube_parameters': cube_samples,
-            'unconstrained_parameters': unconstrained_samples,
+            "parameters": self.task.parameter_layout.transform_cube_to_physical_batch(
+                cube_samples
+            ),
+            "cube_parameters": cube_samples,
+            "unconstrained_parameters": unconstrained_samples,
         }
 
-    def sample_parameters(self, n_samples: int, proposal: ProposalSampler | None = None) -> Any:
+    def sample_parameters(
+        self, n_samples: int, proposal: ProposalSampler | None = None
+    ) -> Any:
         if proposal is not None:
             return proposal.sample(n_samples=n_samples, task=self.task)
 
-        return self._sample_prior_parameter_batch(n_samples)['parameters']
+        return self._sample_prior_parameter_batch(n_samples)["parameters"]
 
     def _apply_noise(
         self,
@@ -166,10 +184,10 @@ class RuntimeSimulator(BatchedSimulator):
         mode = self.task.simulation_config.noise_model.mode
         values = jnp.asarray(values, dtype=JAX_DTYPE)
 
-        if mode in {'none', 'no_noise'}:
+        if mode in {"none", "no_noise"}:
             return values, uncertainties, covariance
 
-        if mode not in {'observational', 'gaussian'}:
+        if mode not in {"observational", "gaussian"}:
             raise ValueError(f"Unsupported SBI noise mode: {mode!r}")
 
         key = self._next_key()
@@ -195,7 +213,7 @@ class RuntimeSimulator(BatchedSimulator):
         for key in keys:
             values = [payload[key] for payload in payloads]
 
-            if key == 'metadata':
+            if key == "metadata":
                 stacked_payload[key] = values
                 continue
 
@@ -203,10 +221,16 @@ class RuntimeSimulator(BatchedSimulator):
                 stacked_payload[key] = None
                 continue
 
-            stacked_payload[key] = jnp.stack([
-                jnp.asarray(value, dtype=JAX_DTYPE) if value is not None else jnp.asarray(jnp.nan, dtype=JAX_DTYPE)
-                for value in values
-            ])
+            stacked_payload[key] = jnp.stack(
+                [
+                    (
+                        jnp.asarray(value, dtype=JAX_DTYPE)
+                        if value is not None
+                        else jnp.asarray(jnp.nan, dtype=JAX_DTYPE)
+                    )
+                    for value in values
+                ]
+            )
 
         return stacked_payload
 
@@ -236,26 +260,28 @@ class RuntimeSimulator(BatchedSimulator):
             log_likelihood = []
 
         for parameter_row in np.asarray(parameter_matrix):
-            physical_params = self.runtime.parameter_layout.physical_params_from_vector(parameter_row)
+            physical_params = self.runtime.parameter_layout.physical_params_from_vector(
+                parameter_row
+            )
             simulated_observations = self.runtime.simulate_observations_scalar(
                 physical_params=physical_params,
             )
 
             for observation_name, observation_payload in simulated_observations.items():
                 noisy_values, uncertainties, covariance = self._apply_noise(
-                    observation_payload['values'],
-                    observation_payload['uncertainties'],
-                    observation_payload['covariance'],
+                    observation_payload["values"],
+                    observation_payload["uncertainties"],
+                    observation_payload["covariance"],
                 )
                 batched_observations[observation_name].append(
                     {
-                        'values': noisy_values,
-                        'deterministic_values': observation_payload['values'],
-                        'uncertainties': uncertainties,
-                        'covariance': covariance,
-                        'mask': observation_payload['mask'],
-                        'coordinates': observation_payload['coordinates'],
-                        'metadata': observation_payload['metadata'],
+                        "values": noisy_values,
+                        "deterministic_values": observation_payload["values"],
+                        "uncertainties": uncertainties,
+                        "covariance": covariance,
+                        "mask": observation_payload["mask"],
+                        "coordinates": observation_payload["coordinates"],
+                        "metadata": observation_payload["metadata"],
                     }
                 )
 
@@ -272,34 +298,46 @@ class RuntimeSimulator(BatchedSimulator):
         }
 
         diagnostics = {
-            'parameter_layout': self.task.parameter_layout.serialize_metadata(),
-            'task_fingerprint': self.task.task_fingerprint.digest,
+            "parameter_layout": self.task.parameter_layout.serialize_metadata(),
+            "task_fingerprint": self.task.task_fingerprint.digest,
         }
 
         return SimulationBatch(
             parameters=parameter_matrix,
             observations=stacked_observations,
-            cube_parameters=None if cube_parameters is None else jnp.asarray(cube_parameters, dtype=JAX_DTYPE),
+            cube_parameters=(
+                None
+                if cube_parameters is None
+                else jnp.asarray(cube_parameters, dtype=JAX_DTYPE)
+            ),
             unconstrained_parameters=(
                 None
                 if unconstrained_parameters is None
                 else jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE)
             ),
-            log_likelihood=None if log_likelihood is None else jnp.asarray(log_likelihood, dtype=JAX_DTYPE),
+            log_likelihood=(
+                None
+                if log_likelihood is None
+                else jnp.asarray(log_likelihood, dtype=JAX_DTYPE)
+            ),
             diagnostics=diagnostics,
         )
 
     def simulate_from_parameters(self, parameters: Any) -> SimulationBatch:
         return self._simulate_parameter_matrix(parameters)
 
-    def simulate_batch(self, n_samples: int, proposal: ProposalSampler | None = None) -> SimulationBatch:
+    def simulate_batch(
+        self, n_samples: int, proposal: ProposalSampler | None = None
+    ) -> SimulationBatch:
         """Sample parameters and preserve prior-space coordinates when available."""
         if proposal is not None:
-            return self.simulate_from_parameters(self.sample_parameters(n_samples=n_samples, proposal=proposal))
+            return self.simulate_from_parameters(
+                self.sample_parameters(n_samples=n_samples, proposal=proposal)
+            )
 
         parameter_batch = self._sample_prior_parameter_batch(n_samples)
         return self._simulate_parameter_matrix(
-            parameter_batch['parameters'],
-            cube_parameters=parameter_batch['cube_parameters'],
-            unconstrained_parameters=parameter_batch['unconstrained_parameters'],
+            parameter_batch["parameters"],
+            cube_parameters=parameter_batch["cube_parameters"],
+            unconstrained_parameters=parameter_batch["unconstrained_parameters"],
         )

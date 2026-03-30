@@ -1,6 +1,7 @@
 """
 JAX implementation of fortran_inputs.interpolate_line_opacities
 """
+
 import jax.numpy as jnp
 from jax import lax, vmap, jit, config
 
@@ -62,46 +63,62 @@ def interpolate_line_opacities(
     y_p_high_t1 = opacity_grid[..., j_t1_p1]
 
     # Calculate interpolation factors
-    d_pressures_t0 = temperature_pressure_grid[j_t0_p1, 1] - temperature_pressure_grid[j_t0_p0, 1]
-    d_pressures_t1 = temperature_pressure_grid[j_t1_p1, 1] - temperature_pressure_grid[j_t1_p0, 1]
-    d_temperatures = temperature_pressure_grid[j_t1_p0, 0] - temperature_pressure_grid[j_t0_p0, 0]
+    d_pressures_t0 = (
+        temperature_pressure_grid[j_t0_p1, 1] - temperature_pressure_grid[j_t0_p0, 1]
+    )
+    d_pressures_t1 = (
+        temperature_pressure_grid[j_t1_p1, 1] - temperature_pressure_grid[j_t1_p0, 1]
+    )
+    d_temperatures = (
+        temperature_pressure_grid[j_t1_p0, 0] - temperature_pressure_grid[j_t0_p0, 0]
+    )
 
     # Handle division by zero
-    dx_0 = jnp.where(d_pressures_t0 == 0.0,
-                     0.0,
-                     (pressures - temperature_pressure_grid[j_t0_p0, 1]) / d_pressures_t0)
-    dx_1 = jnp.where(d_pressures_t1 == 0.0,
-                     0.0,
-                     (pressures - temperature_pressure_grid[j_t1_p0, 1]) / d_pressures_t1)
-    t_factor = jnp.where(d_temperatures == 0,
-                         0,
-                         (temperatures - temperature_pressure_grid[j_t0_p0, 0]) / d_temperatures)
+    dx_0 = jnp.where(
+        d_pressures_t0 == 0.0,
+        0.0,
+        (pressures - temperature_pressure_grid[j_t0_p0, 1]) / d_pressures_t0,
+    )
+    dx_1 = jnp.where(
+        d_pressures_t1 == 0.0,
+        0.0,
+        (pressures - temperature_pressure_grid[j_t1_p0, 1]) / d_pressures_t1,
+    )
+    t_factor = jnp.where(
+        d_temperatures == 0,
+        0,
+        (temperatures - temperature_pressure_grid[j_t0_p0, 0]) / d_temperatures,
+    )
 
     # Interpolate along pressure
     y_t_lows = y_p_low_t0 + dx_0 * (y_p_high_t0 - y_p_low_t0)
-    y_t_lows = jnp.where(pressures > jnp.max(temperature_pressure_grid[:, 1]),
-                         y_p_high_t0,
-                         y_t_lows)
-    y_t_lows = jnp.where(pressures < jnp.min(temperature_pressure_grid[:, 1]),
-                         y_p_low_t0,
-                         y_t_lows)
+    y_t_lows = jnp.where(
+        pressures > jnp.max(temperature_pressure_grid[:, 1]), y_p_high_t0, y_t_lows
+    )
+    y_t_lows = jnp.where(
+        pressures < jnp.min(temperature_pressure_grid[:, 1]), y_p_low_t0, y_t_lows
+    )
 
     y_t_highs = y_p_low_t1 + dx_1 * (y_p_high_t1 - y_p_low_t1)
-    y_t_highs = jnp.where(pressures > jnp.max(temperature_pressure_grid[:,1]),
-                          y_p_high_t1,
-                          y_t_highs)
-    y_t_highs = jnp.where(pressures < jnp.min(temperature_pressure_grid[:,1]),
-                          y_p_low_t1,
-                          y_t_highs)
+    y_t_highs = jnp.where(
+        pressures > jnp.max(temperature_pressure_grid[:, 1]), y_p_high_t1, y_t_highs
+    )
+    y_t_highs = jnp.where(
+        pressures < jnp.min(temperature_pressure_grid[:, 1]), y_p_low_t1, y_t_highs
+    )
 
     # Interpolate along temperature
     interpolated_opacities = y_t_lows + t_factor[None, None, :] * (y_t_highs - y_t_lows)
-    interpolated_opacities = jnp.where(temperatures > jnp.max(temperature_pressure_grid[:, 0]),
-                                       y_t_highs,
-                                       interpolated_opacities)
-    interpolated_opacities = jnp.where(temperatures < jnp.min(temperature_pressure_grid[:, 0]),
-                                       y_t_lows,
-                                       interpolated_opacities)
+    interpolated_opacities = jnp.where(
+        temperatures > jnp.max(temperature_pressure_grid[:, 0]),
+        y_t_highs,
+        interpolated_opacities,
+    )
+    interpolated_opacities = jnp.where(
+        temperatures < jnp.min(temperature_pressure_grid[:, 0]),
+        y_t_lows,
+        interpolated_opacities,
+    )
     return interpolated_opacities
 
 
@@ -146,7 +163,12 @@ def _interpolate_stacked_species_opacities_flat(
     line_opacities_temperature_grid_size,
     line_opacities_pressure_grid_size,
 ):
-    def _interpolate_one_species(opacity_grid, temperature_pressure_grid, temperature_grid_size, pressure_grid_size):
+    def _interpolate_one_species(
+        opacity_grid,
+        temperature_pressure_grid,
+        temperature_grid_size,
+        pressure_grid_size,
+    ):
         species_opacity = interpolate_line_opacities(
             pressures,
             temperatures,
@@ -156,7 +178,9 @@ def _interpolate_stacked_species_opacities_flat(
             pressure_grid_size,
         )
 
-        return jnp.moveaxis(species_opacity, 0, -1).reshape(-1, species_opacity.shape[0])
+        return jnp.moveaxis(species_opacity, 0, -1).reshape(
+            -1, species_opacity.shape[0]
+        )
 
     return vmap(
         _interpolate_one_species,
@@ -171,8 +195,15 @@ def _interpolate_stacked_species_opacities_flat(
 
 
 def interpolate_species_opacities(
-    pressures, temperatures, n_g, n_frequencies, line_opacities_grid, line_opacities_temperature_pressure_grid,
-    line_opacities_temperature_grid_size, line_opacities_pressure_grid_size, output_layout='ng_f_s_l'
+    pressures,
+    temperatures,
+    n_g,
+    n_frequencies,
+    line_opacities_grid,
+    line_opacities_temperature_pressure_grid,
+    line_opacities_temperature_grid_size,
+    line_opacities_pressure_grid_size,
+    output_layout="ng_f_s_l",
 ):
     # Interpolate line opacities to given temperature structure.
     n_layers = pressures.size
@@ -181,32 +212,38 @@ def interpolate_species_opacities(
 
         if n_line_species > 0:
             line_opacities = jnp.zeros(
-                (n_g, n_frequencies, n_line_species, n_layers), dtype=JAX_DTYPE)
+                (n_g, n_frequencies, n_line_species, n_layers), dtype=JAX_DTYPE
+            )
 
             for i, species in enumerate(line_opacities_grid):
-                line_opacities_tp_grid = \
-                    line_opacities_temperature_pressure_grid[species].reshape(
-                        line_opacities_temperature_grid_size[species],
-                        line_opacities_pressure_grid_size[species],
-                        2)
-                line_opacities = line_opacities.at[:, :, i, :].set(interpolate_line_opacities(
-                    pressures,
-                    temperatures,
-                    line_opacities_tp_grid,
-                    line_opacities_grid[species],
+                line_opacities_tp_grid = line_opacities_temperature_pressure_grid[
+                    species
+                ].reshape(
                     line_opacities_temperature_grid_size[species],
                     line_opacities_pressure_grid_size[species],
-                ))
+                    2,
+                )
+                line_opacities = line_opacities.at[:, :, i, :].set(
+                    interpolate_line_opacities(
+                        pressures,
+                        temperatures,
+                        line_opacities_tp_grid,
+                        line_opacities_grid[species],
+                        line_opacities_temperature_grid_size[species],
+                        line_opacities_pressure_grid_size[species],
+                    )
+                )
         else:
             line_opacities = jnp.zeros(
-                (n_g, n_frequencies, 1, n_layers), dtype=JAX_DTYPE)
+                (n_g, n_frequencies, 1, n_layers), dtype=JAX_DTYPE
+            )
 
         return line_opacities
 
     n_line_species = line_opacities_grid.shape[0]
 
     if n_line_species > 0:
-        if output_layout == 'fl_s_ng':
+        if output_layout == "fl_s_ng":
             return _interpolate_stacked_species_opacities_flat(
                 pressures=pressures,
                 temperatures=temperatures,
@@ -225,5 +262,4 @@ def interpolate_species_opacities(
             line_opacities_pressure_grid_size=line_opacities_pressure_grid_size,
         )
 
-    return jnp.zeros(
-        (n_g, n_frequencies, 1, n_layers), dtype=JAX_DTYPE)
+    return jnp.zeros((n_g, n_frequencies, 1, n_layers), dtype=JAX_DTYPE)

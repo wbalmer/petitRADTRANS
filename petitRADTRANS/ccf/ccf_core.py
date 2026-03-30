@@ -1,5 +1,4 @@
-"""Core cross-correlation-related functions.
-"""
+"""Core cross-correlation-related functions."""
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -9,19 +8,27 @@ def co_add_cross_correlation(cross_correlation, velocities_ccf, co_added_velocit
     n_co_additions = np.shape(cross_correlation)[0]
 
     if np.ndim(co_added_velocities) != 3:
-        raise ValueError(f"co-added velocities must have 3 dimensions, but has {np.ndim(co_added_velocities)}")
+        raise ValueError(
+            f"co-added velocities must have 3 dimensions, but has {np.ndim(co_added_velocities)}"
+        )
     elif np.shape(co_added_velocities)[1] != n_co_additions:
-        raise ValueError(f"size of co-added velocities dimension 1 must be the size of cross correlation dimension 0 "
-                         f"({n_co_additions}), but is of shape {np.shape(co_added_velocities)}")
+        raise ValueError(
+            f"size of co-added velocities dimension 1 must be the size of cross correlation dimension 0 "
+            f"({n_co_additions}), but is of shape {np.shape(co_added_velocities)}"
+        )
 
-    co_added_ccf = np.zeros((np.shape(co_added_velocities)[0], np.shape(co_added_velocities)[2]))  # (Kp, Vr)
+    co_added_ccf = np.zeros(
+        (np.shape(co_added_velocities)[0], np.shape(co_added_velocities)[2])
+    )  # (Kp, Vr)
 
     # Interpolate the CCF at a given integration over the new (Kp, Vr) space
     ccf_interpolation_fs = [interp1d(velocities_ccf, ccf) for ccf in cross_correlation]
 
     for i, v_rest in enumerate(co_added_velocities):
         for j in range(n_co_additions):
-            co_added_ccf[i, :] += ccf_interpolation_fs[j](v_rest[j, :])  # sum every integration at a given Kp
+            co_added_ccf[i, :] += ccf_interpolation_fs[j](
+                v_rest[j, :]
+            )  # sum every integration at a given Kp
 
     return co_added_ccf
 
@@ -73,14 +80,22 @@ def cross_correlate_matrices(matrix_1, matrix_2):
     matrix_1[indices] = 0  # replace NaNs with zeros, zeros won't add to the sum
     matrix_2[indices] = 0
 
-    if np.ndim(matrix_1) <= 1:  # for 1-D arrays, cut-off to the faster cross_correlate, after the NaN treatment
-        return cross_correlate(matrix_1, matrix_2)  # slightly inefficient as matrix_dot is not used
+    if (
+        np.ndim(matrix_1) <= 1
+    ):  # for 1-D arrays, cut-off to the faster cross_correlate, after the NaN treatment
+        return cross_correlate(
+            matrix_1, matrix_2
+        )  # slightly inefficient as matrix_dot is not used
 
     matrix_dot[indices] = 0
 
     # Intermediate calculations, using einsum is ~2 times faster than np.sum(matrix ** 2, axis=-1)
-    matrix_1 = np.einsum(matrix_1, [Ellipsis, 0], matrix_1, [Ellipsis, 0])  # <=> np.sum(matrix_1 ** 2, axis=-1)
-    matrix_2 = np.einsum(matrix_2, [Ellipsis, 0], matrix_2, [Ellipsis, 0])  # <=> np.sum(matrix_2 ** 2, axis=-1)
+    matrix_1 = np.einsum(
+        matrix_1, [Ellipsis, 0], matrix_1, [Ellipsis, 0]
+    )  # <=> np.sum(matrix_1 ** 2, axis=-1)
+    matrix_2 = np.einsum(
+        matrix_2, [Ellipsis, 0], matrix_2, [Ellipsis, 0]
+    )  # <=> np.sum(matrix_2 ** 2, axis=-1)
 
     matrix_dot = np.sum(matrix_dot, axis=-1)
 

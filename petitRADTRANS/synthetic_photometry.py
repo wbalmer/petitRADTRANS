@@ -1,11 +1,10 @@
-
-
 """
 Module for downloading filter data from the website
 of the SVO Filter Profile Service. Reimplemented from
 species: https://github.com/tomasstolker/species to
 avoid circular dependencies between species and petitRADTRANS.
 """
+
 import os
 
 import numpy as np

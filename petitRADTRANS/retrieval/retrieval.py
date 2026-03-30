@@ -12,6 +12,7 @@ from typing import Callable
 from scipy.stats import binned_statistic
 from jax import vmap, lax, random, devices, config, numpy as jnp
 import tensorflow_probability.substrates.jax as tfp
+
 tfpd = tfp.distributions
 
 import petitRADTRANS
@@ -24,11 +25,14 @@ from petitRADTRANS.radtrans_core.spectrum_utils import (
     convolve,
     convolve_and_sample_variable_resolution_breads,
     filter_spectrum_with_spline,
-    rebin_spectrum_bin
+    rebin_spectrum_bin,
 )
 from petitRADTRANS.math import running_mean
 from petitRADTRANS.opacities import CorrelatedKOpacity
-from petitRADTRANS.physics import wavelength2frequency, shift_wavelengths_by_radial_velocity
+from petitRADTRANS.physics import (
+    wavelength2frequency,
+    shift_wavelengths_by_radial_velocity,
+)
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
@@ -41,14 +45,18 @@ from petitRADTRANS.retrieval.models import (
 )
 from petitRADTRANS.retrieval.plotting import RetrievalPlotter
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
-from petitRADTRANS.retrieval.runtime import ParameterLayout, PhysicalParams, RetrievalRuntime
+from petitRADTRANS.retrieval.runtime import (
+    ParameterLayout,
+    PhysicalParams,
+    RetrievalRuntime,
+)
 from petitRADTRANS.retrieval.utils import (
     get_pymultinest_sample_dict,
     unpack_model_output,
     extract_spectrum_parameters,
     process_spectrum_pipeline,
     validate_model_output,
-    ensure_jax_array
+    ensure_jax_array,
 )
 from petitRADTRANS.retrieval.sampler import (
     Sampler,
@@ -60,10 +68,16 @@ from petitRADTRANS.retrieval.sampler import (
     NumPyroHMCSampler,
     NumPyroNUTSSampler,
     JAXNSSampler,
-    JAXNSShardedStaticNestedSampler
-    )
-from petitRADTRANS.retrieval.log_likelihood import LogLikelihood, get_aic, get_bic, get_bpics
+    JAXNSShardedStaticNestedSampler,
+)
+from petitRADTRANS.retrieval.log_likelihood import (
+    LogLikelihood,
+    get_aic,
+    get_bic,
+    get_bpics,
+)
 from petitRADTRANS.utils import flatten_object, list_str2str
+
 # noinspection PyUnresolvedReferences
 
 JAX_DTYPE = jnp.float32
@@ -71,26 +85,26 @@ if config.jax_enable_x64:
     JAX_DTYPE = jnp.float64
 
 SAMPLER_DISPATCH: dict[str, type[Sampler]] = {
-    'pymultinest': PymultinestSampler,
-    'ultranest': UltranestSampler,
-    'blackjaxhmc': BlackJAXHMCSampler,
-    'blackjax_hmc': BlackJAXHMCSampler,
-    'hmc': BlackJAXHMCSampler,
-    'blackjaxnuts': BlackJAXNUTSSampler,
-    'blackjax_nuts': BlackJAXNUTSSampler,
-    'nuts': BlackJAXNUTSSampler,
-    'numpyrohmc': NumPyroHMCSampler,
-    'numpyro_hmc': NumPyroHMCSampler,
-    'numpyronuts': NumPyroNUTSSampler,
-    'numpyro_nuts': NumPyroNUTSSampler,
-    'jaxnestedsampler': JAXNSSampler,
-    'jaxns': JAXNSSampler,
-    'jaxnsshardedstaticsestedsampler': JAXNSShardedStaticNestedSampler,
+    "pymultinest": PymultinestSampler,
+    "ultranest": UltranestSampler,
+    "blackjaxhmc": BlackJAXHMCSampler,
+    "blackjax_hmc": BlackJAXHMCSampler,
+    "hmc": BlackJAXHMCSampler,
+    "blackjaxnuts": BlackJAXNUTSSampler,
+    "blackjax_nuts": BlackJAXNUTSSampler,
+    "nuts": BlackJAXNUTSSampler,
+    "numpyrohmc": NumPyroHMCSampler,
+    "numpyro_hmc": NumPyroHMCSampler,
+    "numpyronuts": NumPyroNUTSSampler,
+    "numpyro_nuts": NumPyroNUTSSampler,
+    "jaxnestedsampler": JAXNSSampler,
+    "jaxns": JAXNSSampler,
+    "jaxnsshardedstaticsestedsampler": JAXNSShardedStaticNestedSampler,
 }
 
 prt_emcee_mode = os.environ.get("pRT_emcee_mode")
 load_mpi = True
-if prt_emcee_mode == 'True':
+if prt_emcee_mode == "True":
     load_mpi = False
 
 MPI = None
@@ -101,6 +115,7 @@ if load_mpi:
     # MPI Multiprocessing
     try:
         from mpi4py import MPI
+
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
     except ImportError:
@@ -153,6 +168,7 @@ class Retrieval:
             = output tests. The mock data will be saved in the mock_data folder in the run directory, with the
             following file names: data.name + '_mock_data.dat'.
     """
+
     def __init__(
         self,
         configuration: RetrievalConfig,
@@ -165,7 +181,7 @@ class Retrieval:
         test_plotting: bool = False,
         uncertainties_mode: str = "default",
         print_log_likelihood_for_debugging: bool = False,
-        generate_mock_data: bool = False
+        generate_mock_data: bool = False,
     ):
         self.configuration = configuration
 
@@ -173,10 +189,14 @@ class Retrieval:
             for data_name, d in self.configuration.data.items():
                 if d.radtrans_object is not None:
                     if len(d.radtrans_object.line_species) < 1:
-                        warnings.warn("there are no line species present in the given Radtrans object")
+                        warnings.warn(
+                            "there are no line species present in the given Radtrans object"
+                        )
                         break
                 else:
-                    warnings.warn("there are no line species present in the run definition")
+                    warnings.warn(
+                        "there are no line species present in the run definition"
+                    )
                     break
 
         # TODO - Maybe inherit from retrieval config class?
@@ -219,28 +239,38 @@ class Retrieval:
         self.path = petitradtrans_config_parser.get_input_data_path()
 
         # Setup Directories
-        os.makedirs(os.path.join(self.output_directory, 'out_PMN'), exist_ok=True)
-        os.makedirs(os.path.join(self.output_directory,
-                                 'evaluate_' + self.configuration.retrieval_name), exist_ok=True)
+        os.makedirs(os.path.join(self.output_directory, "out_PMN"), exist_ok=True)
+        os.makedirs(
+            os.path.join(
+                self.output_directory, "evaluate_" + self.configuration.retrieval_name
+            ),
+            exist_ok=True,
+        )
 
         # Setup pRT Objects for each data structure.
         self.initialise_radtrans_objects()
         self.parameter_layout = ParameterLayout.from_configuration(self.configuration)
         self._n_free_params_total_retrieval = self.parameter_layout.n_free_parameters
-        self._free_parameter_names_cache = list(self.parameter_layout.free_parameter_names)
+        self._free_parameter_names_cache = list(
+            self.parameter_layout.free_parameter_names
+        )
         self.runtime = RetrievalRuntime.from_configuration(
             self.configuration,
             parameter_layout=self.parameter_layout,
             n_free_parameters=self._n_free_params_total_retrieval,
         )
         self.latest_sampler_results = None
-        if self.configuration.run_mode == 'evaluate':
-            sample_dict, parameters_dict = self.get_samples(output_directory=self.output_directory)
+        if self.configuration.run_mode == "evaluate":
+            sample_dict, parameters_dict = self.get_samples(
+                output_directory=self.output_directory
+            )
             samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
             parameters_read = parameters_dict[self.configuration.retrieval_name]
             log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
             best_fit_sample = samples_use[:-1, best_fit_index]
-            self.best_fit_parameters = self.build_param_dict(best_fit_sample, parameters_read)
+            self.best_fit_parameters = self.build_param_dict(
+                best_fit_sample, parameters_read
+            )
         try:
             self.generate_retrieval_summary(None)
         except (ValueError, FileNotFoundError) as e:
@@ -250,12 +280,14 @@ class Retrieval:
         data_are_valid = self._data_are_valid()
 
         if not data_are_valid:
-            warnings.warn("Data may not be suitable for retrievals due to invalid values")
+            warnings.warn(
+                "Data may not be suitable for retrievals due to invalid values"
+            )
 
         self._error_check_model_function()
 
     def _data_are_valid(self, data=None):
-        tested_attributes = ['wavelengths', 'spectrum', 'uncertainties']
+        tested_attributes = ["wavelengths", "spectrum", "uncertainties"]
         valid = True
 
         if data is None:
@@ -273,21 +305,27 @@ class Retrieval:
                     if valid:
                         print("  OK (no NaN, infinite, or negative value detected)")
         elif isinstance(data, np.ndarray):
-            if data.dtype == 'O':
+            if data.dtype == "O":
                 for d in data:
                     valid = valid and self._data_are_valid(d)
             else:
                 if np.any(np.isnan(data)):
-                    warnings.warn(f"NaN detected ({np.nonzero(np.isnan(data))[0].size} / {data.size})")
+                    warnings.warn(
+                        f"NaN detected ({np.nonzero(np.isnan(data))[0].size} / {data.size})"
+                    )
                     valid = False
 
                 if np.any(~np.isfinite(data)):
-                    warnings.warn(f"Infinite value detected ({np.nonzero(~np.isfinite(data))[0].size} / {data.size})")
+                    warnings.warn(
+                        f"Infinite value detected ({np.nonzero(~np.isfinite(data))[0].size} / {data.size})"
+                    )
                     valid = False
 
                 if np.any(np.less(data, 0)):
-                    warnings.warn(f"Negative value detected ({np.nonzero(np.less(data, 0))[0].size} / {data.size})\n"
-                                  "Make sure that this makes sense for the data set you are considering.")
+                    warnings.warn(
+                        f"Negative value detected ({np.nonzero(np.less(data, 0))[0].size} / {data.size})\n"
+                        "Make sure that this makes sense for the data set you are considering."
+                    )
                     valid = False
         else:
             self._data_are_valid(np.array(data))
@@ -310,11 +348,13 @@ class Retrieval:
                     data=data_name,
                     pt_plot_mode=False,
                     adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
-                    copy_configuration_parameters=False
+                    copy_configuration_parameters=False,
                 )
 
                 # TODO the generating function should always return the same number of values
-                if len(model_returned_values) == 3:  # handle case where beta is returned
+                if (
+                    len(model_returned_values) == 3
+                ):  # handle case where beta is returned
                     wavelengths, model, _ = model_returned_values
                 else:
                     wavelengths, model = model_returned_values
@@ -323,7 +363,9 @@ class Retrieval:
                 message = "and may be caused by an invalid parameter dictionary or invalid abundances"
             except ValueError:
                 exc_info = sys.exc_info()
-                message = "and may be caused by erroneous calculations or invalid inputs"
+                message = (
+                    "and may be caused by erroneous calculations or invalid inputs"
+                )
             except IndexError:
                 exc_info = sys.exc_info()
                 message = "and may be caused by arrays with an incorrect shape"
@@ -335,13 +377,17 @@ class Retrieval:
                 message = "and may be caused by invalid inputs"
             finally:
                 if message is not None:
-                    message = "this error was directly caused by the above error " + message
+                    message = (
+                        "this error was directly caused by the above error " + message
+                    )
                     traceback.print_exception(*exc_info)
                     raise RuntimeError(message)
 
             if wavelengths is None or model is None:
-                raise ValueError("unable to compute a spectrum (output wavelengths and spectrum are both None), "
-                                 "check your inputs and your model function")
+                raise ValueError(
+                    "unable to compute a spectrum (output wavelengths and spectrum are both None), "
+                    "check your inputs and your model function"
+                )
 
         print("No errors detected in the model functions!")
 
@@ -353,13 +399,15 @@ class Retrieval:
             _line = Opacity.get_species_isotopologue_name(line)
             matches = CorrelatedKOpacity.find(
                 path_input_data=self.path,
-                category='correlated_k_opacities',
+                category="correlated_k_opacities",
                 species=CorrelatedKOpacity.join_species_all_info(
                     species_name=_line,
-                    spectral_info=CorrelatedKOpacity.get_resolving_power_string(resolution)
+                    spectral_info=CorrelatedKOpacity.get_resolving_power_string(
+                        resolution
+                    ),
                 ),
                 find_all=True,
-                search_online=False
+                search_online=False,
             )
 
             if len(matches) == 0:
@@ -369,14 +417,15 @@ class Retrieval:
         if len(species) > 0:
             if rank == 0:
                 CorrelatedKOpacity.exo_k_multiple_rebin_from_species(
-                    species=species,
-                    resolving_power=resolution
+                    species=species, resolving_power=resolution
                 )
 
             if comm is not None:
                 comm.barrier()
 
-    def build_param_dict(self, sample: npt.NDArray[float], free_param_names: list[str]) -> dict[str, Parameter]:
+    def build_param_dict(
+        self, sample: npt.NDArray[float], free_param_names: list[str]
+    ) -> dict[str, Parameter]:
         """
         This function builds a dictionary of parameters that can be passed to the
         model building functions. It requires a numpy array with the same length
@@ -401,16 +450,12 @@ class Retrieval:
         for parameter_name, parameter in self.configuration.parameters.items():
             if parameter.is_free_parameter and parameter_name in free_param_names:
                 parameters[parameter_name] = Parameter(
-                    name=parameter_name,
-                    is_free_parameter=False,
-                    value=sample[i_p]
+                    name=parameter_name, is_free_parameter=False, value=sample[i_p]
                 )
                 i_p += 1
             else:
                 parameters[parameter_name] = Parameter(
-                    name=parameter_name,
-                    is_free_parameter=False,
-                    value=parameter.value
+                    name=parameter_name, is_free_parameter=False, value=parameter.value
                 )
         return parameters
 
@@ -424,17 +469,16 @@ class Retrieval:
         pt_plot_mode: bool = False,
         adaptive_mesh_refinement: bool = False,
     ):
-        _, runtime_ready_model_function = coerce_model_generating_function(model_generating_function)
+        _, runtime_ready_model_function = coerce_model_generating_function(
+            model_generating_function
+        )
 
         physical_params = PhysicalParams.from_mapping(
-            {
-                name: parameter.value
-                for name, parameter in parameters.items()
-            }
+            {name: parameter.value for name, parameter in parameters.items()}
         )
         model_context = _build_model_context_from_parameters(
             data_name,
-            'unknown',
+            "unknown",
             radtrans_object,
             parameters,
             adaptive_mesh_refinement=adaptive_mesh_refinement,
@@ -455,7 +499,7 @@ class Retrieval:
         pt_plot_mode: bool = False,
         adaptive_mesh_refinement: bool = False,
         copy_configuration_parameters: bool = True,
-        **kwargs
+        **kwargs,
     ):
         """Calculate the forward model associated with the given data, for the given parameters.
 
@@ -487,15 +531,17 @@ class Retrieval:
         if parameters is None:
             parameters = {}
         elif isinstance(parameters, str):
-            if parameters == 'best fit':
+            if parameters == "best fit":
                 parameters = self.get_best_fit_parameters(return_max_likelihood=False)
-            elif parameters == 'median':
+            elif parameters == "median":
                 parameters = self.get_quantile_parameters(0.5)
-            elif parameters == 'quantile':
+            elif parameters == "quantile":
                 parameters = self.get_quantile_parameters(**kwargs)
 
         if copy_configuration_parameters:
-            configuration_parameters = copy.deepcopy(self.configuration.parameters)  # copy to prevent unwanted modifs
+            configuration_parameters = copy.deepcopy(
+                self.configuration.parameters
+            )  # copy to prevent unwanted modifs
         else:
             configuration_parameters = self.configuration.parameters
 
@@ -524,13 +570,24 @@ class Retrieval:
                         )
                     else:
                         if parameter_name in parameters:
-                            lower_boundary = configuration_parameters[parameter_name].get_param_uniform(0)
-                            upper_boundary = configuration_parameters[parameter_name].get_param_uniform(1)
+                            lower_boundary = configuration_parameters[
+                                parameter_name
+                            ].get_param_uniform(0)
+                            upper_boundary = configuration_parameters[
+                                parameter_name
+                            ].get_param_uniform(1)
 
                             if lower_boundary > upper_boundary:
-                                upper_boundary, lower_boundary = lower_boundary, upper_boundary  # swap boundaries
+                                upper_boundary, lower_boundary = (
+                                    lower_boundary,
+                                    upper_boundary,
+                                )  # swap boundaries
 
-                            if not (lower_boundary <= parameters[parameter_name] <= upper_boundary):
+                            if not (
+                                lower_boundary
+                                <= parameters[parameter_name]
+                                <= upper_boundary
+                            ):
                                 warnings.warn(
                                     f"value given for parameter '{parameter_name}' ({parameters[parameter_name]}) "
                                     f"is not within its prior boundaries ({lower_boundary} to {upper_boundary})"
@@ -544,17 +601,31 @@ class Retrieval:
                     warnings.warn(
                         f"parameter '{parameter_name}' is not a free parameter"
                     )
-                    configuration_parameters[parameter_name].set_param(parameters[parameter_name])
+                    configuration_parameters[parameter_name].set_param(
+                        parameters[parameter_name]
+                    )
         else:  # assume that the 'parameters' argument is the list of parameters values in the correct order
             for parameter_name in configuration_parameters:
                 if configuration_parameters[parameter_name].is_free_parameter:
-                    if configuration_parameters[parameter_name].transform_prior_cube_coordinate is not None:
+                    if (
+                        configuration_parameters[
+                            parameter_name
+                        ].transform_prior_cube_coordinate
+                        is not None
+                    ):
                         # TODO: tfp distributions enforce this natively?
-                        lower_boundary = configuration_parameters[parameter_name].get_param_uniform(0)
-                        upper_boundary = configuration_parameters[parameter_name].get_param_uniform(1)
+                        lower_boundary = configuration_parameters[
+                            parameter_name
+                        ].get_param_uniform(0)
+                        upper_boundary = configuration_parameters[
+                            parameter_name
+                        ].get_param_uniform(1)
 
                         if lower_boundary > upper_boundary:
-                            upper_boundary, lower_boundary = lower_boundary, upper_boundary  # swap boundaries
+                            upper_boundary, lower_boundary = (
+                                lower_boundary,
+                                upper_boundary,
+                            )  # swap boundaries
 
                         if not (lower_boundary <= parameters[i_p] <= upper_boundary):
                             warnings.warn(
@@ -575,11 +646,15 @@ class Retrieval:
             data = {data: self.configuration.data[data]}
 
         for name, _data in data.items():
-            if return_dict or len(data) > 1:  # display from which data the forward model is being calculated
+            if (
+                return_dict or len(data) > 1
+            ):  # display from which data the forward model is being calculated
                 print(f"Calculating model function for data '{name}'...")
 
             if _data.external_radtrans_reference is not None:
-                radtrans_object = self.configuration.data[_data.external_radtrans_reference].radtrans_object
+                radtrans_object = self.configuration.data[
+                    _data.external_radtrans_reference
+                ].radtrans_object
             else:
                 radtrans_object = _data.radtrans_object
 
@@ -598,12 +673,13 @@ class Retrieval:
             return model_returned_values[list(data.keys())[0]]
 
     def calculate_temperature_profile(
-            self,
-            parameters=None,
-            data=None,
-            adaptive_mesh_refinement: bool = False,
-            copy_configuration_parameters: bool = True,
-            **kwargs):
+        self,
+        parameters=None,
+        data=None,
+        adaptive_mesh_refinement: bool = False,
+        copy_configuration_parameters: bool = True,
+        **kwargs,
+    ):
         """Calculate the temperature profile associated with the given data, for the given parameters.
         Wrapper for calculate_forward_model.
 
@@ -638,7 +714,8 @@ class Retrieval:
             True,
             adaptive_mesh_refinement,
             copy_configuration_parameters,
-            **kwargs)
+            **kwargs,
+        )
 
     @classmethod
     def from_data(
@@ -657,7 +734,7 @@ class Retrieval:
         test_plotting: bool = False,
         uncertainties_mode: str = "default",
         scattering_in_emission: bool = False,
-        pressures: np.ndarray = None
+        pressures: np.ndarray = None,
     ):
         """Instantiate a Retrieval object with a dictionary of Data objects.
         Intended to be used in couple with the SpectralModel.init_data function.
@@ -726,7 +803,7 @@ class Retrieval:
             run_mode=run_mode,
             adaptive_mesh_refinement=adaptive_mesh_refinement,
             scattering_in_emission=scattering_in_emission,  # scattering is not necessary when using SpectralModels
-            pressures=pressures  # pressures is not necessary when using SpectralModels
+            pressures=pressures,  # pressures is not necessary when using SpectralModels
         )
 
         # Convert retrieved parameters to RetrievalParameters
@@ -735,7 +812,7 @@ class Retrieval:
 
         # Add retrieved parameters to the RetrievalConfig
         for parameter in retrieved_parameters:
-            if not hasattr(parameter, 'prior_function'):
+            if not hasattr(parameter, "prior_function"):
                 raise AttributeError(
                     f"'{type(parameter)}' object has no attribute 'prior_function': "
                     f"usage of dictionary or a '{type(RetrievalParameter)}' instance is recommended"
@@ -762,10 +839,12 @@ class Retrieval:
             reference_data_name=reference_data_name,
             use_prt_plot_style=use_prt_plot_style,
             test_plotting=test_plotting,
-            uncertainties_mode=uncertainties_mode
+            uncertainties_mode=uncertainties_mode,
         )
 
-    def generate_retrieval_summary(self, stats: dict = None, sampler_parameters: dict = None) -> None:
+    def generate_retrieval_summary(
+        self, stats: dict = None, sampler_parameters: dict = None
+    ) -> None:
         """
         This function produces a human-readable text file describing the retrieval.
         It includes all the fixed and free parameters, the limits of the priors (if uniform),
@@ -783,28 +862,30 @@ class Retrieval:
         )
 
         with open(
-                os.path.join(
-                    self.output_directory,
-                    "evaluate_" + self.configuration.retrieval_name,
-                    self.configuration.retrieval_name + "_ret_summary.txt"
-                ),
-                "w+"
+            os.path.join(
+                self.output_directory,
+                "evaluate_" + self.configuration.retrieval_name,
+                self.configuration.retrieval_name + "_ret_summary.txt",
+            ),
+            "w+",
         ) as summary:
             from datetime import datetime
 
-            summary.write(self.configuration.retrieval_name + '\n')
-            summary.write(datetime.now().strftime("%Y-%m-%d, %H:%M:%S") + '\n')
+            summary.write(self.configuration.retrieval_name + "\n")
+            summary.write(datetime.now().strftime("%Y-%m-%d, %H:%M:%S") + "\n")
             summary.write(f"pRT v{petitRADTRANS.__version__}\n")
-            summary.write(self.output_directory + '\n')
+            summary.write(self.output_directory + "\n")
 
             summary.write("\n")
-            self._write_sampler_summary_section(summary=summary, sampler_summary=sampler_summary)
+            self._write_sampler_summary_section(
+                summary=summary, sampler_summary=sampler_summary
+            )
             summary.write("\n")
 
             summary.write("Fixed Parameters\n")
 
             for key, value in self.configuration.parameters.items():
-                if key in ['pressure_simple', 'pressure_width', 'pressure_scaling']:
+                if key in ["pressure_simple", "pressure_width", "pressure_scaling"]:
                     continue
 
                 if not value.is_free_parameter:
@@ -819,9 +900,7 @@ class Retrieval:
             summary.write(f"{radtrans_object.line_species}")
             summary.write("\n")
             summary.write("    cloud_species = ")
-            summary.write(
-                f"{radtrans_object.cloud_species}"
-            )
+            summary.write(f"{radtrans_object.cloud_species}")
             summary.write("\n")
             summary.write("Free Parameters, Prior^-1(0), Prior^-1(1)\n")
 
@@ -838,20 +917,27 @@ class Retrieval:
 
                     elif value.distribution is not None:
                         summary.write(f"    {key} = {value.distribution.name}\n")
-                        for dist_param, dist_param_value in value.distribution.parameters.items():
-                            summary.write(f"        {dist_param} = {dist_param_value}\n")
+                        for (
+                            dist_param,
+                            dist_param_value,
+                        ) in value.distribution.parameters.items():
+                            summary.write(
+                                f"        {dist_param} = {dist_param_value}\n"
+                            )
 
-            summary.write('\n')
+            summary.write("\n")
             summary.write("Data\n")
 
             for name, data in self.configuration.data.items():
-                summary.write(name + '\n')
+                summary.write(name + "\n")
 
                 if data.path_to_observations is not None:
-                    summary.write("    " + data.path_to_observations + '\n')
+                    summary.write("    " + data.path_to_observations + "\n")
 
                 if data.model_generating_function is not None:
-                    summary.write(f"    Model Function = {data.model_generating_function.__name__}\n")
+                    summary.write(
+                        f"    Model Function = {data.model_generating_function.__name__}\n"
+                    )
 
                 if data.scale_flux:
                     summary.write(f"    scale factor = {data.scale_factor:.2f}\n")
@@ -872,35 +958,55 @@ class Retrieval:
                     summary.write(f"    model resolution = {data.model_resolution}\n")
 
                 if data.external_radtrans_reference is not None:
-                    summary.write(f"    external_pRT_reference = {data.external_radtrans_reference}\n")
+                    summary.write(
+                        f"    external_pRT_reference = {data.external_radtrans_reference}\n"
+                    )
 
                 if isinstance(data, PhotometryData):
-                    summary.write(f"    photometric width = {data.photometry_range[0]:.4f}"
-                                  + f"--{data.photometry_range[1]:.4f} um\n")
-                    summary.write("    Photometric transform function = "
-                                  + data.photometric_transformation_function.__name__ + '\n')
+                    summary.write(
+                        f"    photometric width = {data.photometry_range[0]:.4f}"
+                        + f"--{data.photometry_range[1]:.4f} um\n"
+                    )
+                    summary.write(
+                        "    Photometric transform function = "
+                        + data.photometric_transformation_function.__name__
+                        + "\n"
+                    )
 
-            summary.write('\n')
+            summary.write("\n")
 
             best_fit_summary = self._collect_best_fit_summary()
             if best_fit_summary is not None:
                 summary.write("Best Fit Parameters\n")
 
-                summary.write(f"    log_likelihood = {best_fit_summary['log_likelihood']:.6g}\n")
-                summary.write(f"    𝛘^2/n_wlen = {best_fit_summary['chi2_wavelengths']:.2f}\n")
+                summary.write(
+                    f"    log_likelihood = {best_fit_summary['log_likelihood']:.6g}\n"
+                )
+                summary.write(
+                    f"    𝛘^2/n_wlen = {best_fit_summary['chi2_wavelengths']:.2f}\n"
+                )
                 summary.write(f"    𝛘^2/DoF = {best_fit_summary['chi2_d_o_f']:.2f}\n")
 
-                evidence_approximations = best_fit_summary.get('evidence_approximations', {})
+                evidence_approximations = best_fit_summary.get(
+                    "evidence_approximations", {}
+                )
                 if evidence_approximations:
                     summary.write("    Evidence Approximations\n")
-                    for metric_name in ('bic', 'aic', 'bpics'):
+                    for metric_name in ("bic", "aic", "bpics"):
                         metric_value = evidence_approximations.get(metric_name)
                         if metric_value is None:
                             continue
-                        summary.write(f"        {metric_name.upper()} = {metric_value:.6g}\n")
+                        summary.write(
+                            f"        {metric_name.upper()} = {metric_value:.6g}\n"
+                        )
 
-                for key, value in best_fit_summary['parameters'].items():
-                    if key in ['pressure_simple', 'pressure_width', 'pressure_scaling', 'FstarWlenMicron']:
+                for key, value in best_fit_summary["parameters"].items():
+                    if key in [
+                        "pressure_simple",
+                        "pressure_width",
+                        "pressure_scaling",
+                        "FstarWlenMicron",
+                    ]:
                         continue
 
                     out = value.value
@@ -921,7 +1027,7 @@ class Retrieval:
             samples_dict, parameter_dict = self.get_samples(
                 names=[self.configuration.retrieval_name],
                 output_directory=self.output_directory,
-                ret_names=None
+                ret_names=None,
             )
         except (FileNotFoundError, OSError, ValueError, KeyError):
             return None
@@ -933,24 +1039,32 @@ class Retrieval:
             return None
 
         samples_use = np.asarray(samples_use)
-        if samples_use.ndim != 2 or samples_use.shape[0] == 0 or samples_use.shape[1] == 0:
+        if (
+            samples_use.ndim != 2
+            or samples_use.shape[0] == 0
+            or samples_use.shape[1] == 0
+        ):
             return None
 
-        log_l, best_fit_index = self.get_best_fit_likelihood(samples_use, print_value=False)
+        log_l, best_fit_index = self.get_best_fit_likelihood(
+            samples_use, print_value=False
+        )
         best_fit_sample = samples_use[:, best_fit_index]
-        best_fit_parameters = self.build_param_dict(best_fit_sample[:-1], parameters_read)
+        best_fit_parameters = self.build_param_dict(
+            best_fit_sample[:-1], parameters_read
+        )
 
         chi2_wavelengths = self.get_reduced_chi2_from_sample(
             sample=best_fit_sample,
             subtract_n_parameters=False,
             verbose=False,
-            show_chi2=False
+            show_chi2=False,
         )
         chi2_d_o_f = self.get_reduced_chi2_from_sample(
             sample=best_fit_sample,
             subtract_n_parameters=True,
             verbose=False,
-            show_chi2=False
+            show_chi2=False,
         )
         evidence_approximations = self._collect_evidence_approximations(
             max_logl=log_l,
@@ -962,11 +1076,11 @@ class Retrieval:
         self.best_fit_parameters = best_fit_parameters
 
         return {
-            'log_likelihood': log_l,
-            'chi2_wavelengths': chi2_wavelengths,
-            'chi2_d_o_f': chi2_d_o_f,
-            'evidence_approximations': evidence_approximations,
-            'parameters': best_fit_parameters,
+            "log_likelihood": log_l,
+            "chi2_wavelengths": chi2_wavelengths,
+            "chi2_d_o_f": chi2_d_o_f,
+            "evidence_approximations": evidence_approximations,
+            "parameters": best_fit_parameters,
         }
 
     def _count_data_points(self) -> int:
@@ -974,7 +1088,8 @@ class Retrieval:
 
     def _count_free_parameters(self) -> int:
         return sum(
-            1 for parameter in self.configuration.parameters.values()
+            1
+            for parameter in self.configuration.parameters.values()
             if parameter.is_free_parameter
         )
 
@@ -984,22 +1099,24 @@ class Retrieval:
 
         log_weight_samples = self._get_results_field(
             results,
-            'log_weights',
-            'log_posterior_weights',
-            'sample_log_weights',
+            "log_weights",
+            "log_posterior_weights",
+            "sample_log_weights",
         )
         if log_weight_samples is not None:
             return np.asarray(log_weight_samples, dtype=float).reshape(-1)
 
         if isinstance(results, dict):
-            weighted_samples = results.get('weighted_samples')
+            weighted_samples = results.get("weighted_samples")
             if isinstance(weighted_samples, dict):
-                weighted_logl = self._get_results_field(weighted_samples, 'logl', 'logL')
+                weighted_logl = self._get_results_field(
+                    weighted_samples, "logl", "logL"
+                )
                 weighted_weights = self._get_results_field(
                     weighted_samples,
-                    'log_weights',
-                    'weights',
-                    'sample_weights',
+                    "log_weights",
+                    "weights",
+                    "sample_weights",
                 )
 
                 if weighted_weights is None:
@@ -1049,71 +1166,88 @@ class Retrieval:
                 log_weights = None
 
         return {
-            'bic': get_bic(max_logl=max_logl, n_data=n_data, n_params=n_params),
-            'aic': get_aic(max_logl=max_logl, n_params=n_params),
-            'bpics': get_bpics(logl_samples=logl_samples, n_params=n_params, log_weights=log_weights),
+            "bic": get_bic(max_logl=max_logl, n_data=n_data, n_params=n_params),
+            "aic": get_aic(max_logl=max_logl, n_params=n_params),
+            "bpics": get_bpics(
+                logl_samples=logl_samples, n_params=n_params, log_weights=log_weights
+            ),
         }
 
-    def _collect_sampler_summary(self, stats: dict = None, sampler_parameters: dict = None) -> dict:
+    def _collect_sampler_summary(
+        self, stats: dict = None, sampler_parameters: dict = None
+    ) -> dict:
         sampler_summary = {
-            'sampler': self.sampler.__class__.__name__ if self.sampler is not None else None,
-            'parameters': {},
-            'diagnostics': {},
-            'evidence': {},
-            'posterior': [],
+            "sampler": (
+                self.sampler.__class__.__name__ if self.sampler is not None else None
+            ),
+            "parameters": {},
+            "diagnostics": {},
+            "evidence": {},
+            "posterior": [],
         }
 
-        if self.sampler is not None and hasattr(self.sampler, 'get_summary'):
+        if self.sampler is not None and hasattr(self.sampler, "get_summary"):
             sampler_summary = self.sampler.get_summary(
                 free_parameter_names=self._free_parameter_names_cache
             )
 
         if sampler_parameters is not None:
-            sampler_summary.setdefault('parameters', {}).update(sampler_parameters)
+            sampler_summary.setdefault("parameters", {}).update(sampler_parameters)
 
-        if stats and isinstance(stats, dict) and 'global evidence' in stats and 'marginals' in stats:
-            sampler_summary.setdefault('evidence', {})
-            sampler_summary['evidence'].setdefault('ln_z', stats.get('global evidence'))
-            sampler_summary['evidence'].setdefault('ln_z_err', stats.get('global evidence error'))
-            if not sampler_summary.get('posterior'):
+        if (
+            stats
+            and isinstance(stats, dict)
+            and "global evidence" in stats
+            and "marginals" in stats
+        ):
+            sampler_summary.setdefault("evidence", {})
+            sampler_summary["evidence"].setdefault("ln_z", stats.get("global evidence"))
+            sampler_summary["evidence"].setdefault(
+                "ln_z_err", stats.get("global evidence error")
+            )
+            if not sampler_summary.get("posterior"):
                 posterior = []
-                for param_name, marginal in zip(self._free_parameter_names_cache, stats['marginals']):
-                    lo, hi = marginal['1sigma']
-                    med = marginal['median']
-                    posterior.append({
-                        'name': param_name,
-                        'median': med,
-                        'lower_1sigma': lo,
-                        'upper_1sigma': hi,
-                    })
+                for param_name, marginal in zip(
+                    self._free_parameter_names_cache, stats["marginals"]
+                ):
+                    lo, hi = marginal["1sigma"]
+                    med = marginal["median"]
+                    posterior.append(
+                        {
+                            "name": param_name,
+                            "median": med,
+                            "lower_1sigma": lo,
+                            "upper_1sigma": hi,
+                        }
+                    )
 
-                sampler_summary['posterior'] = posterior
+                sampler_summary["posterior"] = posterior
 
         return sampler_summary
 
     def _write_sampler_summary_section(self, summary, sampler_summary: dict) -> None:
         summary.write("Sampler\n")
-        if sampler_summary.get('sampler') is not None:
+        if sampler_summary.get("sampler") is not None:
             summary.write(f"    sampler = {sampler_summary['sampler']}\n")
 
-        if sampler_summary.get('parameters'):
+        if sampler_summary.get("parameters"):
             summary.write("Sampler Parameters\n")
-            for key, value in sampler_summary['parameters'].items():
+            for key, value in sampler_summary["parameters"].items():
                 summary.write(f"    {key} = {value}\n")
 
-        if sampler_summary.get('diagnostics'):
+        if sampler_summary.get("diagnostics"):
             summary.write("Sampler Diagnostics\n")
-            for key, value in sampler_summary['diagnostics'].items():
+            for key, value in sampler_summary["diagnostics"].items():
                 if value is None:
                     continue
                 summary.write(f"    {key} = {value}\n")
 
-        evidence = sampler_summary.get('evidence', {})
+        evidence = sampler_summary.get("evidence", {})
         if evidence:
             summary.write("Posterior Summary\n")
-            if evidence.get('ln_z') is not None:
-                ln_z = evidence['ln_z']
-                ln_z_err = evidence.get('ln_z_err')
+            if evidence.get("ln_z") is not None:
+                ln_z = evidence["ln_z"]
+                ln_z_err = evidence.get("ln_z_err")
                 if ln_z_err is not None:
                     summary.write(f"    ln Z = {ln_z:.6g} +- {ln_z_err:.6g}\n")
                     summary.write(
@@ -1122,17 +1256,22 @@ class Retrieval:
                 else:
                     summary.write(f"    ln Z = {ln_z:.6g}\n")
 
-        if sampler_summary.get('posterior'):
+        if sampler_summary.get("posterior"):
             if not evidence:
                 summary.write("Posterior Summary\n")
             summary.write("    Statistical Fit Parameters\n")
-            for posterior_entry in sampler_summary['posterior']:
-                name = posterior_entry['name']
-                median = posterior_entry.get('median')
-                lo = posterior_entry.get('lower_1sigma')
-                hi = posterior_entry.get('upper_1sigma')
+            for posterior_entry in sampler_summary["posterior"]:
+                name = posterior_entry["name"]
+                median = posterior_entry.get("median")
+                lo = posterior_entry.get("lower_1sigma")
+                hi = posterior_entry.get("upper_1sigma")
 
-                if name not in self.configuration.parameters or median is None or lo is None or hi is None:
+                if (
+                    name not in self.configuration.parameters
+                    or median is None
+                    or lo is None
+                    or hi is None
+                ):
                     continue
 
                 transform = self.configuration.parameters[name].corner_transform
@@ -1166,13 +1305,13 @@ class Retrieval:
         return None
 
     def _get_active_sampler_results(self):
-        if getattr(self, 'latest_sampler_results', None) is not None:
+        if getattr(self, "latest_sampler_results", None) is not None:
             return self.latest_sampler_results
 
         if self.sampler is None:
             return None
 
-        if hasattr(self.sampler, 'get_results'):
+        if hasattr(self.sampler, "get_results"):
             try:
                 sampler_results = self.sampler.get_results()
             except TypeError:
@@ -1181,24 +1320,28 @@ class Retrieval:
             if sampler_results is not None:
                 return sampler_results
 
-        return getattr(self.sampler, 'results', None)
+        return getattr(self.sampler, "results", None)
 
     def _coerce_parameter_sample_matrix(self, parameter_samples, parameter_names):
         if parameter_samples is None:
             return None, parameter_names
 
         if isinstance(parameter_samples, dict):
-            ordered_names = [name for name in parameter_names if name in parameter_samples]
+            ordered_names = [
+                name for name in parameter_names if name in parameter_samples
+            ]
             if not ordered_names:
                 ordered_names = list(parameter_samples.keys())
 
             if not ordered_names:
                 return None, parameter_names
 
-            matrix = np.column_stack([
-                np.asarray(parameter_samples[name]).reshape(-1)
-                for name in ordered_names
-            ])
+            matrix = np.column_stack(
+                [
+                    np.asarray(parameter_samples[name]).reshape(-1)
+                    for name in ordered_names
+                ]
+            )
             return matrix, ordered_names
 
         matrix = np.asarray(parameter_samples)
@@ -1221,10 +1364,13 @@ class Retrieval:
         return None, parameter_names
 
     def _evaluate_sample_log_likelihoods(self, parameter_samples):
-        return np.asarray([
-            self.log_likelihood(np.asarray(sample, dtype=float))
-            for sample in np.asarray(parameter_samples)
-        ], dtype=float)
+        return np.asarray(
+            [
+                self.log_likelihood(np.asarray(sample, dtype=float))
+                for sample in np.asarray(parameter_samples)
+            ],
+            dtype=float,
+        )
 
     def _build_samples_from_sampler_results(self, results=None, parameter_names=None):
         if parameter_names is None:
@@ -1236,14 +1382,18 @@ class Retrieval:
         if results is None:
             return None, parameter_names
 
-        parameter_samples = self._get_results_field(results, 'samples', 'parametrised_samples')
-        matrix, parameter_names = self._coerce_parameter_sample_matrix(parameter_samples, parameter_names)
+        parameter_samples = self._get_results_field(
+            results, "samples", "parametrised_samples"
+        )
+        matrix, parameter_names = self._coerce_parameter_sample_matrix(
+            parameter_samples, parameter_names
+        )
 
         if matrix is None and isinstance(results, dict):
-            weighted_samples = results.get('weighted_samples')
+            weighted_samples = results.get("weighted_samples")
             if isinstance(weighted_samples, dict):
                 matrix, parameter_names = self._coerce_parameter_sample_matrix(
-                    weighted_samples.get('points'),
+                    weighted_samples.get("points"),
                     parameter_names,
                 )
 
@@ -1252,25 +1402,25 @@ class Retrieval:
 
         log_likelihood = self._get_results_field(
             results,
-            'model_log_likelihood',
-            'log_likelihood',
-            'log_likelihoods',
-            'log_L_samples',
-            'logL',
-            'logl',
-            'log_L',
+            "model_log_likelihood",
+            "log_likelihood",
+            "log_likelihoods",
+            "log_L_samples",
+            "logL",
+            "logl",
+            "log_L",
         )
 
         if log_likelihood is None and isinstance(results, dict):
-            weighted_samples = results.get('weighted_samples')
+            weighted_samples = results.get("weighted_samples")
             if isinstance(weighted_samples, dict):
                 log_likelihood = self._get_results_field(
                     weighted_samples,
-                    'logl',
-                    'logL',
-                    'log_likelihood',
-                    'log_likelihoods',
-                    'log_L',
+                    "logl",
+                    "logL",
+                    "log_likelihood",
+                    "log_likelihoods",
+                    "log_L",
                 )
 
         if log_likelihood is None:
@@ -1288,8 +1438,8 @@ class Retrieval:
 
         return os.path.join(
             self.output_directory,
-            'out_samples',
-            f'{ret_name}_samples.npz',
+            "out_samples",
+            f"{ret_name}_samples.npz",
         )
 
     def _load_samples_archive(self, ret_name: str | None = None):
@@ -1299,40 +1449,52 @@ class Retrieval:
             return None, None
 
         with np.load(archive_path, allow_pickle=False) as archive:
-            if 'parameter_names' in archive.files:
-                parameter_names = [str(name) for name in archive['parameter_names'].tolist()]
+            if "parameter_names" in archive.files:
+                parameter_names = [
+                    str(name) for name in archive["parameter_names"].tolist()
+                ]
             else:
                 parameter_names = [
-                    file_name for file_name in archive.files
-                    if file_name not in {'log_likelihood', 'sample_matrix'}
+                    file_name
+                    for file_name in archive.files
+                    if file_name not in {"log_likelihood", "sample_matrix"}
                 ]
 
             if not parameter_names:
                 return None, None
 
-            if 'sample_matrix' in archive.files:
-                parameter_matrix = np.asarray(archive['sample_matrix'], dtype=float)
-                parameter_matrix, parameter_names = self._coerce_parameter_sample_matrix(
-                    parameter_matrix,
-                    parameter_names,
+            if "sample_matrix" in archive.files:
+                parameter_matrix = np.asarray(archive["sample_matrix"], dtype=float)
+                parameter_matrix, parameter_names = (
+                    self._coerce_parameter_sample_matrix(
+                        parameter_matrix,
+                        parameter_names,
+                    )
                 )
             else:
-                parameter_matrix, parameter_names = self._coerce_parameter_sample_matrix(
-                    {name: archive[name] for name in parameter_names},
-                    parameter_names,
+                parameter_matrix, parameter_names = (
+                    self._coerce_parameter_sample_matrix(
+                        {name: archive[name] for name in parameter_names},
+                        parameter_names,
+                    )
                 )
 
             if parameter_matrix is None:
                 return None, None
 
-            if 'log_likelihood' not in archive.files:
+            if "log_likelihood" not in archive.files:
                 return None, None
 
-            log_likelihood = np.asarray(archive['log_likelihood'], dtype=float).reshape(-1)
+            log_likelihood = np.asarray(archive["log_likelihood"], dtype=float).reshape(
+                -1
+            )
             if log_likelihood.shape[0] != parameter_matrix.shape[0]:
                 return None, None
 
-        return np.vstack((parameter_matrix.T, log_likelihood[np.newaxis, :])), parameter_names
+        return (
+            np.vstack((parameter_matrix.T, log_likelihood[np.newaxis, :])),
+            parameter_names,
+        )
 
     def _build_samples_for_export(self):
         samples, parameter_names = self._build_samples_from_sampler_results()
@@ -1340,7 +1502,7 @@ class Retrieval:
         if samples is not None and parameter_names is not None:
             return samples, parameter_names
 
-        if self.configuration.sampler_type.lower() == 'pymultinest':
+        if self.configuration.sampler_type.lower() == "pymultinest":
             samples_dict = get_pymultinest_sample_dict(
                 output_dir=self.output_directory,
                 name=self.configuration.retrieval_name,
@@ -1359,12 +1521,12 @@ class Retrieval:
         if samples is None or parameter_names is None:
             return None
 
-        os.makedirs(os.path.join(self.output_directory, 'out_samples'), exist_ok=True)
+        os.makedirs(os.path.join(self.output_directory, "out_samples"), exist_ok=True)
         archive_path = self._get_samples_archive_path()
         archive_payload = {
-            'parameter_names': np.asarray(parameter_names, dtype=str),
-            'sample_matrix': np.asarray(samples[:-1, :].T, dtype=float),
-            'log_likelihood': np.asarray(samples[-1, :], dtype=float),
+            "parameter_names": np.asarray(parameter_names, dtype=str),
+            "sample_matrix": np.asarray(samples[:-1, :].T, dtype=float),
+            "log_likelihood": np.asarray(samples[-1, :], dtype=float),
         }
 
         for index, parameter_name in enumerate(parameter_names):
@@ -1374,7 +1536,9 @@ class Retrieval:
 
         return archive_path
 
-    def _finalize_sampler_run(self, sampler, results, stats=None, sampler_parameters=None):
+    def _finalize_sampler_run(
+        self, sampler, results, stats=None, sampler_parameters=None
+    ):
         self.sampler = sampler
         self.latest_sampler_results = results
 
@@ -1413,9 +1577,13 @@ class Retrieval:
 
         current_ret_name = self.configuration.retrieval_name
         is_current_retrieval = not ret_name or ret_name == current_ret_name
-        if hasattr(self, 'latest_sampler_results') and self.latest_sampler_results is not None:
-            if hasattr(self.latest_sampler_results, 'get_stats') and \
-               callable(getattr(self.latest_sampler_results, 'get_stats')):
+        if (
+            hasattr(self, "latest_sampler_results")
+            and self.latest_sampler_results is not None
+        ):
+            if hasattr(self.latest_sampler_results, "get_stats") and callable(
+                getattr(self.latest_sampler_results, "get_stats")
+            ):
                 if is_current_retrieval:
                     return self.latest_sampler_results
         if ret_name:
@@ -1423,31 +1591,48 @@ class Retrieval:
                 import pymultinest
 
                 n_params = self._n_free_params_total_retrieval
-                prefix = os.path.join(self.output_directory, 'out_PMN', ret_name + '_')
-                if not os.path.exists(os.path.join(self.output_directory, 'out_PMN', ret_name + '_params.json')):
+                prefix = os.path.join(self.output_directory, "out_PMN", ret_name + "_")
+                if not os.path.exists(
+                    os.path.join(
+                        self.output_directory, "out_PMN", ret_name + "_params.json"
+                    )
+                ):
                     warnings.warn(
                         f"No params file found for retrieval '{ret_name}' in out_PMN. "
                         "Cannot construct analyzer."
                     )
                     return None
-                return pymultinest.Analyzer(n_params=n_params, outputfiles_basename=prefix)
+                return pymultinest.Analyzer(
+                    n_params=n_params, outputfiles_basename=prefix
+                )
             except ImportError:
-                warnings.warn("pymultinest is not installed. Cannot load PymultinestAnalyzer from disk.")
+                warnings.warn(
+                    "pymultinest is not installed. Cannot load PymultinestAnalyzer from disk."
+                )
                 return None
             except Exception as e:
-                warnings.warn(f"Failed to load PyMultiNest analyzer for '{ret_name}': {e}")
+                warnings.warn(
+                    f"Failed to load PyMultiNest analyzer for '{ret_name}': {e}"
+                )
                 return None
-        if hasattr(self, 'latest_sampler_results') and self.latest_sampler_results is not None:
-            warnings.warn(f"Returning raw results object of type: {type(self.latest_sampler_results)}.")
+        if (
+            hasattr(self, "latest_sampler_results")
+            and self.latest_sampler_results is not None
+        ):
+            warnings.warn(
+                f"Returning raw results object of type: {type(self.latest_sampler_results)}."
+            )
             return self.latest_sampler_results
-        warnings.warn("No sampler results found or specified PyMultiNest retrieval name not loadable.")
+        warnings.warn(
+            "No sampler results found or specified PyMultiNest retrieval name not loadable."
+        )
         return None
 
     def get_base_figure_name(self) -> str:
         return os.path.join(
             self.output_directory,
-            'evaluate_' + self.configuration.retrieval_name,
-            self.configuration.retrieval_name
+            "evaluate_" + self.configuration.retrieval_name,
+            self.configuration.retrieval_name,
         )
 
     def get_best_fit_chi2(self, samples: npt.NDArray[np.floating]) -> float:
@@ -1475,7 +1660,7 @@ class Retrieval:
                 sf = self.best_fit_parameters[f"{name}_scale_factor"].value
 
             if data.covariance is not None:
-                _, log_det = np.linalg.slogdet(2 * np.pi * data.covariance * sf ** 2)
+                _, log_det = np.linalg.slogdet(2 * np.pi * data.covariance * sf**2)
                 add = 0.5 * log_det
             else:
                 f_err = data.uncertainties
@@ -1484,16 +1669,20 @@ class Retrieval:
                     f_err = f_err * sf
 
                 if f"{name}_b" in self.configuration.parameters.keys():
-                    f_err = np.sqrt(f_err ** 2 + 10 ** self.best_fit_parameters[f"{name}_b"].value)
+                    f_err = np.sqrt(
+                        f_err**2 + 10 ** self.best_fit_parameters[f"{name}_b"].value
+                    )
 
-                add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))
+                add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err**2.0))
 
             norm = norm + add
 
         return (-log_l - norm) * 2
 
     @staticmethod
-    def get_best_fit_likelihood(samples: npt.NDArray[np.floating], print_value: bool = True) -> tuple[float, int]:
+    def get_best_fit_likelihood(
+        samples: npt.NDArray[np.floating], print_value: bool = True
+    ) -> tuple[float, int]:
         """
         Get the log likelihood of the best fit model
 
@@ -1520,8 +1709,8 @@ class Retrieval:
         prt_reference: str = None,
         model_generating_function: Callable = None,
         refresh: bool = True,
-        mode: str = 'bestfit',
-        save: bool = True
+        mode: str = "bestfit",
+        save: bool = True,
     ):
         """
         This function uses the best fit parameters to generate a pRT model that spans the entire wavelength
@@ -1566,17 +1755,25 @@ class Retrieval:
         self.best_fit_parameters = parameters
 
         if self.configuration.adaptive_mesh_refinement:
-            _ = self.configuration._setup_pres()  # TODO this function should not be private
-            self.best_fit_parameters["pressure_scaling"] = self.configuration.parameters["pressure_scaling"]
-            self.best_fit_parameters["pressure_width"] = self.configuration.parameters["pressure_width"]
-            self.best_fit_parameters["pressure_simple"] = self.configuration.parameters["pressure_simple"]
+            _ = (
+                self.configuration._setup_pres()
+            )  # TODO this function should not be private
+            self.best_fit_parameters["pressure_scaling"] = (
+                self.configuration.parameters["pressure_scaling"]
+            )
+            self.best_fit_parameters["pressure_width"] = self.configuration.parameters[
+                "pressure_width"
+            ]
+            self.best_fit_parameters["pressure_simple"] = self.configuration.parameters[
+                "pressure_simple"
+            ]
 
         contribution_file = os.path.join(
             self.output_directory,
             f"evaluate_{self.configuration.retrieval_name}",
-            f"{ret_name}_{mode}_model_contribution.npy"
+            f"{ret_name}_{mode}_model_contribution.npy",
         )
-        full_file = contribution_file.replace('_contribution.npy', '_full.npy')
+        full_file = contribution_file.replace("_contribution.npy", "_full.npy")
 
         if contribution:
             if not refresh and os.path.exists(contribution_file):
@@ -1586,11 +1783,13 @@ class Retrieval:
 
                 return best_fit_wavelengths, best_fit_spectrum, best_fit_contribution
 
-            best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = self.get_full_range_model(
-                self.best_fit_parameters,
-                model_generating_function=model_generating_function,
-                contribution=contribution,
-                prt_reference=prt_reference
+            best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = (
+                self.get_full_range_model(
+                    self.best_fit_parameters,
+                    model_generating_function=model_generating_function,
+                    contribution=contribution,
+                    prt_reference=prt_reference,
+                )
             )
             np.save(contribution_file, best_fit_contribution)
         else:
@@ -1604,7 +1803,7 @@ class Retrieval:
                 self.best_fit_parameters,
                 model_generating_function=model_generating_function,
                 contribution=contribution,
-                prt_reference=prt_reference
+                prt_reference=prt_reference,
             )
 
             best_fit_contribution = None  # prevent eventual reference before assignment
@@ -1623,7 +1822,9 @@ class Retrieval:
         self.best_fit_spectra[name] = [best_fit_wavelengths, best_fit_spectrum]
 
         if save:
-            np.save(full_file, np.column_stack([best_fit_wavelengths, best_fit_spectrum]))
+            np.save(
+                full_file, np.column_stack([best_fit_wavelengths, best_fit_spectrum])
+            )
 
         if contribution:
             return best_fit_wavelengths, best_fit_spectrum, best_fit_contribution
@@ -1644,19 +1845,24 @@ class Retrieval:
         samples = self.get_samples_dict(return_likelihood=True)
 
         max_likelihood, max_likelihood_index = self.get_best_fit_likelihood(
-            samples=np.array(list(samples.values())),
-            print_value=False
+            samples=np.array(list(samples.values())), print_value=False
         )
 
-        del samples['log_likelihood']
+        del samples["log_likelihood"]
 
         if return_max_likelihood:
-            chi2 = list(self.configuration.data.values())[0].log_likelihood2chi2(max_likelihood)
+            chi2 = list(self.configuration.data.values())[0].log_likelihood2chi2(
+                max_likelihood
+            )
 
-            return {
-                parameter_name: value[max_likelihood_index]
-                for parameter_name, value in samples.items()
-            }, max_likelihood, chi2
+            return (
+                {
+                    parameter_name: value[max_likelihood_index]
+                    for parameter_name, value in samples.items()
+                },
+                max_likelihood,
+                chi2,
+            )
 
         return {
             parameter_name: value[max_likelihood_index]
@@ -1686,19 +1892,23 @@ class Retrieval:
             data_spectrum = data.spectrum
             data_spectrum = data.apply_flux_scaling(data_spectrum, param_dict)
             data_spectrum = data.offset_flux(data_spectrum, param_dict)
-            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(param_dict)
+            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(
+                param_dict
+            )
 
             if data_covariance is not None:
                 _, log_det = np.linalg.slogdet(2 * np.pi * data_covariance)
                 add = 0.5 * log_det
             else:
-                add = 0.5 * np.sum(np.log(2.0 * np.pi * data_uncertainties ** 2.))
+                add = 0.5 * np.sum(np.log(2.0 * np.pi * data_uncertainties**2.0))
 
             norm = norm + add
 
         return 2 * (-log_l - norm)
 
-    def get_chi2_normalisation_from_sample(self, sample: npt.NDArray[np.floating]) -> float:
+    def get_chi2_normalisation_from_sample(
+        self, sample: npt.NDArray[np.floating]
+    ) -> float:
         """
         Get the 𝛘^2 normalization term from log L
 
@@ -1720,18 +1930,19 @@ class Retrieval:
             data_spectrum = data.spectrum
             data_spectrum = data.apply_flux_scaling(data_spectrum, param_dict)
             data_spectrum = data.offset_flux(data_spectrum, param_dict)
-            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(param_dict)
+            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(
+                param_dict
+            )
 
             if data_covariance is not None:
                 _, log_det = np.linalg.slogdet(2 * np.pi * data_covariance)
                 add = 0.5 * log_det
             else:
-                add = 0.5 * np.sum(np.log(2.0 * np.pi * data_uncertainties ** 2.))
+                add = 0.5 * np.sum(np.log(2.0 * np.pi * data_uncertainties**2.0))
 
             norm = norm + add
 
         return norm
-
 
     def get_elpd_per_datapoint(self, ret_name: str = None):
         from .psis import psisloo
@@ -1757,8 +1968,11 @@ class Retrieval:
                 )
 
                 # Compute the ELPDs with the PSIS module
-                elpd_tot[d_name][ret_name_i], elpd[d_name][ret_name_i], pareto_k[d_name][ret_name_i] \
-                    = psisloo(log_l_per_datapoint_j, Reff=1)
+                (
+                    elpd_tot[d_name][ret_name_i],
+                    elpd[d_name][ret_name_i],
+                    pareto_k[d_name][ret_name_i],
+                ) = psisloo(log_l_per_datapoint_j, Reff=1)
 
                 if ret_name_i == self.configuration.retrieval_name:
                     data.elpd_tot = elpd_tot[d_name][ret_name_i]
@@ -1766,7 +1980,9 @@ class Retrieval:
                     data.pareto_k = pareto_k[d_name][ret_name_i]
 
             if len(ret_name) == 2:
-                delta_elpd[d_name] = elpd[d_name][ret_name[0]] - elpd[d_name][ret_name[1]]
+                delta_elpd[d_name] = (
+                    elpd[d_name][ret_name[0]] - elpd[d_name][ret_name[1]]
+                )
                 data.delta_elpd = delta_elpd[d_name]
 
         return elpd_tot, elpd, pareto_k, delta_elpd
@@ -1790,10 +2006,10 @@ class Retrieval:
         current_ret_name = self.configuration.retrieval_name
         if not ret_name or ret_name == current_ret_name:
             sampler_summary = self._collect_sampler_summary()
-            evidence = sampler_summary.get('evidence', {})
-            ln_z = evidence.get('ln_z')
+            evidence = sampler_summary.get("evidence", {})
+            ln_z = evidence.get("ln_z")
             if ln_z is not None:
-                ln_z_err = evidence.get('ln_z_err')
+                ln_z_err = evidence.get("ln_z_err")
                 if ln_z_err is None:
                     ln_z_err = np.nan
                 return ln_z / np.log(10), ln_z_err / np.log(10)
@@ -1804,7 +2020,9 @@ class Retrieval:
 
         s = analyzer.get_stats()
 
-        return s['global evidence'] / np.log(10), s['global evidence error'] / np.log(10)
+        return s["global evidence"] / np.log(10), s["global evidence error"] / np.log(
+            10
+        )
 
     def get_full_range_model(
         self,
@@ -1812,7 +2030,7 @@ class Retrieval:
         model_generating_function: Callable = None,
         contribution: bool = False,
         prt_object: Radtrans = None,
-        prt_reference: Data = None
+        prt_reference: Data = None,
     ) -> tuple:
         """
         Retrieve a full wavelength range model based on the given parameters.
@@ -1833,14 +2051,22 @@ class Retrieval:
         """
         # Set up parameter dictionary
         # parameters = self.build_param_dict(params,parameters_read)
-        parameters["contribution"] = Parameter("contribution", False, value=contribution)
+        parameters["contribution"] = Parameter(
+            "contribution", False, value=contribution
+        )
 
         # Set up the pRT object
         if self.configuration.adaptive_mesh_refinement:
             p = self.configuration._setup_pres()
-            parameters["pressure_scaling"] = self.configuration.parameters["pressure_scaling"]
-            parameters["pressure_width"] = self.configuration.parameters["pressure_width"]
-            parameters["pressure_simple"] = self.configuration.parameters["pressure_simple"]
+            parameters["pressure_scaling"] = self.configuration.parameters[
+                "pressure_scaling"
+            ]
+            parameters["pressure_width"] = self.configuration.parameters[
+                "pressure_width"
+            ]
+            parameters["pressure_simple"] = self.configuration.parameters[
+                "pressure_simple"
+            ]
         else:
             p = self.configuration.pressures
 
@@ -1860,31 +2086,45 @@ class Retrieval:
                 if data.wavelength_boundaries[1] > wavelength_max:
                     wavelength_max = data.wavelength_boundaries[1]
 
-                species = copy.copy(self.plotter.get_reference_radtrans_data().radtrans_object.line_species)
+                species = copy.copy(
+                    self.plotter.get_reference_radtrans_data().radtrans_object.line_species
+                )
 
-                line_opacity_mode = self.plotter.get_reference_radtrans_data().line_opacity_mode
+                line_opacity_mode = (
+                    self.plotter.get_reference_radtrans_data().line_opacity_mode
+                )
                 resolution = self.plotter.get_reference_radtrans_data().model_resolution
             line_by_line_sampling = None
 
-            if line_opacity_mode == 'lbl' and resolution is not None:
+            if line_opacity_mode == "lbl" and resolution is not None:
                 line_by_line_sampling = int(1e6 / resolution)
 
             atmosphere = Radtrans(
                 pressures=p,
                 line_species=tuple(species),
                 rayleigh_species=copy.copy(self.configuration.rayleigh_species),
-                gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+                gas_continuum_contributors=copy.copy(
+                    self.configuration.continuum_opacities
+                ),
                 cloud_species=copy.copy(self.configuration.cloud_species),
                 line_opacity_mode=line_opacity_mode,
-                wavelength_boundaries=np.array([wavelength_min * 0.98, wavelength_max * 1.02]),
+                wavelength_boundaries=np.array(
+                    [wavelength_min * 0.98, wavelength_max * 1.02]
+                ),
                 scattering_in_emission=self.configuration.scattering_in_emission,
-                line_by_line_opacity_sampling=line_by_line_sampling
+                line_by_line_opacity_sampling=line_by_line_sampling,
             )
 
         if self.configuration.adaptive_mesh_refinement:
-            parameters["pressure_scaling"] = self.configuration.parameters["pressure_scaling"]
-            parameters["pressure_width"] = self.configuration.parameters["pressure_width"]
-            parameters["pressure_simple"] = self.configuration.parameters["pressure_simple"]
+            parameters["pressure_scaling"] = self.configuration.parameters[
+                "pressure_scaling"
+            ]
+            parameters["pressure_width"] = self.configuration.parameters[
+                "pressure_width"
+            ]
+            parameters["pressure_simple"] = self.configuration.parameters[
+                "pressure_simple"
+            ]
 
         # Check what model function we're using
         if model_generating_function is None:
@@ -1897,19 +2137,22 @@ class Retrieval:
             atmosphere,
             parameters,
             pt_plot_mode=False,
-            adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement)
+            adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
+        )
         if len(results) == 2:
             return results
 
         wavelength, spectrum, additional_outputs = results
-        if 'emission_contribution' in additional_outputs.keys():
-            contribution = additional_outputs['emission_contribution']
-        elif 'transmission_contribution' in additional_outputs.keys():
-            contribution = additional_outputs['transmission_contribution']
+        if "emission_contribution" in additional_outputs.keys():
+            contribution = additional_outputs["emission_contribution"]
+        elif "transmission_contribution" in additional_outputs.keys():
+            contribution = additional_outputs["transmission_contribution"]
 
         return wavelength, spectrum, contribution
 
-    def get_log_likelihood_per_datapoint(self, samples_use: npt.NDArray[np.floating], ret_name: str = None):
+    def get_log_likelihood_per_datapoint(
+        self, samples_use: npt.NDArray[np.floating], ret_name: str = None
+    ):
         if ret_name is None:
             ret_name = self.configuration.retrieval_name
 
@@ -1930,10 +2173,12 @@ class Retrieval:
 
             np.save(
                 f"{self.output_directory}/evaluate_{ret_name}/{ret_name}_logL_per_datapoint_{name}",
-                log_l_per_datapoint_dict[name]
+                log_l_per_datapoint_dict[name],
             )
 
-    def get_mass_fractions(self, sample: npt.NDArray[np.floating], parameters_read: list[str] = None):
+    def get_mass_fractions(
+        self, sample: npt.NDArray[np.floating], parameters_read: list[str] = None
+    ):
         """
         This function returns the mass fraction abundances of each species as a function of pressure
 
@@ -1959,7 +2204,7 @@ class Retrieval:
         name = self.plotter.get_reference_radtrans_name()
 
         species = [
-            Opacity([species]).get_full_name().split('.R')[0]
+            Opacity([species]).get_full_name().split(".R")[0]
             for species in self.configuration.data[name].radtrans_object.line_species
         ]
         abundances, mmw, _, _ = get_abundances(
@@ -1968,12 +2213,14 @@ class Retrieval:
             copy.copy(species),
             copy.copy(self.configuration.data[name].radtrans_object.cloud_species),
             parameters,
-            adaptive_mesh_refinement=False
+            adaptive_mesh_refinement=False,
         )
 
         return abundances, mmw
 
-    def get_max_likelihood_params(self, best_fit_params: npt.NDArray[np.floating], parameters_read: list[str]):
+    def get_max_likelihood_params(
+        self, best_fit_params: npt.NDArray[np.floating], parameters_read: list[str]
+    ):
         # TODO misnamed function as this does not return the max likelihood parameters, but is instead a wrapper for build_param_dict # noqa: E501
         """
         This function converts the sample from the post_equal_weights file with the maximum
@@ -1989,13 +2236,20 @@ class Retrieval:
         warnings.warn(
             "function 'get_max_likelihood_params' is deprecated and will be removed in a future update."
             "Use 'build_param_dict' instead.",
-            FutureWarning
+            FutureWarning,
         )
-        self.best_fit_parameters = self.build_param_dict(best_fit_params, parameters_read)
+        self.best_fit_parameters = self.build_param_dict(
+            best_fit_params, parameters_read
+        )
 
         return self.best_fit_parameters
 
-    def get_median_params(self, samples: npt.NDArray[np.floating], parameters_read: list[str], return_array=False):
+    def get_median_params(
+        self,
+        samples: npt.NDArray[np.floating],
+        parameters_read: list[str],
+        return_array=False,
+    ):
         """
         This function builds a parameter dictionary based on the median value
         of each parameter. This will update the best_fit_parameter dictionary!
@@ -2020,7 +2274,9 @@ class Retrieval:
 
                 i_p += 1
 
-        self.best_fit_parameters = self.build_param_dict(samples_use, parameters_read)  # TODO should not update self.best_fit_parameters: median != best-fit  # noqa: E501
+        self.best_fit_parameters = self.build_param_dict(
+            samples_use, parameters_read
+        )  # TODO should not update self.best_fit_parameters: median != best-fit  # noqa: E501
 
         if return_array:
             return self.best_fit_parameters, samples_use
@@ -2028,22 +2284,26 @@ class Retrieval:
         return self.best_fit_parameters
 
     def get_parameters_prior_mid_range_values(self) -> npt.NDArray[np.floating]:
-        """Return the prior mid-range values of the free parameters.
-        """
+        """Return the prior mid-range values of the free parameters."""
         cube = []
         use_distribution = False
-        sampler_type = getattr(self.configuration, 'sampler_type', '')
+        sampler_type = getattr(self.configuration, "sampler_type", "")
 
-        if (('jaxns' in sampler_type.lower())
-            or ('blackjax' in sampler_type.lower())
-            or ('numpyro' in sampler_type.lower())):
+        if (
+            ("jaxns" in sampler_type.lower())
+            or ("blackjax" in sampler_type.lower())
+            or ("numpyro" in sampler_type.lower())
+        ):
             use_distribution = True
 
         for parameter_name, parameter in self.configuration.parameters.items():
             if parameter.is_free_parameter:
                 if use_distribution:
-                    if parameter.distribution.name.lower() == 'uniform':
-                        cube.append((parameter.distribution.low + parameter.distribution.high) / 2.)
+                    if parameter.distribution.name.lower() == "uniform":
+                        cube.append(
+                            (parameter.distribution.low + parameter.distribution.high)
+                            / 2.0
+                        )
                     else:
                         cube.append(parameter.distribution.mean)
                 else:
@@ -2073,7 +2333,9 @@ class Retrieval:
             for parameter_name, value in samples.items()
         }
 
-    def get_reduced_chi2_from_sample(self, sample, subtract_n_parameters=False, verbose=False, show_chi2=False):
+    def get_reduced_chi2_from_sample(
+        self, sample, subtract_n_parameters=False, verbose=False, show_chi2=False
+    ):
         """
         Get the 𝛘^2/DoF of the given model - divide chi^2 by DoF or number of wavelength channels.
 
@@ -2112,13 +2374,15 @@ class Retrieval:
 
         return chi2 / d_o_f
 
-    def get_reduced_chi2_from_model(self,
-                                    wavelengths_model,
-                                    spectrum_model,
-                                    parameters,
-                                    subtract_n_parameters=False,
-                                    verbose=False,
-                                    show_chi2=False):
+    def get_reduced_chi2_from_model(
+        self,
+        wavelengths_model,
+        spectrum_model,
+        parameters,
+        subtract_n_parameters=False,
+        verbose=False,
+        show_chi2=False,
+    ):
         """
         Get the 𝛘^2/DoF of the supplied spectrum - divide chi^2 by DoF
 
@@ -2151,23 +2415,25 @@ class Retrieval:
             data_spectrum = data.spectrum
             data_spectrum = data.apply_flux_scaling(data_spectrum, parameters)
             data_spectrum = data.offset_flux(data_spectrum, parameters)
-            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(parameters)
+            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(
+                parameters
+            )
 
             model_spectrum_processed = process_spectrum_pipeline(
-                            wavelengths_model,
-                            spectrum_model,
-                            data,
-                            parameters,
-                            name,
-                            spectrum_params
-                        )
+                wavelengths_model,
+                spectrum_model,
+                data,
+                parameters,
+                name,
+                spectrum_params,
+            )
 
             chi2 += LogLikelihood(
                 model_spectrum=model_spectrum_processed,
                 data_spectrum=data_spectrum,
                 data_uncertainties=data_uncertainties,
                 data_covariance=data_covariance,
-                n_free_parameters=self._n_free_params_total_retrieval
+                n_free_parameters=self._n_free_params_total_retrieval,
             ).get_chi_squared()
 
         if subtract_n_parameters:
@@ -2190,7 +2456,7 @@ class Retrieval:
         self,
         names: list[str] = None,
         output_directory: str = os.getcwd(),
-        ret_names: list[str] = None
+        ret_names: list[str] = None,
     ) -> tuple[dict[str, npt.NDArray[np.floating]], dict[str, list[str]]]:
         """Get the samples of the requested retrievals.
 
@@ -2219,10 +2485,14 @@ class Retrieval:
         current_sampler_samples = None
         current_parameter_names = None
         if current_ret_name in names:
-            current_sampler_samples, current_parameter_names = self._build_samples_from_sampler_results()
+            current_sampler_samples, current_parameter_names = (
+                self._build_samples_from_sampler_results()
+            )
 
         def _add_archived_samples_if_available(name):
-            archived_samples, archived_parameter_names = self._load_samples_archive(ret_name=name)
+            archived_samples, archived_parameter_names = self._load_samples_archive(
+                ret_name=name
+            )
 
             if archived_samples is None or archived_parameter_names is None:
                 return False
@@ -2233,7 +2503,12 @@ class Retrieval:
 
         sampler_type = self.configuration.sampler_type.lower()
         if sampler_type in {
-            'blackjaxhmc', 'blackjax_hmc', 'hmc', 'blackjaxnuts', 'blackjax_nuts', 'nuts'
+            "blackjaxhmc",
+            "blackjax_hmc",
+            "hmc",
+            "blackjaxnuts",
+            "blackjax_nuts",
+            "nuts",
         }:
             for name in names:
                 if name == current_ret_name and current_sampler_samples is not None:
@@ -2244,22 +2519,30 @@ class Retrieval:
                 if _add_archived_samples_if_available(name):
                     continue
 
-                params_file = os.path.join(output_directory, 'out_BlackJAX', name + '_params.json')
-                samples_file = os.path.join(output_directory, 'out_BlackJAX', name + '_samples.npz')
+                params_file = os.path.join(
+                    output_directory, "out_BlackJAX", name + "_params.json"
+                )
+                samples_file = os.path.join(
+                    output_directory, "out_BlackJAX", name + "_samples.npz"
+                )
 
-                with open(params_file, 'r') as handle:
+                with open(params_file, "r") as handle:
                     parameters_read = json.load(handle)
 
                 chain = np.load(samples_file)
-                log_values = chain['model_log_likelihood'] if 'model_log_likelihood' in chain.files else chain['logdensity']
-                samples[name] = np.vstack((chain['samples'].T, log_values[np.newaxis, :]))
+                log_values = (
+                    chain["model_log_likelihood"]
+                    if "model_log_likelihood" in chain.files
+                    else chain["logdensity"]
+                )
+                samples[name] = np.vstack(
+                    (chain["samples"].T, log_values[np.newaxis, :])
+                )
                 param_dict[name] = parameters_read
 
             return samples, param_dict
 
-        if sampler_type in {
-            'numpyrohmc', 'numpyro_hmc', 'numpyronuts', 'numpyro_nuts'
-        }:
+        if sampler_type in {"numpyrohmc", "numpyro_hmc", "numpyronuts", "numpyro_nuts"}:
             for name in names:
                 if name == current_ret_name and current_sampler_samples is not None:
                     samples[name] = current_sampler_samples
@@ -2269,21 +2552,34 @@ class Retrieval:
                 if _add_archived_samples_if_available(name):
                     continue
 
-                params_file = os.path.join(output_directory, 'out_NumPyro', name + '_params.json')
-                samples_file = os.path.join(output_directory, 'out_NumPyro', name + '_samples.npz')
+                params_file = os.path.join(
+                    output_directory, "out_NumPyro", name + "_params.json"
+                )
+                samples_file = os.path.join(
+                    output_directory, "out_NumPyro", name + "_samples.npz"
+                )
 
-                with open(params_file, 'r') as handle:
+                with open(params_file, "r") as handle:
                     parameters_read = json.load(handle)
 
                 chain = np.load(samples_file)
-                log_values = chain['model_log_likelihood'] if 'model_log_likelihood' in chain.files else chain['logdensity']
-                samples[name] = np.vstack((chain['samples'].T, log_values[np.newaxis, :]))
+                log_values = (
+                    chain["model_log_likelihood"]
+                    if "model_log_likelihood" in chain.files
+                    else chain["logdensity"]
+                )
+                samples[name] = np.vstack(
+                    (chain["samples"].T, log_values[np.newaxis, :])
+                )
                 param_dict[name] = parameters_read
 
             return samples, param_dict
 
         if sampler_type in {
-            'ultranest', 'jaxnestedsampler', 'jaxns', 'jaxnsshardedstaticsestedsampler'
+            "ultranest",
+            "jaxnestedsampler",
+            "jaxns",
+            "jaxnsshardedstaticsestedsampler",
         }:
             for name in names:
                 if name == current_ret_name and current_sampler_samples is not None:
@@ -2314,7 +2610,7 @@ class Retrieval:
                 output_dir=output_directory,
                 name=name,
                 add_log_likelihood=True,
-                add_stats=False
+                add_stats=False,
             )
 
             samples[name] = np.array(list(samples_.values()))
@@ -2323,7 +2619,9 @@ class Retrieval:
         # TODO: JAXNS
         return samples, param_dict
 
-    def get_samples_dict(self, return_likelihood: bool = False) -> dict[str, npt.NDArray[np.floating]]:
+    def get_samples_dict(
+        self, return_likelihood: bool = False
+    ) -> dict[str, npt.NDArray[np.floating]]:
         """Return the samples of this retrieval as a dict.
 
         Args:
@@ -2333,9 +2631,7 @@ class Retrieval:
             A dict containing the free parameters names as keys, and their sampled values as values.
         """
         samples, parameter_names = self.get_samples(
-            names=None,
-            output_directory=self.output_directory,
-            ret_names=None
+            names=None, output_directory=self.output_directory, ret_names=None
         )
 
         samples = samples[self.configuration.retrieval_name]
@@ -2343,19 +2639,20 @@ class Retrieval:
 
         # Add likelihood
         if return_likelihood:
-            param_dict.append('log_likelihood')
+            param_dict.append("log_likelihood")
 
         return {
-            parameter_name: samples[i, :]
-            for i, parameter_name in enumerate(param_dict)
+            parameter_name: samples[i, :] for i, parameter_name in enumerate(param_dict)
         }
 
     @staticmethod
     def get_special_parameters() -> set[str]:
         # TODO: naming convention
-        return {'_spectrum_scaling', '_spectrum_offset', '_uncertainty_scaling'}
+        return {"_spectrum_scaling", "_spectrum_offset", "_uncertainty_scaling"}
 
-    def get_volume_mixing_ratios(self, sample: npt.NDArray[np.floating], parameters_read: list[str] = None):
+    def get_volume_mixing_ratios(
+        self, sample: npt.NDArray[np.floating], parameters_read: list[str] = None
+    ):
         """
         This function returns the VMRs of each species as a function of pressure.
 
@@ -2372,14 +2669,18 @@ class Retrieval:
             MMW : numpy.ndarray
                 The mean molecular weight at each pressure level in the atmosphere.
         """
-        mass_fractions, mean_molar_masses = self.get_mass_fractions(sample, parameters_read)
+        mass_fractions, mean_molar_masses = self.get_mass_fractions(
+            sample, parameters_read
+        )
         mass_fractions_no_clouds = copy.deepcopy(mass_fractions)
         for cloud in self.configuration.cloud_species:
             cloud_opacity = CloudOpacity([cloud])
-            cloud_name = cloud_opacity.species_isotopologue_name.split('_')[0]
+            cloud_name = cloud_opacity.species_isotopologue_name.split("_")[0]
             if cloud_name in mass_fractions_no_clouds.keys():
                 del mass_fractions_no_clouds[cloud_name]
-        volume_mixing_ratios = mass_fractions2volume_mixing_ratios(mass_fractions_no_clouds)
+        volume_mixing_ratios = mass_fractions2volume_mixing_ratios(
+            mass_fractions_no_clouds
+        )
 
         return volume_mixing_ratios, mean_molar_masses
 
@@ -2389,7 +2690,7 @@ class Retrieval:
         ndim: int = 0,
         nparam: int = 0,
         log_l_per_datapoint_dict: dict = None,
-        return_model: bool = False
+        return_model: bool = False,
     ):
         """Sampler-facing log-likelihood entry point.
 
@@ -2417,15 +2718,15 @@ class Retrieval:
         self,
         cube: npt.NDArray[np.floating],
         ndim: int = 0,  # noqa: F811 keeping unused parameters for Multinest compatibility.
-        nparam: int = 0,   # noqa: F811 keeping unused parameters for Multinest compatibility.
+        nparam: int = 0,  # noqa: F811 keeping unused parameters for Multinest compatibility.
         log_l_per_datapoint_dict: dict = None,
-        return_model: bool = False
+        return_model: bool = False,
     ):
         """Legacy scalar likelihood implementation retained for fallback modes."""
         invalid_value = -1e99
         tiny = 1e-99
-        log_likelihood = 0.
-        log_prior = 0.
+        log_likelihood = 0.0
+        log_prior = 0.0
 
         retrieve_uncertainties = False
         beta_mode = "multiply"
@@ -2440,20 +2741,27 @@ class Retrieval:
         if self.uncertainties_mode == "default":
             beta = 1.0
         elif self.uncertainties_mode == "optimize":
-            warnings.warn("automatically optimizing for uncertainties, be sure of what you are doing...")
+            warnings.warn(
+                "automatically optimizing for uncertainties, be sure of what you are doing..."
+            )
             beta = None
         elif self.uncertainties_mode == "retrieve":
-            warnings.warn("retrieving uncertainties (multiply mode), be sure of what you are doing...")
+            warnings.warn(
+                "retrieving uncertainties (multiply mode), be sure of what you are doing..."
+            )
             retrieve_uncertainties = True
             beta_mode = "multiply"
         elif self.uncertainties_mode == "retrieve_add":
-            warnings.warn("retrieving uncertainties (add mode), be sure of what you are doing...")
+            warnings.warn(
+                "retrieving uncertainties (add mode), be sure of what you are doing..."
+            )
             retrieve_uncertainties = True
             beta_mode = "add"
         else:
-            raise ValueError(f"uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
-                             f"but was '{self.uncertainties_mode}'")
-
+            raise ValueError(
+                f"uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
+                f"but was '{self.uncertainties_mode}'"
+            )
 
         # Store per data-object
         per_datapoint = False
@@ -2469,12 +2777,18 @@ class Retrieval:
 
             if per_datapoint:
                 # Keep logL's separate per data-object
-                log_likelihood = 0.
+                log_likelihood = 0.0
 
             # Only calculate spectra within a given wavelengths range once if data.scale_flux or data.scale_uncertainties:
-            data_spectrum = data.apply_flux_scaling(data_spectrum, self.configuration.parameters)
-            data_spectrum = data.offset_flux(data_spectrum, self.configuration.parameters)
-            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(self.configuration.parameters)
+            data_spectrum = data.apply_flux_scaling(
+                data_spectrum, self.configuration.parameters
+            )
+            data_spectrum = data.offset_flux(
+                data_spectrum, self.configuration.parameters
+            )
+            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(
+                self.configuration.parameters
+            )
 
             if data.external_radtrans_reference is None:
                 # Compute the model
@@ -2489,19 +2803,27 @@ class Retrieval:
 
                 if retrieve_uncertainties:
                     if len(model_returned_values) == 4:
-                        wavelengths_model, spectrum_model, beta, additional_log_l = model_returned_values
+                        wavelengths_model, spectrum_model, beta, additional_log_l = (
+                            model_returned_values
+                        )
                     else:
                         wavelengths_model, spectrum_model, beta = model_returned_values
-                        additional_log_l = 0.
+                        additional_log_l = 0.0
                 else:
                     if data.variability_atmospheric_column_model_flux_return_mode:
-                        wavelengths_model, spectrum_model, additional_log_l, atmospheric_model_column_fluxes = \
-                            model_returned_values
+                        (
+                            wavelengths_model,
+                            spectrum_model,
+                            additional_log_l,
+                            atmospheric_model_column_fluxes,
+                        ) = model_returned_values
                     elif len(model_returned_values) == 3:
-                        wavelengths_model, spectrum_model, additional_log_l = model_returned_values
+                        wavelengths_model, spectrum_model, additional_log_l = (
+                            model_returned_values
+                        )
                     else:
                         wavelengths_model, spectrum_model = model_returned_values
-                        additional_log_l = 0.
+                        additional_log_l = 0.0
 
                 if additional_log_l is None:
                     additional_log_l = 0
@@ -2518,7 +2840,7 @@ class Retrieval:
                     return invalid_value
 
                 # Calculate log likelihood
-                if not isinstance(data.spectrum, float) and data.spectrum.dtype == 'O':
+                if not isinstance(data.spectrum, float) and data.spectrum.dtype == "O":
                     if jnp.ndim(data.spectrum) == 1:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Second dimension of data must be a function of wavelength
@@ -2527,106 +2849,153 @@ class Retrieval:
                                 return invalid_value
 
                             log_likelihood += data.log_likelihood(
-                                spectrum_model[i][~data.mask[i]], spectrum_data, data.uncertainties[i],
+                                spectrum_model[i][~data.mask[i]],
+                                spectrum_data,
+                                data.uncertainties[i],
                                 beta=beta,
-                                beta_mode=beta_mode
+                                beta_mode=beta_mode,
                             )
                     elif jnp.ndim(data.spectrum) == 2:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Third dimension of data must be a function of wavelength
                         for i, detector in enumerate(data.spectrum):
                             for j, spectrum_data in enumerate(detector):
-                                if jnp.isnan(spectrum_model[i, j][~data.mask[i, j]]).any():
+                                if jnp.isnan(
+                                    spectrum_model[i, j][~data.mask[i, j]]
+                                ).any():
                                     return invalid_value
 
                                 log_likelihood += data.log_likelihood(
-                                    spectrum_model[i, j][~data.mask[i, j]], spectrum_data, data.uncertainties[i, j],
+                                    spectrum_model[i, j][~data.mask[i, j]],
+                                    spectrum_data,
+                                    data.uncertainties[i, j],
                                     beta=beta,
-                                    beta_mode=beta_mode
+                                    beta_mode=beta_mode,
                                 )
                     else:
-                        raise ValueError(f"observation is an array containing object, "
-                                         f"and have {jnp.ndim(data.spectrum)} dimensions, "
-                                         f"but must have 1 to 2")
+                        raise ValueError(
+                            f"observation is an array containing object, "
+                            f"and have {jnp.ndim(data.spectrum)} dimensions, "
+                            f"but must have 1 to 2"
+                        )
                 else:
                     if jnp.isnan(spectrum_model).any():
                         return invalid_value
 
-                    if ((isinstance(data.spectrum, float) or jnp.ndim(data.spectrum) == 1)
-                            and jnp.ndim(spectrum_model) == 1):
+                    if (
+                        isinstance(data.spectrum, float) or jnp.ndim(data.spectrum) == 1
+                    ) and jnp.ndim(spectrum_model) == 1:
 
                         if data.fit_instrumental_resolution:
                             # Convolve and rebin if fitting for resolution
-                            resolution_slope = self.configuration.parameters[data.name + "_R_slope"].value
-                            resolution_intersect = self.configuration.parameters[data.name + "_R_int"].value
-                            resolution_array = (data.wavelengths*resolution_slope)+resolution_intersect
+                            resolution_slope = self.configuration.parameters[
+                                data.name + "_R_slope"
+                            ].value
+                            resolution_intersect = self.configuration.parameters[
+                                data.name + "_R_int"
+                            ].value
+                            resolution_array = (
+                                data.wavelengths * resolution_slope
+                            ) + resolution_intersect
                             # TODO: interpolate resolution_array and use standard convolve function.
                             # TODO: compare different convolution and binning methods
-                            model_spectrum_rebinned = convolve_and_sample_variable_resolution_breads(
-                                data.wavelengths,
-                                resolution_array,
-                                data.wavelengths,
-                                spectrum_model
+                            model_spectrum_rebinned = (
+                                convolve_and_sample_variable_resolution_breads(
+                                    data.wavelengths,
+                                    resolution_array,
+                                    data.wavelengths,
+                                    spectrum_model,
+                                )
                             )
                         model_spectrum_convolved = spectrum_model
                         if data.data_resolution is not None:
                             # Convolve and rebin the model spectrum to the data resolution
                             model_spectrum_convolved = convolve(
-                                wavelengths_model,
-                                spectrum_model,
-                                data.data_resolution
+                                wavelengths_model, spectrum_model, data.data_resolution
                             )
-                        if data_name + "_radial_velocity" in self.configuration.parameters.keys():
+                        if (
+                            data_name + "_radial_velocity"
+                            in self.configuration.parameters.keys()
+                        ):
                             # RV in km/s -> multiply by 1e5 to cm/s
                             # wavelengths_model in micron
                             # cst.c in cm/s
-                            radial_velocity = self.configuration.parameters[data.name + "_radial_velocity"].value * 1e5
-                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
+                            radial_velocity = (
+                                self.configuration.parameters[
+                                    data.name + "_radial_velocity"
+                                ].value
+                                * 1e5
+                            )
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(
+                                radial_velocity
+                            )
 
-                        elif "system_radial_velocity" in self.configuration.parameters.keys():
-                            radial_velocity = self.configuration.parameters["system_radial_velocity"].value * 1e5
-                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
+                        elif (
+                            "system_radial_velocity"
+                            in self.configuration.parameters.keys()
+                        ):
+                            radial_velocity = (
+                                self.configuration.parameters[
+                                    "system_radial_velocity"
+                                ].value
+                                * 1e5
+                            )
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(
+                                radial_velocity
+                            )
 
-                        if np.size(wavelengths_model) == np.size(data.wavelengths) and\
-                           np.all(wavelengths_model == data.wavelengths):
-                            model_spectrum_rebinned = copy.deepcopy(model_spectrum_convolved)
+                        if np.size(wavelengths_model) == np.size(
+                            data.wavelengths
+                        ) and np.all(wavelengths_model == data.wavelengths):
+                            model_spectrum_rebinned = copy.deepcopy(
+                                model_spectrum_convolved
+                            )
                         else:
                             model_spectrum_rebinned = rebin_spectrum_bin(
                                 wavelengths_model,
                                 model_spectrum_convolved,
                                 data.wavelengths,
-                                data.wavelength_bin_widths
+                                data.wavelength_bin_widths,
                             )
 
                         # Convolution and rebin are cared of in get_chisq
-                        log_likelihood += LogLikelihood(
-                            model_spectrum=model_spectrum_rebinned,
-                            data_spectrum=data_spectrum,
-                            data_uncertainties=data_uncertainties,
-                            data_covariance=data_covariance,
-                            n_free_parameters=self._n_free_params_total_retrieval
-                        ).calculate_log_likelihood() + additional_log_l
+                        log_likelihood += (
+                            LogLikelihood(
+                                model_spectrum=model_spectrum_rebinned,
+                                data_spectrum=data_spectrum,
+                                data_uncertainties=data_uncertainties,
+                                data_covariance=data_covariance,
+                                n_free_parameters=self._n_free_params_total_retrieval,
+                            ).calculate_log_likelihood()
+                            + additional_log_l
+                        )
 
                     elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 2:
                         log_likelihood += data.log_likelihood(
-                            spectrum_model[0, :], data.spectrum, data.uncertainties,
+                            spectrum_model[0, :],
+                            data.spectrum,
+                            data.uncertainties,
                             beta=beta,
-                            beta_mode=beta_mode
+                            beta_mode=beta_mode,
                         )
                     elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 3:
                         log_likelihood += data.log_likelihood(
-                            spectrum_model[0, 0, :], data.spectrum, data.uncertainties,
+                            spectrum_model[0, 0, :],
+                            data.spectrum,
+                            data.uncertainties,
                             beta=beta,
-                            beta_mode=beta_mode
+                            beta_mode=beta_mode,
                         )
                     elif jnp.ndim(data.spectrum) == 2:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Second dimension of data must be a function of wavelength
                         for i, spectrum_data in enumerate(data.spectrum):
                             log_likelihood += data.log_likelihood(
-                                spectrum_model[i, ~data.mask[i, :]], spectrum_data, data.uncertainties[i],
+                                spectrum_model[i, ~data.mask[i, :]],
+                                spectrum_data,
+                                data.uncertainties[i],
                                 beta=beta,
-                                beta_mode=beta_mode
+                                beta_mode=beta_mode,
                             )
                     elif jnp.ndim(data.spectrum) == 3:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
@@ -2634,9 +3003,11 @@ class Retrieval:
                         for i, detector in enumerate(data.spectrum):
                             for j, spectrum_data in enumerate(detector):
                                 log_likelihood += data.log_likelihood(
-                                    spectrum_model[i, j, ~data.mask[i, j, :]], spectrum_data, data.uncertainties[i, j],
+                                    spectrum_model[i, j, ~data.mask[i, j, :]],
+                                    spectrum_data,
+                                    data.uncertainties[i, j],
                                     beta=beta,
-                                    beta_mode=beta_mode
+                                    beta_mode=beta_mode,
                                 )
             else:
                 wavelengths_model = None
@@ -2652,10 +3023,16 @@ class Retrieval:
                 if data_2.external_radtrans_reference is not None:
                     data_2_spectrum = data_2.spectrum
 
-                    data_2_spectrum = data_2.apply_flux_scaling(data_2_spectrum, self.configuration.parameters)
-                    data_2_spectrum = data_2.offset_flux(data_2_spectrum, self.configuration.parameters)
-                    data_2_uncertainties, data_2_covariance = data.scale_and_inflate_uncertainties(
-                        self.configuration.parameters
+                    data_2_spectrum = data_2.apply_flux_scaling(
+                        data_2_spectrum, self.configuration.parameters
+                    )
+                    data_2_spectrum = data_2.offset_flux(
+                        data_2_spectrum, self.configuration.parameters
+                    )
+                    data_2_uncertainties, data_2_covariance = (
+                        data.scale_and_inflate_uncertainties(
+                            self.configuration.parameters
+                        )
                     )
 
                     if data_2.external_radtrans_reference == data_name:
@@ -2667,60 +3044,92 @@ class Retrieval:
 
                         if data.fit_instrumental_resolution:
                             # Convolve and rebin if fitting for resolution
-                            resolution_slope = self.configuration.parameters[data.name + "_R_slope"].value
-                            resolution_intersect = self.configuration.parameters[data.name + "_R_int"].value
-                            resolution_array = (data.wavelengths*resolution_slope)+resolution_intersect
-                            model_spectrum_rebinned = convolve_and_sample_variable_resolution_breads(
-                                data.wavelengths,
-                                resolution_array,
-                                data.wavelengths,
-                                spectrum_model
+                            resolution_slope = self.configuration.parameters[
+                                data.name + "_R_slope"
+                            ].value
+                            resolution_intersect = self.configuration.parameters[
+                                data.name + "_R_int"
+                            ].value
+                            resolution_array = (
+                                data.wavelengths * resolution_slope
+                            ) + resolution_intersect
+                            model_spectrum_rebinned = (
+                                convolve_and_sample_variable_resolution_breads(
+                                    data.wavelengths,
+                                    resolution_array,
+                                    data.wavelengths,
+                                    spectrum_model,
+                                )
                             )
 
                         model_spectrum_convolved = spectrum_model
                         if data.data_resolution is not None:
                             # Convolve and rebin the model spectrum to the data resolution
                             model_spectrum_convolved = convolve(
-                                wavelengths_model,
-                                spectrum_model,
-                                data.data_resolution
+                                wavelengths_model, spectrum_model, data.data_resolution
                             )
-                        if data_name + "_radial_velocity" in self.configuration.parameters.keys():
+                        if (
+                            data_name + "_radial_velocity"
+                            in self.configuration.parameters.keys()
+                        ):
                             # RV in km/s -> multiply by 1e5 to cm/s
                             # wavelengths_model in micron
                             # cst.c in cm/s
-                            radial_velocity = self.configuration.parameters[data.name + "_radial_velocity"].value * 1e5
-                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
+                            radial_velocity = (
+                                self.configuration.parameters[
+                                    data.name + "_radial_velocity"
+                                ].value
+                                * 1e5
+                            )
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(
+                                radial_velocity
+                            )
 
-                        elif "system_radial_velocity" in self.configuration.parameters.keys():
-                            radial_velocity = self.configuration.parameters["system_radial_velocity"].value * 1e5
-                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
+                        elif (
+                            "system_radial_velocity"
+                            in self.configuration.parameters.keys()
+                        ):
+                            radial_velocity = (
+                                self.configuration.parameters[
+                                    "system_radial_velocity"
+                                ].value
+                                * 1e5
+                            )
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(
+                                radial_velocity
+                            )
 
-                        if np.size(wavelengths_model) == np.size(data.wavelengths) and\
-                           np.all(wavelengths_model == data.wavelengths):
+                        if np.size(wavelengths_model) == np.size(
+                            data.wavelengths
+                        ) and np.all(wavelengths_model == data.wavelengths):
                             model_spectrum_rebinned = copy.deepcopy(spectrum_model)
                         else:
                             model_spectrum_rebinned = rebin_spectrum_bin(
                                 wavelengths_model,
                                 model_spectrum_convolved,
                                 data.wavelengths,
-                                data.wavelength_bin_widths
+                                data.wavelength_bin_widths,
                             )
 
                         # Convolution and rebin are cared of in get_chisq
-                        log_likelihood += LogLikelihood(
-                            model_spectrum=model_spectrum_rebinned,
-                            data_spectrum=data_2_spectrum,
-                            data_uncertainties=data_2_uncertainties,
-                            data_covariance=data_2_covariance,
-                            n_free_parameters=self._n_free_params_total_retrieval
-                        ).calculate_log_likelihood() + additional_log_l
+                        log_likelihood += (
+                            LogLikelihood(
+                                model_spectrum=model_spectrum_rebinned,
+                                data_spectrum=data_2_spectrum,
+                                data_uncertainties=data_2_uncertainties,
+                                data_covariance=data_2_covariance,
+                                n_free_parameters=self._n_free_params_total_retrieval,
+                            ).calculate_log_likelihood()
+                            + additional_log_l
+                        )
 
         if per_datapoint:
             return log_l_per_datapoint_dict
 
         if "log_prior_weight" in self.configuration.parameters.keys():
-            log_prior += self.configuration.parameters["log_prior_weight"].value  # TODO why not using log_likelihood?
+            log_prior += self.configuration.parameters[
+                "log_prior_weight"
+            ].value  # TODO why not using log_likelihood?
 
         if log_likelihood + log_prior < invalid_value:
             return invalid_value
@@ -2731,10 +3140,16 @@ class Retrieval:
 
         if not return_model:
             if self.print_log_likelihood_for_debugging:
-                print('log_likelihood + log_prior', log_likelihood + log_prior)
+                print("log_likelihood + log_prior", log_likelihood + log_prior)
             return log_likelihood + log_prior
         else:
-            return log_likelihood + log_prior, wavelengths_models, spectrum_models, beta, additional_log_ls
+            return (
+                log_likelihood + log_prior,
+                wavelengths_models,
+                spectrum_models,
+                beta,
+                additional_log_ls,
+            )
 
     def _set_free_parameter_values(self, values: npt.ArrayLike) -> None:
         """Copy sampled free-parameter values into the active retrieval configuration."""
@@ -2770,7 +3185,7 @@ class Retrieval:
         if isinstance(values, np.ndarray):
             return values.reshape(-1)
 
-        if hasattr(values, 'tolist'):
+        if hasattr(values, "tolist"):
             converted_values = values.tolist()
             if isinstance(converted_values, list):
                 return np.array(converted_values, dtype=float).reshape(-1)
@@ -2781,7 +3196,7 @@ class Retrieval:
             return values
 
     def _get_parameter_layout(self) -> ParameterLayout:
-        parameter_layout = getattr(self, 'parameter_layout', None)
+        parameter_layout = getattr(self, "parameter_layout", None)
 
         if parameter_layout is None:
             parameter_layout = ParameterLayout.from_configuration(self.configuration)
@@ -2790,7 +3205,7 @@ class Retrieval:
         return parameter_layout
 
     def _get_runtime(self) -> RetrievalRuntime:
-        runtime = getattr(self, 'runtime', None)
+        runtime = getattr(self, "runtime", None)
 
         if runtime is None:
             parameter_layout = self._get_parameter_layout()
@@ -2806,8 +3221,7 @@ class Retrieval:
     def _has_only_legacy_model_groups(self) -> bool:
         runtime = self._get_runtime()
         return bool(runtime.model_groups) and all(
-            group.model_contract != 'runtime_native'
-            for group in runtime.model_groups
+            group.model_contract != "runtime_native" for group in runtime.model_groups
         )
 
     def _ensure_jax_sampler_model_support(self, sampler_name: str) -> None:
@@ -2819,14 +3233,16 @@ class Retrieval:
     def _get_ultranest_vectorization_disable_reason(self) -> str | None:
         runtime = self._get_runtime()
 
-        if any(group.model_contract != 'runtime_native' for group in runtime.model_groups):
-            return 'the retrieval contains legacy model groups'
+        if any(
+            group.model_contract != "runtime_native" for group in runtime.model_groups
+        ):
+            return "the retrieval contains legacy model groups"
 
         if any(
-            getattr(observation.spectrum, 'dtype', None) == 'O'
+            getattr(observation.spectrum, "dtype", None) == "O"
             for observation in runtime.observations.values()
         ):
-            return 'the retrieval contains ragged observation groups'
+            return "the retrieval contains ragged observation groups"
 
         return None
 
@@ -2851,11 +3267,11 @@ class Retrieval:
         configuration=None,
         log_l_per_datapoint_dict: dict = None,
         return_model: bool = False,
-        uncertainties_mode: str = 'default',
+        uncertainties_mode: str = "default",
         generate_mock_data: bool = False,
         print_log_likelihood_for_debugging: bool = False,
         *,
-        physical_params: 'PhysicalParams | None' = None,
+        physical_params: "PhysicalParams | None" = None,
     ):
         """JAX-compatible log likelihood computation.
 
@@ -2866,11 +3282,17 @@ class Retrieval:
         Falls back to the legacy implementation when *log_l_per_datapoint_dict*,
         *return_model*, or *generate_mock_data* are requested.
         """
-        if isinstance(log_l_per_datapoint_dict, dict) or return_model or generate_mock_data:
+        if (
+            isinstance(log_l_per_datapoint_dict, dict)
+            or return_model
+            or generate_mock_data
+        ):
             if configuration is None:
                 configuration = self.configuration
             if parameters is None and physical_params is not None:
-                parameters = self._get_parameter_layout().build_legacy_parameter_dict(physical_params)
+                parameters = self._get_parameter_layout().build_legacy_parameter_dict(
+                    physical_params
+                )
             return Retrieval._log_likelihood_jax_legacy(
                 parameters=parameters,
                 configuration=configuration,
@@ -2885,11 +3307,17 @@ class Retrieval:
 
         if physical_params is None:
             if parameters is None:
-                raise ValueError("Either 'parameters' or 'physical_params' must be provided.")
-            physical_params = PhysicalParams.from_mapping({
-                parameter_name: parameter.value if hasattr(parameter, 'value') else parameter
-                for parameter_name, parameter in parameters.items()
-            })
+                raise ValueError(
+                    "Either 'parameters' or 'physical_params' must be provided."
+                )
+            physical_params = PhysicalParams.from_mapping(
+                {
+                    parameter_name: (
+                        parameter.value if hasattr(parameter, "value") else parameter
+                    )
+                    for parameter_name, parameter in parameters.items()
+                }
+            )
 
         return runtime.evaluate_jax(
             physical_params=physical_params,
@@ -2903,9 +3331,9 @@ class Retrieval:
         configuration,
         log_l_per_datapoint_dict: dict = None,
         return_model: bool = False,
-        uncertainties_mode: str = 'default',
+        uncertainties_mode: str = "default",
         generate_mock_data: bool = False,
-        print_log_likelihood_for_debugging: bool = False
+        print_log_likelihood_for_debugging: bool = False,
     ):
         # === Constants and Configuration ===
         invalid_value = -1e99
@@ -2919,27 +3347,34 @@ class Retrieval:
         if uncertainties_mode == "default":
             beta = 1.0
         elif uncertainties_mode == "optimize":
-            warnings.warn("automatically optimizing for uncertainties, be sure of what you are doing...")
+            warnings.warn(
+                "automatically optimizing for uncertainties, be sure of what you are doing..."
+            )
             beta = None
         elif uncertainties_mode == "retrieve":
-            warnings.warn("retrieving uncertainties (multiply mode), be sure of what you are doing...")
+            warnings.warn(
+                "retrieving uncertainties (multiply mode), be sure of what you are doing..."
+            )
             retrieve_uncertainties = True
             beta_mode = "multiply"
         elif uncertainties_mode == "retrieve_add":
-            warnings.warn("retrieving uncertainties (add mode), be sure of what you are doing...")
+            warnings.warn(
+                "retrieving uncertainties (add mode), be sure of what you are doing..."
+            )
             retrieve_uncertainties = True
             beta_mode = "add"
         else:
-            raise ValueError(f"uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
-                             f"but was '{uncertainties_mode}'")
+            raise ValueError(
+                f"uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
+                f"but was '{uncertainties_mode}'"
+            )
 
         # === Setup ===
         per_datapoint = isinstance(log_l_per_datapoint_dict, dict)
 
         # Count free parameters (outside loops)
         n_free_parameters = sum(
-            1 for parameter in parameters
-            if parameters[parameter].is_free_parameter
+            1 for parameter in parameters if parameters[parameter].is_free_parameter
         )
 
         # Collect log likelihood contributions (functional approach)
@@ -2955,7 +3390,9 @@ class Retrieval:
             data_spectrum = data.spectrum
             data_spectrum = data.apply_flux_scaling(data_spectrum, parameters)
             data_spectrum = data.offset_flux(data_spectrum, parameters)
-            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(parameters)
+            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(
+                parameters
+            )
 
             per_datapoint_contribution = 0.0
 
@@ -2972,10 +3409,12 @@ class Retrieval:
                 )
 
                 # Unpack model output using helper
-                wavelengths_model, spectrum_model, beta_model, additional_log_l, _ = unpack_model_output(
-                    model_returned_values,
-                    retrieve_uncertainties,
-                    data.variability_atmospheric_column_model_flux_return_mode
+                wavelengths_model, spectrum_model, beta_model, additional_log_l, _ = (
+                    unpack_model_output(
+                        model_returned_values,
+                        retrieve_uncertainties,
+                        data.variability_atmospheric_column_model_flux_return_mode,
+                    )
                 )
 
                 # Update beta if it was retrieved
@@ -2984,13 +3423,13 @@ class Retrieval:
 
                 # Validate model output
                 is_valid = validate_model_output(spectrum_model, wavelengths_model)
-                #if not is_valid:
+                # if not is_valid:
                 #    warnings.warn("spectrum_model contains NaN values")
                 #    return invalid_value
                 invalid_log_like = lax.cond(
                     is_valid,
                     lambda: 0.0,  # valid output contributes 0 to logL (neutral element)
-                    lambda: invalid_value  # invalid output contributes -1e99 to logL
+                    lambda: invalid_value,  # invalid output contributes -1e99 to logL
                 )
                 log_likelihood_contributions.append(invalid_log_like)
 
@@ -3001,15 +3440,22 @@ class Retrieval:
                 spectrum_model = ensure_jax_array(spectrum_model)
 
                 # === Compute Log Likelihood Based on Data Structure ===
-                if not isinstance(data.spectrum, float) and hasattr(data.spectrum, 'dtype') and data.spectrum.dtype == 'O':
+                if (
+                    not isinstance(data.spectrum, float)
+                    and hasattr(data.spectrum, "dtype")
+                    and data.spectrum.dtype == "O"
+                ):
                     # Object array: loop over object entries
-                    per_datapoint_contribution += Retrieval._compute_object_array_log_likelihood(
-                        data, spectrum_model, beta, beta_mode
+                    per_datapoint_contribution += (
+                        Retrieval._compute_object_array_log_likelihood(
+                            data, spectrum_model, beta, beta_mode
+                        )
                     )
                 else:
                     # Standard array: use spectrum processing pipeline
-                    if ((isinstance(data.spectrum, float) or jnp.ndim(data.spectrum) == 1)
-                            and jnp.ndim(spectrum_model) == 1):
+                    if (
+                        isinstance(data.spectrum, float) or jnp.ndim(data.spectrum) == 1
+                    ) and jnp.ndim(spectrum_model) == 1:
                         # Process spectrum through full pipeline
                         model_spectrum_processed = process_spectrum_pipeline(
                             wavelengths_model,
@@ -3017,7 +3463,7 @@ class Retrieval:
                             data,
                             parameters,
                             data_name,
-                            spectrum_params
+                            spectrum_params,
                         )
 
                         # Compute log likelihood
@@ -3026,7 +3472,7 @@ class Retrieval:
                             data_spectrum=data_spectrum,
                             data_uncertainties=data_uncertainties,
                             data_covariance=data_covariance,
-                            n_free_parameters=n_free_parameters
+                            n_free_parameters=n_free_parameters,
                         ).calculate_log_likelihood()
 
                         per_datapoint_contribution += log_l + additional_log_l
@@ -3034,26 +3480,31 @@ class Retrieval:
                     elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 2:
                         # 1D data, 2D model: take first row
                         per_datapoint_contribution += data.log_likelihood(
-                            spectrum_model[0, :], data.spectrum, data.uncertainties,
+                            spectrum_model[0, :],
+                            data.spectrum,
+                            data.uncertainties,
                             beta=beta,
-                            beta_mode=beta_mode
+                            beta_mode=beta_mode,
                         )
                     elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 3:
                         # 1D data, 3D model: take first [0, 0, :]
                         per_datapoint_contribution += data.log_likelihood(
-                            spectrum_model[0, 0, :], data.spectrum, data.uncertainties,
+                            spectrum_model[0, 0, :],
+                            data.spectrum,
+                            data.uncertainties,
                             beta=beta,
-                            beta_mode=beta_mode
+                            beta_mode=beta_mode,
                         )
                     elif jnp.ndim(data.spectrum) == 2:
                         # 2D data: loop over first dimension
                         for i, spectrum_data in enumerate(data.spectrum):
                             if ~data.mask[i, :] is not None:
                                 per_datapoint_contribution += data.log_likelihood(
-                                    spectrum_model[i, ~data.mask[i, :]], spectrum_data,
+                                    spectrum_model[i, ~data.mask[i, :]],
+                                    spectrum_data,
                                     data.uncertainties[i],
                                     beta=beta,
-                                    beta_mode=beta_mode
+                                    beta_mode=beta_mode,
                                 )
                     elif jnp.ndim(data.spectrum) == 3:
                         # 3D data: loop over first two dimensions
@@ -3061,24 +3512,31 @@ class Retrieval:
                             for j, spectrum_data in enumerate(detector):
                                 if ~data.mask[i, j, :] is not None:
                                     per_datapoint_contribution += data.log_likelihood(
-                                        spectrum_model[i, j, ~data.mask[i, j, :]], spectrum_data,
+                                        spectrum_model[i, j, ~data.mask[i, j, :]],
+                                        spectrum_data,
                                         data.uncertainties[i, j],
                                         beta=beta,
-                                        beta_mode=beta_mode
+                                        beta_mode=beta_mode,
                                     )
 
             # === Process External Data Using Same pRT Object ===
             for data_name_2, data_2 in configuration.data.items():
-                if data_2.external_radtrans_reference == data_name and data_name in [dn for dn, _ in configuration.data.items()]:
+                if data_2.external_radtrans_reference == data_name and data_name in [
+                    dn for dn, _ in configuration.data.items()
+                ]:
                     # This data references the spectrum computed above
                     if wavelengths_model is None or spectrum_model is None:
                         return invalid_value
 
                     # Prepare secondary data
                     data_2_spectrum = data_2.spectrum
-                    data_2_spectrum = data_2.apply_flux_scaling(data_2_spectrum, parameters)
+                    data_2_spectrum = data_2.apply_flux_scaling(
+                        data_2_spectrum, parameters
+                    )
                     data_2_spectrum = data_2.offset_flux(data_2_spectrum, parameters)
-                    data_2_uncertainties, data_2_covariance = data_2.scale_and_inflate_uncertainties(parameters)
+                    data_2_uncertainties, data_2_covariance = (
+                        data_2.scale_and_inflate_uncertainties(parameters)
+                    )
 
                     # Process spectrum for secondary data
                     model_spectrum_processed_2 = process_spectrum_pipeline(
@@ -3087,7 +3545,7 @@ class Retrieval:
                         data_2,
                         parameters,
                         data_name_2,
-                        spectrum_params
+                        spectrum_params,
                     )
 
                     # Compute log likelihood for secondary data
@@ -3096,7 +3554,7 @@ class Retrieval:
                         data_spectrum=data_2_spectrum,
                         data_uncertainties=data_2_uncertainties,
                         data_covariance=data_2_covariance,
-                        n_free_parameters=n_free_parameters
+                        n_free_parameters=n_free_parameters,
                     ).calculate_log_likelihood()
 
                     per_datapoint_contribution += log_l_2
@@ -3135,10 +3593,7 @@ class Retrieval:
 
     @staticmethod
     def _compute_object_array_log_likelihood(
-        data,
-        spectrum_model: jnp.ndarray,
-        beta: float,
-        beta_mode: str
+        data, spectrum_model: jnp.ndarray, beta: float, beta_mode: str
     ) -> float:
         """
         Helper method to compute log likelihood for object array spectra.
@@ -3163,10 +3618,11 @@ class Retrieval:
                 if jnp.isnan(spectrum_model[i][~data.mask[i]]).any():
                     return -1e99
                 log_l += data.log_likelihood(
-                    spectrum_model[i][~data.mask[i]], spectrum_data,
+                    spectrum_model[i][~data.mask[i]],
+                    spectrum_data,
                     data.uncertainties[i],
                     beta=beta,
-                    beta_mode=beta_mode
+                    beta_mode=beta_mode,
                 )
         elif spectrum_ndim == 2:
             # 2D object array
@@ -3175,10 +3631,11 @@ class Retrieval:
                     if jnp.isnan(spectrum_model[i, j][~data.mask[i, j]]).any():
                         return -1e99
                     log_l += data.log_likelihood(
-                        spectrum_model[i, j][~data.mask[i, j]], spectrum_data,
+                        spectrum_model[i, j][~data.mask[i, j]],
+                        spectrum_data,
                         data.uncertainties[i, j],
                         beta=beta,
-                        beta_mode=beta_mode
+                        beta_mode=beta_mode,
                     )
         else:
             raise ValueError(
@@ -3188,15 +3645,18 @@ class Retrieval:
 
         return log_l
 
-
-    def prior(self, cube: npt.NDArray[float], ndim: int = 0, nparams: int = 0) -> npt.NDArray[float]:
+    def prior(
+        self, cube: npt.NDArray[float], ndim: int = 0, nparams: int = 0
+    ) -> npt.NDArray[float]:
         """
         pyMultinest Prior function. Transforms unit hypercube into physical space.
         """
         del ndim, nparams
         return self._get_parameter_layout().prior_transform_inplace(cube)
 
-    def prior_ultranest(self, cube: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
+    def prior_ultranest(
+        self, cube: npt.NDArray[np.floating]
+    ) -> npt.NDArray[np.floating]:
         """
         UltraNest prior function. Transforms unit hypercube into physical space.
         """
@@ -3247,7 +3707,7 @@ class Retrieval:
         )
 
     def _build_jaxns_sampler_interface(self):
-        self._ensure_jax_sampler_model_support('JAXNS')
+        self._ensure_jax_sampler_model_support("JAXNS")
         parameter_layout = self._get_parameter_layout()
         runtime = self._get_runtime()
         free_parameter_names = list(parameter_layout.free_parameter_names)
@@ -3284,17 +3744,24 @@ class Retrieval:
         return free_parameter_names, prior_model, log_likelihood_wrapper
 
     def _build_unconstrained_mcmc_interface(self):
-        self._ensure_jax_sampler_model_support('Gradient-based JAX samplers')
+        self._ensure_jax_sampler_model_support("Gradient-based JAX samplers")
         parameter_layout = self._get_parameter_layout()
         runtime = self._get_runtime()
         free_parameter_names = list(parameter_layout.free_parameter_names)
 
         if len(free_parameter_names) < 1:
-            raise ValueError("Gradient-based samplers require at least one free parameter.")
+            raise ValueError(
+                "Gradient-based samplers require at least one free parameter."
+            )
 
-        free_parameters = [self.configuration.parameters[name] for name in free_parameter_names]
+        free_parameters = [
+            self.configuration.parameters[name] for name in free_parameter_names
+        ]
         for parameter_name, parameter in zip(free_parameter_names, free_parameters):
-            if parameter.distribution is None and parameter.transform_prior_cube_coordinate is None:
+            if (
+                parameter.distribution is None
+                and parameter.transform_prior_cube_coordinate is None
+            ):
                 raise ValueError(
                     f"Free parameter '{parameter_name}' has neither a JAX distribution nor a prior transform."
                 )
@@ -3316,7 +3783,9 @@ class Retrieval:
 
         def logdensity(unconstrained_position):
             physical_position = transform_single(unconstrained_position)
-            physical_params = parameter_layout.physical_params_from_free_values(tuple(physical_position))
+            physical_params = parameter_layout.physical_params_from_free_values(
+                tuple(physical_position)
+            )
 
             return runtime.evaluate_jax(
                 physical_params=physical_params,
@@ -3324,9 +3793,17 @@ class Retrieval:
                 print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging,
             ) + log_jacobian_single(unconstrained_position)
 
-        initial_position = jnp.zeros(parameter_layout.n_free_parameters, dtype=JAX_DTYPE)
+        initial_position = jnp.zeros(
+            parameter_layout.n_free_parameters, dtype=JAX_DTYPE
+        )
 
-        return free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian
+        return (
+            free_parameter_names,
+            initial_position,
+            logdensity,
+            transform_positions,
+            log_jacobian,
+        )
 
     def _build_blackjax_logdensity_interface(self):
         return self._build_unconstrained_mcmc_interface()
@@ -3341,20 +3818,30 @@ class Retrieval:
         algorithm_name: str,
     ) -> dict:
         blackjax_kwargs = {
-            'initial_position': sampler_kwargs.pop('initial_position', initial_position),
-            'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
-            'num_samples': sampler_kwargs.pop('num_samples', 1000),
-            'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
-            'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
-            'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
-            'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
-            'progress_bar': sampler_kwargs.pop('progress_bar', False),
-            'seed': sampler_kwargs.pop('seed', 42654),
-            'use_jit': sampler_kwargs.pop('use_jit', True),
-            'log_jacobian_fn': log_jacobian,
+            "initial_position": sampler_kwargs.pop(
+                "initial_position", initial_position
+            ),
+            "parameter_names": sampler_kwargs.pop(
+                "parameter_names", free_parameter_names
+            ),
+            "num_samples": sampler_kwargs.pop("num_samples", 1000),
+            "num_warmup": sampler_kwargs.pop(
+                "num_warmup", sampler_kwargs.pop("num_burnin", 1000)
+            ),
+            "initial_step_size": sampler_kwargs.pop("initial_step_size", 1.0),
+            "target_acceptance_rate": sampler_kwargs.pop("target_acceptance_rate", 0.8),
+            "is_mass_matrix_diagonal": sampler_kwargs.pop(
+                "is_mass_matrix_diagonal", True
+            ),
+            "progress_bar": sampler_kwargs.pop("progress_bar", False),
+            "seed": sampler_kwargs.pop("seed", 42654),
+            "use_jit": sampler_kwargs.pop("use_jit", True),
+            "log_jacobian_fn": log_jacobian,
         }
-        if algorithm_name == 'hmc':
-            blackjax_kwargs['num_integration_steps'] = sampler_kwargs.pop('num_integration_steps', 20)
+        if algorithm_name == "hmc":
+            blackjax_kwargs["num_integration_steps"] = sampler_kwargs.pop(
+                "num_integration_steps", 20
+            )
         blackjax_kwargs.update(sampler_kwargs)
         return blackjax_kwargs
 
@@ -3368,30 +3855,38 @@ class Retrieval:
         algorithm_name: str,
     ) -> dict:
         numpyro_kwargs = {
-            'initial_position': sampler_kwargs.pop('initial_position', initial_position),
-            'parameter_names': sampler_kwargs.pop('parameter_names', free_parameter_names),
-            'num_samples': sampler_kwargs.pop('num_samples', 1000),
-            'num_warmup': sampler_kwargs.pop('num_warmup', sampler_kwargs.pop('num_burnin', 1000)),
-            'initial_step_size': sampler_kwargs.pop('initial_step_size', 1.0),
-            'target_acceptance_rate': sampler_kwargs.pop('target_acceptance_rate', 0.8),
-            'is_mass_matrix_diagonal': sampler_kwargs.pop('is_mass_matrix_diagonal', True),
-            'progress_bar': sampler_kwargs.pop('progress_bar', False),
-            'seed': sampler_kwargs.pop('seed', 42654),
-            'use_jit': sampler_kwargs.pop('use_jit', True),
-            'log_jacobian_fn': log_jacobian,
-            'num_chains': sampler_kwargs.pop('num_chains', 1),
-            'thinning': sampler_kwargs.pop('thinning', 1),
-            'chain_method': sampler_kwargs.pop('chain_method', 'parallel'),
+            "initial_position": sampler_kwargs.pop(
+                "initial_position", initial_position
+            ),
+            "parameter_names": sampler_kwargs.pop(
+                "parameter_names", free_parameter_names
+            ),
+            "num_samples": sampler_kwargs.pop("num_samples", 1000),
+            "num_warmup": sampler_kwargs.pop(
+                "num_warmup", sampler_kwargs.pop("num_burnin", 1000)
+            ),
+            "initial_step_size": sampler_kwargs.pop("initial_step_size", 1.0),
+            "target_acceptance_rate": sampler_kwargs.pop("target_acceptance_rate", 0.8),
+            "is_mass_matrix_diagonal": sampler_kwargs.pop(
+                "is_mass_matrix_diagonal", True
+            ),
+            "progress_bar": sampler_kwargs.pop("progress_bar", False),
+            "seed": sampler_kwargs.pop("seed", 42654),
+            "use_jit": sampler_kwargs.pop("use_jit", True),
+            "log_jacobian_fn": log_jacobian,
+            "num_chains": sampler_kwargs.pop("num_chains", 1),
+            "thinning": sampler_kwargs.pop("thinning", 1),
+            "chain_method": sampler_kwargs.pop("chain_method", "parallel"),
         }
 
-        if algorithm_name == 'hmc':
-            numpyro_num_steps = sampler_kwargs.pop('num_integration_steps', None)
+        if algorithm_name == "hmc":
+            numpyro_num_steps = sampler_kwargs.pop("num_integration_steps", None)
             if numpyro_num_steps is None:
-                numpyro_num_steps = sampler_kwargs.pop('num_steps', None)
-            if numpyro_num_steps is None and 'trajectory_length' not in sampler_kwargs:
+                numpyro_num_steps = sampler_kwargs.pop("num_steps", None)
+            if numpyro_num_steps is None and "trajectory_length" not in sampler_kwargs:
                 numpyro_num_steps = 20
             if numpyro_num_steps is not None:
-                numpyro_kwargs['num_steps'] = numpyro_num_steps
+                numpyro_kwargs["num_steps"] = numpyro_num_steps
 
         numpyro_kwargs.update(sampler_kwargs)
         return numpyro_kwargs
@@ -3404,9 +3899,9 @@ class Retrieval:
         vectorized: bool,
     ) -> dict:
         return {
-            'sampler_type': sampler_type,
-            'parameter_names': parameter_names,
-            'vectorized': vectorized,
+            "sampler_type": sampler_type,
+            "parameter_names": parameter_names,
+            "vectorized": vectorized,
         }
 
     @staticmethod
@@ -3416,17 +3911,19 @@ class Retrieval:
         sampler_kwargs: dict,
     ) -> dict:
         summary_parameters = {
-            'sampler_type': sampler_type,
-            'num_samples': sampler_kwargs['num_samples'],
-            'num_warmup': sampler_kwargs['num_warmup'],
-            'initial_step_size': sampler_kwargs['initial_step_size'],
-            'target_acceptance_rate': sampler_kwargs['target_acceptance_rate'],
-            'is_mass_matrix_diagonal': sampler_kwargs['is_mass_matrix_diagonal'],
-            'seed': sampler_kwargs['seed'],
-            'use_jit': sampler_kwargs['use_jit'],
+            "sampler_type": sampler_type,
+            "num_samples": sampler_kwargs["num_samples"],
+            "num_warmup": sampler_kwargs["num_warmup"],
+            "initial_step_size": sampler_kwargs["initial_step_size"],
+            "target_acceptance_rate": sampler_kwargs["target_acceptance_rate"],
+            "is_mass_matrix_diagonal": sampler_kwargs["is_mass_matrix_diagonal"],
+            "seed": sampler_kwargs["seed"],
+            "use_jit": sampler_kwargs["use_jit"],
         }
-        if 'num_integration_steps' in sampler_kwargs:
-            summary_parameters['num_integration_steps'] = sampler_kwargs['num_integration_steps']
+        if "num_integration_steps" in sampler_kwargs:
+            summary_parameters["num_integration_steps"] = sampler_kwargs[
+                "num_integration_steps"
+            ]
         return summary_parameters
 
     @staticmethod
@@ -3436,22 +3933,24 @@ class Retrieval:
         sampler_kwargs: dict,
     ) -> dict:
         summary_parameters = {
-            'sampler_type': sampler_type,
-            'num_samples': sampler_kwargs['num_samples'],
-            'num_warmup': sampler_kwargs['num_warmup'],
-            'initial_step_size': sampler_kwargs['initial_step_size'],
-            'target_acceptance_rate': sampler_kwargs['target_acceptance_rate'],
-            'is_mass_matrix_diagonal': sampler_kwargs['is_mass_matrix_diagonal'],
-            'num_chains': sampler_kwargs['num_chains'],
-            'thinning': sampler_kwargs['thinning'],
-            'chain_method': sampler_kwargs['chain_method'],
-            'seed': sampler_kwargs['seed'],
-            'use_jit': sampler_kwargs['use_jit'],
+            "sampler_type": sampler_type,
+            "num_samples": sampler_kwargs["num_samples"],
+            "num_warmup": sampler_kwargs["num_warmup"],
+            "initial_step_size": sampler_kwargs["initial_step_size"],
+            "target_acceptance_rate": sampler_kwargs["target_acceptance_rate"],
+            "is_mass_matrix_diagonal": sampler_kwargs["is_mass_matrix_diagonal"],
+            "num_chains": sampler_kwargs["num_chains"],
+            "thinning": sampler_kwargs["thinning"],
+            "chain_method": sampler_kwargs["chain_method"],
+            "seed": sampler_kwargs["seed"],
+            "use_jit": sampler_kwargs["use_jit"],
         }
-        if 'num_steps' in sampler_kwargs:
-            summary_parameters['num_integration_steps'] = sampler_kwargs['num_steps']
-        if 'trajectory_length' in sampler_kwargs:
-            summary_parameters['trajectory_length'] = sampler_kwargs['trajectory_length']
+        if "num_steps" in sampler_kwargs:
+            summary_parameters["num_integration_steps"] = sampler_kwargs["num_steps"]
+        if "trajectory_length" in sampler_kwargs:
+            summary_parameters["trajectory_length"] = sampler_kwargs[
+                "trajectory_length"
+            ]
         return summary_parameters
 
     @staticmethod
@@ -3463,8 +3962,8 @@ class Retrieval:
     ) -> dict:
         return {
             **sampler_kwargs,
-            'sampler_type': sampler_type,
-            'parameter_names': parameter_names,
+            "sampler_type": sampler_type,
+            "parameter_names": parameter_names,
         }
 
     def run(self, sampler_object: Sampler = None, **sampler_kwargs):
@@ -3485,12 +3984,18 @@ class Retrieval:
         """
         sampler_type = self.configuration.sampler_type
         sampler_type_normalized = sampler_type.lower()
-        print(f"Starting retrieval {self.configuration.retrieval_name} with {sampler_type}")
-        if MPI is None and sampler_type_normalized == 'pymultinest':
-            print("Unable to import mpi4py, using slow (single process) mode for pymultinest.")
+        print(
+            f"Starting retrieval {self.configuration.retrieval_name} with {sampler_type}"
+        )
+        if MPI is None and sampler_type_normalized == "pymultinest":
+            print(
+                "Unable to import mpi4py, using slow (single process) mode for pymultinest."
+            )
         sampler = self.sampler
-        error_checking = sampler_kwargs.pop('error_checking', True)
-        force_serial_error_checking = sampler_kwargs.pop('force_serial_error_checking', False)
+        error_checking = sampler_kwargs.pop("error_checking", True)
+        force_serial_error_checking = sampler_kwargs.pop(
+            "force_serial_error_checking", False
+        )
         # any_error_checking = comm.allreduce(error_checking, op=MPI.LOR)
         # %if MPI is not None and comm is not None else error_checking
 
@@ -3515,16 +4020,21 @@ class Retrieval:
             raise ValueError(f"Unknown sampler_type: {sampler_type}")
 
         context = self._build_sampler_context()
-        sampler, run_kwargs, summary_parameters = sampler_cls.prepare(context, **sampler_kwargs)
+        sampler, run_kwargs, summary_parameters = sampler_cls.prepare(
+            context, **sampler_kwargs
+        )
         results = sampler.run_sampler(**run_kwargs)
         results, extra_finalize_kwargs = sampler.post_run(results)
         return self._finalize_sampler_run(
-            sampler, results,
+            sampler,
+            results,
             sampler_parameters=summary_parameters,
             **extra_finalize_kwargs,
         )
 
-    def sample_effective_temperature(self, sample_dict, param_dict, ret_names=None, nsample=None, resolution=40):
+    def sample_effective_temperature(
+        self, sample_dict, param_dict, ret_names=None, nsample=None, resolution=40
+    ):
         r"""
         This function samples the outputs of a retrieval and computes Teff
         for each sample. For each sample, a model is computed at low resolution,
@@ -3577,7 +4087,9 @@ class Retrieval:
                     charge=charge,
                     cloud_info=cloud_info,
                     source=source,
-                    spectral_info=CorrelatedKOpacity.get_resolving_power_string(resolution)
+                    spectral_info=CorrelatedKOpacity.get_resolving_power_string(
+                        resolution
+                    ),
                 ),
             )
 
@@ -3590,11 +4102,13 @@ class Retrieval:
             pressures=pressures,
             line_species=copy.copy(species),
             rayleigh_species=copy.copy(self.configuration.rayleigh_species),
-            gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+            gas_continuum_contributors=copy.copy(
+                self.configuration.continuum_opacities
+            ),
             cloud_species=copy.copy(self.configuration.cloud_species),
-            line_opacity_mode='c-k',
+            line_opacity_mode="c-k",
             wavelength_boundaries=np.array([0.5, 28]),
-            scattering_in_emission=self.configuration.scattering_in_emission
+            scattering_in_emission=self.configuration.scattering_in_emission,
         )
 
         temperature_dict = {}
@@ -3636,12 +4150,15 @@ class Retrieval:
                     flux=model,
                     orbit_semi_major_axis=parameters["D_pl"].value,
                     planet_radius=parameters["planet_radius"].value,
-                    use_si_units=True
+                    use_si_units=True,
                 )
                 temperature_fits.append(temperature_fit)
 
             temperature_dict[name] = np.array(temperature_fits)
-            np.save(f"{self.output_directory}/evaluate_{name}/{name}_sampled_teff", np.array(temperature_fits))
+            np.save(
+                f"{self.output_directory}/evaluate_{name}/{name}_sampled_teff",
+                np.array(temperature_fits),
+            )
 
         return temperature_dict
 
@@ -3669,20 +4186,30 @@ class Retrieval:
                 )
                 if len(ret_val) == 3:
                     wavelengths_model, spectrum_model, additional_logl = ret_val
-                elif len(ret_val) == 4 and data.variability_atmospheric_column_model_flux_return_mode:
-                    wavelengths_model, spectrum_model, additional_logl, atmospheric_model_column_fluxes = ret_val
-                    spectrum_model = data.atmospheric_column_flux_mixer(
+                elif (
+                    len(ret_val) == 4
+                    and data.variability_atmospheric_column_model_flux_return_mode
+                ):
+                    (
+                        wavelengths_model,
+                        spectrum_model,
+                        additional_logl,
                         atmospheric_model_column_fluxes,
-                        parameters,
-                        data.name
+                    ) = ret_val
+                    spectrum_model = data.atmospheric_column_flux_mixer(
+                        atmospheric_model_column_fluxes, parameters, data.name
                     )
                 else:
                     wavelengths_model, spectrum_model = ret_val
             else:
                 # Compute the model
-                prt_obj = self.configuration.data[data.external_radtrans_reference].radtrans_object
+                prt_obj = self.configuration.data[
+                    data.external_radtrans_reference
+                ].radtrans_object
                 ret_val = self._call_model_generating_function(
-                    self.configuration.data[data.external_radtrans_reference].model_generating_function,
+                    self.configuration.data[
+                        data.external_radtrans_reference
+                    ].model_generating_function,
                     prt_obj,
                     parameters,
                     data_name=data.external_radtrans_reference,
@@ -3692,68 +4219,82 @@ class Retrieval:
 
                 if len(ret_val) == 3:
                     wavelengths_model, spectrum_model, additional_logl = ret_val
-                elif len(ret_val) == 4 and data.variability_atmospheric_column_model_flux_return_mode:
-                    wavelengths_model, spectrum_model, additional_logl, atmospheric_model_column_fluxes = ret_val
-                    spectrum_model = data.atmospheric_column_flux_mixer(
+                elif (
+                    len(ret_val) == 4
+                    and data.variability_atmospheric_column_model_flux_return_mode
+                ):
+                    (
+                        wavelengths_model,
+                        spectrum_model,
+                        additional_logl,
                         atmospheric_model_column_fluxes,
-                        parameters,
-                        data.name
+                    ) = ret_val
+                    spectrum_model = data.atmospheric_column_flux_mixer(
+                        atmospheric_model_column_fluxes, parameters, data.name
                     )
                 else:
                     wavelengths_model, spectrum_model = ret_val
 
             if data.data_resolution_array_model is not None:
                 data.initialise_data_resolution(wavelengths_model)
-                spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
+                spectrum_model = convolve(
+                    wavelengths_model, spectrum_model, data.data_resolution_array_model
+                )
             elif data.data_resolution is not None:
-                spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution)
+                spectrum_model = convolve(
+                    wavelengths_model, spectrum_model, data.data_resolution
+                )
 
             if not data.photometry:
                 binned = rebin_spectrum_bin(
-                            wavelengths_model,
-                            spectrum_model,
-                            data.wavelengths,
-                            data.wavelength_bin_widths
-                        )
+                    wavelengths_model,
+                    spectrum_model,
+                    data.wavelengths,
+                    data.wavelength_bin_widths,
+                )
             else:
-                binned = data.photometric_transformation_function(wavelengths_model, spectrum_model)
+                binned = data.photometric_transformation_function(
+                    wavelengths_model, spectrum_model
+                )
 
             if data.subtract_continuum:
                 x_nodes = None
 
                 if name + "_nodes" in parameters.keys():
                     nodes = parameters[name + "_nodes"].value
-                    x_nodes = np.linspace(data.wavelengths[0], data.wavelengths[-1], nodes)
+                    x_nodes = np.linspace(
+                        data.wavelengths[0], data.wavelengths[-1], nodes
+                    )
 
                 if name + "_node_array" in parameters.keys():
                     x_nodes = parameters[name + "_node_array"].value
 
                 binned = filter_spectrum_with_spline(
-                    wavelengths=data.wavelengths,
-                    fluxes=binned,
-                    x_nodes=x_nodes
-                    )
+                    wavelengths=data.wavelengths, fluxes=binned, x_nodes=x_nodes
+                )
 
             if self.evaluate_sample_spectra:
                 self.posterior_sample_spectra[name] = [data.wavelengths, binned]
             else:
-                data_safe_name = name.replace('/', '_').replace('.', '_')
+                data_safe_name = name.replace("/", "_").replace(".", "_")
 
                 if (not only_return_best_fit_spectra) and (not data.photometry):
                     np.savetxt(
                         os.path.join(
                             self.output_directory,
-                            'evaluate_' + self.configuration.retrieval_name,
-                            f'{self.configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat',
+                            "evaluate_" + self.configuration.retrieval_name,
+                            f"{self.configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat",
                         ),
-                        np.column_stack((data.wavelengths, binned))
+                        np.column_stack((data.wavelengths, binned)),
                     )
 
                 self.best_fit_spectra[name] = [data.wavelengths, binned]
 
         return self.best_fit_spectra
 
-    def save_best_fit_outputs_external_variability(self, parameters, only_return_best_fit_spectra=False):
+    def save_best_fit_outputs_external_variability(
+        self, parameters, only_return_best_fit_spectra=False
+    ):
         wavelengths_model = None  # prevent potential reference before assignment
 
         # Save sampled outputs if necessary
@@ -3786,27 +4327,39 @@ class Retrieval:
 
                 if len(results) == 3:
                     wavelengths_model, spectrum_model, additional_logl = results
-                elif len(results) == 4 and data.variability_atmospheric_column_model_flux_return_mode:
-                    wavelengths_model, spectrum_model, additional_logl, atmospheric_model_column_fluxes = results
+                elif (
+                    len(results) == 4
+                    and data.variability_atmospheric_column_model_flux_return_mode
+                ):
+                    (
+                        wavelengths_model,
+                        spectrum_model,
+                        additional_logl,
+                        atmospheric_model_column_fluxes,
+                    ) = results
 
                     spectrum_model = data.atmospheric_column_flux_mixer(
-                        atmospheric_model_column_fluxes,
-                        parameters,
-                        data.name
+                        atmospheric_model_column_fluxes, parameters, data.name
                     )
                 else:
                     wavelengths_model, spectrum_model = results
 
                 if data.data_resolution_array_model is not None:
                     data.initialise_data_resolution(wavelengths_model)
-                    spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
+                    spectrum_model = convolve(
+                        wavelengths_model,
+                        spectrum_model,
+                        data.data_resolution_array_model,
+                    )
                 elif data.data_resolution is not None:
-                    spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution)
+                    spectrum_model = convolve(
+                        wavelengths_model, spectrum_model, data.data_resolution
+                    )
                 binned = rebin_spectrum_bin(
                     wavelengths_model,
                     spectrum_model,
                     data.wavelengths,
-                    data.wavelength_bin_widths
+                    data.wavelength_bin_widths,
                 )
                 self.best_fit_spectra[name] = [data.wavelengths, binned]
 
@@ -3818,9 +4371,7 @@ class Retrieval:
                             and atmospheric_model_column_fluxes is not None
                         ):
                             spectrum_model_2 = data_2.atmospheric_column_flux_mixer(
-                                atmospheric_model_column_fluxes,
-                                parameters,
-                                data_2.name
+                                atmospheric_model_column_fluxes, parameters, data_2.name
                             )
 
                             if data.data_resolution_array_model is not None:
@@ -3828,17 +4379,19 @@ class Retrieval:
                                 spectrum_model_2 = convolve(
                                     wavelengths_model,
                                     spectrum_model_2,
-                                    data.data_resolution_array_model)
+                                    data.data_resolution_array_model,
+                                )
                             elif data.data_resolution is not None:
                                 spectrum_model_2 = convolve(
                                     wavelengths_model,
                                     spectrum_model_2,
-                                    data.data_resolution)
+                                    data.data_resolution,
+                                )
                             binned_2 = rebin_spectrum_bin(
                                 wavelengths_model,
                                 spectrum_model_2,
                                 data.wavelengths,
-                                data.wavelength_bin_widths
+                                data.wavelength_bin_widths,
                             )
                             self.best_fit_spectra[name_2] = [data.wavelengths, binned_2]
                         else:
@@ -3848,15 +4401,15 @@ class Retrieval:
                             self.best_fit_spectra[name_2] = [data.wavelengths, binned]
 
         for name, data in self.configuration.data.items():
-            data_safe_name = name.replace('/', '_').replace('.', '_')
+            data_safe_name = name.replace("/", "_").replace(".", "_")
             if not only_return_best_fit_spectra:
                 np.savetxt(
                     os.path.join(
                         self.output_directory,
-                        'evaluate_' + self.configuration.retrieval_name,
-                        f'{self.configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat',
+                        "evaluate_" + self.configuration.retrieval_name,
+                        f"{self.configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat",
                     ),
-                    np.column_stack((self.best_fit_spectra[name]))
+                    np.column_stack((self.best_fit_spectra[name])),
                 )
         return self.best_fit_spectra
 
@@ -3893,9 +4446,11 @@ class Retrieval:
             name = self.plotter.get_reference_radtrans_name()
 
             species = [
-                Opacity([species]).get_full_name().split('.R')[0]
-                for species in self.configuration.data[name].radtrans_object.line_species
-                ]
+                Opacity([species]).get_full_name().split(".R")[0]
+                for species in self.configuration.data[
+                    name
+                ].radtrans_object.line_species
+            ]
 
             samples_use = sample_dict[ret].T
             parameters_read = parameter_dict[ret]
@@ -3906,16 +4461,20 @@ class Retrieval:
 
             mass_fractions = np.array(mass_fractions)
             np.save(
-                os.path.join(self.output_directory, f"evaluate_{ret}", f"{ret}_mass_fraction_profiles"),
-                mass_fractions
+                os.path.join(
+                    self.output_directory,
+                    f"evaluate_{ret}",
+                    f"{ret}_mass_fraction_profiles",
+                ),
+                mass_fractions,
             )
             line_spec_file = os.path.join(
                 self.output_directory,
                 f"evaluate_{ret}",
-                f"{ret}_line_absorber_species.json"
+                f"{ret}_line_absorber_species.json",
             )
 
-            with open(line_spec_file, 'w+') as myFile:
+            with open(line_spec_file, "w+") as myFile:
                 json.dump(species, myFile)
 
         return mass_fractions
@@ -3953,9 +4512,11 @@ class Retrieval:
             name = self.plotter.get_reference_radtrans_name()
 
             species = [
-                Opacity([species]).get_full_name().split('.R')[0]
-                for species in self.configuration.data[name].radtrans_object.line_species
-                ]
+                Opacity([species]).get_full_name().split(".R")[0]
+                for species in self.configuration.data[
+                    name
+                ].radtrans_object.line_species
+            ]
 
             samples_use = sample_dict[ret].T
             parameters_read = parameter_dict[ret]
@@ -3967,16 +4528,20 @@ class Retrieval:
 
             vmrs = np.array(vmrs)
             np.save(
-                os.path.join(self.output_directory, f"evaluate_{ret}", f"{ret}_volume_mixing_ratio_profiles"),
-                vmrs
+                os.path.join(
+                    self.output_directory,
+                    f"evaluate_{ret}",
+                    f"{ret}_volume_mixing_ratio_profiles",
+                ),
+                vmrs,
             )
             line_spec_file = os.path.join(
                 self.output_directory,
                 f"evaluate_{ret}",
-                f"{ret}_line_absorber_species.json"
+                f"{ret}_line_absorber_species.json",
             )
 
-            with open(line_spec_file, 'w+') as myFile:
+            with open(line_spec_file, "w+") as myFile:
                 json.dump(species, myFile)
 
         return vmrs
@@ -4006,21 +4571,32 @@ class Retrieval:
             if data.external_radtrans_reference is None:
                 print(f"Setting up Radtrans object for data '{name}'...")
 
-                if data.line_opacity_mode == 'c-k' and data.model_resolution is not None:
+                if (
+                    data.line_opacity_mode == "c-k"
+                    and data.model_resolution is not None
+                ):
                     # Use ExoK to have low res models.
                     self._rebin_opacities(resolution=data.model_resolution)
 
                     species = ()
 
                     for line_species in self.configuration.line_species:
-                        line_species, spectral_info = CorrelatedKOpacity.split_species_spectral_info(line_species)
-                        opacity_wavelength_range = CorrelatedKOpacity.split_spectral_info(spectral_info)[1]
+                        line_species, spectral_info = (
+                            CorrelatedKOpacity.split_species_spectral_info(line_species)
+                        )
+                        opacity_wavelength_range = (
+                            CorrelatedKOpacity.split_spectral_info(spectral_info)[1]
+                        )
 
-                        species = species + (CorrelatedKOpacity.join_species_all_info(
-                            line_species,
-                            spectral_sampling=CorrelatedKOpacity.get_resolving_power_string(data.model_resolution),
-                            wavelength_range=opacity_wavelength_range,
-                        ),)
+                        species = species + (
+                            CorrelatedKOpacity.join_species_all_info(
+                                line_species,
+                                spectral_sampling=CorrelatedKOpacity.get_resolving_power_string(
+                                    data.model_resolution
+                                ),
+                                wavelength_range=opacity_wavelength_range,
+                            ),
+                        )
                 else:
                     # Otherwise for 'lbl' or no model_resolution binning,
                     # we just use the default species.
@@ -4028,12 +4604,17 @@ class Retrieval:
 
                 line_by_line_sampling = None
 
-                if data.line_opacity_mode == 'lbl' and data.model_resolution is not None:
+                if (
+                    data.line_opacity_mode == "lbl"
+                    and data.model_resolution is not None
+                ):
                     line_by_line_sampling = int(1e6 / data.model_resolution)
 
                 # Create random P-T profile to create RT arrays of the Radtrans object.
                 if self.configuration.adaptive_mesh_refinement:
-                    pressures = self.configuration._setup_pres(scaling, width)  # TODO this function shouldn't be protected  # noqa: E501
+                    pressures = self.configuration._setup_pres(
+                        scaling, width
+                    )  # TODO this function shouldn't be protected  # noqa: E501
                 else:
                     pressures = self.configuration.pressures
 
@@ -4042,12 +4623,14 @@ class Retrieval:
                     pressures=pressures,
                     line_species=copy.copy(tuple(species)),
                     rayleigh_species=copy.copy(self.configuration.rayleigh_species),
-                    gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+                    gas_continuum_contributors=copy.copy(
+                        self.configuration.continuum_opacities
+                    ),
                     cloud_species=copy.copy(self.configuration.cloud_species),
                     line_opacity_mode=data.line_opacity_mode,
                     wavelength_boundaries=data.wavelength_boundaries,
                     scattering_in_emission=self.configuration.scattering_in_emission,
-                    line_by_line_opacity_sampling=line_by_line_sampling
+                    line_by_line_opacity_sampling=line_by_line_sampling,
                 )
                 data.radtrans_object = radtrans
 
@@ -4064,9 +4647,9 @@ class Retrieval:
         refresh=True,
         model_generating_function=None,
         prt_reference=None,
-        mode='bestfit',
+        mode="bestfit",
         sample_posteriors=False,
-        volume_mixing_ratio=False
+        volume_mixing_ratio=False,
     ):
         """
         Plot abundance profiles (mass fractions or volume mixing ratios) as a function of pressure.
@@ -4106,7 +4689,7 @@ class Retrieval:
         contribution=False,
         model_generating_function=None,
         prt_reference=None,
-        mode='bestfit'
+        mode="bestfit",
     ):
         """
         Generate all standard plots for a retrieval, including best-fit spectrum, sample spectra, PT profile, corner plot, and abundances.
@@ -4131,8 +4714,17 @@ class Retrieval:
             mode=mode,
         )
 
-    def plot_contribution(self, samples_use, parameters_read, model_generating_function=None, prt_reference=None,
-                          log_scale_contribution=False, n_contour_levels=30, refresh=True, mode='bestfit'):
+    def plot_contribution(
+        self,
+        samples_use,
+        parameters_read,
+        model_generating_function=None,
+        prt_reference=None,
+        log_scale_contribution=False,
+        n_contour_levels=30,
+        refresh=True,
+        mode="bestfit",
+    ):
         """
         Plot the contribution function of the best-fit or median model from a retrieval.
         This is a wrapper for RetrievalPlotter.plot_contribution.
@@ -4160,7 +4752,15 @@ class Retrieval:
             mode=mode,
         )
 
-    def plot_corner(self, sample_dict, parameter_dict, parameters_read, plot_best_fit=True, true_values=None, **kwargs):
+    def plot_corner(
+        self,
+        sample_dict,
+        parameter_dict,
+        parameters_read,
+        plot_best_fit=True,
+        true_values=None,
+        **kwargs,
+    ):
         """
         Make a corner plot of the posterior samples for the retrieved parameters.
         This is a wrapper for RetrievalPlotter.plot_corner.
@@ -4184,7 +4784,7 @@ class Retrieval:
             **kwargs,
         )
 
-    def plot_data(self, yscale='linear'):
+    def plot_data(self, yscale="linear"):
         """
         Plot the observational data used in the retrieval.
         This is a wrapper for RetrievalPlotter.plot_data.
@@ -4196,8 +4796,16 @@ class Retrieval:
         """
         return self.plotter.plot_data(yscale=yscale)
 
-    def plot_pt(self, sample_dict, parameters_read, contribution=False, refresh=False, model_generating_function=None,
-                prt_reference=None, mode='bestfit'):
+    def plot_pt(
+        self,
+        sample_dict,
+        parameters_read,
+        contribution=False,
+        refresh=False,
+        model_generating_function=None,
+        prt_reference=None,
+        mode="bestfit",
+    ):
         """
         Plot the pressure-temperature (PT) profile with error contours for the retrieval.
         This is a wrapper for RetrievalPlotter.plot_pt.
@@ -4223,8 +4831,17 @@ class Retrieval:
             mode=mode,
         )
 
-    def plot_sampled(self, samples_use, parameters_read, downsample_factor=None, save_outputs=False,
-                     nsample=None, model_generating_function=None, prt_reference=None, refresh=True):
+    def plot_sampled(
+        self,
+        samples_use,
+        parameters_read,
+        downsample_factor=None,
+        save_outputs=False,
+        nsample=None,
+        model_generating_function=None,
+        prt_reference=None,
+        refresh=True,
+    ):
         """
         Plot a set of randomly sampled output spectra for each dataset in the retrieval.
         This is a wrapper for RetrievalPlotter.plot_sampled.
@@ -4252,9 +4869,19 @@ class Retrieval:
             refresh=refresh,
         )
 
-    def plot_spectra(self, samples_use, parameters_read, model_generating_function=None, prt_reference=None,
-                     refresh=True, mode="bestfit", marker_color_type=None, marker_cmap=None, marker_label='',
-                     only_save_best_fit_spectra=False):
+    def plot_spectra(
+        self,
+        samples_use,
+        parameters_read,
+        model_generating_function=None,
+        prt_reference=None,
+        refresh=True,
+        mode="bestfit",
+        marker_color_type=None,
+        marker_cmap=None,
+        marker_label="",
+        only_save_best_fit_spectra=False,
+    ):
         """
         Plot the best-fit spectrum, the data from each dataset, and the residuals between the two.
         This is a wrapper for RetrievalPlotter.plot_spectra.
@@ -4292,7 +4919,9 @@ class Retrieval:
         space, as the opacities for each Radtrans object will also be saved to file.
         """
         filename = f"{self.configuration.retrieval_name}_configuration.pkl"
-        with open(f"{self.output_directory}/evaluate_{self.configuration.retrieval_name}/{filename}", "wb") as db:
+        with open(
+            f"{self.output_directory}/evaluate_{self.configuration.retrieval_name}/{filename}",
+            "wb",
+        ) as db:
             dill.dump(self.configuration, db)
         print(f"Saving configuration to file: {filename}")
-

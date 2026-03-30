@@ -13,8 +13,10 @@ from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity
 from petitRADTRANS.retrieval.parameter import Parameter
 from petitRADTRANS.retrieval.utils import uniform_prior
 from petitRADTRANS.synthetic_photometry import SyntheticPhotometry
+
 # Import prior distributions
 import tensorflow_probability.substrates.jax as tfp
+
 tfpd = tfp.distributions
 
 # MPI Multiprocessing
@@ -24,6 +26,7 @@ comm = None
 
 try:
     from mpi4py import MPI
+
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
 except ImportError:
@@ -57,15 +60,17 @@ class RetrievalConfig:
             10^-6 and 10^3.
     """
 
-    def __init__(self,
-                 retrieval_name: str = "retrieval_name",
-                 run_mode: str = "retrieval",
-                 sampler_type: str = 'pymultinest',
-                 adaptive_mesh_refinement: str = False,
-                 scattering_in_emission: bool = False,
-                 pressures: ArrayLike | None = None,
-                 # --- deprecated arguments ---
-                 amr=_UNSET):
+    def __init__(
+        self,
+        retrieval_name: str = "retrieval_name",
+        run_mode: str = "retrieval",
+        sampler_type: str = "pymultinest",
+        adaptive_mesh_refinement: str = False,
+        scattering_in_emission: bool = False,
+        pressures: ArrayLike | None = None,
+        # --- deprecated arguments ---
+        amr=_UNSET,
+    ):
 
         if amr is not _UNSET:
             warnings.warn(
@@ -79,8 +84,10 @@ class RetrievalConfig:
         self.run_mode = run_mode
         self.sampler_type = sampler_type
 
-        if self.run_mode != 'retrieval' and self.run_mode != 'evaluate':
-            raise ValueError(f"run_mode must be 'retrieval' or 'evaluate', but was '{self.run_mode}'")
+        if self.run_mode != "retrieval" and self.run_mode != "evaluate":
+            raise ValueError(
+                f"run_mode must be 'retrieval' or 'evaluate', but was '{self.run_mode}'"
+            )
 
         self.adaptive_mesh_refinement = adaptive_mesh_refinement
         self.scaling = 1
@@ -92,7 +99,9 @@ class RetrievalConfig:
             self.pressures = jnp.logspace(-6, 3, 100)
 
         self.scattering_in_emission = scattering_in_emission
-        self.parameters = {}  #: Dictionary of the parameters passed to the model generating function
+        self.parameters = (
+            {}
+        )  #: Dictionary of the parameters passed to the model generating function
         self.data = {}  #: Dictionary of the datasets used in the retrieval.
         self.instruments = ()
         self.line_species = ()
@@ -125,9 +134,13 @@ class RetrievalConfig:
         self.width = width
         nclouds = len(self.cloud_species)
         if nclouds == 0:
-            print("WARNING: there are no clouds in the retrieval, please add cloud species before setting up AMR")
+            print(
+                "WARNING: there are no clouds in the retrieval, please add cloud species before setting up AMR"
+            )
         new_len = self.pressures.shape[0] + nclouds * width * (scaling - 1)
-        self.adaptive_mesh_refinement_pressure = jnp.logspace(jnp.log10(self.pressures[0]), jnp.log10(self.pressures[-1]), new_len)
+        self.adaptive_mesh_refinement_pressure = jnp.logspace(
+            jnp.log10(self.pressures[0]), jnp.log10(self.pressures[-1]), new_len
+        )
         self.add_parameter("pressure_scaling", False, value=scaling)
         self.add_parameter("pressure_width", False, value=width)
         self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
@@ -135,18 +148,19 @@ class RetrievalConfig:
         return self.adaptive_mesh_refinement_pressure
 
     def add_parameter(
-            self,
-            name: str,
-            is_free_parameter: bool,
-            value: float | None = None,
-            distribution: Any | None = None,
-            plot_in_corner: bool = False,
-            corner_ranges: tuple[float, float] | None = None,
-            corner_transform: Callable | None = None,
-            transform_prior_cube_coordinate: Callable | None = None,
-            corner_label: str | None = None,
-            # --- deprecated arguments ---
-            free=_UNSET) -> None:
+        self,
+        name: str,
+        is_free_parameter: bool,
+        value: float | None = None,
+        distribution: Any | None = None,
+        plot_in_corner: bool = False,
+        corner_ranges: tuple[float, float] | None = None,
+        corner_transform: Callable | None = None,
+        transform_prior_cube_coordinate: Callable | None = None,
+        corner_label: str | None = None,
+        # --- deprecated arguments ---
+        free=_UNSET,
+    ) -> None:
         """
         This function adds a Parameter (see parameter.py) to the dictionary of parameters. A Parameter
         has a name and a boolean parameter to set whether it is a free or fixed parameter during the retrieval.
@@ -182,18 +196,22 @@ class RetrievalConfig:
             corner_ranges=corner_ranges,
             corner_transform=corner_transform,
             transform_prior_cube_coordinate=transform_prior_cube_coordinate,
-            corner_label=corner_label
-            )
+            corner_label=corner_label,
+        )
 
-    def _add_uniform_free_parameter(self, name: str, lower: float, upper: float, corner_label: str = None) -> None:
+    def _add_uniform_free_parameter(
+        self, name: str, lower: float, upper: float, corner_label: str = None
+    ) -> None:
         if name in self.parameters:
             return
 
-        if self.sampler_type == 'pymultinest':
+        if self.sampler_type == "pymultinest":
             self.parameters[name] = Parameter(
                 name=name,
                 is_free_parameter=True,
-                transform_prior_cube_coordinate=lambda x, lo=lower, hi=upper: uniform_prior(x, lo, hi),
+                transform_prior_cube_coordinate=lambda x, lo=lower, hi=upper: uniform_prior(
+                    x, lo, hi
+                ),
                 corner_label=corner_label,
             )
         else:
@@ -205,11 +223,17 @@ class RetrievalConfig:
             )
 
     @staticmethod
-    def _default_covariance_parameter_priors(data_object: Data) -> dict[str, tuple[float, float]]:
+    def _default_covariance_parameter_priors(
+        data_object: Data,
+    ) -> dict[str, tuple[float, float]]:
         amplitude_scale = None
         if data_object.uncertainties is not None:
-            uncertainties = np.asarray(data_object.uncertainties, dtype=float).reshape(-1)
-            uncertainties = uncertainties[np.isfinite(uncertainties) & (uncertainties > 0)]
+            uncertainties = np.asarray(data_object.uncertainties, dtype=float).reshape(
+                -1
+            )
+            uncertainties = uncertainties[
+                np.isfinite(uncertainties) & (uncertainties > 0)
+            ]
             if uncertainties.size > 0:
                 amplitude_scale = float(np.median(uncertainties))
 
@@ -224,19 +248,29 @@ class RetrievalConfig:
             amplitude_scale = 1.0
 
         wavelengths = np.asarray(data_object.wavelengths, dtype=float).reshape(-1)
-        wavelength_span = float(np.max(wavelengths) - np.min(wavelengths)) if wavelengths.size > 1 else 1.0
+        wavelength_span = (
+            float(np.max(wavelengths) - np.min(wavelengths))
+            if wavelengths.size > 1
+            else 1.0
+        )
         wavelength_diffs = np.diff(wavelengths)
-        wavelength_diffs = wavelength_diffs[np.isfinite(wavelength_diffs) & (wavelength_diffs > 0)]
-        min_length = float(np.median(wavelength_diffs)) if wavelength_diffs.size > 0 else wavelength_span
+        wavelength_diffs = wavelength_diffs[
+            np.isfinite(wavelength_diffs) & (wavelength_diffs > 0)
+        ]
+        min_length = (
+            float(np.median(wavelength_diffs))
+            if wavelength_diffs.size > 0
+            else wavelength_span
+        )
         min_length = max(min_length, 1e-12)
         max_length = max(wavelength_span, min_length)
 
         return {
-            'global_amp': (0.0, amplitude_scale * 10.0),
-            'global_length': (min_length, max_length),
-            'local_amp': (0.0, amplitude_scale * 10.0),
-            'local_length': (min_length, max_length),
-            'local_center': (float(np.min(wavelengths)), float(np.max(wavelengths))),
+            "global_amp": (0.0, amplitude_scale * 10.0),
+            "global_length": (min_length, max_length),
+            "local_amp": (0.0, amplitude_scale * 10.0),
+            "local_length": (min_length, max_length),
+            "local_center": (float(np.min(wavelengths)), float(np.max(wavelengths))),
         }
 
     def _add_covariance_hyperparameters(
@@ -250,39 +284,39 @@ class RetrievalConfig:
         if covariance_parameter_priors is not None:
             prior_ranges.update(covariance_parameter_priors)
 
-        if covariance_mode in {'global', 'global_local'}:
+        if covariance_mode in {"global", "global_local"}:
             self._add_uniform_free_parameter(
-                name=f'{data_object.name}_gp_global_amp',
-                lower=prior_ranges['global_amp'][0],
-                upper=prior_ranges['global_amp'][1],
-                corner_label=f'{data_object.name} gp global amp',
+                name=f"{data_object.name}_gp_global_amp",
+                lower=prior_ranges["global_amp"][0],
+                upper=prior_ranges["global_amp"][1],
+                corner_label=f"{data_object.name} gp global amp",
             )
             self._add_uniform_free_parameter(
-                name=f'{data_object.name}_gp_global_length',
-                lower=prior_ranges['global_length'][0],
-                upper=prior_ranges['global_length'][1],
-                corner_label=f'{data_object.name} gp global length',
+                name=f"{data_object.name}_gp_global_length",
+                lower=prior_ranges["global_length"][0],
+                upper=prior_ranges["global_length"][1],
+                corner_label=f"{data_object.name} gp global length",
             )
 
-        if covariance_mode in {'local', 'global_local'}:
+        if covariance_mode in {"local", "global_local"}:
             for kernel_index in range(1, n_local_covariance_kernels + 1):
                 self._add_uniform_free_parameter(
-                    name=f'{data_object.name}_gp_local_{kernel_index}_amp',
-                    lower=prior_ranges['local_amp'][0],
-                    upper=prior_ranges['local_amp'][1],
-                    corner_label=f'{data_object.name} gp local {kernel_index} amp',
+                    name=f"{data_object.name}_gp_local_{kernel_index}_amp",
+                    lower=prior_ranges["local_amp"][0],
+                    upper=prior_ranges["local_amp"][1],
+                    corner_label=f"{data_object.name} gp local {kernel_index} amp",
                 )
                 self._add_uniform_free_parameter(
-                    name=f'{data_object.name}_gp_local_{kernel_index}_length',
-                    lower=prior_ranges['local_length'][0],
-                    upper=prior_ranges['local_length'][1],
-                    corner_label=f'{data_object.name} gp local {kernel_index} length',
+                    name=f"{data_object.name}_gp_local_{kernel_index}_length",
+                    lower=prior_ranges["local_length"][0],
+                    upper=prior_ranges["local_length"][1],
+                    corner_label=f"{data_object.name} gp local {kernel_index} length",
                 )
                 self._add_uniform_free_parameter(
-                    name=f'{data_object.name}_gp_local_{kernel_index}_center',
-                    lower=prior_ranges['local_center'][0],
-                    upper=prior_ranges['local_center'][1],
-                    corner_label=f'{data_object.name} gp local {kernel_index} center',
+                    name=f"{data_object.name}_gp_local_{kernel_index}_center",
+                    lower=prior_ranges["local_center"][0],
+                    upper=prior_ranges["local_center"][1],
+                    corner_label=f"{data_object.name} gp local {kernel_index} center",
                 )
 
     @staticmethod
@@ -293,14 +327,20 @@ class RetrievalConfig:
 
         prt_path = petitradtrans_config_parser.get_input_data_path()
 
-        files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/lines/correlated_k/")]
-        files = set([f.split('.R')[0] for f in files])
+        files = [
+            f[0].split("/")[-1]
+            for f in os.walk(prt_path + "/opacities/lines/correlated_k/")
+        ]
+        files = set([f.split(".R")[0] for f in files])
         print("\ncorrelated-k opacities")
 
         for f in files:
             print(f)
 
-        lbl = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/lines/line_by_line/")]
+        lbl = [
+            f[0].split("/")[-1]
+            for f in os.walk(prt_path + "/opacities/lines/line_by_line/")
+        ]
         lbl = set(lbl)
         print("\nline-by-line opacities")
 
@@ -317,7 +357,10 @@ class RetrievalConfig:
 
         prt_path = petitradtrans_config_parser.get_input_data_path()
 
-        files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/continuum/clouds/")]
+        files = [
+            f[0].split("/")[-1]
+            for f in os.walk(prt_path + "/opacities/continuum/clouds/")
+        ]
         files = set(files)
 
         for f in files:
@@ -333,7 +376,9 @@ class RetrievalConfig:
 
         prt_path = petitradtrans_config_parser.get_input_data_path()
 
-        files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/continuum/cia/")]
+        files = [
+            f[0].split("/")[-1] for f in os.walk(prt_path + "/opacities/continuum/cia/")
+        ]
         files = set(files)
 
         for f in files:
@@ -342,15 +387,16 @@ class RetrievalConfig:
         return files
 
     def set_line_species(
-            self,
-            line_species: list[str],
-            use_equilibrium_chemistry: bool = False,
-            free_mass_fraction_limits: tuple[float, float] = (-6.0, -0.5),
-            plot_in_corner: bool = True,
-            # --- deprecated arguments ---
-            linelist=_UNSET,
-            eq=_UNSET,
-            abund_lim=_UNSET) -> None:
+        self,
+        line_species: list[str],
+        use_equilibrium_chemistry: bool = False,
+        free_mass_fraction_limits: tuple[float, float] = (-6.0, -0.5),
+        plot_in_corner: bool = True,
+        # --- deprecated arguments ---
+        linelist=_UNSET,
+        eq=_UNSET,
+        abund_lim=_UNSET,
+    ) -> None:
         """
         Set RadTrans.line_species
 
@@ -409,30 +455,35 @@ class RetrievalConfig:
                 species_info = Opacity.split_species_all_info(species)
                 species_name = species_info[0]  # remove possible previous spectral info
 
-                if self.sampler_type == 'pymultinest':
+                if self.sampler_type == "pymultinest":
                     self.parameters[species] = Parameter(
                         name=species,
                         is_free_parameter=True,
                         transform_prior_cube_coordinate=lambda x: uniform_prior(
                             x,
                             free_mass_fraction_limits[0],
-                            free_mass_fraction_limits[1]
-                            ),
+                            free_mass_fraction_limits[1],
+                        ),
                         plot_in_corner=plot_in_corner,
                         corner_label=Opacity.get_species_scientific_name(species_name),
-                        corner_ranges=free_mass_fraction_limits
+                        corner_ranges=free_mass_fraction_limits,
                     )
                 else:
                     self.parameters[species] = Parameter(
                         name=species,
                         is_free_parameter=True,
-                        distribution=tfpd.Uniform(low=free_mass_fraction_limits[0], high=free_mass_fraction_limits[1]),
+                        distribution=tfpd.Uniform(
+                            low=free_mass_fraction_limits[0],
+                            high=free_mass_fraction_limits[1],
+                        ),
                         plot_in_corner=plot_in_corner,
                         corner_label=Opacity.get_species_scientific_name(species_name),
-                        corner_ranges=free_mass_fraction_limits
+                        corner_ranges=free_mass_fraction_limits,
                     )
 
-    def set_rayleigh_species(self, rayleigh_species: list[str] = _UNSET, linelist=_UNSET) -> None:
+    def set_rayleigh_species(
+        self, rayleigh_species: list[str] = _UNSET, linelist=_UNSET
+    ) -> None:
         """
         Set the list of species that contribute to the rayleigh scattering in the pRT object.
 
@@ -448,11 +499,15 @@ class RetrievalConfig:
             )
             rayleigh_species = linelist
         if rayleigh_species is _UNSET:
-            raise TypeError("set_rayleigh_species() missing required argument: 'rayleigh_species'")
+            raise TypeError(
+                "set_rayleigh_species() missing required argument: 'rayleigh_species'"
+            )
 
         self.rayleigh_species = rayleigh_species
 
-    def set_continuum_opacities(self, continuum_opacities: list[str] = _UNSET, linelist=_UNSET) -> None:
+    def set_continuum_opacities(
+        self, continuum_opacities: list[str] = _UNSET, linelist=_UNSET
+    ) -> None:
         """
         Set the list of species that contribute to the continuum opacity in the pRT object.
 
@@ -468,23 +523,26 @@ class RetrievalConfig:
             )
             continuum_opacities = linelist
         if continuum_opacities is _UNSET:
-            raise TypeError("set_continuum_opacities() missing required argument: 'continuum_opacities'")
+            raise TypeError(
+                "set_continuum_opacities() missing required argument: 'continuum_opacities'"
+            )
 
         self.continuum_opacities = continuum_opacities
 
     def add_line_species(
-            self,
-            species: str,
-            use_equilibrium_chemistry: bool = False,
-            free_mass_fraction_limits: tuple[float, float] = (-6.0, -0.5),
-            fixed_mass_fraction_value: float | None = None,
-            plot_in_corner: bool = True,
-            corner_label: str | None = None,
-            corner_ranges: tuple[float, float] | None = None,
-            # --- deprecated arguments ---
-            eq=_UNSET,
-            abund_lim=_UNSET,
-            fixed_abund=_UNSET) -> None:
+        self,
+        species: str,
+        use_equilibrium_chemistry: bool = False,
+        free_mass_fraction_limits: tuple[float, float] = (-6.0, -0.5),
+        fixed_mass_fraction_value: float | None = None,
+        plot_in_corner: bool = True,
+        corner_label: str | None = None,
+        corner_ranges: tuple[float, float] | None = None,
+        # --- deprecated arguments ---
+        eq=_UNSET,
+        abund_lim=_UNSET,
+        fixed_abund=_UNSET,
+    ) -> None:
         """
         This function adds a single species to the pRT object that will define the line opacities of the model.
         The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
@@ -538,7 +596,7 @@ class RetrievalConfig:
 
         Opacity.check_name(species)
         species_opacity = Opacity([species])
-        species_full_name = species_opacity.get_full_name().split('.R')[0]
+        species_full_name = species_opacity.get_full_name().split(".R")[0]
 
         self.line_species = self.line_species + (species_full_name,)
         if not use_equilibrium_chemistry:
@@ -551,43 +609,47 @@ class RetrievalConfig:
                     species,
                     False,
                     value=fixed_mass_fraction_value,
-                    plot_in_corner=False)
+                    plot_in_corner=False,
+                )
             else:
-                if self.sampler_type == 'pymultinest':
+                if self.sampler_type == "pymultinest":
                     self.parameters[species] = Parameter(
                         name=species,
                         is_free_parameter=True,
                         transform_prior_cube_coordinate=lambda x: uniform_prior(
                             x,
                             free_mass_fraction_limits[0],
-                            free_mass_fraction_limits[1]
-                            ),
+                            free_mass_fraction_limits[1],
+                        ),
                         plot_in_corner=plot_in_corner,
                         corner_label=corner_label,
-                        corner_ranges=corner_ranges
+                        corner_ranges=corner_ranges,
                     )
                 else:
                     self.parameters[species] = Parameter(
                         name=species,
                         is_free_parameter=True,
-                        distribution=tfpd.Uniform(low=free_mass_fraction_limits[0], high=free_mass_fraction_limits[1]),
+                        distribution=tfpd.Uniform(
+                            low=free_mass_fraction_limits[0],
+                            high=free_mass_fraction_limits[1],
+                        ),
                         plot_in_corner=plot_in_corner,
                         corner_label=corner_label,
-                        corner_ranges=corner_ranges
+                        corner_ranges=corner_ranges,
                     )
 
     def add_pressure_varying_line_species(
-            self,
-            species: str,
-            mode: str = 'linear',
-            pressure_spacing: str = 'relative',
-            n_nodes: int = 3,
-            free_mass_fraction_limits: tuple[float, float] = (-7.0, 0.0),
-            log_pressure_range_prior: tuple[float, float] = (0, 9),
-            fixed_pressure_node_species: str | None = None,
-            # --- deprecated arguments ---
-            abund_lim=_UNSET
-            ) -> None:
+        self,
+        species: str,
+        mode: str = "linear",
+        pressure_spacing: str = "relative",
+        n_nodes: int = 3,
+        free_mass_fraction_limits: tuple[float, float] = (-7.0, 0.0),
+        log_pressure_range_prior: tuple[float, float] = (0, 9),
+        fixed_pressure_node_species: str | None = None,
+        # --- deprecated arguments ---
+        abund_lim=_UNSET,
+    ) -> None:
         """
         This function adds a single species to the Radtrans object that will define the line opacities of the model.
         The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
@@ -635,7 +697,7 @@ class RetrievalConfig:
 
         Opacity.check_name(species)
         species_opacity = Opacity([species])
-        species_full_name = species_opacity.get_full_name().split('.R')[0]
+        species_full_name = species_opacity.get_full_name().split(".R")[0]
         # parameter passed through loglike is log10 abundance
         if free_mass_fraction_limits[1] > 0.0:
             raise ValueError(
@@ -645,47 +707,51 @@ class RetrievalConfig:
         self.parameters[f"{species_full_name}_{mode}_abundance_profile"] = Parameter(
             name=f"{species_full_name}_linear_abundance_profile",
             is_free_parameter=False,
-            value=True
+            value=True,
         )
         self.parameters[f"{species_full_name}_n_abundance_nodes"] = Parameter(
             name=f"{species_full_name}_n_abundance_nodes",
             is_free_parameter=False,
-            value=n_nodes
+            value=n_nodes,
         )
         self.parameters[f"{species_full_name}_n_pressure_nodes"] = Parameter(
             name=f"{species_full_name}_n_pressure_nodes",
             is_free_parameter=False,
-            value=n_nodes-2
+            value=n_nodes - 2,
         )
         self.parameters[f"{species_full_name}_interpolation_mode"] = Parameter(
             name=f"{species_full_name}_interpolation_mode",
             is_free_parameter=False,
-            value=pressure_spacing
+            value=pressure_spacing,
         )
 
         self.line_species = self.line_species + (species_full_name,)
 
         for i in range(n_nodes - 2):
-            if pressure_spacing != 'fixed':
+            if pressure_spacing != "fixed":
                 self.parameters[f"{species_full_name}_pressure_node_{i}"] = Parameter(
                     name=f"{species_full_name}_pressure_node_{i}",
                     is_free_parameter=True,
-                    transform_prior_cube_coordinate=lambda x: log_pressure_range_prior[0] +
-                    log_pressure_range_prior[1] * x
+                    transform_prior_cube_coordinate=lambda x: log_pressure_range_prior[
+                        0
+                    ]
+                    + log_pressure_range_prior[1] * x,
                 )
             else:
                 self.parameters[f"{species_full_name}_pressure_node_{i}"] = Parameter(
                     name=f"{fixed_pressure_node_species}_pressure_node_{i}",
                     is_free_parameter=False,
-                    value=self.parameters[f"{fixed_pressure_node_species}_pressure_node_{i}"].value
+                    value=self.parameters[
+                        f"{fixed_pressure_node_species}_pressure_node_{i}"
+                    ].value,
                 )
 
         for i in range(n_nodes):
             self.parameters[f"{species_full_name}_abundance_node_{i}"] = Parameter(
                 name=f"{species_full_name}_abundance_node_{i}",
                 is_free_parameter=True,
-                transform_prior_cube_coordinate=lambda x: free_mass_fraction_limits[0] +
-                (free_mass_fraction_limits[1] - free_mass_fraction_limits[0]) * x
+                transform_prior_cube_coordinate=lambda x: free_mass_fraction_limits[0]
+                + (free_mass_fraction_limits[1] - free_mass_fraction_limits[0]) * x,
             )
 
     def remove_species_lines(self, species: str, free: bool = False) -> None:
@@ -701,7 +767,7 @@ class RetrievalConfig:
                 species will be removed to the retrieval
         """
         remove_opacity = Opacity([species])
-        species_full_name = remove_opacity.get_full_name().split('.R')[0]
+        species_full_name = remove_opacity.get_full_name().split(".R")[0]
         if species in self.line_species:
             self.line_species = filter(species, self.line_species)
         elif species_full_name in self.line_species:
@@ -710,21 +776,23 @@ class RetrievalConfig:
             self.parameters.pop(species, None)
             self.parameters.pop(species_full_name, None)
 
-    def add_cloud_species(self,
-                          species: str,
-                          use_equilibrium_chemistry: bool = True,
-                          free_mass_fraction_limits: tuple[float, float] = (-3.5, 1.5),
-                          cloud_base_pressure_limits: tuple[float, float] | None = None,
-                          equilbrium_mass_fraction_scaling_factor: tuple[float, float] | None = None,
-                          fixed_mass_fraction_value: float | None = None,
-                          fixed_base_pressure_value: float | None = None,
-                          # --- deprecated arguments ---
-                          eq=_UNSET,
-                          abund_lim=_UNSET,
-                          p_base_lim=_UNSET,
-                          scaling_factor=_UNSET,
-                          fixed_abund=_UNSET,
-                          fixed_base=_UNSET) -> None:
+    def add_cloud_species(
+        self,
+        species: str,
+        use_equilibrium_chemistry: bool = True,
+        free_mass_fraction_limits: tuple[float, float] = (-3.5, 1.5),
+        cloud_base_pressure_limits: tuple[float, float] | None = None,
+        equilbrium_mass_fraction_scaling_factor: tuple[float, float] | None = None,
+        fixed_mass_fraction_value: float | None = None,
+        fixed_base_pressure_value: float | None = None,
+        # --- deprecated arguments ---
+        eq=_UNSET,
+        abund_lim=_UNSET,
+        p_base_lim=_UNSET,
+        scaling_factor=_UNSET,
+        fixed_abund=_UNSET,
+        fixed_base=_UNSET,
+    ) -> None:
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
@@ -814,28 +882,28 @@ class RetrievalConfig:
             return
         cloud_opacity = CloudOpacity([species], natural_abundance=False)
         species_full_name = cloud_opacity.species_full_name
-        cloud_name = species_full_name.split('_')[0]
+        cloud_name = species_full_name.split("_")[0]
 
         self.cloud_species = self.cloud_species + (species_full_name,)
         if equilbrium_mass_fraction_scaling_factor is not None:
-            if self.sampler_type == 'pymultinest':
-                self.parameters['eq_scaling_' + cloud_name] = Parameter(
-                    'eq_scaling_' + cloud_name,
+            if self.sampler_type == "pymultinest":
+                self.parameters["eq_scaling_" + cloud_name] = Parameter(
+                    "eq_scaling_" + cloud_name,
                     True,
                     transform_prior_cube_coordinate=lambda x: uniform_prior(
                         x,
                         equilbrium_mass_fraction_scaling_factor[0],
-                        equilbrium_mass_fraction_scaling_factor[1]
-                        )
+                        equilbrium_mass_fraction_scaling_factor[1],
+                    ),
                 )
             else:
-                self.parameters['eq_scaling_' + cloud_name] = Parameter(
-                    'eq_scaling_' + cloud_name,
+                self.parameters["eq_scaling_" + cloud_name] = Parameter(
+                    "eq_scaling_" + cloud_name,
                     True,
                     distribution=tfpd.Uniform(
                         low=equilbrium_mass_fraction_scaling_factor[0],
-                        high=equilbrium_mass_fraction_scaling_factor[1]
-                    )
+                        high=equilbrium_mass_fraction_scaling_factor[1],
+                    ),
                 )
         if not use_equilibrium_chemistry:
             if free_mass_fraction_limits[1] > 0.0:
@@ -844,101 +912,102 @@ class RetrievalConfig:
                 )
 
             if fixed_mass_fraction_value is None:
-                if self.sampler_type == 'pymultinest':
-                    self.parameters['log_X_cb_' + cloud_name] = Parameter(
-                        'log_X_cb_' + cloud_name,
+                if self.sampler_type == "pymultinest":
+                    self.parameters["log_X_cb_" + cloud_name] = Parameter(
+                        "log_X_cb_" + cloud_name,
                         True,
                         transform_prior_cube_coordinate=lambda x: uniform_prior(
                             x,
                             free_mass_fraction_limits[0],
-                            free_mass_fraction_limits[1]
-                        )
+                            free_mass_fraction_limits[1],
+                        ),
                     )
                 else:
-                    self.parameters['log_X_cb_' + cloud_name] = Parameter(
-                        'log_X_cb_' + cloud_name,
+                    self.parameters["log_X_cb_" + cloud_name] = Parameter(
+                        "log_X_cb_" + cloud_name,
                         True,
                         distribution=tfpd.Uniform(
                             low=free_mass_fraction_limits[0],
-                            high=free_mass_fraction_limits[1]
-                        )
+                            high=free_mass_fraction_limits[1],
+                        ),
                     )
             else:
-                self.parameters['log_X_cb_' + cloud_name] = Parameter(
-                    'log_X_cb_' + cloud_name,
-                    False,
-                    value=fixed_mass_fraction_value
+                self.parameters["log_X_cb_" + cloud_name] = Parameter(
+                    "log_X_cb_" + cloud_name, False, value=fixed_mass_fraction_value
                 )
 
-        if cloud_base_pressure_limits is not None or fixed_base_pressure_value is not None:
+        if (
+            cloud_base_pressure_limits is not None
+            or fixed_base_pressure_value is not None
+        ):
             if fixed_base_pressure_value is None:
-                if self.sampler_type == 'pymultinest':
-                    self.parameters['log_Pbase_' + cloud_name] = Parameter(
-                        'log_Pbase_' + cloud_name,
+                if self.sampler_type == "pymultinest":
+                    self.parameters["log_Pbase_" + cloud_name] = Parameter(
+                        "log_Pbase_" + cloud_name,
                         True,
                         transform_prior_cube_coordinate=lambda x: uniform_prior(
                             x,
                             cloud_base_pressure_limits[0],
-                            cloud_base_pressure_limits[1]
-                        )
+                            cloud_base_pressure_limits[1],
+                        ),
                     )
                 else:
-                    self.parameters['log_Pbase_' + cloud_name] = Parameter(
-                        'log_Pbase_' + cloud_name,
+                    self.parameters["log_Pbase_" + cloud_name] = Parameter(
+                        "log_Pbase_" + cloud_name,
                         True,
                         distribution=tfpd.Uniform(
                             low=cloud_base_pressure_limits[0],
-                            high=cloud_base_pressure_limits[1]
-                        )
+                            high=cloud_base_pressure_limits[1],
+                        ),
                     )
             else:
-                self.parameters['log_Pbase_' + cloud_name] = Parameter(
-                    'log_Pbase_' + cloud_name,
-                    False,
-                    value=fixed_base_pressure_value
+                self.parameters["log_Pbase_" + cloud_name] = Parameter(
+                    "log_Pbase_" + cloud_name, False, value=fixed_base_pressure_value
                 )
 
-    def add_data(self,
-                 name: str,
-                 path_to_observations: str,
-                 model_generating_function: Callable,
-                 data_resolution: float | None = None,
-                 model_resolution: float | None = None,
-                 system_distance: float | None = None,
-                 scale_flux: bool = False,
-                 scale_uncertainties: bool = False,
-                 fit_flux_offset: bool = False,
-                 fit_instrumental_resolution: bool = False,
-                 subtract_continuum: bool = False,
-                 photometry: bool = False,
-                 photometric_transformation_function: Callable | None = None,
-                 photometric_bin_edges: tuple[float, float] | None = None,
-                 wavelength_boundaries: tuple[float, float] | None = None,
-                 external_radtrans_reference: str | None = None,
-                 line_opacity_mode: str = 'c-k',
-                 wavelength_bin_widths: ArrayLike | None = None,
-                 radtrans_grid: bool = False,
-                 radtrans_object: Any | None = None,
-                 wavelengths: ArrayLike | None = None,
-                 spectrum: ArrayLike | None = None,
-                 uncertainties: ArrayLike | None = None,
-                 mask: ArrayLike | None = None,
-                 covariance: ArrayLike | None = None,
-                 fit_covariance: bool = False,
-                 covariance_mode: str = 'none',
-                 global_covariance_kernel: str = 'squared_exponential',
-                 local_covariance_kernel: str = 'squared_exponential',
-                 n_local_covariance_kernels: int = 0,
-                 covariance_jitter: float = 0.0,
-                 covariance_parameter_priors: dict | None = None,
-                 # --- deprecated arguments ---
-                 scale=_UNSET,
-                 scale_err=_UNSET,
-                 offset_bool=_UNSET,
-                 resample=_UNSET,
-                 concatenate_flux_epochs_variability=_UNSET,
-                 variability_atmospheric_column_model_flux_return_mode=_UNSET,
-                 atmospheric_column_flux_mixer=_UNSET) -> None:
+    def add_data(
+        self,
+        name: str,
+        path_to_observations: str,
+        model_generating_function: Callable,
+        data_resolution: float | None = None,
+        model_resolution: float | None = None,
+        system_distance: float | None = None,
+        scale_flux: bool = False,
+        scale_uncertainties: bool = False,
+        fit_flux_offset: bool = False,
+        fit_instrumental_resolution: bool = False,
+        subtract_continuum: bool = False,
+        photometry: bool = False,
+        photometric_transformation_function: Callable | None = None,
+        photometric_bin_edges: tuple[float, float] | None = None,
+        wavelength_boundaries: tuple[float, float] | None = None,
+        external_radtrans_reference: str | None = None,
+        line_opacity_mode: str = "c-k",
+        wavelength_bin_widths: ArrayLike | None = None,
+        radtrans_grid: bool = False,
+        radtrans_object: Any | None = None,
+        wavelengths: ArrayLike | None = None,
+        spectrum: ArrayLike | None = None,
+        uncertainties: ArrayLike | None = None,
+        mask: ArrayLike | None = None,
+        covariance: ArrayLike | None = None,
+        fit_covariance: bool = False,
+        covariance_mode: str = "none",
+        global_covariance_kernel: str = "squared_exponential",
+        local_covariance_kernel: str = "squared_exponential",
+        n_local_covariance_kernels: int = 0,
+        covariance_jitter: float = 0.0,
+        covariance_parameter_priors: dict | None = None,
+        # --- deprecated arguments ---
+        scale=_UNSET,
+        scale_err=_UNSET,
+        offset_bool=_UNSET,
+        resample=_UNSET,
+        concatenate_flux_epochs_variability=_UNSET,
+        variability_atmospheric_column_model_flux_return_mode=_UNSET,
+        atmospheric_column_flux_mixer=_UNSET,
+    ) -> None:
         """
         Create a Data class object.
 
@@ -1109,7 +1178,7 @@ class RetrievalConfig:
         system_distance: float | None = None,
         wavelength_boundaries: tuple | None = None,
         external_radtrans_reference: str | None = None,
-        line_opacity_mode: str = 'c-k',
+        line_opacity_mode: str = "c-k",
         scale_flux: bool = False,
         scale_uncertainties: bool = False,
         fit_flux_offset: bool = False,
@@ -1206,17 +1275,19 @@ class RetrievalConfig:
         # Attach time-series configuration so the model function can read it
         # via ModelContext.model_metadata['time_series_config'].
         data_object.time_series_config = {
-            'n_model_timesteps': n_model_timesteps,
-            'time_varying_parameters': list(time_varying_parameters),
-            'sinusoidal_parameters': list(sinusoidal_parameters),
+            "n_model_timesteps": n_model_timesteps,
+            "time_varying_parameters": list(time_varying_parameters),
+            "sinusoidal_parameters": list(sinusoidal_parameters),
         }
 
         self.data[name] = data_object
 
         # Register the fixed N_time parameter (shared across all datasets)
-        if 'N_time' not in self.parameters:
+        if "N_time" not in self.parameters:
             self.add_parameter(
-                'N_time', is_free_parameter=False, value=n_model_timesteps,
+                "N_time",
+                is_free_parameter=False,
+                value=n_model_timesteps,
             )
 
     def add_photometry(
@@ -1229,7 +1300,7 @@ class RetrievalConfig:
         wlen_range_micron: tuple[float, float] = None,
         photometric_transformation_function: Callable = None,
         external_prt_reference: object = None,
-        opacity_mode: str = 'c-k'
+        opacity_mode: str = "c-k",
     ) -> None:
         """
         Create a Data class object for each photometric point in a photometry file.
@@ -1270,10 +1341,10 @@ class RetrievalConfig:
         with open(path) as photometry:
             for line in photometry:
                 # # must be the comment character
-                if line[0] == '#':
+                if line[0] == "#":
                     continue
 
-                columns = line.split(',')
+                columns = line.split(",")
                 name = columns[0]
                 wavelengths_low = float(columns[1])
                 wavelengths_high = float(columns[2])
@@ -1297,15 +1368,14 @@ class RetrievalConfig:
                 else:
                     wbins = wlen_range_micron
 
-                if opacity_mode == 'lbl':
-                    logging.warning("Are you sure you want a high resolution model for photometry?")
+                if opacity_mode == "lbl":
+                    logging.warning(
+                        "Are you sure you want a high resolution model for photometry?"
+                    )
 
-                data_resolution: float = (
-                    np.array(
-                        [wavelengths_low, wavelengths_high]
-                    ).mean()
-                    / (wavelengths_high - wavelengths_low)
-                )
+                data_resolution: float = np.array(
+                    [wavelengths_low, wavelengths_high]
+                ).mean() / (wavelengths_high - wavelengths_low)
 
                 self.data[name] = PhotometryData(
                     name=name,
@@ -1319,8 +1389,10 @@ class RetrievalConfig:
                     scale_flux=scale_flux,
                     photometric_transformation_function=transform,
                     external_radtrans_reference=external_prt_reference,
-                    line_opacity_mode=opacity_mode
+                    line_opacity_mode=opacity_mode,
                 )
-                self.data[name].wavelengths = np.mean(np.vstack((wavelengths_low, wavelengths_high)), axis=0)
+                self.data[name].wavelengths = np.mean(
+                    np.vstack((wavelengths_low, wavelengths_high)), axis=0
+                )
                 self.data[name].spectrum = flux
                 self.data[name].uncertainties = uncertainties

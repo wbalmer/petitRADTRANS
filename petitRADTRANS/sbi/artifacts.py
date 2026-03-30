@@ -16,10 +16,10 @@ if TYPE_CHECKING:
 class ArtifactRole(str, Enum):
     """Artifact categories produced by the SBI workflow."""
 
-    SIMULATION_DATASET = 'simulation_dataset'
-    POSTERIOR_MODEL = 'posterior_model'
-    BENCHMARK_REPORT = 'benchmark_report'
-    CALIBRATION_REPORT = 'calibration_report'
+    SIMULATION_DATASET = "simulation_dataset"
+    POSTERIOR_MODEL = "posterior_model"
+    BENCHMARK_REPORT = "benchmark_report"
+    CALIBRATION_REPORT = "calibration_report"
 
 
 @dataclass(frozen=True)
@@ -43,35 +43,39 @@ class ArtifactMetadata:
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            'role': self.role.value,
-            'task_name': self.task_name,
-            'version': self.version,
-            'estimator_family': self.estimator_family,
-            'task_version': self.task_version,
-            'task_fingerprint': self.task_fingerprint,
-            'preprocessing_version': self.preprocessing_version,
-            'forward_model_family': self.forward_model_family,
-            'petitradtrans_version': self.petitradtrans_version,
-            'retrieval_config_digest': self.retrieval_config_digest,
-            'opacity_digest': self.opacity_digest,
-            'observation_schema': dict(self.observation_schema),
-            'preprocessing_metadata': dict(self.preprocessing_metadata),
-            'metadata': dict(self.metadata),
+            "role": self.role.value,
+            "task_name": self.task_name,
+            "version": self.version,
+            "estimator_family": self.estimator_family,
+            "task_version": self.task_version,
+            "task_fingerprint": self.task_fingerprint,
+            "preprocessing_version": self.preprocessing_version,
+            "forward_model_family": self.forward_model_family,
+            "petitradtrans_version": self.petitradtrans_version,
+            "retrieval_config_digest": self.retrieval_config_digest,
+            "opacity_digest": self.opacity_digest,
+            "observation_schema": dict(self.observation_schema),
+            "preprocessing_metadata": dict(self.preprocessing_metadata),
+            "metadata": dict(self.metadata),
         }
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> 'ArtifactMetadata':
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ArtifactMetadata":
         payload_dict = dict(payload)
-        payload_dict['role'] = ArtifactRole(str(payload_dict['role']))
-        payload_dict['observation_schema'] = dict(payload_dict.get('observation_schema', {}))
-        payload_dict['preprocessing_metadata'] = dict(payload_dict.get('preprocessing_metadata', {}))
-        payload_dict['metadata'] = dict(payload_dict.get('metadata', {}))
+        payload_dict["role"] = ArtifactRole(str(payload_dict["role"]))
+        payload_dict["observation_schema"] = dict(
+            payload_dict.get("observation_schema", {})
+        )
+        payload_dict["preprocessing_metadata"] = dict(
+            payload_dict.get("preprocessing_metadata", {})
+        )
+        payload_dict["metadata"] = dict(payload_dict.get("metadata", {}))
         return cls(**payload_dict)
 
     @classmethod
     def from_task(
         cls,
-        task: 'SBITask',
+        task: "SBITask",
         role: ArtifactRole,
         version: str,
         estimator_family: str | None = None,
@@ -79,7 +83,7 @@ class ArtifactMetadata:
         preprocessing_metadata: Mapping[str, Any] | None = None,
         retrieval_config_digest: str | None = None,
         opacity_digest: str | None = None,
-    ) -> 'ArtifactMetadata':
+    ) -> "ArtifactMetadata":
         """Build artifact metadata from an SBI task family."""
         return cls(
             role=role,
@@ -94,8 +98,8 @@ class ArtifactMetadata:
             retrieval_config_digest=retrieval_config_digest,
             opacity_digest=opacity_digest,
             observation_schema={
-                'dataset_names': task.observation_schema.dataset_names,
-                'modalities': dict(task.observation_schema.modalities),
+                "dataset_names": task.observation_schema.dataset_names,
+                "modalities": dict(task.observation_schema.modalities),
             },
             preprocessing_metadata=dict(preprocessing_metadata or {}),
             metadata=dict(metadata or {}),
@@ -110,7 +114,9 @@ class ArtifactRegistry(abc.ABC):
         """Register an artifact location under the supplied metadata."""
 
     @abc.abstractmethod
-    def resolve(self, role: ArtifactRole, task_name: str, version: str | None = None) -> str:
+    def resolve(
+        self, role: ArtifactRole, task_name: str, version: str | None = None
+    ) -> str:
         """Resolve an artifact path or URI for the requested task and role."""
 
 
@@ -123,16 +129,16 @@ class RegisteredArtifact:
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            'metadata': self.metadata.to_payload(),
-            'location': self.location,
+            "metadata": self.metadata.to_payload(),
+            "location": self.location,
         }
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> 'RegisteredArtifact':
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RegisteredArtifact":
         payload_dict = dict(payload)
         return cls(
-            metadata=ArtifactMetadata.from_payload(payload_dict['metadata']),
-            location=str(payload_dict['location']),
+            metadata=ArtifactMetadata.from_payload(payload_dict["metadata"]),
+            location=str(payload_dict["location"]),
         )
 
 
@@ -142,18 +148,21 @@ class FileArtifactRegistry(ArtifactRegistry):
     def __init__(self, root_directory: str):
         self.root_directory = Path(root_directory)
         self.root_directory.mkdir(parents=True, exist_ok=True)
-        self.index_path = self.root_directory / 'registry.json'
+        self.index_path = self.root_directory / "registry.json"
 
     def _load_entries(self) -> list[RegisteredArtifact]:
         if not self.index_path.exists():
             return []
         payload = json.loads(self.index_path.read_text())
-        return [RegisteredArtifact.from_payload(entry) for entry in payload.get('artifacts', [])]
+        return [
+            RegisteredArtifact.from_payload(entry)
+            for entry in payload.get("artifacts", [])
+        ]
 
     def _write_entries(self, entries: list[RegisteredArtifact]) -> None:
         self.index_path.write_text(
             json.dumps(
-                {'artifacts': [entry.to_payload() for entry in entries]},
+                {"artifacts": [entry.to_payload() for entry in entries]},
                 sort_keys=True,
                 indent=2,
             )
@@ -172,7 +181,9 @@ class FileArtifactRegistry(ArtifactRegistry):
         entries.append(RegisteredArtifact(metadata=metadata, location=location))
         self._write_entries(entries)
 
-    def resolve(self, role: ArtifactRole, task_name: str, version: str | None = None) -> str:
+    def resolve(
+        self, role: ArtifactRole, task_name: str, version: str | None = None
+    ) -> str:
         entries = self._load_entries()
         matching_entries = [
             entry
@@ -180,7 +191,9 @@ class FileArtifactRegistry(ArtifactRegistry):
             if entry.metadata.role == role and entry.metadata.task_name == task_name
         ]
         if version is not None:
-            matching_entries = [entry for entry in matching_entries if entry.metadata.version == version]
+            matching_entries = [
+                entry for entry in matching_entries if entry.metadata.version == version
+            ]
 
         if not matching_entries:
             raise KeyError(

@@ -9,37 +9,43 @@ import jax.numpy as jnp
 
 
 def vapour_pressure_fe_solid(temperature):
-    return jnp.exp(15.71 - 47664. / temperature)
+    return jnp.exp(15.71 - 47664.0 / temperature)
 
 
 def vapour_pressure_fe_liquid(temperature):
-    return jnp.exp(9.86 - 37120. / temperature)
+    return jnp.exp(9.86 - 37120.0 / temperature)
 
 
 def vapour_pressure_mgsio3(temperature):
-    return jnp.exp(25.37 - 58663. / temperature)
+    return jnp.exp(25.37 - 58663.0 / temperature)
 
 
 def vapour_pressure_mg2sio4(temperature, metallicity=None):
     """Total pressure of condensation, not the species' vapor pressure like for most of the other species."""
     if metallicity is None:
-        return jnp.exp(25.37 - 58663. / temperature)
+        return jnp.exp(25.37 - 58663.0 / temperature)
     return 10 ** (15.92 - 1.97 * metallicity - 27027.03 / temperature)
 
 
-def vapour_pressure_na2s(temperature, metallicity=0.0, na2s_mass_fraction=None, mmw=2.33):
+def vapour_pressure_na2s(
+    temperature, metallicity=0.0, na2s_mass_fraction=None, mmw=2.33
+):
     if na2s_mass_fraction is not None:
         # We're also using [Na/H] as a proxy for [Fe/H]
         # Definitely not strictly correct, but should be good enough for ~ solar compositions.
         # [+- 1 for Fe/H]
         # Assumes constant vertical abundance
-        return (10 ** (8.55 - 13889.
-                       / temperature - 0.5
-                       * (jnp.log10(2 * na2s_mass_fraction * mmw / na2s_mass_fraction) + 5.7)
-                       )
-                / 2
-                )
-    return 10 ** (8.55 - 13889. / temperature - 0.5 * metallicity) / 2.
+        return (
+            10
+            ** (
+                8.55
+                - 13889.0 / temperature
+                - 0.5
+                * (jnp.log10(2 * na2s_mass_fraction * mmw / na2s_mass_fraction) + 5.7)
+            )
+            / 2
+        )
+    return 10 ** (8.55 - 13889.0 / temperature - 0.5 * metallicity) / 2.0
 
 
 def vapour_pressure_kcl(temperature):
@@ -53,11 +59,11 @@ def vapour_pressure_kcl(temperature):
            Alkali Element Chemistry in Cool Dwarf Atmospheres.
            The Astrophysical Journal 519, 793–801. doi:10.1086/307387
     """
-    return 10 ** (7.6106 - 11382. / temperature)
+    return 10 ** (7.6106 - 11382.0 / temperature)
 
 
 def vapour_pressure_sio(temperature):
-    return jnp.exp(33.848 - 42648./temperature)*1e-6
+    return jnp.exp(33.848 - 42648.0 / temperature) * 1e-6
 
 
 def vapour_pressure_tio2(temp, metallicity=0):
@@ -81,7 +87,7 @@ def vapour_pressure_tio2(temp, metallicity=0):
             Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
     """
     # return 1e6 * 10. ** (9.5489 - 32456.8678/temp)  # Gao 2020
-    return 1e6 * 10. ** (13.95 - 38266/temp - metallicity)  # Marley et al. 2021
+    return 1e6 * 10.0 ** (13.95 - 38266 / temp - metallicity)  # Marley et al. 2021
 
 
 def vapour_pressure_cr(temp, metallicity=0):
@@ -102,9 +108,9 @@ def vapour_pressure_cr(temp, metallicity=0):
             atmospheres." The Astrophysical Journal 756.2 (2012): 172.
     """
     # Cr vapor pressure above cloud
-    pvap_cr_bars = 10.0**(7.49-20592./temp)
+    pvap_cr_bars = 10.0 ** (7.49 - 20592.0 / temp)
     # Then convert from bars to dynes/cm^2
-    pvap_cr = pvap_cr_bars*1e6
+    pvap_cr = pvap_cr_bars * 1e6
     return pvap_cr
 
 
@@ -132,9 +138,9 @@ def vapour_pressure_zns(temp, metallicity=0):
             Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
     """
     # Zn vapor pressure above cloud
-    pvap_zns_bars = 10.0**(12.8117-15873./temp - metallicity)
+    pvap_zns_bars = 10.0 ** (12.8117 - 15873.0 / temp - metallicity)
     # Then convert from bars to dynes/cm^2
-    pvap_zns = pvap_zns_bars*1e6
+    pvap_zns = pvap_zns_bars * 1e6
     return pvap_zns
 
 
@@ -164,8 +170,8 @@ def vapour_pressure_nh3(temp, metallicity=0):
         temp = jnp.array([temp])
 
     # Use JAX-compatible operations
-    low_temp_vp = 10**(6.900 - 1588/temp)
-    high_temp_vp = 10**(5.201 - 1248/temp)
+    low_temp_vp = 10 ** (6.900 - 1588 / temp)
+    high_temp_vp = 10 ** (5.201 - 1248 / temp)
 
     # Combine based on temperature threshold
     pvap_nh3 = jnp.where(temp < 195.4, low_temp_vp, high_temp_vp)
@@ -203,9 +209,9 @@ def vapour_pressure_mns(temp, metallicity=0):
             Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
     """
     # Mn vapor pressure above cloud
-    pvap_mns_bars = 10.0**(11.5315-23810./temp - metallicity)
+    pvap_mns_bars = 10.0 ** (11.5315 - 23810.0 / temp - metallicity)
     # Then convert from bars to dynes/cm^2
-    pvap_mns = pvap_mns_bars*1e6
+    pvap_mns = pvap_mns_bars * 1e6
     return pvap_mns
 
 
@@ -279,27 +285,47 @@ def vapour_pressure_h2o(temp, do_buck=True, metallicity=0):
     # Ice (T < 273.16 K)
     if do_buck:
         tc_low = temp - 273.16
-        vap_low = BAI * jnp.exp((BBI - tc_low/BDI)*tc_low / (tc_low + BCI))
+        vap_low = BAI * jnp.exp((BBI - tc_low / BDI) * tc_low / (tc_low + BCI))
     else:
-        vap_low = 10*jnp.exp(1.0/temp *
-                            (HH0+(HH1+HH5*jnp.log(temp)+
-                             (HH2+(HH3+HH4*temp)*temp)*temp)*temp))
+        vap_low = 10 * jnp.exp(
+            1.0
+            / temp
+            * (
+                HH0
+                + (HH1 + HH5 * jnp.log(temp) + (HH2 + (HH3 + HH4 * temp) * temp) * temp)
+                * temp
+            )
+        )
 
     # Liquid water (273.16 K <= T < 1048 K)
     if do_buck:
         tc_mid = temp - 273.16
-        vap_mid = BAL * jnp.exp((BBL - tc_mid/BDL)*tc_mid / (tc_mid + BCL))
+        vap_mid = BAL * jnp.exp((BBL - tc_mid / BDL) * tc_mid / (tc_mid + BCL))
     else:
-        vap_mid = 10*jnp.exp((1.0/(temp*temp)) *
-                            (GG0+(GG1+(GG2+GG7*jnp.log(temp)+
-                             (GG3+(GG4+(GG5+GG6*temp)*temp)*temp)*temp)*temp)*temp))
+        vap_mid = 10 * jnp.exp(
+            (1.0 / (temp * temp))
+            * (
+                GG0
+                + (
+                    GG1
+                    + (
+                        GG2
+                        + GG7 * jnp.log(temp)
+                        + (GG3 + (GG4 + (GG5 + GG6 * temp) * temp) * temp) * temp
+                    )
+                    * temp
+                )
+                * temp
+            )
+        )
 
     # High temperature (T >= 1048 K) - fixed at 600 bars
     vap_high = 600.0e6
 
     # Combine based on temperature ranges using jnp.where
-    pvap_h2o = jnp.where(temp < 273.16, vap_low,
-                        jnp.where(temp < 1048, vap_mid, vap_high))
+    pvap_h2o = jnp.where(
+        temp < 273.16, vap_low, jnp.where(temp < 1048, vap_mid, vap_high)
+    )
 
     if is_scalar:
         pvap_h2o = pvap_h2o[0]
@@ -387,7 +413,9 @@ def vapour_pressure_al2o3(temp, metallicity=0):
     # return jnp.exp(-73503./temp + 22.01)*1e6  # Kozasa et al. Ap J. 344 325
     # calculated from wakeford 2017
     # pvap_al2o3 = 1e6 * 10.0 ** (17.7 - 45892.6/temp - 1.66*metallicity)  # wakeford et al 2017
-    pvap_al2o3 = 1e6 * 10.0 ** (15.24 - 41481/temp - 1.66*metallicity)  # diamondback
+    pvap_al2o3 = 1e6 * 10.0 ** (
+        15.24 - 41481 / temp - 1.66 * metallicity
+    )  # diamondback
     return pvap_al2o3
 
 
@@ -414,7 +442,9 @@ def vapour_pressure_catio3(temp, p, metallicity=0):
             Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
     """
     # calculated from wakeford 2017
-    pvap_catio3 = 1e6 * 10.0 ** (-72160./temp + 30.24 - 1*jnp.log10(p/1e6) - 2*metallicity)
+    pvap_catio3 = 1e6 * 10.0 ** (
+        -72160.0 / temp + 30.24 - 1 * jnp.log10(p / 1e6) - 2 * metallicity
+    )
     return pvap_catio3
 
 
@@ -441,7 +471,9 @@ def vapour_pressure_caal12o19(temp, p, metallicity=0):
             Moran et al. 2025 https://ui.adsabs.harvard.edu/abs/2025ApJ...994..116M/abstract
     """
     # calculated from wakeford 2017
-    pvap_caal12o19 = 1e6 * 10.0 ** (16.46 - 44021./temp - 0.083*jnp.log10(p/1e6) - 1.67*metallicity)
+    pvap_caal12o19 = 1e6 * 10.0 ** (
+        16.46 - 44021.0 / temp - 0.083 * jnp.log10(p / 1e6) - 1.67 * metallicity
+    )
     return pvap_caal12o19
 
 
@@ -464,7 +496,7 @@ def vapour_pressure_sio2(temp, metallicity=0):
         PLACEHOLDER: Not suited yet for public use.
     """
     # V1 undepleted gas source
-    pvap_sio2 = 10.0**(13.168 - 28265/temp - metallicity)
+    pvap_sio2 = 10.0 ** (13.168 - 28265 / temp - metallicity)
 
     # V1 depleted gas source
     # 13.360 - 28265/T(K) - mh

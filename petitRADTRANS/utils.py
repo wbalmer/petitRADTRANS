@@ -1,5 +1,5 @@
-"""Stores useful generic functions.
-"""
+"""Stores useful generic functions."""
+
 import copy
 import csv
 import sys
@@ -12,6 +12,7 @@ from jax.typing import ArrayLike
 import numpy as np
 import numpy.typing as npt
 from jax.tree_util import register_pytree_node_class
+
 
 @register_pytree_node_class
 class LockedDict(dict):
@@ -61,11 +62,13 @@ class LockedDict(dict):
 
     def __setitem__(self, key, value):
         """Prevent a key to be added if the lock is on."""
-        if not hasattr(self, '_locked'):
+        if not hasattr(self, "_locked"):
             self._locked = False
 
         if key not in self and self._locked:
-            raise KeyError(f"'{key}' not in locked LockedDict, unlock the LockedDict to add new keys")
+            raise KeyError(
+                f"'{key}' not in locked LockedDict, unlock the LockedDict to add new keys"
+            )
         else:
             if key in self:  # handle nested LockedDicts
                 if isinstance(self[key], LockedDict) and isinstance(value, dict):
@@ -127,9 +130,11 @@ class LockedDict(dict):
 def check_all_close(a, b, **kwargs):
     if isinstance(a, dict):
         if len(a) != len(b):  # check if both dict have the same number of keys
-            raise AssertionError(f"a and b have a different number of keys ({len(a)} and {len(b)})\n"
-                                 f"{a=}\n"
-                                 f"{b=}")
+            raise AssertionError(
+                f"a and b have a different number of keys ({len(a)} and {len(b)})\n"
+                f"{a=}\n"
+                f"{b=}"
+            )
 
         for key, value in a.items():
             # Since there is the same number of keys, an error will be raised if a key in 'a' is not in 'b'
@@ -139,11 +144,10 @@ def check_all_close(a, b, **kwargs):
             raise AssertionError(f"'{a}' != '{b}'")
     elif isinstance(a, Array):
         if not jnp.allclose(a, b, **kwargs):
-            raise AssertionError(f"a and b are not close enough\n"
-                                 f"{a=}\n"
-                                 f"{b=}\n"
-                                 f"{kwargs}")
-    elif not isinstance(a, np.ndarray) and hasattr(a, '__iter__'):
+            raise AssertionError(
+                f"a and b are not close enough\n" f"{a=}\n" f"{b=}\n" f"{kwargs}"
+            )
+    elif not isinstance(a, np.ndarray) and hasattr(a, "__iter__"):
         for i, value in enumerate(a):
             check_all_close(value, b[i], **kwargs)
     elif a is None:
@@ -155,16 +159,14 @@ def check_all_close(a, b, **kwargs):
                 if value != b[0]:
                     raise AssertionError(f"'{a}' != '{b}'")
         elif not np.allclose(a, b, **kwargs):
-            raise AssertionError(f"a and b are not close enough\n"
-                                 f"{a=}\n"
-                                 f"{b=}\n"
-                                 f"{kwargs}")
+            raise AssertionError(
+                f"a and b are not close enough\n" f"{a=}\n" f"{b=}\n" f"{kwargs}"
+            )
     else:
         if not np.allclose(a, b, **kwargs):
-            raise AssertionError(f"a and b are not close enough\n"
-                                 f"{a=}\n"
-                                 f"{b=}\n"
-                                 f"{kwargs}")
+            raise AssertionError(
+                f"a and b are not close enough\n" f"{a=}\n" f"{b=}\n" f"{kwargs}"
+            )
 
 
 def class_init_args2class_args(string):
@@ -178,11 +180,11 @@ def class_init_args2class_args(string):
             self.arg2 = arg2
             self.arg3 = arg3
     """
-    arguments = string.split(',')
-    out_string = ''
+    arguments = string.split(",")
+    out_string = ""
 
     for argument in arguments:
-        arg = argument.strip().rsplit('=', 1)[0]
+        arg = argument.strip().rsplit("=", 1)[0]
         out_string += f"self.{arg} = {arg}\n"
 
     return out_string
@@ -201,30 +203,27 @@ def class_init_args2dict(string):
                 'arg3': ,
             }
     """
-    arguments = string.split(',')
-    out_string = '{\n'
+    arguments = string.split(",")
+    out_string = "{\n"
 
     for argument in arguments:
-        arg = argument.strip().rsplit('=', 1)[0]
+        arg = argument.strip().rsplit("=", 1)[0]
         out_string += f"    '{arg}': ,\n"
 
-    out_string += '}'
+    out_string += "}"
 
     return out_string
 
 
 def class2hdf5(obj, filename=None):
     """Convert an instance of a class into a HDF5 dataset."""
-    with h5py.File(filename, 'w') as f:
-        dict2hdf5(
-            dictionary=obj.__dict__,
-            hdf5_file=f
-        )
+    with h5py.File(filename, "w") as f:
+        dict2hdf5(dictionary=obj.__dict__, hdf5_file=f)
 
 
 def dataset2obj(obj):
     """Convert a HDF5 dataset into a list of objects (float, int or str)."""
-    if hasattr(obj, '__iter__') and not isinstance(obj, bytes):
+    if hasattr(obj, "__iter__") and not isinstance(obj, bytes):
         new_obj = []
 
         for o in obj:
@@ -232,9 +231,9 @@ def dataset2obj(obj):
 
         return np.array(new_obj)
     elif isinstance(obj, bytes):
-        obj = str(obj, 'utf-8')
+        obj = str(obj, "utf-8")
 
-        if obj == 'None':
+        if obj == "None":
             obj = None
 
         return obj
@@ -242,27 +241,26 @@ def dataset2obj(obj):
         return obj
 
 
-def dict2hdf5(dictionary, hdf5_file, group='/'):
+def dict2hdf5(dictionary, hdf5_file, group="/"):
     """Convert a dictionary into a HDF5 dataset."""
     if len(dictionary) == 0:
-        hdf5_file.create_dataset(
-            name=group + '__EMPTY_DICT__',
-            data=np.nan
-        )
+        hdf5_file.create_dataset(name=group + "__EMPTY_DICT__", data=np.nan)
 
     for key in dictionary:
         if isinstance(dictionary[key], dict):  # create a new group for the dictionary
-            new_group = group + str(key) + '/'
+            new_group = group + str(key) + "/"
             dict2hdf5(dictionary[key], hdf5_file, new_group)
         elif callable(dictionary[key]):
-            print(f"Skipping callable '{key}': dtype('O') has no native HDF5 equivalent")
+            print(
+                f"Skipping callable '{key}': dtype('O') has no native HDF5 equivalent"
+            )
         else:
             if dictionary[key] is None:
-                data = 'None'
+                data = "None"
             elif isinstance(dictionary[key], set):
                 data = list(dictionary[key])
-            elif hasattr(dictionary[key], 'dtype'):
-                if dictionary[key].dtype == 'O':
+            elif hasattr(dictionary[key], "dtype"):
+                if dictionary[key].dtype == "O":
                     data = flatten_object(dictionary[key])
                 elif isinstance(dictionary[key].dtype, np.dtypes.StrDType):
                     data = [str(value) for value in dictionary[key]]
@@ -271,15 +269,12 @@ def dict2hdf5(dictionary, hdf5_file, group='/'):
             else:
                 data = dictionary[key]
 
-            hdf5_file.create_dataset(
-                name=group + key,
-                data=data
-            )
+            hdf5_file.create_dataset(name=group + key, data=data)
 
 
 def fill_object(array, value):
     """Fill a numpy object array with a value."""
-    if array.dtype == 'O':
+    if array.dtype == "O":
         for i, dim in enumerate(array):
             array[i] = fill_object(dim, value)
     elif array.dtype == type(value):
@@ -292,13 +287,15 @@ def fill_object(array, value):
 
 def flatten_object(array):
     """Flatten a numpy object array."""
-    if array.dtype == 'O':
+    if array.dtype == "O":
         if np.ndim(array) <= 1:
             for i, element in enumerate(array):
                 if element is None or isinstance(element, str):
                     array[i] = str(element)
                 else:
-                    raise ValueError(f"element '{element}' is not a number nor None, flattening is not possible")
+                    raise ValueError(
+                        f"element '{element}' is not a number nor None, flattening is not possible"
+                    )
 
             return array
 
@@ -316,7 +313,7 @@ def hdf52dict(hdf5_file):
     dictionary = {}
 
     for key in hdf5_file:
-        if key == '__EMPTY_DICT__':
+        if key == "__EMPTY_DICT__":
             if np.isnan(hdf5_file[key]):
                 return {}
 
@@ -325,8 +322,10 @@ def hdf52dict(hdf5_file):
         elif isinstance(hdf5_file[key], h5py.Group):
             dictionary[key] = hdf52dict(hdf5_file[key])
         else:
-            warnings.warn(f"Ignoring '{key}' of type '{type(hdf5_file[key])} in HDF5 file: "
-                          f"hdf52dict() can only handle types 'Dataset' and 'Group'")
+            warnings.warn(
+                f"Ignoring '{key}' of type '{type(hdf5_file[key])} in HDF5 file: "
+                f"hdf52dict() can only handle types 'Dataset' and 'Group'"
+            )
 
     return dictionary
 
@@ -344,15 +343,15 @@ def intersection_indices(array1: npt.NDArray, array2: npt.NDArray):
     Returns:
         The indices of the intersection between both arrays, for the first and the second array.
     """
-    tiny = 10 ** -sys.float_info.dig
+    tiny = 10**-sys.float_info.dig
 
     indices1 = np.logical_and(
-        np.less_equal(array1, array2[0] * (1. + tiny)),
-        np.greater_equal(array1, array2[-1] * (1. - tiny))
+        np.less_equal(array1, array2[0] * (1.0 + tiny)),
+        np.greater_equal(array1, array2[-1] * (1.0 - tiny)),
     )
     indices2 = np.logical_and(
-        np.less_equal(array2, array1[0] * (1. + tiny)),
-        np.greater_equal(array2, array1[-1] * (1. - tiny))
+        np.less_equal(array2, array1[0] * (1.0 + tiny)),
+        np.greater_equal(array2, array1[-1] * (1.0 - tiny)),
     )
 
     return indices1, indices2
@@ -381,8 +380,8 @@ def load_csv(file, **kwargs):
                 column_names = copy.deepcopy(row)
 
                 for column_name in column_names:
-                    if '# ' in column_name:
-                        column_name = column_name.split('# ', 1)[1]
+                    if "# " in column_name:
+                        column_name = column_name.split("# ", 1)[1]
 
                     data[column_name] = []
 
@@ -418,9 +417,7 @@ def remove_mask(data, data_uncertainties):
         error_.append([])
 
         for j in range(data.shape[1]):
-            data_[i].append(np.array(
-                data[i, j, ~mask_[i, j, :]]
-            ))
+            data_[i].append(np.array(data[i, j, ~mask_[i, j, :]]))
             error_[i].append(np.array(data_uncertainties[i, j, ~mask_[i, j, :]]))
             lengths.append(data_[i][j].size)
 
@@ -453,7 +450,9 @@ def topological_sort(source):
     Returns:
         list of names, with dependencies listed first
     """
-    pending = [(name, set(deps)) for name, deps in source.items()]  # copy deps so we can modify set in-place
+    pending = [
+        (name, set(deps)) for name, deps in source.items()
+    ]  # copy deps so we can modify set in-place
 
     if None not in source:
         pending.append((None, set()))  # append None "dependency"
@@ -473,9 +472,13 @@ def topological_sort(source):
             else:  # no more deps? Time to emit
                 yield name
                 emitted.append(name)  # not required, but preserves original ordering
-                next_emitted.append(name)  # remember what we emitted for difference_update() in next pass
+                next_emitted.append(
+                    name
+                )  # remember what we emitted for difference_update() in next pass
 
-        if not next_emitted:  # all entries have unmet deps, a dependency is missing or is cyclic
+        if (
+            not next_emitted
+        ):  # all entries have unmet deps, a dependency is missing or is cyclic
             raise ValueError(f"cyclic or missing dependency detected: {next_pending}")
 
         pending = next_pending
@@ -495,58 +498,62 @@ def user_input(
     cancel_message: str,
     mode: str,
     max_attempts: int = 5,
-    list_length: int = None
+    list_length: int = None,
 ) -> str | int | None:
-    available_modes = ['list', 'y/n']
+    available_modes = ["list", "y/n"]
 
     if mode not in available_modes:
         quote = "'"
-        raise ValueError(f"user input mode '{mode}' is not available, "
-                         f"available modes are {quote + ', '.join(available_modes) + quote}")
+        raise ValueError(
+            f"user input mode '{mode}' is not available, "
+            f"available modes are {quote + ', '.join(available_modes) + quote}"
+        )
 
-    if mode == 'list' and list_length is None:
+    if mode == "list" and list_length is None:
         raise TypeError("'list' mode missing required argument 'list_size'")
 
     print(introduction_message)
 
     for i in range(max_attempts):
-        if mode == 'y/n':
-            selection = input(
-                f"{input_message} ('y'/'n'; 'cancel')"
-            )
-        elif mode == 'list':
-            selection = input(
-                f"{input_message} (1-{list_length}; 'cancel')"
-            )
+        if mode == "y/n":
+            selection = input(f"{input_message} ('y'/'n'; 'cancel')")
+        elif mode == "list":
+            selection = input(f"{input_message} (1-{list_length}; 'cancel')")
         else:
             quote = "'"
-            raise ValueError(f"user input mode '{mode}' is not available, "
-                             f"available modes are {quote + ', '.join(available_modes) + quote}")
+            raise ValueError(
+                f"user input mode '{mode}' is not available, "
+                f"available modes are {quote + ', '.join(available_modes) + quote}"
+            )
 
-        if selection == 'cancel':
+        if selection == "cancel":
             print(cancel_message)
             return None
 
-        if mode == 'y/n':
+        if mode == "y/n":
             selection = selection.lower()
 
-            if selection == 'y':
+            if selection == "y":
                 selection = True
-            elif selection == 'n':
+            elif selection == "n":
                 selection = False
             else:
                 print(f"Unclear input '{selection}', please enter 'y' or 'n'")
                 continue
-        elif mode == 'list':
+        elif mode == "list":
             if not selection.isdigit():
-                print(f"'{selection}' is not an integer, please enter an integer within 1-{list_length}")
+                print(
+                    f"'{selection}' is not an integer, please enter an integer within 1-{list_length}"
+                )
                 continue
 
             selection = int(selection)
 
             if selection < 1 or selection > list_length:
-                print(f"{selection} is not within the range 1-{list_length}, "
-                      f"please enter an integer within 1-{list_length}")
+                print(
+                    f"{selection} is not within the range 1-{list_length}, "
+                    f"please enter an integer within 1-{list_length}"
+                )
                 continue
 
         return selection

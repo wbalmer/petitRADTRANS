@@ -22,26 +22,6 @@ from petitRADTRANS.chemistry.clouds import (
     condensation_temperature_na2s,
 )
 
-from petitRADTRANS.chemistry.condensation_curves import (
-    vapour_pressure_fe_solid,
-    vapour_pressure_fe_liquid,
-    vapour_pressure_mgsio3,
-    vapour_pressure_mg2sio4,
-    vapour_pressure_na2s,
-    vapour_pressure_kcl,
-    vapour_pressure_sio,
-    vapour_pressure_tio2,
-    vapour_pressure_cr,
-    vapour_pressure_zns,
-    vapour_pressure_nh3,
-    vapour_pressure_mns,
-    vapour_pressure_h2o,
-    vapour_pressure_ch4,
-    vapour_pressure_al2o3,
-    vapour_pressure_catio3,
-    vapour_pressure_caal12o19,
-    vapour_pressure_sio2,
-)
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.opacities.opacities import Opacity
 from petitRADTRANS.physics import frequency2wavelength
@@ -49,7 +29,7 @@ from petitRADTRANS.planet import Planet
 from petitRADTRANS.plotlib.style import default_color, get_species_color, update_figure_font_size
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
-from petitRADTRANS.retrieval.data import Data, PhotometryData
+from petitRADTRANS.retrieval.data import PhotometryData
 from petitRADTRANS.spectral_model import SpectralModel
 from petitRADTRANS.utils import LockedDict
 

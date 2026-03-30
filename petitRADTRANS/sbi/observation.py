@@ -13,10 +13,10 @@ import numpy as np
 class ObservationModality(str, Enum):
     """Supported observation block types for SBI conditioning."""
 
-    SPECTRUM = 'spectrum'
-    PHOTOMETRY = 'photometry'
-    TIME_SERIES = 'time_series'
-    AUXILIARY = 'auxiliary'
+    SPECTRUM = "spectrum"
+    PHOTOMETRY = "photometry"
+    TIME_SERIES = "time_series"
+    AUXILIARY = "auxiliary"
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,9 @@ class ObservationEncoder(abc.ABC):
     def encode(self, blocks: list[ObservationBlock]) -> EncodedObservation:
         """Encode a list of observation blocks into a shared representation."""
 
-    def batch_encode(self, observations: list[list[ObservationBlock]]) -> list[EncodedObservation]:
+    def batch_encode(
+        self, observations: list[list[ObservationBlock]]
+    ) -> list[EncodedObservation]:
         """Encode multiple observations using repeated single-item encoding."""
         return [self.encode(blocks) for blocks in observations]
 
@@ -108,11 +110,13 @@ def build_observation_blocks_from_sample(
             continue
 
         payload = observation_payloads[observation_name]
-        metadata = payload.get('metadata')
+        metadata = payload.get("metadata")
         if isinstance(metadata, list):
             metadata = metadata[sample_index]
 
-        def _select(field_name: str, observation_payload: Mapping[str, Any] = payload) -> Any:
+        def _select(
+            field_name: str, observation_payload: Mapping[str, Any] = payload
+        ) -> Any:
             if field_name not in observation_payload:
                 return None
 
@@ -131,10 +135,10 @@ def build_observation_blocks_from_sample(
             build_observation_block(
                 name=observation_name,
                 modality=modalities[observation_name],
-                values=_select('values'),
-                uncertainties=_select('uncertainties'),
-                coordinates=_select('coordinates'),
-                mask=_select('mask'),
+                values=_select("values"),
+                uncertainties=_select("uncertainties"),
+                coordinates=_select("coordinates"),
+                mask=_select("mask"),
                 metadata=metadata,
             )
         )
@@ -151,21 +155,23 @@ def build_observation_block_batch(
         return []
 
     first_payload = next(iter(observation_payloads.values()))
-    sample_values = np.asarray(first_payload['values'])
+    sample_values = np.asarray(first_payload["values"])
     n_samples = int(sample_values.shape[0]) if sample_values.ndim > 0 else 1
 
     return [
-        build_observation_blocks_from_sample(observation_payloads, modalities, sample_index)
+        build_observation_blocks_from_sample(
+            observation_payloads, modalities, sample_index
+        )
         for sample_index in range(n_samples)
     ]
 
 
 __all__ = [
-    'EncodedObservation',
-    'ObservationBlock',
-    'ObservationEncoder',
-    'ObservationModality',
-    'build_observation_block',
-    'build_observation_block_batch',
-    'build_observation_blocks_from_sample',
+    "EncodedObservation",
+    "ObservationBlock",
+    "ObservationEncoder",
+    "ObservationModality",
+    "build_observation_block",
+    "build_observation_block_batch",
+    "build_observation_blocks_from_sample",
 ]

@@ -1,5 +1,5 @@
-"""Stores useful mathematical functions.
-"""
+"""Stores useful mathematical functions."""
+
 from typing import Literal
 
 import numpy as np
@@ -8,6 +8,7 @@ from jax.typing import ArrayLike
 from jaxtyping import Array, Float
 import jax.numpy as jnp
 from jax.scipy.special import erf, erfinv
+from scipy.interpolate import InterpolatedUnivariateSpline
 
 
 def bayes_factor2sigma(bayes_factor: float) -> [float, ArrayLike]:
@@ -20,12 +21,14 @@ def bayes_factor2sigma(bayes_factor: float) -> [float, ArrayLike]:
     :param bayes_factor: Bayes factor (aka "evidence")
     :return: sigma significance
     """
-    molliere_threshold = 72004899337  # ~exp(25), roughly where numerical errors start to be significant
+    molliere_threshold = (
+        72004899337  # ~exp(25), roughly where numerical errors start to be significant
+    )
     is_scalar = False
 
     from scipy.special import lambertw
 
-    if not hasattr(bayes_factor, '__iter__'):
+    if not hasattr(bayes_factor, "__iter__"):
         is_scalar = True
         bayes_factor = jnp.array([bayes_factor])
     elif not isinstance(bayes_factor, jnp.ndarray):
@@ -38,15 +41,23 @@ def bayes_factor2sigma(bayes_factor: float) -> [float, ArrayLike]:
 
     if jnp.size(benneke_part) > 0:
         a = -1 / (jnp.exp(1) * bayes_factor[benneke_part])
-        rho = jnp.real(jnp.exp(lambertw(a, -1)))  # the solution to x * log(x) = a is the lambert W function of a
+        rho = jnp.real(
+            jnp.exp(lambertw(a, -1))
+        )  # the solution to x * log(x) = a is the lambert W function of a
         sigma[benneke_part] = jnp.sqrt(2) * erfinv(1 - rho)
 
     if jnp.size(molliere_part) > 0:
         a = -1 / (jnp.exp(1) * molliere_threshold)
-        rho = jnp.real(jnp.exp(lambertw(a, -1)))  # the solution to x * log(x) = a is the lambert W function of a
-        offset = jnp.sqrt(2) * erfinv(1 - rho) - jnp.sqrt(2 * jnp.log(molliere_threshold))
+        rho = jnp.real(
+            jnp.exp(lambertw(a, -1))
+        )  # the solution to x * log(x) = a is the lambert W function of a
+        offset = jnp.sqrt(2) * erfinv(1 - rho) - jnp.sqrt(
+            2 * jnp.log(molliere_threshold)
+        )
 
-        sigma[molliere_part] = jnp.sqrt(2 * jnp.log(bayes_factor[molliere_part])) + offset
+        sigma[molliere_part] = (
+            jnp.sqrt(2 * jnp.log(bayes_factor[molliere_part])) + offset
+        )
 
     if is_scalar:
         return sigma[0]
@@ -60,14 +71,14 @@ def box_car_conv(array: ArrayLike, points: ArrayLike) -> ArrayLike:
 
     for i in range(len(array)):
         if (i - points / 2 >= 0) and (i + points / 2 <= len_arr + 1):
-            smooth_val = array[i - points / 2:i + points / 2]
+            smooth_val = array[i - points / 2 : i + points / 2]
             res[i] = jnp.sum(smooth_val) / len(smooth_val)
         elif i + points / 2 > len_arr + 1:
             len_use = len_arr + 1 - i
-            smooth_val = array[i - len_use:i + len_use]
+            smooth_val = array[i - len_use : i + len_use]
             res[i] = jnp.sum(smooth_val) / len(smooth_val)
         elif i - points / 2 < 0:
-            smooth_val = array[:max(2 * i, 1)]
+            smooth_val = array[: max(2 * i, 1)]
             res[i] = jnp.sum(smooth_val) / len(smooth_val)
 
     return res
@@ -76,7 +87,7 @@ def box_car_conv(array: ArrayLike, points: ArrayLike) -> ArrayLike:
 def calculate_chi2(
     data: [float, ArrayLike],
     model: [float, ArrayLike],
-    uncertainties: [float, ArrayLike]
+    uncertainties: [float, ArrayLike],
 ) -> float:
     return float(jnp.sum(((data - model) / uncertainties) ** 2))
 
@@ -85,15 +96,17 @@ def calculate_reduced_chi2(
     data: [float, ArrayLike],
     model: [float, ArrayLike],
     uncertainties: [float, ArrayLike],
-    degrees_of_freedom: int = 0
+    degrees_of_freedom: int = 0,
 ) -> [float, ArrayLike]:
-    return calculate_chi2(data, model, uncertainties) / (jnp.size(data) - degrees_of_freedom)
+    return calculate_chi2(data, model, uncertainties) / (
+        jnp.size(data) - degrees_of_freedom
+    )
 
 
 def calculate_uncertainty(
     derivatives: ArrayLike,
     uncertainties: ArrayLike,
-    covariance_matrix: ArrayLike = None
+    covariance_matrix: ArrayLike = None,
 ) -> [ArrayLike, None]:
     """
     Calculate the uncertainty of a function f(x, y, ...) with uncertainties on x, y, ... and Pearson's correlation
@@ -124,15 +137,27 @@ def calculate_uncertainty(
     if jnp.ndim(uncertainties) == 1:
         sigmas = derivatives * uncertainties
 
-        return jnp.sqrt(jnp.matmul(sigmas, jnp.matmul(covariance_matrix, jnp.transpose(sigmas))))
+        return jnp.sqrt(
+            jnp.matmul(sigmas, jnp.matmul(covariance_matrix, jnp.transpose(sigmas)))
+        )
     elif jnp.ndim(uncertainties) == 2:
         sigma_less = derivatives * uncertainties[:, 0]
         sigma_more = derivatives * uncertainties[:, 1]
 
-        return jnp.sqrt(jnp.array([  # beware, this is not strictly correct
-            jnp.matmul(sigma_less, jnp.matmul(covariance_matrix, jnp.transpose(sigma_less))),
-            jnp.matmul(sigma_more, jnp.matmul(covariance_matrix, jnp.transpose(sigma_more)))
-        ]))
+        return jnp.sqrt(
+            jnp.array(
+                [  # beware, this is not strictly correct
+                    jnp.matmul(
+                        sigma_less,
+                        jnp.matmul(covariance_matrix, jnp.transpose(sigma_less)),
+                    ),
+                    jnp.matmul(
+                        sigma_more,
+                        jnp.matmul(covariance_matrix, jnp.transpose(sigma_more)),
+                    ),
+                ]
+            )
+        )
 
     return None
 
@@ -147,13 +172,12 @@ def compute_resolving_power(array: ArrayLike) -> float:
     Returns:
         The mean resolving power of the array.
     """
-    return jnp.mean(
-        array[:-1] / jnp.diff(array) + 0.5,
-        dtype=float
-    )
+    return jnp.mean(array[:-1] / jnp.diff(array) + 0.5, dtype=float)
 
 
-def feature_scaling(array: ArrayLike, min_value: float = 0.0, max_value: float = 1.0) -> ArrayLike:
+def feature_scaling(
+    array: ArrayLike, min_value: float = 0.0, max_value: float = 1.0
+) -> ArrayLike:
     """Bring all values of array between a min and max value.
 
     Args:
@@ -164,7 +188,9 @@ def feature_scaling(array: ArrayLike, min_value: float = 0.0, max_value: float =
     Returns:
         The normalized array with values between min_value and max_value.
     """
-    return min_value + ((array - jnp.min(array)) * (max_value - min_value)) / (jnp.max(array) - jnp.min(array))
+    return min_value + ((array - jnp.min(array)) * (max_value - min_value)) / (
+        jnp.max(array) - jnp.min(array)
+    )
 
 
 def gaussian_kernel_1d(sigma: float, radius: int) -> Float[Array, " 2*{radius}"]:
@@ -178,8 +204,10 @@ def gaussian_kernel_1d(sigma: float, radius: int) -> Float[Array, " 2*{radius}"]
     return phi_x / jnp.sum(phi_x)
 
 
-@jit(static_argnames=['max_radius'])
-def gaussian_weights_running(sigmas: ArrayLike, truncate: float = 4.0, max_radius: int = 20) -> ArrayLike:
+@jit(static_argnames=["max_radius"])
+def gaussian_weights_running(
+    sigmas: ArrayLike, truncate: float = 4.0, max_radius: int = 20
+) -> ArrayLike:
     """Compute 1D Gaussian convolution kernels for an array of standard deviations.
 
     This version supports JIT compilation by avoiding arrays whose shape depends on
@@ -204,11 +232,11 @@ def gaussian_weights_running(sigmas: ArrayLike, truncate: float = 4.0, max_radiu
     # Determine radius. If max_radius is provided it will be used (static
     # Python integer). If not provided, compute it from data (works outside JIT).
     radius = max_radius
-    #= lax.cond(
+    # = lax.cond(
     #    max_radius is None,
     #    lambda: jnp.ceil(truncate * jnp.max(sigmas) + 0.5).astype(int),
     #    lambda: max_radius
-    #)
+    # )
 
     # Build fixed-position offsets (shape: (M,)) and broadcast against sigmas
     x = jnp.arange(-radius, radius + 1)
@@ -216,19 +244,17 @@ def gaussian_weights_running(sigmas: ArrayLike, truncate: float = 4.0, max_radiu
     # Ensure sigmas is an array of shape (N,)
     sigmas = jnp.asarray(sigmas)
     sd = jnp.expand_dims(sigmas, axis=1)  # (N, 1)
-    x_row = jnp.expand_dims(x, axis=0)    # (1, M)
+    x_row = jnp.expand_dims(x, axis=0)  # (1, M)
 
     # Compute unnormalized Gaussian and normalize per-row
-    phi_x = jnp.exp(-0.5 * (x_row ** 2) / (sd ** 2))
+    phi_x = jnp.exp(-0.5 * (x_row**2) / (sd**2))
     weights = phi_x / jnp.sum(phi_x, axis=1, keepdims=True)
 
     return weights
 
 
 def linear_spline_interpolation(
-    x_knots: ArrayLike,
-    x_samples: ArrayLike,
-    spline_degree: Literal[1, 2, 3, 4, 5] = 3
+    x_knots: ArrayLike, x_samples: ArrayLike, spline_degree: Literal[1, 2, 3, 4, 5] = 3
 ):
     """Compute a spline based linear model.
 
@@ -282,12 +308,7 @@ def linear_spline_interpolation(
             y = np.zeros(np.size(nodes))
             y[chunk] = 1
 
-            spline = InterpolatedUnivariateSpline(
-                x=nodes,
-                y=y,
-                k=spline_degree,
-                ext=0
-            )
+            spline = InterpolatedUnivariateSpline(x=nodes, y=y, k=spline_degree, ext=0)
             _spline_matrix[in_bounds[0], chunk] = spline(_x)
 
         spline_matrix.append(_spline_matrix)
@@ -299,7 +320,7 @@ def longitude2phase(longitude: float):
     return longitude / (2 * jnp.pi)
 
 
-def median_filter(spectrum, size=10, mode='nearest'):
+def median_filter(spectrum, size=10, mode="nearest"):
     """
     JAX-compatible implementation of scipy.ndimage.median_filter for 1D arrays.
     Applies a median filter with a sliding window of specified size.
@@ -323,7 +344,7 @@ def median_filter(spectrum, size=10, mode='nearest'):
     half_size = size // 2
 
     # Map 'edge' to 'nearest' for compatibility
-    pad_mode = 'edge' if mode == 'nearest' else mode
+    pad_mode = "edge" if mode == "nearest" else mode
 
     # Pad the spectrum based on mode
     padded = jnp.pad(spectrum, half_size, mode=pad_mode)
@@ -345,6 +366,7 @@ def median_filter(spectrum, size=10, mode='nearest'):
 
     return filtered
 
+
 def mean_uncertainty(uncertainties: ArrayLike) -> float:
     """Calculate the uncertainty of the mean of an array.
 
@@ -354,7 +376,7 @@ def mean_uncertainty(uncertainties: ArrayLike) -> float:
     Returns:
         The uncertainty of the mean of the array
     """
-    return jnp.sqrt(jnp.sum(uncertainties ** 2)) / jnp.size(uncertainties)
+    return jnp.sqrt(jnp.sum(uncertainties**2)) / jnp.size(uncertainties)
 
 
 def median_uncertainties(uncertainties: ArrayLike) -> float:
@@ -375,12 +397,15 @@ def median_uncertainties(uncertainties: ArrayLike) -> float:
     Returns:
         The uncertainty of the median of the array
     """
-    return mean_uncertainty(uncertainties) \
-        * jnp.sqrt(jnp.pi * jnp.size(uncertainties) / (2 * (jnp.size(uncertainties) - 1)))
+    return mean_uncertainty(uncertainties) * jnp.sqrt(
+        jnp.pi * jnp.size(uncertainties) / (2 * (jnp.size(uncertainties) - 1))
+    )
 
 
 def normalize(array: ArrayLike, axis: int = None) -> ArrayLike:
-    return (array - jnp.min(array, axis=axis)) / (jnp.max(array, axis=axis) - jnp.min(array, axis=axis))
+    return (array - jnp.min(array, axis=axis)) / (
+        jnp.max(array, axis=axis) - jnp.min(array, axis=axis)
+    )
 
 
 def phase2longitude(phase: float, rad2deg: bool = False):
@@ -412,7 +437,9 @@ def prt_resolving_space(start, stop, resolving_power) -> ArrayLike:
         raise ValueError(f"start ({start}) must be lower than stop {stop}")
 
     if resolving_power <= 0:
-        raise ValueError(f"resolving power ({resolving_power}) must be strictly positive")
+        raise ValueError(
+            f"resolving power ({resolving_power}) must be strictly positive"
+        )
 
     inverse_resolving_power = 1 / resolving_power
 
@@ -430,7 +457,9 @@ def prt_resolving_space(start, stop, resolving_power) -> ArrayLike:
             break
 
     if i == size_max - 1 and samples[-1] < stop:
-        raise ValueError(f"maximum size ({size_max}) reached before reaching stop ({samples[-1]} < {stop})")
+        raise ValueError(
+            f"maximum size ({size_max}) reached before reaching stop ({samples[-1]} < {stop})"
+        )
 
     return jnp.array(samples)
 
@@ -441,7 +470,9 @@ def resolving_space(start, stop, resolving_power):
         raise ValueError(f"start ({start}) must be lower than stop {stop}")
 
     if resolving_power <= 0:
-        raise ValueError(f"resolving power ({resolving_power}) must be strictly positive")
+        raise ValueError(
+            f"resolving power ({resolving_power}) must be strictly positive"
+        )
 
     # Get maximum space length (much higher than required)
     size_max = int(jnp.ceil((stop - start) / (start / resolving_power)))
@@ -462,7 +493,7 @@ def resolving_space(start, stop, resolving_power):
     if i == size_max - 1 and samples[-1] < stop:
         raise ValueError(
             f"maximum size ({size_max}) reached before reaching stop ({samples[-1]} < {stop})"
-            )
+        )
     elif samples[-1] > stop:
         del samples[-1]  # ensure that the space is within the [start, stop] interval
 
@@ -475,7 +506,7 @@ def running_mean(x: ArrayLike, n: int) -> ArrayLike:
     return (cum_sum[n:] - cum_sum[:-n]) / float(n)
 
 
-def savgol_filter(spectrum, window_length=11, polyorder=3, mode='nearest'):
+def savgol_filter(spectrum, window_length=11, polyorder=3, mode="nearest"):
     """
     JAX-compatible Savitzky-Golay filter for 1D signals.
     Fits a polynomial to a sliding window and evaluates it at the center.
@@ -506,10 +537,12 @@ def savgol_filter(spectrum, window_length=11, polyorder=3, mode='nearest'):
     x = jnp.arange(-half_window, half_window + 1, dtype=jnp.float32)
 
     # Build polynomial design matrix where each row is [1, x, x^2, ..., x^polyorder]
-    design_matrix = jnp.vstack([x ** i for i in range(polyorder + 1)]).T  # (window_length, polyorder+1)
+    design_matrix = jnp.vstack(
+        [x**i for i in range(polyorder + 1)]
+    ).T  # (window_length, polyorder+1)
 
     # Map scipy mode to JAX padding mode ('nearest' → 'edge')
-    pad_mode = 'edge' if mode == 'nearest' else mode
+    pad_mode = "edge" if mode == "nearest" else mode
 
     # Pad the input spectrum
     padded = jnp.pad(spectrum, half_window, mode=pad_mode)
@@ -547,5 +580,4 @@ def sigma2bayes_factor(sigma: float) -> float:
     :return: Bayes factor (aka "evidence")
     """
     rho = 1 - erf(sigma / jnp.sqrt(2))
-    return - 1 / (jnp.exp(1) * rho * jnp.log(rho))
-
+    return -1 / (jnp.exp(1) * rho * jnp.log(rho))

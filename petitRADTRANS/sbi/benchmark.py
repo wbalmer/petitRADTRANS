@@ -68,7 +68,9 @@ class RetrievalBenchmarkSuite:
         to bind exact and amortized inference backends and define the metric
         computations appropriate for the comparison.
         """
-        raise NotImplementedError('Benchmark execution requires concrete exact and amortized inference backends.')
+        raise NotImplementedError(
+            "Benchmark execution requires concrete exact and amortized inference backends."
+        )
 
     def run_all(self) -> list[BenchmarkComparison]:
         """Run all configured benchmark cases."""

@@ -1,6 +1,6 @@
 import jax.numpy as jnp
-from jax import jit, config, Array
 from jax.typing import ArrayLike
+from jax import Array
 
 
 def power_law_temperature_profile(pressures: ArrayLike, alpha: float, T0: float) -> Array:

@@ -1,8 +1,12 @@
-import os
 import jax.numpy as jnp
-from jax import config
-from petitRADTRANS.retrieval.utils import log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
-from jax import tree_util
+from jax import config, tree_util
+from petitRADTRANS.retrieval.utils import (
+    log_prior,
+    uniform_prior,
+    gaussian_prior,
+    log_gaussian_prior,
+    delta_prior,
+)
 
 JAX_DTYPE = jnp.float32
 if config.jax_enable_x64:
@@ -18,6 +22,7 @@ def _build_jaxns_prior(distribution, name):
         ) from error
 
     return Prior(distribution, name=name)
+
 
 class Parameter:
     """
@@ -47,16 +52,18 @@ class Parameter:
             The axis label for the parameter, defaults to name.
     """
 
-    def __init__(self,
-                 name,
-                 is_free_parameter,
-                 value=0.0,
-                 distribution=None,
-                 transform_prior_cube_coordinate=None,
-                 plot_in_corner=False,
-                 corner_ranges=None,
-                 corner_transform=None,
-                 corner_label=None):
+    def __init__(
+        self,
+        name,
+        is_free_parameter,
+        value=0.0,
+        distribution=None,
+        transform_prior_cube_coordinate=None,
+        plot_in_corner=False,
+        corner_ranges=None,
+        corner_transform=None,
+        corner_label=None,
+    ):
 
         self.name = name
         self.is_free_parameter = is_free_parameter
@@ -71,14 +78,16 @@ class Parameter:
 
     def _tree_flatten(self):
         children = (self.value,)  # arrays / dynamic values
-        aux_data = {'name': self.name,
-                    'is_free_parameter': self.is_free_parameter,
-                    'distribution': self.distribution,
-                    'transform_prior_cube_coordinate': self.transform_prior_cube_coordinate,
-                    'plot_in_corner': self.plot_in_corner,
-                    'corner_ranges': self.corner_ranges,
-                    'corner_transform': self.corner_transform,
-                    'corner_label': self.corner_label}  # static values
+        aux_data = {
+            "name": self.name,
+            "is_free_parameter": self.is_free_parameter,
+            "distribution": self.distribution,
+            "transform_prior_cube_coordinate": self.transform_prior_cube_coordinate,
+            "plot_in_corner": self.plot_in_corner,
+            "corner_ranges": self.corner_ranges,
+            "corner_transform": self.corner_transform,
+            "corner_label": self.corner_label,
+        }  # static values
         return (children, aux_data)
 
     @classmethod
@@ -132,19 +141,20 @@ class Parameter:
 
     def set_prior(self):
         return _build_jaxns_prior(self.distribution, name=self.name)
-        #return self.prior_sample
+        # return self.prior_sample
+
 
 class RetrievalParameter:
     __available_priors = [
-        'log',
-        'uniform',
-        'gaussian',
-        'log_gaussian',
-        'delta',
-        'custom'
+        "log",
+        "uniform",
+        "gaussian",
+        "log_gaussian",
+        "delta",
+        "custom",
     ]
 
-    def __init__(self, name, prior_parameters, prior_type='uniform', custom_prior=None):
+    def __init__(self, name, prior_parameters, prior_type="uniform", custom_prior=None):
         """Used to set up retrievals.
         Stores the prior function. Prior parameters depends on the type of prior. e.g., for uniform and log prior, these
         are the bounds of the prior. For gaussian priors and alike, these are the values of the mean and full width
@@ -157,7 +167,7 @@ class RetrievalParameter:
             custom_prior: function with arguments (cube, *args), args being positional arguments in prior_parameters
         """
         # Check prior parameters validity
-        if not hasattr(prior_parameters, '__iter__'):
+        if not hasattr(prior_parameters, "__iter__"):
             raise ValueError(
                 f"'prior_parameters' must be an iterable of size 2, but is of type '{type(prior_parameters)}'"
             )
@@ -165,7 +175,9 @@ class RetrievalParameter:
             raise ValueError(
                 f"'prior_parameters' must be of size 2, but is of size '{jnp.size(prior_parameters)}'"
             )
-        elif prior_parameters[0] > prior_parameters[1] and (prior_type == 'log' or prior_type == 'uniform'):
+        elif prior_parameters[0] > prior_parameters[1] and (
+            prior_type == "log" or prior_type == "uniform"
+        ):
             raise ValueError(
                 f"lower prior boundaries ({prior_parameters[0]}) "
                 f"must be lower than upper prior boundaries ({prior_parameters[1]})"
@@ -176,47 +188,48 @@ class RetrievalParameter:
         self.prior_type = prior_type
 
         # Set prior
-        if self.prior_type == 'log':
+        if self.prior_type == "log":
+
             def prior(x):
                 return log_prior(
-                    cube=x,
-                    lx1=self.prior_parameters[0],
-                    lx2=self.prior_parameters[1]
+                    cube=x, lx1=self.prior_parameters[0], lx2=self.prior_parameters[1]
                 )
-        elif self.prior_type == 'uniform':
+
+        elif self.prior_type == "uniform":
+
             def prior(x):
                 return uniform_prior(
-                    cube=x,
-                    x1=self.prior_parameters[0],
-                    x2=self.prior_parameters[1]
+                    cube=x, x1=self.prior_parameters[0], x2=self.prior_parameters[1]
                 )
-        elif self.prior_type == 'gaussian':
+
+        elif self.prior_type == "gaussian":
+
             def prior(x):
                 return gaussian_prior(
-                    cube=x,
-                    mu=self.prior_parameters[0],
-                    sigma=self.prior_parameters[1]
+                    cube=x, mu=self.prior_parameters[0], sigma=self.prior_parameters[1]
                 )
-        elif self.prior_type == 'log_gaussian':
+
+        elif self.prior_type == "log_gaussian":
+
             def prior(x):
                 return log_gaussian_prior(
-                    cube=x,
-                    mu=self.prior_parameters[0],
-                    sigma=self.prior_parameters[1]
+                    cube=x, mu=self.prior_parameters[0], sigma=self.prior_parameters[1]
                 )
-        elif self.prior_type == 'delta':
+
+        elif self.prior_type == "delta":
+
             def prior(x):
                 return delta_prior(
                     cube=x,  # actually useless
                     x1=self.prior_parameters[0],
-                    x2=self.prior_parameters[1]  # actually useless
+                    x2=self.prior_parameters[1],  # actually useless
                 )
-        elif self.prior_type == 'custom':
+
+        elif self.prior_type == "custom":
+
             def prior(x):
-                return custom_prior(
-                    cube=x,
-                    *prior_parameters
-                )
+                return custom_prior(cube=x, *prior_parameters)
+
         else:
             raise ValueError(
                 f"prior type '{prior_type}' not implemented "
@@ -243,8 +256,8 @@ class RetrievalParameter:
             new_retrieval_parameters.append(
                 cls(
                     name=key,
-                    prior_parameters=parameters['prior_parameters'],
-                    prior_type=parameters['prior_type']
+                    prior_parameters=parameters["prior_parameters"],
+                    prior_type=parameters["prior_type"],
                 )
             )
 
@@ -263,13 +276,13 @@ class RetrievalParameter:
             dictionary = {}
 
         dictionary[self.name] = {
-            'prior_boundaries': self.prior_parameters,
-            'prior_type': self.prior_type
+            "prior_boundaries": self.prior_parameters,
+            "prior_type": self.prior_type,
         }
 
         return dictionary
 
-tree_util.register_pytree_node(Parameter,
-                               Parameter._tree_flatten,
-                               Parameter._tree_unflatten
-                               )
+
+tree_util.register_pytree_node(
+    Parameter, Parameter._tree_flatten, Parameter._tree_unflatten
+)

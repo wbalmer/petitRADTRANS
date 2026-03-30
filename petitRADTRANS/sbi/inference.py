@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from .calibration import PosteriorPredictiveReport, posterior_predictive_report_from_samples
+from .calibration import (
+    PosteriorPredictiveReport,
+    posterior_predictive_report_from_samples,
+)
 from .observation import ObservationBlock
 from .posterior import PosteriorEstimator, PosteriorSamples
 from .preprocessing import TaskPreprocessingMetadata, normalize_observation_blocks
@@ -85,12 +88,16 @@ class AmortizedRetrieval:
         task: SBITask,
         posterior_estimator: PosteriorEstimator,
         simulator: RuntimeSimulator | None = None,
-        preprocessing_metadata: TaskPreprocessingMetadata | Mapping[str, Any] | None = None,
+        preprocessing_metadata: (
+            TaskPreprocessingMetadata | Mapping[str, Any] | None
+        ) = None,
     ):
         self.task = task
         self.posterior_estimator = posterior_estimator
         self.simulator = simulator
-        self.preprocessing_metadata = self._resolve_preprocessing_metadata(preprocessing_metadata)
+        self.preprocessing_metadata = self._resolve_preprocessing_metadata(
+            preprocessing_metadata
+        )
 
     def _resolve_preprocessing_metadata(
         self,
@@ -102,13 +109,17 @@ class AmortizedRetrieval:
         if preprocessing_metadata is not None:
             return TaskPreprocessingMetadata.from_payload(preprocessing_metadata)
 
-        payload = getattr(self.posterior_estimator, 'preprocessing_metadata_payload', None)
+        payload = getattr(
+            self.posterior_estimator, "preprocessing_metadata_payload", None
+        )
         if payload:
             return TaskPreprocessingMetadata.from_payload(payload)
 
         return None
 
-    def prepare_observation_blocks(self, observation_blocks: list[ObservationBlock]) -> list[ObservationBlock]:
+    def prepare_observation_blocks(
+        self, observation_blocks: list[ObservationBlock]
+    ) -> list[ObservationBlock]:
         """Normalize user-facing observation blocks when preprocessing metadata is available.
 
         Parameters
@@ -125,7 +136,9 @@ class AmortizedRetrieval:
         if self.preprocessing_metadata is None:
             return observation_blocks
 
-        return normalize_observation_blocks(observation_blocks, self.preprocessing_metadata)
+        return normalize_observation_blocks(
+            observation_blocks, self.preprocessing_metadata
+        )
 
     def infer(
         self,
@@ -156,8 +169,12 @@ class AmortizedRetrieval:
         AmortizedRetrievalResult
             Posterior samples and any optional predictive metadata.
         """
-        prepared_observation_blocks = self.prepare_observation_blocks(observation_blocks)
-        encoded_observation = self.posterior_estimator.encode_observation(prepared_observation_blocks)
+        prepared_observation_blocks = self.prepare_observation_blocks(
+            observation_blocks
+        )
+        encoded_observation = self.posterior_estimator.encode_observation(
+            prepared_observation_blocks
+        )
         posterior = self.posterior_estimator.sample_posterior(
             observation=encoded_observation,
             n_samples=n_posterior_samples,
@@ -177,10 +194,12 @@ class AmortizedRetrieval:
             posterior=posterior,
             posterior_predictive=posterior_predictive,
             metadata={
-                'preprocessing_applied': self.preprocessing_metadata is not None,
-                'preprocessing_version': None
-                if self.preprocessing_metadata is None
-                else self.preprocessing_metadata.version,
+                "preprocessing_applied": self.preprocessing_metadata is not None,
+                "preprocessing_version": (
+                    None
+                    if self.preprocessing_metadata is None
+                    else self.preprocessing_metadata.version
+                ),
             },
         )
 
@@ -213,13 +232,17 @@ class AmortizedRetrieval:
             task=self.task,
             posterior_samples=posterior.samples,
             observation_blocks=observation_blocks,
-            parameter_space=getattr(self.posterior_estimator, 'parameter_space', 'physical'),
+            parameter_space=getattr(
+                self.posterior_estimator, "parameter_space", "physical"
+            ),
             interval_level=interval_level,
             simulator=self.simulator,
             seed=seed,
         )
 
-    def diagnose_domain(self, observation_blocks: list[ObservationBlock]) -> OODDiagnostic | None:
+    def diagnose_domain(
+        self, observation_blocks: list[ObservationBlock]
+    ) -> OODDiagnostic | None:
         """Estimate whether the observation is in-distribution for the model.
 
         Parameters

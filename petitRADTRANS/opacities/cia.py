@@ -1,8 +1,7 @@
-import os
 import sys
 import copy
 import jax.numpy as jnp
-from jax import  debug, vmap, jit, config
+from jax import vmap, config
 from petitRADTRANS.utils import LockedDict
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.opacities.opacities import Opacity

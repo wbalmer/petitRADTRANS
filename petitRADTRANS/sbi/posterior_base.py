@@ -12,7 +12,7 @@ from .artifacts import ArtifactMetadata, ArtifactRegistry, ArtifactRole
 from .observation import EncodedObservation, ObservationBlock
 
 
-POSTERIOR_METADATA_SCHEMA_VERSION = '0.2.0'
+POSTERIOR_METADATA_SCHEMA_VERSION = "0.2.0"
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,9 @@ class PosteriorEstimator(abc.ABC):
 
     def log_prob(self, observation: EncodedObservation, parameters: Any) -> Any:
         """Evaluate posterior log-density when supported by the backend."""
-        raise NotImplementedError('This posterior estimator does not expose normalized posterior log-probabilities.')
+        raise NotImplementedError(
+            "This posterior estimator does not expose normalized posterior log-probabilities."
+        )
 
     @abc.abstractmethod
     def save(self, output_directory: str) -> None:
@@ -73,20 +75,20 @@ class PosteriorEstimator(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def load(cls, input_directory: str) -> 'PosteriorEstimator':
+    def load(cls, input_directory: str) -> "PosteriorEstimator":
         """Restore a saved estimator from disk."""
 
 
 class PersistentPosteriorEstimator(PosteriorEstimator):
     """Shared persistence helper for estimator backends with on-disk artifacts."""
 
-    estimator_family = 'persistent_estimator'
+    estimator_family = "persistent_estimator"
     metadata_schema_version = POSTERIOR_METADATA_SCHEMA_VERSION
 
     def __init__(
         self,
         parameter_dim: int,
-        parameter_space: str = 'unconstrained',
+        parameter_space: str = "unconstrained",
         seed: int = 0,
         task_metadata: Mapping[str, Any] | None = None,
     ):
@@ -95,7 +97,7 @@ class PersistentPosteriorEstimator(PosteriorEstimator):
         self.seed = int(seed)
         self.task_metadata = dict(task_metadata or {})
         self.training_artifacts: TrainingArtifacts | None = None
-        self.task_name: str | None = self.task_metadata.get('task_name')
+        self.task_name: str | None = self.task_metadata.get("task_name")
         self.task_version: str | None = None
         self.task_fingerprint: str | None = None
         self.observation_schema: Mapping[str, Any] = {}
@@ -108,7 +110,9 @@ class PersistentPosteriorEstimator(PosteriorEstimator):
 
     @classmethod
     @abc.abstractmethod
-    def from_serialized_metadata(cls, metadata: Mapping[str, Any]) -> 'PersistentPosteriorEstimator':
+    def from_serialized_metadata(
+        cls, metadata: Mapping[str, Any]
+    ) -> "PersistentPosteriorEstimator":
         """Rebuild an estimator instance from persisted metadata only."""
 
     @abc.abstractmethod
@@ -120,39 +124,47 @@ class PersistentPosteriorEstimator(PosteriorEstimator):
         """Restore backend-specific model state from the input directory."""
 
     @staticmethod
-    def _load_training_artifacts(metadata: Mapping[str, Any]) -> TrainingArtifacts | None:
-        training_artifacts = metadata.get('training_artifacts')
+    def _load_training_artifacts(
+        metadata: Mapping[str, Any],
+    ) -> TrainingArtifacts | None:
+        training_artifacts = metadata.get("training_artifacts")
         if training_artifacts is None:
             return None
 
         return TrainingArtifacts(
-            history=dict(training_artifacts.get('history', {})),
-            validation_metrics=dict(training_artifacts.get('validation_metrics', {})),
-            metadata=dict(training_artifacts.get('metadata', {})),
+            history=dict(training_artifacts.get("history", {})),
+            validation_metrics=dict(training_artifacts.get("validation_metrics", {})),
+            metadata=dict(training_artifacts.get("metadata", {})),
         )
 
     def hydrate_loaded_metadata(self, metadata: Mapping[str, Any]) -> None:
-        self.task_name = metadata.get('task_name')
-        self.task_version = metadata.get('task_version')
-        self.task_fingerprint = metadata.get('task_fingerprint')
-        self.observation_schema = dict(metadata.get('observation_schema', {}))
-        self.preprocessing_metadata_payload = dict(metadata.get('preprocessing_metadata_payload', {}))
-        artifact_metadata = metadata.get('artifact_metadata')
+        self.task_name = metadata.get("task_name")
+        self.task_version = metadata.get("task_version")
+        self.task_fingerprint = metadata.get("task_fingerprint")
+        self.observation_schema = dict(metadata.get("observation_schema", {}))
+        self.preprocessing_metadata_payload = dict(
+            metadata.get("preprocessing_metadata_payload", {})
+        )
+        artifact_metadata = metadata.get("artifact_metadata")
         if artifact_metadata is not None:
             self.artifact_metadata = ArtifactMetadata.from_payload(artifact_metadata)
         self.training_artifacts = self._load_training_artifacts(metadata)
 
     def _build_artifact_metadata_payload(self) -> dict[str, Any]:
-        training_metadata = {} if self.training_artifacts is None else {
-            'history': dict(self.training_artifacts.history),
-            'validation_metrics': dict(self.training_artifacts.validation_metrics),
-            'training_metadata': dict(self.training_artifacts.metadata),
-        }
+        training_metadata = (
+            {}
+            if self.training_artifacts is None
+            else {
+                "history": dict(self.training_artifacts.history),
+                "validation_metrics": dict(self.training_artifacts.validation_metrics),
+                "training_metadata": dict(self.training_artifacts.metadata),
+            }
+        )
         return {
-            'parameter_dim': self.parameter_dim,
-            'parameter_space': self.parameter_space,
-            'estimator_config_summary': self._build_estimator_config(),
-            'task_metadata': dict(self.task_metadata),
+            "parameter_dim": self.parameter_dim,
+            "parameter_space": self.parameter_space,
+            "estimator_config_summary": self._build_estimator_config(),
+            "task_metadata": dict(self.task_metadata),
             **training_metadata,
         }
 
@@ -160,7 +172,8 @@ class PersistentPosteriorEstimator(PosteriorEstimator):
         """Assemble registry metadata for the currently trained estimator."""
         artifact_metadata = ArtifactMetadata(
             role=ArtifactRole.POSTERIOR_MODEL,
-            task_name=self.task_name or self.task_metadata.get('task_name', 'unknown_task'),
+            task_name=self.task_name
+            or self.task_metadata.get("task_name", "unknown_task"),
             version=version,
             estimator_family=self.estimator_family,
             task_version=self.task_version,
@@ -172,49 +185,59 @@ class PersistentPosteriorEstimator(PosteriorEstimator):
         self.artifact_metadata = artifact_metadata
         return artifact_metadata
 
-    def _build_serialized_metadata(self, artifact_metadata: ArtifactMetadata) -> dict[str, Any]:
+    def _build_serialized_metadata(
+        self, artifact_metadata: ArtifactMetadata
+    ) -> dict[str, Any]:
         return {
-            'metadata_schema_version': self.metadata_schema_version,
-            'estimator_family': self.estimator_family,
-            'parameter_dim': self.parameter_dim,
-            'parameter_space': self.parameter_space,
-            'seed': self.seed,
-            'task_metadata': dict(self.task_metadata),
-            'task_name': self.task_name,
-            'task_version': self.task_version,
-            'task_fingerprint': self.task_fingerprint,
-            'observation_schema': dict(self.observation_schema),
-            'preprocessing_metadata_payload': dict(self.preprocessing_metadata_payload),
-            'estimator_config': self._build_estimator_config(),
-            'artifact_metadata': artifact_metadata.to_payload(),
-            'training_artifacts': None if self.training_artifacts is None else {
-                'history': dict(self.training_artifacts.history),
-                'validation_metrics': dict(self.training_artifacts.validation_metrics),
-                'metadata': dict(self.training_artifacts.metadata),
-            },
+            "metadata_schema_version": self.metadata_schema_version,
+            "estimator_family": self.estimator_family,
+            "parameter_dim": self.parameter_dim,
+            "parameter_space": self.parameter_space,
+            "seed": self.seed,
+            "task_metadata": dict(self.task_metadata),
+            "task_name": self.task_name,
+            "task_version": self.task_version,
+            "task_fingerprint": self.task_fingerprint,
+            "observation_schema": dict(self.observation_schema),
+            "preprocessing_metadata_payload": dict(self.preprocessing_metadata_payload),
+            "estimator_config": self._build_estimator_config(),
+            "artifact_metadata": artifact_metadata.to_payload(),
+            "training_artifacts": (
+                None
+                if self.training_artifacts is None
+                else {
+                    "history": dict(self.training_artifacts.history),
+                    "validation_metrics": dict(
+                        self.training_artifacts.validation_metrics
+                    ),
+                    "metadata": dict(self.training_artifacts.metadata),
+                }
+            ),
         }
 
     def save(
         self,
         output_directory: str,
         artifact_registry: ArtifactRegistry | None = None,
-        artifact_version: str = '0.1.0',
+        artifact_version: str = "0.1.0",
     ) -> None:
         """Persist model weights, metadata, and optional artifact registration."""
         output_path = Path(output_directory)
         output_path.mkdir(parents=True, exist_ok=True)
         artifact_metadata = self.build_artifact_metadata(artifact_version)
         metadata = self._build_serialized_metadata(artifact_metadata)
-        (output_path / 'metadata.json').write_text(json.dumps(metadata, sort_keys=True, indent=2))
+        (output_path / "metadata.json").write_text(
+            json.dumps(metadata, sort_keys=True, indent=2)
+        )
         self.save_backend_state(output_path)
         if artifact_registry is not None:
             artifact_registry.register(artifact_metadata, output_path.as_posix())
 
     @classmethod
-    def load(cls, input_directory: str) -> 'PersistentPosteriorEstimator':
+    def load(cls, input_directory: str) -> "PersistentPosteriorEstimator":
         """Restore a saved persistent estimator from disk."""
         input_path = Path(input_directory)
-        metadata = json.loads((input_path / 'metadata.json').read_text())
+        metadata = json.loads((input_path / "metadata.json").read_text())
         estimator = cls.from_serialized_metadata(metadata)
         estimator.load_backend_state(input_path)
         estimator.hydrate_loaded_metadata(metadata)
@@ -222,10 +245,10 @@ class PersistentPosteriorEstimator(PosteriorEstimator):
 
 
 __all__ = [
-    'POSTERIOR_METADATA_SCHEMA_VERSION',
-    'PersistentPosteriorEstimator',
-    'PosteriorBatch',
-    'PosteriorEstimator',
-    'PosteriorSamples',
-    'TrainingArtifacts',
+    "POSTERIOR_METADATA_SCHEMA_VERSION",
+    "PersistentPosteriorEstimator",
+    "PosteriorBatch",
+    "PosteriorEstimator",
+    "PosteriorSamples",
+    "TrainingArtifacts",
 ]

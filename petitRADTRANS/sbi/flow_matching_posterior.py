@@ -27,7 +27,14 @@ class _FlowMatchingVelocityField(eqx.Module):
 
     network: eqx.nn.MLP
 
-    def __init__(self, parameter_dim: int, context_dim: int, hidden_dim: int, depth: int, key: jax.Array):
+    def __init__(
+        self,
+        parameter_dim: int,
+        context_dim: int,
+        hidden_dim: int,
+        depth: int,
+        key: jax.Array,
+    ):
         self.network = eqx.nn.MLP(
             in_size=int(parameter_dim) + int(context_dim) + 1,
             out_size=int(parameter_dim),
@@ -37,13 +44,17 @@ class _FlowMatchingVelocityField(eqx.Module):
             key=key,
         )
 
-    def __call__(self, state: jnp.ndarray, time: jnp.ndarray, context: jnp.ndarray) -> jnp.ndarray:
+    def __call__(
+        self, state: jnp.ndarray, time: jnp.ndarray, context: jnp.ndarray
+    ) -> jnp.ndarray:
         time_input = jnp.reshape(jnp.asarray(time, dtype=jnp.float32), (1,))
-        inputs = jnp.concatenate([
-            jnp.asarray(state, dtype=jnp.float32),
-            jnp.asarray(context, dtype=jnp.float32),
-            time_input,
-        ])
+        inputs = jnp.concatenate(
+            [
+                jnp.asarray(state, dtype=jnp.float32),
+                jnp.asarray(context, dtype=jnp.float32),
+                time_input,
+            ]
+        )
         return self.network(inputs)
 
 
@@ -67,7 +78,7 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
     the terminal parameter state.
     """
 
-    estimator_family = 'flow_matching'
+    estimator_family = "flow_matching"
 
     def __init__(
         self,
@@ -78,19 +89,19 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
         learning_rate: float = 1e-3,
         batch_size: int = 32,
         num_epochs: int = 5,
-        parameter_space: str = 'unconstrained',
+        parameter_space: str = "unconstrained",
         integration_steps: int = 32,
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
         checkpoint_directory: str | None = None,
-        checkpoint_backend: str = 'auto',
+        checkpoint_backend: str = "auto",
         resume_from_checkpoint: bool = False,
         seed: int = 0,
         task_metadata: Mapping[str, Any] | None = None,
     ):
         warnings.warn(
-            'FlowMatchingPosterior is experimental. Its API and numerical '
-            'behaviour may change in future releases.',
+            "FlowMatchingPosterior is experimental. Its API and numerical "
+            "behaviour may change in future releases.",
             stacklevel=2,
         )
         super().__init__(
@@ -106,7 +117,9 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
         self.batch_size = int(batch_size)
         self.num_epochs = int(num_epochs)
         self.integration_steps = int(integration_steps)
-        self.early_stopping_patience = None if early_stopping_patience is None else int(early_stopping_patience)
+        self.early_stopping_patience = (
+            None if early_stopping_patience is None else int(early_stopping_patience)
+        )
         self.early_stopping_min_delta = float(early_stopping_min_delta)
         self.checkpoint_directory = checkpoint_directory
         self.checkpoint_backend = checkpoint_backend
@@ -144,7 +157,7 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
             posinf=1e6,
             neginf=-1e6,
         )
-        batch_indices = batch.metadata.get('batch_indices', [0])
+        batch_indices = batch.metadata.get("batch_indices", [0])
         batch_seed = int(sum(batch_indices)) % (2**31) if batch_indices else 0
         base_key = random.PRNGKey(batch_seed)
         noise_key, time_key = random.split(base_key)
@@ -156,7 +169,9 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
             maxval=1.0,
             dtype=jnp.float32,
         )
-        interpolated_state = ((1.0 - interpolation_time) * base_noise) + (interpolation_time * parameters)
+        interpolated_state = ((1.0 - interpolation_time) * base_noise) + (
+            interpolation_time * parameters
+        )
         target_velocity = parameters - base_noise
         predicted_velocity = vmap(model.velocity_field)(
             interpolated_state,
@@ -167,12 +182,14 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
         return jnp.mean(jnp.nan_to_num(squared_error, nan=1e6, posinf=1e6, neginf=1e6))
 
     def fit(self, dataset: Any) -> TrainingArtifacts:
-        manifest = getattr(getattr(dataset, 'dataset', None), 'manifest', None)
+        manifest = getattr(getattr(dataset, "dataset", None), "manifest", None)
         if manifest is not None:
-            self.task_name = str(getattr(manifest, 'task_name', self.task_name or 'unknown_task'))
-            self.task_fingerprint = getattr(manifest, 'task_fingerprint', None)
-            self.observation_schema = dict(getattr(manifest, 'observation_schema', {}))
-        preprocessing_metadata = getattr(dataset, 'preprocessing_metadata', None)
+            self.task_name = str(
+                getattr(manifest, "task_name", self.task_name or "unknown_task")
+            )
+            self.task_fingerprint = getattr(manifest, "task_fingerprint", None)
+            self.observation_schema = dict(getattr(manifest, "observation_schema", {}))
+        preprocessing_metadata = getattr(dataset, "preprocessing_metadata", None)
         if preprocessing_metadata is not None:
             self.preprocessing_metadata_payload = preprocessing_metadata.to_payload()
 
@@ -206,13 +223,13 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
             history=history,
             validation_metrics=validation_metrics,
             metadata={
-                'parameter_dim': self.parameter_dim,
-                'parameter_space': self.parameter_space,
-                'task_metadata': dict(self.task_metadata),
-                'task_name': self.task_name,
-                'task_fingerprint': self.task_fingerprint,
-                'integration_steps': self.integration_steps,
-                'num_velocity_layers': self.num_velocity_layers,
+                "parameter_dim": self.parameter_dim,
+                "parameter_space": self.parameter_space,
+                "task_metadata": dict(self.task_metadata),
+                "task_name": self.task_name,
+                "task_fingerprint": self.task_fingerprint,
+                "integration_steps": self.integration_steps,
+                "num_velocity_layers": self.num_velocity_layers,
                 **training_metadata,
             },
         )
@@ -220,86 +237,94 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
 
     def _build_estimator_config(self) -> dict[str, Any]:
         return {
-            'embedding_dim': self.embedding_dim,
-            'hidden_dim': self.hidden_dim,
-            'num_velocity_layers': self.num_velocity_layers,
-            'learning_rate': self.learning_rate,
-            'batch_size': self.batch_size,
-            'num_epochs': self.num_epochs,
-            'integration_steps': self.integration_steps,
-            'early_stopping_patience': self.early_stopping_patience,
-            'early_stopping_min_delta': self.early_stopping_min_delta,
-            'checkpoint_directory': self.checkpoint_directory,
-            'checkpoint_backend': self.checkpoint_backend,
-            'resume_from_checkpoint': self.resume_from_checkpoint,
+            "embedding_dim": self.embedding_dim,
+            "hidden_dim": self.hidden_dim,
+            "num_velocity_layers": self.num_velocity_layers,
+            "learning_rate": self.learning_rate,
+            "batch_size": self.batch_size,
+            "num_epochs": self.num_epochs,
+            "integration_steps": self.integration_steps,
+            "early_stopping_patience": self.early_stopping_patience,
+            "early_stopping_min_delta": self.early_stopping_min_delta,
+            "checkpoint_directory": self.checkpoint_directory,
+            "checkpoint_backend": self.checkpoint_backend,
+            "resume_from_checkpoint": self.resume_from_checkpoint,
         }
 
     @staticmethod
     def _resolve_estimator_config(metadata: Mapping[str, Any]) -> dict[str, Any]:
-        estimator_config = metadata.get('estimator_config')
+        estimator_config = metadata.get("estimator_config")
         if isinstance(estimator_config, Mapping):
             return dict(estimator_config)
 
         return {
-            'embedding_dim': metadata['embedding_dim'],
-            'hidden_dim': metadata['hidden_dim'],
-            'num_velocity_layers': metadata.get('num_velocity_layers', 3),
-            'learning_rate': metadata['learning_rate'],
-            'batch_size': metadata['batch_size'],
-            'num_epochs': metadata['num_epochs'],
-            'integration_steps': metadata.get('integration_steps', 32),
-            'early_stopping_patience': metadata.get('early_stopping_patience'),
-            'early_stopping_min_delta': metadata.get('early_stopping_min_delta', 0.0),
-            'checkpoint_directory': metadata.get('checkpoint_directory'),
-            'checkpoint_backend': metadata.get('checkpoint_backend', 'auto'),
-            'resume_from_checkpoint': metadata.get('resume_from_checkpoint', False),
+            "embedding_dim": metadata["embedding_dim"],
+            "hidden_dim": metadata["hidden_dim"],
+            "num_velocity_layers": metadata.get("num_velocity_layers", 3),
+            "learning_rate": metadata["learning_rate"],
+            "batch_size": metadata["batch_size"],
+            "num_epochs": metadata["num_epochs"],
+            "integration_steps": metadata.get("integration_steps", 32),
+            "early_stopping_patience": metadata.get("early_stopping_patience"),
+            "early_stopping_min_delta": metadata.get("early_stopping_min_delta", 0.0),
+            "checkpoint_directory": metadata.get("checkpoint_directory"),
+            "checkpoint_backend": metadata.get("checkpoint_backend", "auto"),
+            "resume_from_checkpoint": metadata.get("resume_from_checkpoint", False),
         }
 
     def _build_serialized_metadata(self, artifact_metadata) -> dict[str, Any]:
         metadata = super()._build_serialized_metadata(artifact_metadata)
-        metadata.update({
-            'embedding_dim': self.embedding_dim,
-            'hidden_dim': self.hidden_dim,
-            'num_velocity_layers': self.num_velocity_layers,
-            'learning_rate': self.learning_rate,
-            'batch_size': self.batch_size,
-            'num_epochs': self.num_epochs,
-            'integration_steps': self.integration_steps,
-            'early_stopping_patience': self.early_stopping_patience,
-            'early_stopping_min_delta': self.early_stopping_min_delta,
-            'checkpoint_directory': self.checkpoint_directory,
-            'checkpoint_backend': self.checkpoint_backend,
-            'resume_from_checkpoint': self.resume_from_checkpoint,
-        })
+        metadata.update(
+            {
+                "embedding_dim": self.embedding_dim,
+                "hidden_dim": self.hidden_dim,
+                "num_velocity_layers": self.num_velocity_layers,
+                "learning_rate": self.learning_rate,
+                "batch_size": self.batch_size,
+                "num_epochs": self.num_epochs,
+                "integration_steps": self.integration_steps,
+                "early_stopping_patience": self.early_stopping_patience,
+                "early_stopping_min_delta": self.early_stopping_min_delta,
+                "checkpoint_directory": self.checkpoint_directory,
+                "checkpoint_backend": self.checkpoint_backend,
+                "resume_from_checkpoint": self.resume_from_checkpoint,
+            }
+        )
         return metadata
 
     @classmethod
-    def from_serialized_metadata(cls, metadata: Mapping[str, Any]) -> 'FlowMatchingPosterior':
+    def from_serialized_metadata(
+        cls, metadata: Mapping[str, Any]
+    ) -> "FlowMatchingPosterior":
         estimator_config = cls._resolve_estimator_config(metadata)
         return cls(
-            parameter_dim=int(metadata['parameter_dim']),
-            embedding_dim=int(estimator_config['embedding_dim']),
-            hidden_dim=int(estimator_config['hidden_dim']),
-            num_velocity_layers=int(estimator_config.get('num_velocity_layers', 3)),
-            learning_rate=float(estimator_config['learning_rate']),
-            batch_size=int(estimator_config['batch_size']),
-            num_epochs=int(estimator_config['num_epochs']),
-            parameter_space=str(metadata['parameter_space']),
-            integration_steps=int(estimator_config.get('integration_steps', 32)),
-            early_stopping_patience=estimator_config.get('early_stopping_patience'),
-            early_stopping_min_delta=float(estimator_config.get('early_stopping_min_delta', 0.0)),
-            checkpoint_directory=estimator_config.get('checkpoint_directory'),
-            checkpoint_backend=str(estimator_config.get('checkpoint_backend', 'auto')),
-            resume_from_checkpoint=bool(estimator_config.get('resume_from_checkpoint', False)),
-            seed=int(metadata['seed']),
-            task_metadata=dict(metadata.get('task_metadata', {})),
+            parameter_dim=int(metadata["parameter_dim"]),
+            embedding_dim=int(estimator_config["embedding_dim"]),
+            hidden_dim=int(estimator_config["hidden_dim"]),
+            num_velocity_layers=int(estimator_config.get("num_velocity_layers", 3)),
+            learning_rate=float(estimator_config["learning_rate"]),
+            batch_size=int(estimator_config["batch_size"]),
+            num_epochs=int(estimator_config["num_epochs"]),
+            parameter_space=str(metadata["parameter_space"]),
+            integration_steps=int(estimator_config.get("integration_steps", 32)),
+            early_stopping_patience=estimator_config.get("early_stopping_patience"),
+            early_stopping_min_delta=float(
+                estimator_config.get("early_stopping_min_delta", 0.0)
+            ),
+            checkpoint_directory=estimator_config.get("checkpoint_directory"),
+            checkpoint_backend=str(estimator_config.get("checkpoint_backend", "auto")),
+            resume_from_checkpoint=bool(
+                estimator_config.get("resume_from_checkpoint", False)
+            ),
+            seed=int(metadata["seed"]),
+            task_metadata=dict(metadata.get("task_metadata", {})),
         )
 
     def save_backend_state(self, output_path: Path) -> None:
-        eqx.tree_serialise_leaves(output_path / 'model.eqx', self.model)
+        eqx.tree_serialise_leaves(output_path / "model.eqx", self.model)
 
     def load_backend_state(self, input_path: Path) -> None:
-        self.model = eqx.tree_deserialise_leaves(input_path / 'model.eqx', self.model)
+        self.model = eqx.tree_deserialise_leaves(input_path / "model.eqx", self.model)
 
     def encode_observation(self, blocks: list[ObservationBlock]) -> EncodedObservation:
         return self.model.encoder.encode(blocks)
@@ -324,9 +349,16 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
         )
         step_size = jnp.asarray(1.0 / float(self.integration_steps), dtype=jnp.float32)
 
-        def integration_step(current_state: jnp.ndarray, step_index: jnp.ndarray) -> tuple[jnp.ndarray, None]:
-            time = (jnp.asarray(step_index, dtype=jnp.float32) + jnp.asarray(0.5, dtype=jnp.float32)) * step_size
-            velocity = vmap(lambda value: self.model.velocity_field(value, time, context))(current_state)
+        def integration_step(
+            current_state: jnp.ndarray, step_index: jnp.ndarray
+        ) -> tuple[jnp.ndarray, None]:
+            time = (
+                jnp.asarray(step_index, dtype=jnp.float32)
+                + jnp.asarray(0.5, dtype=jnp.float32)
+            ) * step_size
+            velocity = vmap(
+                lambda value: self.model.velocity_field(value, time, context)
+            )(current_state)
             velocity = jnp.asarray(velocity, dtype=jnp.float32)
             next_state = current_state + (step_size * velocity)
             return next_state, None
@@ -336,15 +368,17 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
             state,
             jnp.arange(self.integration_steps, dtype=jnp.int32),
         )
-        return PosteriorSamples(samples=np.nan_to_num(np.asarray(state), nan=0.0, posinf=1e6, neginf=-1e6))
+        return PosteriorSamples(
+            samples=np.nan_to_num(np.asarray(state), nan=0.0, posinf=1e6, neginf=-1e6)
+        )
 
     def log_prob(self, observation: EncodedObservation, parameters: Any) -> Any:
         del observation, parameters
         raise NotImplementedError(
-            'FlowMatchingPosterior currently exposes sampling only; normalized log-probabilities are not implemented.'
+            "FlowMatchingPosterior currently exposes sampling only; normalized log-probabilities are not implemented."
         )
 
 
 __all__ = [
-    'FlowMatchingPosterior',
+    "FlowMatchingPosterior",
 ]

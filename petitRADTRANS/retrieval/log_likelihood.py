@@ -1,8 +1,7 @@
 import numpy as np
 import jax.numpy as jnp
 from jax.typing import ArrayLike
-from jax import lax
-from scipy.special import logsumexp
+from jax.scipy.special import logsumexp
 
 
 def get_bic(max_logl: float, n_data: int, n_params: int) -> float:
@@ -12,7 +11,7 @@ def get_bic(max_logl: float, n_data: int, n_params: int) -> float:
         Schwartz (1978), DOI 10.1214/aos/1176344136.
         Thorngren et al. (2025), DOI 10.3847/1538-4365/ae0e71.
     """
-    return -2 * max_logl + n_params * np.log(n_data)
+    return -2 * max_logl + n_params * jnp.log(n_data)
 
 
 def get_aic(max_logl: float, n_params: int) -> float:
@@ -25,14 +24,16 @@ def get_aic(max_logl: float, n_params: int) -> float:
     return -2 * max_logl + 2 * n_params
 
 
-def get_bpics(logl_samples: ArrayLike, n_params: int, log_weights: ArrayLike = None) -> float:
+def get_bpics(
+    logl_samples: ArrayLike, n_params: int, log_weights: ArrayLike = None
+) -> float:
     """Calculate the simplified Bayesian Predictive Information Criterion.
 
     References:
         Ando (2011), DOI 10.1080/01966324.2011.10737798.
         Thorngren et al. (2025), DOI 10.3847/1538-4365/ae0e71.
     """
-    logl_samples = np.asarray(logl_samples, dtype=float).reshape(-1)
+    logl_samples = jnp.asarray(logl_samples, dtype=float).reshape(-1)
 
     if logl_samples.size == 0:
         raise ValueError("logl_samples must contain at least one value")
@@ -45,19 +46,21 @@ def get_bpics(logl_samples: ArrayLike, n_params: int, log_weights: ArrayLike = N
                 f"Expected {logl_samples.size} log weights, got {log_weights.size}"
             )
 
-        weights = np.exp(log_weights - logsumexp(log_weights))
+        weights = jnp.exp(log_weights - logsumexp(log_weights))
 
-    mean_logl = np.average(logl_samples, weights=weights)
+    mean_logl = jnp.average(logl_samples, weights=weights)
     return -2 * mean_logl + 2 * n_params
 
 
 class LogLikelihood:
-    def __init__(self,
-                 model_spectrum: ArrayLike,
-                 data_spectrum: ArrayLike,
-                 data_uncertainties: ArrayLike = None,
-                 data_covariance: ArrayLike = None,
-                 n_free_parameters: int = 0):
+    def __init__(
+        self,
+        model_spectrum: ArrayLike,
+        data_spectrum: ArrayLike,
+        data_uncertainties: ArrayLike = None,
+        data_covariance: ArrayLike = None,
+        n_free_parameters: int = 0,
+    ):
         """
         Initializes the LogLikelihood calculator.
 
@@ -71,7 +74,9 @@ class LogLikelihood:
                              Required if data_uncertainties is None.
         """
         if data_uncertainties is None and data_covariance is None:
-            raise ValueError("Either data_uncertainties or data_covariance must be provided.")
+            raise ValueError(
+                "Either data_uncertainties or data_covariance must be provided."
+            )
         if data_spectrum.shape != model_spectrum.shape:
             raise ValueError("The data and model model must have the same shape.")
 
@@ -88,7 +93,9 @@ class LogLikelihood:
         if data_uncertainties is not None:
             self.data_uncertainties = jnp.asarray(data_uncertainties)
             if self.data_uncertainties.shape != self.model_spectrum.shape:
-                raise ValueError("data_uncertainties must have the same shape as the model_spectrum")
+                raise ValueError(
+                    "data_uncertainties must have the same shape as the model_spectrum"
+                )
             # if jnp.any(self.data_uncertainties <= 0): TODO: move to data.py
             #    raise ValueError("Uncertainties must be positive.")
         else:
@@ -97,8 +104,10 @@ class LogLikelihood:
         if data_covariance is not None:
             self.data_covariance = jnp.asarray(data_covariance)
             if self.data_covariance.shape != (self.n_data_points, self.n_data_points):
-                raise ValueError(f"Shape of data_covariance ({self.data_covariance.shape}) "
-                                 f"is not ({self.n_data_points}, {self.n_data_points})")
+                raise ValueError(
+                    f"Shape of data_covariance ({self.data_covariance.shape}) "
+                    f"is not ({self.n_data_points}, {self.n_data_points})"
+                )
             if self.data_uncertainties is None:
                 self.data_uncertainties = jnp.sqrt(jnp.diagonal(self.data_covariance))
         else:
@@ -108,13 +117,18 @@ class LogLikelihood:
         if data_covariance is not None:
             # TODO: This assumes 1D spectrum. Need to extend to ND data.
             self.cholesky_factor = jnp.linalg.cholesky(self.data_covariance)
-            self.log_det_covariance = 2.0 * jnp.sum(jnp.log(jnp.diagonal(self.cholesky_factor)))
-            self._log_norm_constant = -0.5 * (self.n_data_points * jnp.log(2.0 * jnp.pi) +
-                                              self.log_det_covariance)
+            self.log_det_covariance = 2.0 * jnp.sum(
+                jnp.log(jnp.diagonal(self.cholesky_factor))
+            )
+            self._log_norm_constant = -0.5 * (
+                self.n_data_points * jnp.log(2.0 * jnp.pi) + self.log_det_covariance
+            )
         else:
             self.data_covariance = jnp.diag(self.data_uncertainties**2)
             _sign, self.log_det_covariance = jnp.linalg.slogdet(self.data_covariance)
-            self._log_norm_constant = -0.5 * jnp.sum(jnp.log(2.0 * jnp.pi * self.data_uncertainties**2))
+            self._log_norm_constant = -0.5 * jnp.sum(
+                jnp.log(2.0 * jnp.pi * self.data_uncertainties**2)
+            )
 
     def get_chi_squared(self) -> float:
         if self.cholesky_factor is not None:
@@ -128,7 +142,7 @@ class LogLikelihood:
 
     def _calculate_chi_squared_uncertainties(self):
         residual = self.data_spectrum - self.model_spectrum
-        return jnp.sum((residual / self.data_uncertainties)**2)
+        return jnp.sum((residual / self.data_uncertainties) ** 2)
 
     def calculate_log_likelihood(self) -> float:
         chi_squared = self.get_chi_squared()
@@ -161,16 +175,17 @@ class LogLikelihood:
         """
         return self._log_norm_constant
 
-    def log_likelihood(self, beta=None, beta_mode='multiply'):
+    def log_likelihood(self, beta=None, beta_mode="multiply"):
         return self._log_likelihood(
             self.model_spectrum,
             self.data_spectrum,
             self.data_uncertainties,
             beta=beta,
-            beta_mode=beta_mode)
+            beta_mode=beta_mode,
+        )
 
     @staticmethod
-    def _log_likelihood(model, data, uncertainties, beta=None, beta_mode='multiply'):
+    def _log_likelihood(model, data, uncertainties, beta=None, beta_mode="multiply"):
         """Calculate the log-likelihood between the model and the data.
 
         The spectrum model must be on the same wavelength grid than the data.
@@ -225,24 +240,26 @@ class LogLikelihood:
             chi2 *= chi2
             chi2 = chi2.sum()
 
-            return - 0.5 * data.size * jnp.log(chi2 / data.size)
+            return -0.5 * data.size * jnp.log(chi2 / data.size)
         else:
             # Classical log-likelihood
-            if beta_mode == 'multiply':
+            if beta_mode == "multiply":
                 uncertainties = uncertainties * beta
-                penalty_term = - data.size * jnp.log(beta)
-            elif beta_mode == 'add':
+                penalty_term = -data.size * jnp.log(beta)
+            elif beta_mode == "add":
                 uncertainties = uncertainties + beta
-                penalty_term = - jnp.sum(jnp.log(uncertainties))
+                penalty_term = -jnp.sum(jnp.log(uncertainties))
             else:
-                raise ValueError(f"beta mode must be 'multiply'|'add', but was '{beta_mode}'")
+                raise ValueError(
+                    f"beta mode must be 'multiply'|'add', but was '{beta_mode}'"
+                )
 
             chi2 = data - model
             chi2 /= uncertainties
             chi2 *= chi2
             chi2 = chi2.sum()
 
-            return - 0.5 * chi2 + penalty_term
+            return -0.5 * chi2 + penalty_term
 
     @staticmethod
     def log_likelihood2chi2(log_likelihood: float) -> float:

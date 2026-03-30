@@ -36,7 +36,14 @@ class CouplingConditioner(eqx.Module):
     context_dim: int = eqx.field(static=True)
     output_dim: int = eqx.field(static=True)
 
-    def __init__(self, input_dim: int, context_dim: int, output_dim: int, hidden_dim: int, key: Array):
+    def __init__(
+        self,
+        input_dim: int,
+        context_dim: int,
+        output_dim: int,
+        hidden_dim: int,
+        key: Array,
+    ):
         self.input_dim = int(input_dim)
         self.context_dim = int(context_dim)
         self.output_dim = int(output_dim)
@@ -112,7 +119,10 @@ def _rational_quadratic_spline_forward(
         axis=0,
     )
     cumheights = jnp.concatenate(
-        (jnp.asarray([-bound], dtype=dtype), -bound_value + jnp.cumsum(heights, axis=0)),
+        (
+            jnp.asarray([-bound], dtype=dtype),
+            -bound_value + jnp.cumsum(heights, axis=0),
+        ),
         axis=0,
     )
 
@@ -128,20 +138,23 @@ def _rational_quadratic_spline_forward(
     theta = (value - input_cumwidth) / input_bin_width
     theta_one_minus_theta = theta * (1.0 - theta)
     denominator = input_delta + (
-        (input_derivative + input_derivative_plus_one - 2.0 * input_delta) * theta_one_minus_theta
+        (input_derivative + input_derivative_plus_one - 2.0 * input_delta)
+        * theta_one_minus_theta
     )
     denominator = jnp.maximum(denominator, jnp.asarray(1e-8, dtype=dtype))
     numerator = input_bin_height * (
-        input_delta * theta ** 2 + input_derivative * theta_one_minus_theta
+        input_delta * theta**2 + input_derivative * theta_one_minus_theta
     )
     transformed = input_cumheight + numerator / denominator
 
-    derivative_numerator = input_delta ** 2 * (
-        input_derivative_plus_one * theta ** 2
+    derivative_numerator = input_delta**2 * (
+        input_derivative_plus_one * theta**2
         + 2.0 * input_delta * theta_one_minus_theta
         + input_derivative * (1.0 - theta) ** 2
     )
-    derivative_numerator = jnp.maximum(derivative_numerator, jnp.asarray(1e-8, dtype=dtype))
+    derivative_numerator = jnp.maximum(
+        derivative_numerator, jnp.asarray(1e-8, dtype=dtype)
+    )
     log_det = jnp.log(derivative_numerator) - 2.0 * jnp.log(denominator)
 
     return (
@@ -173,7 +186,10 @@ def _rational_quadratic_spline_inverse(
         axis=0,
     )
     cumheights = jnp.concatenate(
-        (jnp.asarray([-bound], dtype=dtype), -bound_value + jnp.cumsum(heights, axis=0)),
+        (
+            jnp.asarray([-bound], dtype=dtype),
+            -bound_value + jnp.cumsum(heights, axis=0),
+        ),
         axis=0,
     )
 
@@ -188,24 +204,30 @@ def _rational_quadratic_spline_inverse(
 
     shifted_value = value - input_cumheight
     slope_term = input_derivative + input_derivative_plus_one - 2.0 * input_delta
-    quadratic = shifted_value * slope_term + input_bin_height * (input_delta - input_derivative)
+    quadratic = shifted_value * slope_term + input_bin_height * (
+        input_delta - input_derivative
+    )
     linear = input_bin_height * input_derivative - shifted_value * slope_term
     constant = -input_delta * shifted_value
-    discriminant = jnp.maximum(linear ** 2 - 4.0 * quadratic * constant, 1e-12)
+    discriminant = jnp.maximum(linear**2 - 4.0 * quadratic * constant, 1e-12)
     quadratic_root = (2.0 * constant) / (-linear - jnp.sqrt(discriminant))
-    linear_root = -constant / jnp.where(jnp.abs(linear) < 1e-12, jnp.asarray(-1.0, dtype=dtype), linear)
+    linear_root = -constant / jnp.where(
+        jnp.abs(linear) < 1e-12, jnp.asarray(-1.0, dtype=dtype), linear
+    )
     root = jnp.where(jnp.abs(quadratic) > 1e-8, quadratic_root, linear_root)
     theta = jnp.clip(root, 0.0, 1.0)
     theta_one_minus_theta = theta * (1.0 - theta)
 
     denominator = input_delta + slope_term * theta_one_minus_theta
     denominator = jnp.maximum(denominator, jnp.asarray(1e-8, dtype=dtype))
-    derivative_numerator = input_delta ** 2 * (
-        input_derivative_plus_one * theta ** 2
+    derivative_numerator = input_delta**2 * (
+        input_derivative_plus_one * theta**2
         + 2.0 * input_delta * theta_one_minus_theta
         + input_derivative * (1.0 - theta) ** 2
     )
-    derivative_numerator = jnp.maximum(derivative_numerator, jnp.asarray(1e-8, dtype=dtype))
+    derivative_numerator = jnp.maximum(
+        derivative_numerator, jnp.asarray(1e-8, dtype=dtype)
+    )
 
     transformed = input_cumwidth + theta * input_bin_width
     log_det = 2.0 * jnp.log(denominator) - jnp.log(derivative_numerator)
@@ -229,12 +251,16 @@ class ConditionalAffineCoupling(eqx.Module):
     mask: jnp.ndarray
     conditioner: CouplingConditioner
 
-    def _parameters(self, masked_x: jnp.ndarray, context: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def _parameters(
+        self, masked_x: jnp.ndarray, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         outputs = self.conditioner(masked_x, context)
         shift, log_scale = jnp.split(outputs, 2)
         return shift, 2.0 * jnp.tanh(log_scale / 2.0)
 
-    def forward(self, x: jnp.ndarray, context: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def forward(
+        self, x: jnp.ndarray, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Apply the forward affine transform.
 
         Parameters
@@ -257,7 +283,9 @@ class ConditionalAffineCoupling(eqx.Module):
         log_det = jnp.sum(inverse_mask * log_scale)
         return y, log_det
 
-    def inverse(self, y: jnp.ndarray, context: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def inverse(
+        self, y: jnp.ndarray, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Apply the inverse affine transform.
 
         Parameters
@@ -308,11 +336,13 @@ class ConditionalRationalQuadraticSplineCoupling(eqx.Module):
         outputs = self.conditioner(masked_x, context)
         parameters = outputs.reshape(self.parameter_dim, 3 * self.num_bins + 1)
         unnormalized_widths = parameters[:, : self.num_bins]
-        unnormalized_heights = parameters[:, self.num_bins:2 * self.num_bins]
-        unnormalized_derivatives = parameters[:, 2 * self.num_bins:]
+        unnormalized_heights = parameters[:, self.num_bins : 2 * self.num_bins]
+        unnormalized_derivatives = parameters[:, 2 * self.num_bins :]
         return unnormalized_widths, unnormalized_heights, unnormalized_derivatives
 
-    def forward(self, x: jnp.ndarray, context: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def forward(
+        self, x: jnp.ndarray, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Apply the forward spline transform.
 
         Parameters
@@ -346,7 +376,9 @@ class ConditionalRationalQuadraticSplineCoupling(eqx.Module):
         y = masked_x + inverse_mask * transformed
         return y, jnp.sum(inverse_mask * log_det)
 
-    def inverse(self, y: jnp.ndarray, context: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def inverse(
+        self, y: jnp.ndarray, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Apply the inverse spline transform.
 
         Parameters
@@ -397,18 +429,22 @@ class ConditionalScalarSplineTransform(eqx.Module):
     min_bin_height: float = eqx.field(static=True)
     min_derivative: float = eqx.field(static=True)
 
-    def _parameters(self, context: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    def _parameters(
+        self, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         outputs = self.conditioner(context)
         unnormalized_widths = outputs[: self.num_bins]
-        unnormalized_heights = outputs[self.num_bins:2 * self.num_bins]
-        unnormalized_derivatives = outputs[2 * self.num_bins:]
+        unnormalized_heights = outputs[self.num_bins : 2 * self.num_bins]
+        unnormalized_derivatives = outputs[2 * self.num_bins :]
         return unnormalized_widths, unnormalized_heights, unnormalized_derivatives
 
     @staticmethod
     def _as_scalar(value: jnp.ndarray) -> jnp.ndarray:
         return jnp.reshape(jnp.asarray(value), ())
 
-    def forward(self, x: jnp.ndarray, context: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def forward(
+        self, x: jnp.ndarray, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Apply the forward scalar spline transform.
 
         Parameters
@@ -436,7 +472,9 @@ class ConditionalScalarSplineTransform(eqx.Module):
         )
         return jnp.asarray([transformed], dtype=jnp.asarray(x).dtype), log_det
 
-    def inverse(self, y: jnp.ndarray, context: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def inverse(
+        self, y: jnp.ndarray, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Apply the inverse scalar spline transform.
 
         Parameters
@@ -478,7 +516,9 @@ class _ConditionalFlowStack(eqx.Module):
             return values
         return values[::-1]
 
-    def forward(self, x: jnp.ndarray, context: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def forward(
+        self, x: jnp.ndarray, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         transformed = x
         log_det = jnp.asarray(0.0, dtype=x.dtype)
 
@@ -490,7 +530,9 @@ class _ConditionalFlowStack(eqx.Module):
 
         return transformed, log_det
 
-    def inverse(self, z: jnp.ndarray, context: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def inverse(
+        self, z: jnp.ndarray, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         transformed = z
         log_det = jnp.asarray(0.0, dtype=z.dtype)
 
@@ -504,11 +546,13 @@ class _ConditionalFlowStack(eqx.Module):
 
     def log_prob(self, x: jnp.ndarray, context: jnp.ndarray) -> jnp.ndarray:
         latent, log_det = self.forward(x, context)
-        base_log_prob = -0.5 * jnp.sum(latent ** 2 + math.log(2.0 * math.pi))
+        base_log_prob = -0.5 * jnp.sum(latent**2 + math.log(2.0 * math.pi))
         return base_log_prob + log_det
 
     def sample(self, context: jnp.ndarray, n_samples: int, key: Array) -> jnp.ndarray:
-        latent_samples = random.normal(key, shape=(n_samples, self.parameter_dim), dtype=context.dtype)
+        latent_samples = random.normal(
+            key, shape=(n_samples, self.parameter_dim), dtype=context.dtype
+        )
 
         def sample_single(latent_sample: jnp.ndarray) -> jnp.ndarray:
             sample, _ = self.inverse(latent_sample, context)
@@ -560,7 +604,10 @@ class ConditionalAffineFlow(_ConditionalFlowStack):
                 mask = jnp.asarray([0.0], dtype=jnp.float32)
             else:
                 mask = jnp.asarray(
-                    [float((dimension + index) % 2 == 0) for dimension in range(self.parameter_dim)],
+                    [
+                        float((dimension + index) % 2 == 0)
+                        for dimension in range(self.parameter_dim)
+                    ],
                     dtype=jnp.float32,
                 )
             layers.append(
@@ -663,7 +710,10 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
 
         for index, layer_key in enumerate(layer_keys):
             mask = jnp.asarray(
-                [float((dimension + index) % 2 == 0) for dimension in range(self.parameter_dim)],
+                [
+                    float((dimension + index) % 2 == 0)
+                    for dimension in range(self.parameter_dim)
+                ],
                 dtype=jnp.float32,
             )
             layers.append(
@@ -689,10 +739,10 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
 
 
 __all__ = [
-    'ConditionalAffineCoupling',
-    'ConditionalAffineFlow',
-    'ConditionalRationalQuadraticSplineCoupling',
-    'ConditionalScalarSplineTransform',
-    'ConditionalSplineFlow',
-    'CouplingConditioner',
+    "ConditionalAffineCoupling",
+    "ConditionalAffineFlow",
+    "ConditionalRationalQuadraticSplineCoupling",
+    "ConditionalScalarSplineTransform",
+    "ConditionalSplineFlow",
+    "CouplingConditioner",
 ]

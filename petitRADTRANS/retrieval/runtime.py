@@ -51,14 +51,16 @@ def _flatten_parameter_values(
     if isinstance(values, np.ndarray):
         return values.reshape(-1)
 
-    if hasattr(values, 'tolist'):
+    if hasattr(values, "tolist"):
         converted_values = values.tolist()
         if isinstance(converted_values, list):
             return np.array(converted_values, dtype=float).reshape(-1)
 
     if expected_size is not None:
         try:
-            return np.array([values[index] for index in range(expected_size)], dtype=float)
+            return np.array(
+                [values[index] for index in range(expected_size)], dtype=float
+            )
         except (IndexError, TypeError, ValueError):
             pass
 
@@ -120,9 +122,9 @@ def _serialize_runtime_metadata_value(value: Any) -> Any:
         return value.item()
 
     if callable(value):
-        module = getattr(value, '__module__', '__callable__')
-        qualname = getattr(value, '__qualname__', repr(value))
-        return f'{module}.{qualname}'
+        module = getattr(value, "__module__", "__callable__")
+        qualname = getattr(value, "__qualname__", repr(value))
+        return f"{module}.{qualname}"
 
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
@@ -136,12 +138,15 @@ def _serialize_runtime_metadata_value(value: Any) -> Any:
 # ``ObservationState`` fields and a parameter dictionary.
 # ---------------------------------------------------------------------------
 
-def _get_parameter_value(parameters: Mapping[str, Any], name: str, default: Any = None) -> Any:
+
+def _get_parameter_value(
+    parameters: Mapping[str, Any], name: str, default: Any = None
+) -> Any:
     """Extract a scalar parameter value, unwrapping ``Parameter.value`` if needed."""
     param = parameters.get(name)
     if param is None:
         return default
-    return param.value if hasattr(param, 'value') else param
+    return param.value if hasattr(param, "value") else param
 
 
 def _apply_flux_scaling(
@@ -152,7 +157,9 @@ def _apply_flux_scaling(
     """Apply multiplicative flux scaling to a spectrum."""
     if not observation.scale_flux:
         return input_spectrum
-    scale_factor = _get_parameter_value(parameters, f"{observation.name}_scale_factor", default=1.0)
+    scale_factor = _get_parameter_value(
+        parameters, f"{observation.name}_scale_factor", default=1.0
+    )
     return input_spectrum * scale_factor
 
 
@@ -164,7 +171,9 @@ def _offset_flux(
     """Apply additive flux offset to a spectrum."""
     if not observation.fit_flux_offset:
         return input_spectrum
-    offset_val = _get_parameter_value(parameters, f"{observation.name}_offset", default=0.0)
+    offset_val = _get_parameter_value(
+        parameters, f"{observation.name}_offset", default=0.0
+    )
     return input_spectrum - offset_val
 
 
@@ -175,10 +184,14 @@ def _line_b_uncertainty_scaling(
     """Compute the Line (2015) 10^b uncertainty inflation term."""
     b_val = -jnp.inf
     if parameters is not None:
-        if f'{observation_name}_b' in parameters:
-            b_val = _get_parameter_value(parameters, f'{observation_name}_b', default=-jnp.inf)
-        elif 'uncertainty_scaling_b' in parameters:
-            b_val = _get_parameter_value(parameters, 'uncertainty_scaling_b', default=-jnp.inf)
+        if f"{observation_name}_b" in parameters:
+            b_val = _get_parameter_value(
+                parameters, f"{observation_name}_b", default=-jnp.inf
+            )
+        elif "uncertainty_scaling_b" in parameters:
+            b_val = _get_parameter_value(
+                parameters, "uncertainty_scaling_b", default=-jnp.inf
+            )
     return b_val
 
 
@@ -196,13 +209,15 @@ def _scale_and_inflate_uncertainties(
     err_scale_factor = 1.0
     if observation.scale_uncertainties:
         err_scale_factor = _get_parameter_value(
-            parameters, f"{observation.name}_scale_factor", default=1.0,
+            parameters,
+            f"{observation.name}_scale_factor",
+            default=1.0,
         )
 
     raw_b_val = _line_b_uncertainty_scaling(observation.name, parameters)
     additive_variance_term = jnp.where(
         jnp.isfinite(raw_b_val),
-        10 ** raw_b_val,
+        10**raw_b_val,
         0.0,
     )
 
@@ -211,14 +226,18 @@ def _scale_and_inflate_uncertainties(
             build_global_covariance_kernel,
             build_local_covariance_kernel,
         )
+
         scaled_covariance = _build_fitted_covariance_from_observation(
-            observation, parameters, err_scale_factor, additive_variance_term,
+            observation,
+            parameters,
+            err_scale_factor,
+            additive_variance_term,
         )
         scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
         return scaled_uncertainties, scaled_covariance
 
     if observation.covariance is not None:
-        scaled_covariance = observation.covariance * (err_scale_factor ** 2)
+        scaled_covariance = observation.covariance * (err_scale_factor**2)
         scaled_covariance = scaled_covariance + additive_variance_term * jnp.eye(
             scaled_covariance.shape[0],
             dtype=scaled_covariance.dtype,
@@ -226,10 +245,14 @@ def _scale_and_inflate_uncertainties(
         scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
     elif observation.uncertainties is not None:
         scaled_uncertainties = observation.uncertainties * err_scale_factor
-        scaled_uncertainties = jnp.sqrt(scaled_uncertainties ** 2 + additive_variance_term)
+        scaled_uncertainties = jnp.sqrt(
+            scaled_uncertainties**2 + additive_variance_term
+        )
         scaled_covariance = None
     else:
-        raise ValueError(f"Observation '{observation.name}' has neither uncertainties nor covariance.")
+        raise ValueError(
+            f"Observation '{observation.name}' has neither uncertainties nor covariance."
+        )
 
     return scaled_uncertainties, scaled_covariance
 
@@ -252,22 +275,28 @@ def _build_fitted_covariance_from_observation(
     wavelength_vector = jnp.asarray(observation.wavelengths)
 
     if observation.covariance is not None:
-        base_covariance = jnp.asarray(observation.covariance) * (err_scale_factor ** 2)
+        base_covariance = jnp.asarray(observation.covariance) * (err_scale_factor**2)
     elif observation.uncertainties is not None:
         scaled_uncertainties = jnp.asarray(observation.uncertainties) * err_scale_factor
-        base_covariance = jnp.diag(scaled_uncertainties ** 2)
+        base_covariance = jnp.diag(scaled_uncertainties**2)
     else:
-        raise ValueError(f"Observation '{observation.name}' has neither uncertainties nor covariance.")
+        raise ValueError(
+            f"Observation '{observation.name}' has neither uncertainties nor covariance."
+        )
 
     identity = jnp.eye(wavelength_vector.shape[0], dtype=base_covariance.dtype)
     total_covariance = base_covariance + additive_variance_term * identity
 
-    if observation.covariance_mode in {'global', 'global_local'}:
+    if observation.covariance_mode in {"global", "global_local"}:
         global_amplitude = _get_parameter_value(
-            parameters, f'{observation.name}_gp_global_amp', default=0.0,
+            parameters,
+            f"{observation.name}_gp_global_amp",
+            default=0.0,
         )
         global_length = _get_parameter_value(
-            parameters, f'{observation.name}_gp_global_length', default=1.0,
+            parameters,
+            f"{observation.name}_gp_global_length",
+            default=1.0,
         )
         total_covariance = total_covariance + build_global_covariance_kernel(
             wavelength_vector,
@@ -276,22 +305,22 @@ def _build_fitted_covariance_from_observation(
             kernel_name=observation.global_covariance_kernel,
         )
 
-    if observation.covariance_mode in {'local', 'global_local'}:
+    if observation.covariance_mode in {"local", "global_local"}:
         for kernel_index in range(1, observation.n_local_covariance_kernels + 1):
             local_amplitude = _get_parameter_value(
                 parameters,
-                f'{observation.name}_gp_local_{kernel_index}_amp',
+                f"{observation.name}_gp_local_{kernel_index}_amp",
                 default=0.0,
             )
             local_length = _get_parameter_value(
                 parameters,
-                f'{observation.name}_gp_local_{kernel_index}_length',
+                f"{observation.name}_gp_local_{kernel_index}_length",
                 default=1.0,
             )
             default_center = jnp.mean(wavelength_vector)
             local_center = _get_parameter_value(
                 parameters,
-                f'{observation.name}_gp_local_{kernel_index}_center',
+                f"{observation.name}_gp_local_{kernel_index}_center",
                 default=default_center,
             )
             total_covariance = total_covariance + build_local_covariance_kernel(
@@ -312,8 +341,11 @@ def _build_fitted_covariance_from_observation(
 
 
 def _configuration_requires_radtrans_initialization(configuration: Any) -> bool:
-    for data in getattr(configuration, 'data', {}).values():
-        if getattr(data, 'external_radtrans_reference', None) is None and getattr(data, 'radtrans_object', None) is None:
+    for data in getattr(configuration, "data", {}).values():
+        if (
+            getattr(data, "external_radtrans_reference", None) is None
+            and getattr(data, "radtrans_object", None) is None
+        ):
             return True
 
     return False
@@ -346,7 +378,7 @@ def _radtrans_wavelength_grid(radtrans_object: Any) -> Any:
 def project_model_to_observation_space(
     wavelengths_model: Any,
     spectrum_model: Any,
-    observation: 'ObservationState',
+    observation: "ObservationState",
     parameters: Mapping[str, Any],
     data_name: str,
 ) -> Any:
@@ -356,7 +388,10 @@ def project_model_to_observation_space(
     ``process_spectrum_pipeline`` from :mod:`petitRADTRANS.retrieval.utils`,
     gathered here so that ``_score_dataset`` can delegate to a single call.
     """
-    from petitRADTRANS.retrieval.utils import extract_spectrum_parameters, process_spectrum_pipeline
+    from petitRADTRANS.retrieval.utils import (
+        extract_spectrum_parameters,
+        process_spectrum_pipeline,
+    )
 
     spectrum_params = extract_spectrum_parameters(parameters, data_name)
     return process_spectrum_pipeline(
@@ -413,7 +448,7 @@ class PhysicalParams:
     static_items: tuple[tuple[str, Any], ...] = ()
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> 'PhysicalParams':
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "PhysicalParams":
         """Build runtime parameters from an ordered name-to-value mapping."""
         ordered_names = tuple(mapping.keys())
         dynamic_names = []
@@ -438,9 +473,9 @@ class PhysicalParams:
         """Return the pytree representation used by JAX transforms."""
         children = self.dynamic_values
         aux_data = {
-            'ordered_names': self.ordered_names,
-            'dynamic_names': self.dynamic_names,
-            'static_items': self.static_items,
+            "ordered_names": self.ordered_names,
+            "dynamic_names": self.dynamic_names,
+            "static_items": self.static_items,
         }
         return children, aux_data
 
@@ -448,18 +483,24 @@ class PhysicalParams:
     def tree_unflatten(cls, aux_data, children):
         """Reconstruct a ``PhysicalParams`` instance from pytree parts."""
         return cls(
-            ordered_names=aux_data['ordered_names'],
-            dynamic_names=aux_data['dynamic_names'],
+            ordered_names=aux_data["ordered_names"],
+            dynamic_names=aux_data["dynamic_names"],
             dynamic_values=tuple(children),
-            static_items=aux_data['static_items'],
+            static_items=aux_data["static_items"],
         )
 
     def as_dict(self) -> dict[str, Any]:
         """Return all parameters as a plain dictionary in original order."""
-        dynamic_mapping = dict(zip(self.dynamic_names, self.dynamic_values, strict=True))
+        dynamic_mapping = dict(
+            zip(self.dynamic_names, self.dynamic_values, strict=True)
+        )
         static_mapping = dict(self.static_items)
         return {
-            name: dynamic_mapping[name] if name in dynamic_mapping else static_mapping[name]
+            name: (
+                dynamic_mapping[name]
+                if name in dynamic_mapping
+                else static_mapping[name]
+            )
             for name in self.ordered_names
         }
 
@@ -496,9 +537,9 @@ class PhysicalParams:
         ``parameters['name'].value`` access pattern.
         """
         from types import SimpleNamespace
+
         return {
-            name: SimpleNamespace(value=value)
-            for name, value in self.ordered_items()
+            name: SimpleNamespace(value=value) for name, value in self.ordered_items()
         }
 
 
@@ -524,7 +565,7 @@ class ObservationState:
     photometry: bool = False
     external_radtrans_reference: str | None = None
     line_opacity_mode: str | None = None
-    model_contract: str = 'legacy'
+    model_contract: str = "legacy"
     scale_flux: bool = False
     scale_uncertainties: bool = False
     fit_flux_offset: bool = False
@@ -532,9 +573,9 @@ class ObservationState:
     subtract_continuum: bool = False
     photometric_transformation_function: Any = None
     fit_covariance: bool = False
-    covariance_mode: str = 'none'
-    global_covariance_kernel: str = 'squared_exponential'
-    local_covariance_kernel: str = 'squared_exponential'
+    covariance_mode: str = "none"
+    global_covariance_kernel: str = "squared_exponential"
+    local_covariance_kernel: str = "squared_exponential"
     n_local_covariance_kernels: int = 0
     covariance_jitter: float = 0.0
     variability_atmospheric_column_model_flux_return_mode: bool = False
@@ -569,7 +610,7 @@ class ModelContext:
 
     name: str
     mode: str
-    radtrans: 'Radtrans'
+    radtrans: "Radtrans"
     adaptive_mesh_refinement: bool
     variability_atmospheric_column_model_flux_return_mode: bool = False
     return_contribution: bool = False
@@ -631,7 +672,7 @@ class ModelInputs:
 
         object.__setattr__(
             self,
-            'complete_coverage_clouds',
+            "complete_coverage_clouds",
             normalized_complete_coverage_clouds,
         )
 
@@ -663,9 +704,9 @@ class ModelInputs:
             self.v_band_reddening,
         )
         aux_data = {
-            'complete_coverage_clouds': self.complete_coverage_clouds,
-            'cloud_particles_radius_distribution': self.cloud_particles_radius_distribution,
-            'additional_inputs': self.additional_inputs,
+            "complete_coverage_clouds": self.complete_coverage_clouds,
+            "cloud_particles_radius_distribution": self.cloud_particles_radius_distribution,
+            "additional_inputs": self.additional_inputs,
         }
         return children, aux_data
 
@@ -696,9 +737,11 @@ class ModelInputs:
             disk_radius=children[20],
             v_band_extinction=children[21],
             v_band_reddening=children[22],
-            complete_coverage_clouds=aux_data['complete_coverage_clouds'],
-            cloud_particles_radius_distribution=aux_data['cloud_particles_radius_distribution'],
-            additional_inputs=aux_data['additional_inputs'],
+            complete_coverage_clouds=aux_data["complete_coverage_clouds"],
+            cloud_particles_radius_distribution=aux_data[
+                "cloud_particles_radius_distribution"
+            ],
+            additional_inputs=aux_data["additional_inputs"],
         )
 
 
@@ -729,7 +772,7 @@ class ModelResult:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def make_nan_result(wavelengths: Any) -> 'ModelResult':
+    def make_nan_result(wavelengths: Any) -> "ModelResult":
         """Create an invalid result with NaN-filled spectrum of matching shape.
 
         ``wavelengths`` should be a JAX array (typically from the Radtrans
@@ -739,7 +782,7 @@ class ModelResult:
         """
         nan_spectrum = jnp.full_like(wavelengths, jnp.nan)
         return ModelResult(
-            kind='invalid',
+            kind="invalid",
             wavelengths=wavelengths,
             spectrum=nan_spectrum,
         )
@@ -777,7 +820,7 @@ class RetrievalRuntime:
     samplers.
     """
 
-    parameter_layout: 'ParameterLayout'
+    parameter_layout: "ParameterLayout"
     observations: Mapping[str, ObservationState] = field(default_factory=dict)
     likelihoods: Mapping[str, LikelihoodState] = field(default_factory=dict)
     model_groups: tuple[ModelGroupState, ...] = ()
@@ -786,11 +829,11 @@ class RetrievalRuntime:
     @classmethod
     def from_data(
         cls,
-        parameter_layout: 'ParameterLayout',
+        parameter_layout: "ParameterLayout",
         data: Mapping[str, Any],
         n_free_parameters: int | None = None,
         adaptive_mesh_refinement: bool = False,
-    ) -> 'RetrievalRuntime':
+    ) -> "RetrievalRuntime":
         """Build a runtime from retrieval data objects.
 
         This normalizes observation state, resolves model contracts, and groups
@@ -804,9 +847,11 @@ class RetrievalRuntime:
         observations = {}
         for data_name, data_object in data.items():
             observation = data_object.to_observation_state()
-            model_contract, model_generating_function = coerce_model_generating_function(
-                observation.model_generating_function,
-                observation.model_contract,
+            model_contract, model_generating_function = (
+                coerce_model_generating_function(
+                    observation.model_generating_function,
+                    observation.model_contract,
+                )
             )
             observations[data_name] = replace(
                 observation,
@@ -815,7 +860,9 @@ class RetrievalRuntime:
             )
 
         likelihoods = {
-            data_name: data_object.to_likelihood_state(n_free_parameters=n_free_parameters)
+            data_name: data_object.to_likelihood_state(
+                n_free_parameters=n_free_parameters
+            )
             for data_name, data_object in data.items()
         }
 
@@ -830,16 +877,19 @@ class RetrievalRuntime:
             # Merge source observation metadata so model functions can
             # access time-series configuration, observation times, etc.
             group_metadata = {
-                'line_opacity_mode': source_observation.line_opacity_mode,
-                'has_external_references': any(
+                "line_opacity_mode": source_observation.line_opacity_mode,
+                "has_external_references": any(
                     observations[name].external_radtrans_reference is not None
                     for name in observation_names
                 ),
             }
             obs_meta = source_observation.metadata or {}
-            for key in ('observation_times', 'time_series_config',
-                        'atmospheric_column_flux_mixer',
-                        'concatenate_flux_epochs_variability'):
+            for key in (
+                "observation_times",
+                "time_series_config",
+                "atmospheric_column_flux_mixer",
+                "concatenate_flux_epochs_variability",
+            ):
                 if key in obs_meta and obs_meta[key] is not None:
                     group_metadata[key] = obs_meta[key]
             model_groups.append(
@@ -867,7 +917,7 @@ class RetrievalRuntime:
         configuration: Any,
         parameter_layout: ParameterLayout | None = None,
         n_free_parameters: int | None = None,
-    ) -> 'RetrievalRuntime':
+    ) -> "RetrievalRuntime":
         """Build a runtime directly from a retrieval configuration object."""
         _ensure_configuration_radtrans_objects_initialized(configuration)
 
@@ -878,28 +928,38 @@ class RetrievalRuntime:
             parameter_layout=parameter_layout,
             data=configuration.data,
             n_free_parameters=n_free_parameters,
-            adaptive_mesh_refinement=getattr(configuration, 'adaptive_mesh_refinement', False),
+            adaptive_mesh_refinement=getattr(
+                configuration, "adaptive_mesh_refinement", False
+            ),
         )
 
     @staticmethod
-    def _parse_uncertainties_mode(uncertainties_mode: str) -> tuple[bool, str, float | None]:
+    def _parse_uncertainties_mode(
+        uncertainties_mode: str,
+    ) -> tuple[bool, str, float | None]:
         retrieve_uncertainties = False
-        beta_mode = 'multiply'
+        beta_mode = "multiply"
         beta = 1.0
 
-        if uncertainties_mode == 'default':
+        if uncertainties_mode == "default":
             beta = 1.0
-        elif uncertainties_mode == 'optimize':
-            warnings.warn('automatically optimizing for uncertainties, be sure of what you are doing...')
+        elif uncertainties_mode == "optimize":
+            warnings.warn(
+                "automatically optimizing for uncertainties, be sure of what you are doing..."
+            )
             beta = None
-        elif uncertainties_mode == 'retrieve':
-            warnings.warn('retrieving uncertainties (multiply mode), be sure of what you are doing...')
+        elif uncertainties_mode == "retrieve":
+            warnings.warn(
+                "retrieving uncertainties (multiply mode), be sure of what you are doing..."
+            )
             retrieve_uncertainties = True
-            beta_mode = 'multiply'
-        elif uncertainties_mode == 'retrieve_add':
-            warnings.warn('retrieving uncertainties (add mode), be sure of what you are doing...')
+            beta_mode = "multiply"
+        elif uncertainties_mode == "retrieve_add":
+            warnings.warn(
+                "retrieving uncertainties (add mode), be sure of what you are doing..."
+            )
             retrieve_uncertainties = True
-            beta_mode = 'add'
+            beta_mode = "add"
         else:
             raise ValueError(
                 "uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
@@ -929,7 +989,7 @@ class RetrievalRuntime:
 
         return ModelContext(
             name=group.source_name,
-            mode=group.metadata.get('mode', 'unknown'),
+            mode=group.metadata.get("mode", "unknown"),
             radtrans=group.radtrans_object,
             adaptive_mesh_refinement=self.adaptive_mesh_refinement,
             variability_atmospheric_column_model_flux_return_mode=(
@@ -953,7 +1013,8 @@ class RetrievalRuntime:
         from petitRADTRANS.retrieval.models import _normalize_model_output
 
         model_context = self._build_model_context(
-            group, self.parameter_layout.build_legacy_parameter_dict(physical_params),
+            group,
+            self.parameter_layout.build_legacy_parameter_dict(physical_params),
         )
 
         # All model functions are coerced at build time (via
@@ -1010,30 +1071,40 @@ class RetrievalRuntime:
         data_spectrum = observation.spectrum
         data_spectrum = _apply_flux_scaling(data_spectrum, observation, parameters)
         data_spectrum = _offset_flux(data_spectrum, observation, parameters)
-        data_uncertainties, data_covariance = _scale_and_inflate_uncertainties(observation, parameters)
+        data_uncertainties, data_covariance = _scale_and_inflate_uncertainties(
+            observation, parameters
+        )
 
         if isinstance(spectrum_model, np.ma.MaskedArray):
             spectrum_model = spectrum_model.filled(0)
 
         # --- Object-dtype spectra (ragged arrays — e.g. time series) ---
-        if (not isinstance(observation.spectrum, float)
-                and hasattr(observation.spectrum, 'dtype')
-                and observation.spectrum.dtype == 'O'):
+        if (
+            not isinstance(observation.spectrum, float)
+            and hasattr(observation.spectrum, "dtype")
+            and observation.spectrum.dtype == "O"
+        ):
             log_likelihood = 0.0
             if jnp.ndim(observation.spectrum) == 1:
                 for i, spectrum_data in enumerate(observation.spectrum):
                     masked_model = spectrum_model[i][~observation.mask[i]]
                     log_likelihood += compute_observation_log_likelihood(
-                        masked_model, spectrum_data,
-                        observation.uncertainties[i], None, n_free,
+                        masked_model,
+                        spectrum_data,
+                        observation.uncertainties[i],
+                        None,
+                        n_free,
                     )
             elif jnp.ndim(observation.spectrum) == 2:
                 for i, detector in enumerate(observation.spectrum):
                     for j, spectrum_data in enumerate(detector):
                         masked_model = spectrum_model[i, j][~observation.mask[i, j]]
                         log_likelihood += compute_observation_log_likelihood(
-                            masked_model, spectrum_data,
-                            observation.uncertainties[i, j], None, n_free,
+                            masked_model,
+                            spectrum_data,
+                            observation.uncertainties[i, j],
+                            None,
+                            n_free,
                         )
             else:
                 raise ValueError(
@@ -1043,32 +1114,60 @@ class RetrievalRuntime:
             return log_likelihood + additional_log_likelihood
 
         # --- Standard 1-D spectrum path (primary JIT target) ---
-        if ((isinstance(observation.spectrum, float) or jnp.ndim(observation.spectrum) == 1)
-                and jnp.ndim(spectrum_model) == 1):
+        if (
+            isinstance(observation.spectrum, float)
+            or jnp.ndim(observation.spectrum) == 1
+        ) and jnp.ndim(spectrum_model) == 1:
             # Stage 2: project model into observation space
             model_processed = project_model_to_observation_space(
-                wavelengths_model, spectrum_model, observation, parameters, data_name,
+                wavelengths_model,
+                spectrum_model,
+                observation,
+                parameters,
+                data_name,
             )
             # Stage 3: compute log-likelihood
             ll = compute_observation_log_likelihood(
-                model_processed, data_spectrum, data_uncertainties, data_covariance, n_free,
+                model_processed,
+                data_spectrum,
+                data_uncertainties,
+                data_covariance,
+                n_free,
             )
-            return jnp.where(ll <= INVALID_LOG_LIKELIHOOD, INVALID_LOG_LIKELIHOOD, ll + additional_log_likelihood)
+            return jnp.where(
+                ll <= INVALID_LOG_LIKELIHOOD,
+                INVALID_LOG_LIKELIHOOD,
+                ll + additional_log_likelihood,
+            )
 
         # --- 1-D data, higher-dim model (take leading slice) ---
         if jnp.ndim(observation.spectrum) == 1 and jnp.ndim(spectrum_model) == 2:
             ll = compute_observation_log_likelihood(
-                spectrum_model[0, :], data_spectrum,
-                data_uncertainties, data_covariance, n_free,
+                spectrum_model[0, :],
+                data_spectrum,
+                data_uncertainties,
+                data_covariance,
+                n_free,
             )
-            return jnp.where(ll <= INVALID_LOG_LIKELIHOOD, INVALID_LOG_LIKELIHOOD, ll + additional_log_likelihood)
+            return jnp.where(
+                ll <= INVALID_LOG_LIKELIHOOD,
+                INVALID_LOG_LIKELIHOOD,
+                ll + additional_log_likelihood,
+            )
 
         if jnp.ndim(observation.spectrum) == 1 and jnp.ndim(spectrum_model) == 3:
             ll = compute_observation_log_likelihood(
-                spectrum_model[0, 0, :], data_spectrum,
-                data_uncertainties, data_covariance, n_free,
+                spectrum_model[0, 0, :],
+                data_spectrum,
+                data_uncertainties,
+                data_covariance,
+                n_free,
             )
-            return jnp.where(ll <= INVALID_LOG_LIKELIHOOD, INVALID_LOG_LIKELIHOOD, ll + additional_log_likelihood)
+            return jnp.where(
+                ll <= INVALID_LOG_LIKELIHOOD,
+                INVALID_LOG_LIKELIHOOD,
+                ll + additional_log_likelihood,
+            )
 
         # --- 2-D spectrum (e.g. multi-order spectroscopy or time series) ---
         if jnp.ndim(observation.spectrum) == 2:
@@ -1076,13 +1175,20 @@ class RetrievalRuntime:
             for i, spectrum_data in enumerate(observation.spectrum):
                 # Project each epoch/order model spectrum into observation space
                 model_epoch = project_model_to_observation_space(
-                    wavelengths_model, spectrum_model[i], observation, parameters, data_name,
+                    wavelengths_model,
+                    spectrum_model[i],
+                    observation,
+                    parameters,
+                    data_name,
                 )
                 if observation.mask is not None:
                     model_epoch = model_epoch[~observation.mask[i, :]]
                 log_likelihood += compute_observation_log_likelihood(
-                    model_epoch, spectrum_data,
-                    observation.uncertainties[i], None, n_free,
+                    model_epoch,
+                    spectrum_data,
+                    observation.uncertainties[i],
+                    None,
+                    n_free,
                 )
             return log_likelihood + additional_log_likelihood
 
@@ -1093,18 +1199,21 @@ class RetrievalRuntime:
                 for j, spectrum_data in enumerate(detector):
                     masked_model = spectrum_model[i, j, ~observation.mask[i, j, :]]
                     log_likelihood += compute_observation_log_likelihood(
-                        masked_model, spectrum_data,
-                        observation.uncertainties[i, j], None, n_free,
+                        masked_model,
+                        spectrum_data,
+                        observation.uncertainties[i, j],
+                        None,
+                        n_free,
                     )
             return log_likelihood + additional_log_likelihood
 
-        raise ValueError('unsupported spectrum dimensionality for runtime evaluation')
+        raise ValueError("unsupported spectrum dimensionality for runtime evaluation")
 
     def evaluate_scalar(
         self,
         physical_params: PhysicalParams,
         *,
-        uncertainties_mode: str = 'default',
+        uncertainties_mode: str = "default",
         print_log_likelihood_for_debugging: bool = False,
     ) -> float:
         """Evaluate the posterior contribution for one parameter point.
@@ -1144,10 +1253,10 @@ class RetrievalRuntime:
                 log_likelihood += contribution
 
             if model_result.auxiliary_outputs:
-                log_prior += model_result.auxiliary_outputs.get('log_prior_weight', 0.0)
+                log_prior += model_result.auxiliary_outputs.get("log_prior_weight", 0.0)
 
-        if 'log_prior_weight' in parameters.keys():
-            log_prior += parameters['log_prior_weight'].value
+        if "log_prior_weight" in parameters.keys():
+            log_prior += parameters["log_prior_weight"].value
 
         if log_likelihood + log_prior < invalid_value:
             return invalid_value
@@ -1157,7 +1266,7 @@ class RetrievalRuntime:
             log_prior = 0.0
 
         if print_log_likelihood_for_debugging:
-            print('log_likelihood + log_prior', log_likelihood + log_prior)
+            print("log_likelihood + log_prior", log_likelihood + log_prior)
 
         return log_likelihood + log_prior
 
@@ -1165,7 +1274,7 @@ class RetrievalRuntime:
         self,
         physical_params: PhysicalParams,
         *,
-        uncertainties_mode: str = 'default',
+        uncertainties_mode: str = "default",
         print_log_likelihood_for_debugging: bool = False,
     ) -> float:
         """Evaluate the posterior through a JAX-compatible execution path.
@@ -1191,7 +1300,8 @@ class RetrievalRuntime:
             # failure instead of Python-level ``kind == 'invalid'``.
             model_valid = model_result.spectrum_is_valid()
             has_invalid_contribution = jnp.logical_or(
-                has_invalid_contribution, ~model_valid,
+                has_invalid_contribution,
+                ~model_valid,
             )
 
             group_contribution = jnp.asarray(0.0, dtype=JAX_DTYPE)
@@ -1205,7 +1315,9 @@ class RetrievalRuntime:
                 )
 
                 contribution_is_invalid = contribution <= invalid_value
-                has_invalid_contribution = jnp.logical_or(has_invalid_contribution, contribution_is_invalid)
+                has_invalid_contribution = jnp.logical_or(
+                    has_invalid_contribution, contribution_is_invalid
+                )
                 group_contribution = jnp.where(
                     contribution_is_invalid,
                     invalid_value,
@@ -1217,21 +1329,27 @@ class RetrievalRuntime:
             # Always use .get() to avoid Python-level truthiness check on
             # the auxiliary_outputs dict during JIT tracing.
             aux = model_result.auxiliary_outputs or {}
-            log_prior = log_prior + aux.get('log_prior_weight', 0.0)
+            log_prior = log_prior + aux.get("log_prior_weight", 0.0)
 
-        log_likelihood = jnp.sum(jnp.asarray(log_likelihood_contributions, dtype=JAX_DTYPE))
-        log_likelihood = jnp.where(has_invalid_contribution, invalid_value, log_likelihood)
+        log_likelihood = jnp.sum(
+            jnp.asarray(log_likelihood_contributions, dtype=JAX_DTYPE)
+        )
+        log_likelihood = jnp.where(
+            has_invalid_contribution, invalid_value, log_likelihood
+        )
 
-        if 'log_prior_weight' in parameters.keys():
-            log_prior = log_prior + parameters['log_prior_weight'].value
+        if "log_prior_weight" in parameters.keys():
+            log_prior = log_prior + parameters["log_prior_weight"].value
 
         total = log_likelihood + log_prior
 
         total = jnp.where(total < invalid_value, invalid_value, total)
-        total = jnp.where(jnp.abs(total) < tiny, jnp.asarray(tiny, dtype=JAX_DTYPE), total)
+        total = jnp.where(
+            jnp.abs(total) < tiny, jnp.asarray(tiny, dtype=JAX_DTYPE), total
+        )
 
         if print_log_likelihood_for_debugging:
-            debug.print('log_likelihood + log_prior {}', total)
+            debug.print("log_likelihood + log_prior {}", total)
 
         return total
 
@@ -1239,7 +1357,7 @@ class RetrievalRuntime:
         self,
         free_parameter_values: Any,
         *,
-        uncertainties_mode: str = 'default',
+        uncertainties_mode: str = "default",
         print_log_likelihood_for_debugging: bool = False,
     ) -> Any:
         """Evaluate one or many parameter vectors with JAX vectorization.
@@ -1247,8 +1365,11 @@ class RetrievalRuntime:
         A one-dimensional input is evaluated as a single sample. Higher-rank
         inputs are mapped over the leading dimension with ``vmap``.
         """
+
         def evaluate_single(single_values: Any) -> Any:
-            physical_params = self.parameter_layout.physical_params_from_free_values(single_values)
+            physical_params = self.parameter_layout.physical_params_from_free_values(
+                single_values
+            )
             return self.evaluate_jax(
                 physical_params=physical_params,
                 uncertainties_mode=uncertainties_mode,
@@ -1280,7 +1401,9 @@ class RetrievalRuntime:
         parameter_dict = dict(parameters)
 
         if observation.photometry:
-            projected = observation.photometric_transformation_function(wavelengths_model, spectrum_model)
+            projected = observation.photometric_transformation_function(
+                wavelengths_model, spectrum_model
+            )
             if isinstance(projected, (tuple, list)):
                 projected = projected[0]
             return ensure_jax_array(projected)
@@ -1307,7 +1430,10 @@ class RetrievalRuntime:
             name: float(value)
             for name, value in zip(
                 self.parameter_layout.free_parameter_names,
-                np.asarray(self.parameter_layout.free_parameter_vector(physical_params), dtype=float),
+                np.asarray(
+                    self.parameter_layout.free_parameter_vector(physical_params),
+                    dtype=float,
+                ),
                 strict=True,
             )
         }
@@ -1328,8 +1454,12 @@ class RetrievalRuntime:
                     model_result.wavelengths,
                     model_result.spectrum,
                 )
-                projected_values = _apply_flux_scaling(projected_values, observation, parameters)
-                projected_values = _offset_flux(projected_values, observation, parameters)
+                projected_values = _apply_flux_scaling(
+                    projected_values, observation, parameters
+                )
+                projected_values = _offset_flux(
+                    projected_values, observation, parameters
+                )
                 projected_values_array = np.asarray(projected_values, dtype=float)
                 finite_mask = np.isfinite(projected_values_array)
                 if not finite_mask.all():
@@ -1347,22 +1477,22 @@ class RetrievalRuntime:
                         "Projected observation values contain non-finite entries for "
                         f"source '{group.source_name}' and dataset '{observation_name}'."
                     )
-                projected_uncertainties, projected_covariance = _scale_and_inflate_uncertainties(
-                    observation, parameters
+                projected_uncertainties, projected_covariance = (
+                    _scale_and_inflate_uncertainties(observation, parameters)
                 )
                 simulated_observations[observation_name] = {
-                    'values': projected_values,
-                    'uncertainties': projected_uncertainties,
-                    'covariance': projected_covariance,
-                    'mask': observation.mask,
-                    'coordinates': observation.wavelengths,
-                    'metadata': {
-                        'photometry': observation.photometry,
-                        'source_name': group.source_name,
-                        'line_opacity_mode': observation.line_opacity_mode,
-                        'scale_flux': observation.scale_flux,
-                        'scale_uncertainties': observation.scale_uncertainties,
-                        'fit_flux_offset': observation.fit_flux_offset,
+                    "values": projected_values,
+                    "uncertainties": projected_uncertainties,
+                    "covariance": projected_covariance,
+                    "mask": observation.mask,
+                    "coordinates": observation.wavelengths,
+                    "metadata": {
+                        "photometry": observation.photometry,
+                        "source_name": group.source_name,
+                        "line_opacity_mode": observation.line_opacity_mode,
+                        "scale_flux": observation.scale_flux,
+                        "scale_uncertainties": observation.scale_uncertainties,
+                        "fit_flux_offset": observation.fit_flux_offset,
                     },
                 }
 
@@ -1382,15 +1512,17 @@ class ParameterLayout:
     free_parameter_names: tuple[str, ...]
     free_parameter_indices: tuple[int, ...]
     parameter_templates: tuple[Parameter, ...]
-    cube_epsilon: float = field(default_factory=lambda: float(1e-7 if JAX_DTYPE == jnp.float32 else 1e-12))
+    cube_epsilon: float = field(
+        default_factory=lambda: float(1e-7 if JAX_DTYPE == jnp.float32 else 1e-12)
+    )
 
     @classmethod
-    def from_configuration(cls, configuration: Any) -> 'ParameterLayout':
+    def from_configuration(cls, configuration: Any) -> "ParameterLayout":
         """Build a parameter layout from a retrieval configuration."""
         return cls.from_parameters(configuration.parameters)
 
     @classmethod
-    def from_parameters(cls, parameters: Mapping[str, Parameter]) -> 'ParameterLayout':
+    def from_parameters(cls, parameters: Mapping[str, Parameter]) -> "ParameterLayout":
         """Build a parameter layout from an ordered parameter mapping."""
         parameter_names = tuple(parameters.keys())
         parameter_templates = tuple(
@@ -1398,11 +1530,15 @@ class ParameterLayout:
             for name in parameter_names
         )
         free_parameter_names = tuple(
-            name for name, parameter in zip(parameter_names, parameter_templates, strict=True)
+            name
+            for name, parameter in zip(
+                parameter_names, parameter_templates, strict=True
+            )
             if parameter.is_free_parameter
         )
         free_parameter_indices = tuple(
-            index for index, parameter in enumerate(parameter_templates)
+            index
+            for index, parameter in enumerate(parameter_templates)
             if parameter.is_free_parameter
         )
 
@@ -1430,7 +1566,9 @@ class ParameterLayout:
         )
 
     def _validate_free_parameter_count(self, values: npt.ArrayLike) -> np.ndarray:
-        flat_values = _flatten_parameter_values(values, expected_size=self.n_free_parameters)
+        flat_values = _flatten_parameter_values(
+            values, expected_size=self.n_free_parameters
+        )
 
         if flat_values.size != self.n_free_parameters:
             raise ValueError(
@@ -1449,7 +1587,7 @@ class ParameterLayout:
             cube_values = cube.astype(float, copy=False)
         elif isinstance(cube, (list, tuple)):
             cube_values = np.asarray(cube, dtype=float)
-        elif hasattr(cube, 'tolist'):
+        elif hasattr(cube, "tolist"):
             converted_cube = cube.tolist()
             if isinstance(converted_cube, list):
                 cube_values = np.asarray(converted_cube, dtype=float)
@@ -1464,14 +1602,20 @@ class ParameterLayout:
                     f"Expected cube positions with {self.n_free_parameters} free parameters, got {cube_values.shape[1]}"
                 )
 
-            return np.stack([self.prior_transform_numpy(row) for row in cube_values], axis=0)
+            return np.stack(
+                [self.prior_transform_numpy(row) for row in cube_values], axis=0
+            )
 
         cube_values = self._validate_free_parameter_count(cube_values)
         transformed = np.empty_like(cube_values, dtype=float)
 
         for index, parameter_name in enumerate(self.free_parameter_names):
-            parameter = self.parameter_templates[self.parameter_names.index(parameter_name)]
-            transformed[index] = np.asarray(self._transform_parameter(parameter, cube_values[index]), dtype=float)
+            parameter = self.parameter_templates[
+                self.parameter_names.index(parameter_name)
+            ]
+            transformed[index] = np.asarray(
+                self._transform_parameter(parameter, cube_values[index]), dtype=float
+            )
 
         return transformed
 
@@ -1488,8 +1632,15 @@ class ParameterLayout:
         transformed = []
 
         for index, free_parameter_name in enumerate(self.free_parameter_names):
-            parameter = self.parameter_templates[self.parameter_names.index(free_parameter_name)]
-            transformed.append(jnp.asarray(self._transform_parameter(parameter, cube_position[index]), dtype=JAX_DTYPE))
+            parameter = self.parameter_templates[
+                self.parameter_names.index(free_parameter_name)
+            ]
+            transformed.append(
+                jnp.asarray(
+                    self._transform_parameter(parameter, cube_position[index]),
+                    dtype=JAX_DTYPE,
+                )
+            )
 
         if not transformed:
             return jnp.zeros((0,), dtype=JAX_DTYPE)
@@ -1514,7 +1665,9 @@ class ParameterLayout:
             1.0 - self.cube_epsilon,
         )
 
-    def cube_from_unconstrained_batch(self, unconstrained_positions: Any) -> jnp.ndarray:
+    def cube_from_unconstrained_batch(
+        self, unconstrained_positions: Any
+    ) -> jnp.ndarray:
         """Map one or many unconstrained positions onto the open unit cube."""
         unconstrained_positions = jnp.asarray(unconstrained_positions, dtype=JAX_DTYPE)
         return jnp.clip(
@@ -1525,11 +1678,17 @@ class ParameterLayout:
 
     def transform_unconstrained(self, unconstrained_position: Any) -> jnp.ndarray:
         """Transform unconstrained coordinates directly into physical values."""
-        return self.transform_cube_to_physical(self.cube_from_unconstrained(unconstrained_position))
+        return self.transform_cube_to_physical(
+            self.cube_from_unconstrained(unconstrained_position)
+        )
 
-    def transform_unconstrained_batch(self, unconstrained_positions: Any) -> jnp.ndarray:
+    def transform_unconstrained_batch(
+        self, unconstrained_positions: Any
+    ) -> jnp.ndarray:
         """Transform one or many unconstrained positions into physical values."""
-        return self.transform_cube_to_physical_batch(self.cube_from_unconstrained_batch(unconstrained_positions))
+        return self.transform_cube_to_physical_batch(
+            self.cube_from_unconstrained_batch(unconstrained_positions)
+        )
 
     def log_jacobian_single(self, unconstrained_position: Any) -> jnp.ndarray:
         """Return the log-Jacobian term for one unconstrained position."""
@@ -1552,7 +1711,9 @@ class ParameterLayout:
         flat_values = self._validate_free_parameter_count(values)
         return self.physical_params_from_free_values(tuple(flat_values))
 
-    def physical_params_from_matrix(self, values: npt.ArrayLike) -> tuple[PhysicalParams, ...]:
+    def physical_params_from_matrix(
+        self, values: npt.ArrayLike
+    ) -> tuple[PhysicalParams, ...]:
         """Build ``PhysicalParams`` objects from a batch of free-parameter vectors."""
         values = np.asarray(values, dtype=float)
 
@@ -1576,7 +1737,9 @@ class ParameterLayout:
         physical_mapping = {}
         free_index = 0
 
-        for parameter_name, parameter in zip(self.parameter_names, self.parameter_templates, strict=True):
+        for parameter_name, parameter in zip(
+            self.parameter_names, self.parameter_templates, strict=True
+        ):
             if parameter.is_free_parameter:
                 physical_mapping[parameter_name] = values[free_index]
                 free_index += 1
@@ -1587,9 +1750,13 @@ class ParameterLayout:
 
     def physical_params_from_cube(self, cube_position: npt.ArrayLike) -> PhysicalParams:
         """Build ``PhysicalParams`` from a unit-cube position."""
-        return self.physical_params_from_vector(self.prior_transform_numpy(cube_position))
+        return self.physical_params_from_vector(
+            self.prior_transform_numpy(cube_position)
+        )
 
-    def physical_params_from_unconstrained(self, unconstrained_position: Any) -> PhysicalParams:
+    def physical_params_from_unconstrained(
+        self, unconstrained_position: Any
+    ) -> PhysicalParams:
         """Build ``PhysicalParams`` from unconstrained sampler coordinates."""
         transformed = self.transform_unconstrained(unconstrained_position)
         return self.physical_params_from_vector(np.asarray(transformed))
@@ -1597,61 +1764,71 @@ class ParameterLayout:
     def free_parameter_vector(self, physical_params: PhysicalParams) -> jnp.ndarray:
         """Extract the ordered free-parameter vector from ``PhysicalParams``."""
         mapping = physical_params.as_dict()
-        return jnp.asarray([mapping[name] for name in self.free_parameter_names], dtype=JAX_DTYPE)
+        return jnp.asarray(
+            [mapping[name] for name in self.free_parameter_names], dtype=JAX_DTYPE
+        )
 
-    def build_legacy_parameter_dict(self, physical_params: PhysicalParams) -> dict[str, Parameter]:
+    def build_legacy_parameter_dict(
+        self, physical_params: PhysicalParams
+    ) -> dict[str, Parameter]:
         """Reconstruct legacy ``Parameter`` objects for compatibility paths."""
         mapping = physical_params.as_dict()
         return {
             parameter_name: _clone_parameter(parameter, mapping[parameter_name])
-            for parameter_name, parameter in zip(self.parameter_names, self.parameter_templates, strict=True)
+            for parameter_name, parameter in zip(
+                self.parameter_names, self.parameter_templates, strict=True
+            )
         }
 
     def serialize_metadata(self) -> dict[str, Any]:
         """Return a deterministic metadata payload describing the layout."""
         parameter_metadata = []
 
-        for parameter_name, parameter in zip(self.parameter_names, self.parameter_templates, strict=True):
+        for parameter_name, parameter in zip(
+            self.parameter_names, self.parameter_templates, strict=True
+        ):
             distribution = parameter.distribution
             distribution_name = None
             distribution_parameters = None
 
             if distribution is not None:
-                distribution_name = getattr(distribution, 'name', distribution.__class__.__name__)
+                distribution_name = getattr(
+                    distribution, "name", distribution.__class__.__name__
+                )
                 distribution_parameters = _serialize_runtime_metadata_value(
-                    getattr(distribution, 'parameters', None)
+                    getattr(distribution, "parameters", None)
                 )
 
             parameter_metadata.append(
                 {
-                    'name': parameter_name,
-                    'is_free_parameter': parameter.is_free_parameter,
-                    'distribution_name': distribution_name,
-                    'distribution_parameters': distribution_parameters,
-                    'transform_prior_cube_coordinate': _serialize_runtime_metadata_value(
+                    "name": parameter_name,
+                    "is_free_parameter": parameter.is_free_parameter,
+                    "distribution_name": distribution_name,
+                    "distribution_parameters": distribution_parameters,
+                    "transform_prior_cube_coordinate": _serialize_runtime_metadata_value(
                         parameter.transform_prior_cube_coordinate
                     ),
-                    'value': _serialize_runtime_metadata_value(parameter.value),
+                    "value": _serialize_runtime_metadata_value(parameter.value),
                 }
             )
 
         return {
-            'parameter_names': list(self.parameter_names),
-            'free_parameter_names': list(self.free_parameter_names),
-            'free_parameter_indices': list(self.free_parameter_indices),
-            'cube_epsilon': float(self.cube_epsilon),
-            'parameters': parameter_metadata,
+            "parameter_names": list(self.parameter_names),
+            "free_parameter_names": list(self.free_parameter_names),
+            "free_parameter_indices": list(self.free_parameter_indices),
+            "cube_epsilon": float(self.cube_epsilon),
+            "parameters": parameter_metadata,
         }
 
 
 __all__ = [
-    'LikelihoodState',
-    'ModelContext',
-    'ModelGroupState',
-    'ModelInputs',
-    'ModelResult',
-    'ObservationState',
-    'ParameterLayout',
-    'PhysicalParams',
-    'RetrievalRuntime',
+    "LikelihoodState",
+    "ModelContext",
+    "ModelGroupState",
+    "ModelInputs",
+    "ModelResult",
+    "ObservationState",
+    "ParameterLayout",
+    "PhysicalParams",
+    "RetrievalRuntime",
 ]

@@ -29,6 +29,7 @@ def _import_bs4():
     global BeautifulSoup
     from bs4 import BeautifulSoup
 
+
 __megabyte = 9.5367431640625e-07  # 1 / 1024 ** 2 (B to MB)
 
 
