@@ -1371,18 +1371,18 @@ class Opacity:
 
         return cloud_info
 
-    def get_charge_string(self, replace_symbol_with_char=True) -> str:
+    def get_charge_string(self, replace_charge_symbol_with_char=True) -> str:
         """Return the charge of the Opacity object species in string format.
 
         Example:
             >>> Opacity.from_species_fullname("24Mg2-28Si-16O4_2+(s)_crystalline_000__DHS")
             >>> Opacity.get_charge_string()
             >>> "2p"
-            >>> Opacity.get_charge_string(replace_symbol_with_char=False)
+            >>> Opacity.get_charge_string(replace_charge_symbol_with_char=False)
             >>> "2+"
 
         Args:
-            replace_symbol_with_char: bool, optional  # TODO replace with "replace_charge_symbol_with_char" in 4.0.0.
+            replace_charge_symbol_with_char: bool, optional
                 If True, replace the "+" or "-" of the charge string with "p" or "m", respectively. Default is True.
 
         Returns:
@@ -1391,7 +1391,7 @@ class Opacity:
         """
         charge_string: str = ''
 
-        if replace_symbol_with_char:
+        if replace_charge_symbol_with_char:
             charges: dict[str, str] = copy.deepcopy(self._charges)
         else:
             charges: dict[str, str] = {
@@ -1544,7 +1544,7 @@ class Opacity:
         species_full_name = self.join_species_all_info(
             species_name=species_full_name,
             natural_abundance='',  # already added
-            charge=self.get_charge_string(replace_symbol_with_char=True),
+            charge=self.get_charge_string(replace_charge_symbol_with_char=True),
             cloud_info='',
             source='',
             spectral_info='',
@@ -2154,7 +2154,7 @@ class Opacity:
                              f"multiple consecutive charge symbols found (+, -, p, m)")
 
         # Extract charge string
-        name, charge = cls.split_species_charge(name, replace_symbol_with_char=replace_charge_symbol_with_char)
+        name, charge = cls.split_species_charge(name, replace_charge_symbol_with_char=replace_charge_symbol_with_char)
 
         natural_abundance_string = cls._isotope_separator + cls._natural_abundance_string
 
@@ -2203,19 +2203,19 @@ class Opacity:
         return name, natural_abundance, charge, cloud_info, source, spectral_info
 
     @classmethod
-    def split_species_charge(cls, species: str, replace_symbol_with_char: bool = False) -> tuple[str, str]:
+    def split_species_charge(cls, species: str, replace_charge_symbol_with_char: bool = False) -> tuple[str, str]:
         """Separate the charge from a species name in the petitRADTRANS Opacity format.
 
         Examples:
             >>> Opacity.split_species_charge("24Mg2-28Si-16O4_2+")
             >>> ('24Mg2-28Si-16O4', '2+')
-            >>> Opacity.split_species_charge("24Mg2-28Si-16O4_2+", replace_symbol_with_char=True)
+            >>> Opacity.split_species_charge("24Mg2-28Si-16O4_2+", replace_charge_symbol_with_char=True)
             >>> ('24Mg2-28Si-16O4', '2p')
 
         Args:
             species: str
                 The species name, containing only the spectral formula and the charge.
-            replace_symbol_with_char:  # TODO replace with "replace_charge_symbol_with_char" in 4.0.0.
+            replace_charge_symbol_with_char:  # TODO replace with "replace_charge_symbol_with_char" in 4.0.0.
                 If True, replace the "+" or "-" of the charge string with "p" or "m", respectively. Default is True.
 
         Returns:
@@ -2237,7 +2237,7 @@ class Opacity:
             charge = charge_pattern_match[0][0]
 
         # Change charge format
-        if replace_symbol_with_char:  # replace symbols (+/-) with characters (p/m)
+        if replace_charge_symbol_with_char:  # replace symbols (+/-) with characters (p/m)
             for symbol, char in cls._charges.items():
                 charge = charge.replace(symbol, char)
         else:  # replace characters (p/m) with symbols (+/-)

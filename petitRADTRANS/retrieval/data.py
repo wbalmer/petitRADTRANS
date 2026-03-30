@@ -493,46 +493,39 @@ class Data:
 
         sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
 
-    # TODO [4.0.0] remove this function, or rename "system_distance" to "_system_distance" and use a property
-    def set_distance(self, distance) -> float:
-        """Set the system distance attribute.
-
-        This does not rescale the flux to the new distance.
-        In order to rescale the flux and error, use the scale_to_distance method.
-
-        Args:
-            distance : float
-                The distance to the object in CGS units.
-        """
-
-        self.system_distance = distance
-        return self.system_distance
-
     def initialise_data_resolution(self, wavelengths_model: ArrayLike) -> None:
         # TODO [4.0.0] this function should raise an error when the interpolation is not possible
         #  As it is now, it can do nothing, which can be confusing
         if isinstance(self.data_resolution, jnp.ndarray):
             self.data_resolution_array_model = jnp.interp(wavelengths_model, self.wavelengths, self.data_resolution)
 
-    # TODO [4.0.0] rename wlens => wavelengths (also, maybe it can be removed?)
-    def update_bins(self, wlens: ArrayLike) -> None:
-        # TODO @Evert add docstrings
-        self.wavelength_bin_widths = jnp.zeros_like(wlens)
-        self.wavelength_bin_widths[:-1] = jnp.diff(wlens)
+    def update_bins(self, wavelengths: ArrayLike) -> None:
+        """
+        Update the wavelength bin widths based on the provided wavelength array.
+
+        This method computes the bin width for each wavelength bin as the difference
+        between consecutive wavelength values. The last bin width is set equal to the
+        second-to-last bin width to maintain array length consistency.
+
+        Args:
+            wavelengths : ArrayLike
+                Array of wavelength bin centers or edges.
+        """
+        self.wavelength_bin_widths = jnp.zeros_like(wavelengths)
+        self.wavelength_bin_widths[:-1] = jnp.diff(wavelengths)
         self.wavelength_bin_widths[-1] = self.wavelength_bin_widths[-2]
 
-    # TODO [4.0.0] rename new_dist => new_distance
-    def scale_to_distance(self, new_dist: float) -> float:
+    def scale_to_distance(self, new_distance: float) -> float:
         """Update the distance variable in the data class.
 
         This will rescale the flux to the new distance.
 
         Args:
-            new_dist : float
+            new_distance : float
                 The distance to the object in CGS units.
         """
 
-        scale: float = (self.system_distance / new_dist) ** 2
+        scale: float = (self.system_distance / new_distance) ** 2
         self.spectrum *= scale
 
     def line_b_uncertainty_scaling(self, parameters):

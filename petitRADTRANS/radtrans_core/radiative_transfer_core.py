@@ -471,7 +471,7 @@ def _ng_accelerated_batched(
 # ---------------------------------------------------------------------------
 
 @jit(static_argnames=(
-    "emission_geometry_str",
+    "irradiation_geometry_str",
     "adaptive_feautrier_iterations",
     "return_contribution",
     "iter_scat_max",
@@ -489,7 +489,7 @@ def _compute_feautrier_radiative_transfer_chunk(
     reflectances: ArrayLike,                        # (n_freq_bins,)
     emissivities: ArrayLike,                        # (n_freq_bins,)
         adaptive_feautrier_iterations: bool = True,
-        emission_geometry_str: str = "dayside_ave",
+        irradiation_geometry_str: str = "dayside_ave",
         return_contribution: bool = False,
         iter_scat_max: int = 100,
         convergence_threshold: float = 1e-2,
@@ -523,7 +523,7 @@ def _compute_feautrier_radiative_transfer_chunk(
     adaptive_feautrier_iterations : bool, optional
         Adapt the minimum number of scattering iterations to the local photon
         destruction probability.
-    emission_geometry_str : {"dayside_ave", "planetary_ave", "non-isotropic"}, optional
+    irradiation_geometry_str : {"dayside_ave", "planetary_ave", "non-isotropic"}, optional
         Illumination geometry used for the stellar source term.
     return_contribution : bool, optional
         If ``True``, compute the normalized emission contribution function.
@@ -557,14 +557,14 @@ def _compute_feautrier_radiative_transfer_chunk(
     # ------------------------------------------------------------------
     # 1. Geometry coefficient — Python level, never traced
     # ------------------------------------------------------------------
-    if emission_geometry_str == 'dayside_ave':
+    if irradiation_geometry_str == 'dayside_ave':
         geom = 0.5
-    elif emission_geometry_str == 'planetary_ave':
+    elif irradiation_geometry_str == 'planetary_ave':
         geom = 0.25
-    elif emission_geometry_str == 'non-isotropic':
+    elif irradiation_geometry_str == 'non-isotropic':
         geom = -1.0
     else:
-        raise ValueError(f"Unknown emission_geometry: {emission_geometry_str}")
+        raise ValueError(f"Unknown irradiation_geometry: {irradiation_geometry_str}")
 
     # ------------------------------------------------------------------
     # 2. Photon destruction probabilities — clamped
@@ -942,7 +942,7 @@ def _compute_feautrier_radiative_transfer_chunk(
 
 
 @jit(static_argnames=(
-    "emission_geometry_str",
+    "irradiation_geometry_str",
     "adaptive_feautrier_iterations",
     "return_contribution",
     "iter_scat_max",
@@ -962,7 +962,7 @@ def compute_feautrier_radiative_transfer(
     reflectances: ArrayLike,
     emissivities: ArrayLike,
         adaptive_feautrier_iterations: bool = True,
-        emission_geometry_str: str = "dayside_ave",
+        irradiation_geometry_str: str = "dayside_ave",
         return_contribution: bool = False,
         iter_scat_max: int = 100,
         convergence_threshold: float = 1e-2,
@@ -998,7 +998,7 @@ def compute_feautrier_radiative_transfer(
     adaptive_feautrier_iterations : bool, optional
         Adapt the minimum number of scattering iterations to the local photon
         destruction probability.
-    emission_geometry_str : {"dayside_ave", "planetary_ave", "non-isotropic"}, optional
+    irradiation_geometry_str : {"dayside_ave", "planetary_ave", "non-isotropic"}, optional
         Illumination geometry used for the stellar source term.
     return_contribution : bool, optional
         If ``True``, compute the normalized emission contribution function.
@@ -1034,7 +1034,7 @@ def compute_feautrier_radiative_transfer(
             reflectances=reflectances,
             emissivities=emissivities,
             adaptive_feautrier_iterations=adaptive_feautrier_iterations,
-            emission_geometry_str=emission_geometry_str,
+            irradiation_geometry_str=irradiation_geometry_str,
             return_contribution=return_contribution,
             iter_scat_max=iter_scat_max,
             convergence_threshold=convergence_threshold,
@@ -1106,7 +1106,7 @@ def compute_feautrier_radiative_transfer(
             reflectances=chunk_reflectances,
             emissivities=chunk_emissivities,
             adaptive_feautrier_iterations=adaptive_feautrier_iterations,
-            emission_geometry_str=emission_geometry_str,
+            irradiation_geometry_str=irradiation_geometry_str,
             return_contribution=return_contribution,
             iter_scat_max=iter_scat_max,
             convergence_threshold=convergence_threshold,

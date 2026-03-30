@@ -901,7 +901,7 @@ class Radtrans:
 
     def _calculate_flux(
         self, temperatures, reference_gravity, opacities, continuum_opacities_scattering,
-        emission_geometry, star_irradiation_cos_angle, stellar_intensity, reflectances, emissivities,
+        irradiation_geometry, star_irradiation_cos_angle, stellar_intensity, reflectances, emissivities,
         cloud_f_sed, photospheric_cloud_optical_depths, cloud_photosphere_wavelength_boundaries,
         cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
         adaptive_feautrier_iterations, return_contribution=False,
@@ -926,7 +926,7 @@ class Radtrans:
             continuum_opacities_scattering:
                 Continuum scattering opacity array with frequency and layer
                 dimensions.
-            emission_geometry:
+            irradiation_geometry:
                 Irradiation geometry passed to the emission solver.
             star_irradiation_cos_angle:
                 Cosine of the stellar irradiation angle.
@@ -1007,7 +1007,7 @@ class Radtrans:
                 reflectances=reflectances,
                 emissivities=emissivities,
                 adaptive_feautrier_iterations=adaptive_feautrier_iterations,
-                emission_geometry_str=emission_geometry,
+                irradiation_geometry_str=irradiation_geometry,
                 return_contribution=return_contribution,
                 chunk_feautrier=chunk_feautrier,
                 feautrier_chunk_size=feautrier_chunk_size,
@@ -2122,7 +2122,7 @@ class Radtrans:
         cloud_fraction: float = 1.0,
         complete_coverage_clouds: list[str] = None,
         irradiation_geometry: str = 'dayside_ave',
-        emission_geometry: str = None,  # TODO deprecated, replace with irradiation_geometry everywhere in the code
+        irradiation_geometry: str = None,  # TODO deprecated, replace with irradiation_geometry everywhere in the code
         stellar_intensities: ArrayLike = None,
         star_effective_temperature: float = None,
         star_radius: float = None,
@@ -2221,7 +2221,7 @@ class Radtrans:
                     if equal to ``'dayside_ave'``: use the dayside average geometry.
                     If equal to ``'planetary_ave'``: use the planetary average geometry.
                     If equal to ``'non-isotropic'``: use the non-isotropic geometry.
-                emission_geometry (Optional[string]):
+                irradiation_geometry (Optional[string]):
                     Deprecated, same as irradiation_geometry.
                 stellar_intensities (Optional[array]):
                     The stellar intensity to use. If None, it will be calculated using a PHOENIX model.
@@ -2401,7 +2401,7 @@ class Radtrans:
                 reference_gravity=reference_gravity, # ATMO
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
-                emission_geometry=irradiation_geometry, # STAR
+                irradiation_geometry=irradiation_geometry, # STAR
                 star_irradiation_cos_angle=emission_inputs['star_irradiation_cos_angle'], # STAR
                 stellar_intensity=emission_inputs['stellar_intensities'], # STAR
                 reflectances=emission_inputs['reflectances'],
@@ -2426,7 +2426,7 @@ class Radtrans:
                     reference_gravity=reference_gravity,
                     opacities=clear_opacities,
                     continuum_opacities_scattering=clear_continuum_opacities_scattering,
-                    emission_geometry=irradiation_geometry,
+                    irradiation_geometry=irradiation_geometry,
                     star_irradiation_cos_angle=emission_inputs['star_irradiation_cos_angle'],
                     stellar_intensity=emission_inputs['stellar_intensities'],
                     reflectances=emission_inputs['reflectances'],
@@ -2849,7 +2849,7 @@ class Radtrans:
                     if equal to ``'dayside_ave'``: use the dayside average geometry.
                     If equal to ``'planetary_ave'``: use the planetary average geometry.
                     If equal to ``'non-isotropic'``: use the non-isotropic geometry.
-                emission_geometry (Optional[string]):
+                irradiation_geometry (Optional[string]):
                     Deprecated, same as irradiation_geometry.
                 stellar_intensities (Optional[array]):
                     The stellar intensity to use. If None, it will be calculated using a PHOENIX model.
@@ -2990,7 +2990,7 @@ class Radtrans:
                 reference_gravity=reference_gravity,
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
-                emission_geometry=irradiation_geometry,
+                irradiation_geometry=irradiation_geometry,
                 star_irradiation_cos_angle=emission_inputs['star_irradiation_cos_angle'],
                 stellar_intensity=emission_inputs['stellar_intensities'],
                 reflectances=emission_inputs['reflectances'],
@@ -3015,7 +3015,7 @@ class Radtrans:
                     reference_gravity=reference_gravity,
                     opacities=clear_opacities,
                     continuum_opacities_scattering=clear_continuum_opacities_scattering,
-                    emission_geometry=irradiation_geometry,
+                    irradiation_geometry=irradiation_geometry,
                     star_irradiation_cos_angle=emission_inputs['star_irradiation_cos_angle'],
                     stellar_intensity=emission_inputs['stellar_intensities'],
                     reflectances=emission_inputs['reflectances'],

@@ -4,13 +4,14 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a16] - 2026-03-27
+## [4.0.0a17] - 2026-03-30
 ### Summary
-pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables
-faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs.
-Version 4.0 is still experimental, and should not be used for production work!
+pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
+faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
+to run natively on GPUs and TPUs. Version 4.0 is still experimental, and should not be used for production work!
 As of version 4.0.0a6 most functionality should "work". Tests still fail, but most results are correct to within <0.01%.
 As of version 4.0.0a10 everything required for a retrieval should be JIT compilable.
+Ready for beta testing with version 4.0.0.a16.
 
 ### TODO
 - Feature completion: Implement hansen cloud opacities in `cloud_core`.
@@ -41,13 +42,14 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Housekeeping: Address all remaining TODOs in code.
 - Housekeeping: Clean up comment blocks.
 - Housekeeping: Decide on function to use for calculate_flux.
-- Ensure Flake8 compatibility and linting.
+- Housekeeping: Ensure Flake8 compatibility and linting.
 - Future goals: JAXify EasyChem
 - Future goals: Incorporate next pRT developments (pRT orange, multi-dimensional retrievals etc.)
 - Future goals: Times series retrieval plotting
 - Future goals: Implement additional radiative transfer methods.
 
 ### Changed
+- a17 `emission_geometry` is now `irradiation_geometry` throughout, renamed other args in `Opacity`.
 - a16: Shard_map parallelisation for MCMC samplers
 - a15 Reverse-mode differentiation changes to rebinning and particle radius functions.
 - a15 Renamed retrieval dataset controls from `scale`, `scale_err`, and `offset_bool` to `scale_flux`, `scale_uncertainties`, and `fit_flux_offset` throughout `Data`, `RetrievalConfig`, runtime metadata, plotting, tests, and tutorials.
@@ -78,6 +80,7 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 - Added numpy compatibility flag to equilibrium chemistry table.
 - Functional pymultinest and JAXNS retrievals as of v4.0.a7.
 - Renamed functions beginning with `__` in Radtrans to only use a single underscore.
+- Minimum supported Python version is 3.12.
 
 ### Added
 - a16: Time-variable model function parameterisation

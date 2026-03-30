@@ -2413,12 +2413,11 @@ class Retrieval:
             print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging,
         )
 
-    # TODO [4.0.0] remove unused parameters ndim and nparam
     def _log_likelihood_legacy(
         self,
         cube: npt.NDArray[np.floating],
-        ndim: int = 0,
-        nparam: int = 0,
+        ndim: int = 0,  # noqa: F811 keeping unused parameters for Multinest compatibility.
+        nparam: int = 0,   # noqa: F811 keeping unused parameters for Multinest compatibility.
         log_l_per_datapoint_dict: dict = None,
         return_model: bool = False
     ):
@@ -4056,7 +4055,6 @@ class Retrieval:
             if isinstance(data.data_resolution, np.ndarray):
                 data.initialise_data_resolution(1e4 * radtrans.get_wavelengths())
 
-    # TODO move plot functions outside of here in v.4.0.0
     def plot_abundances(
         self,
         samples_use,
@@ -4070,6 +4068,24 @@ class Retrieval:
         sample_posteriors=False,
         volume_mixing_ratio=False
     ):
+        """
+        Plot abundance profiles (mass fractions or volume mixing ratios) as a function of pressure.
+        This is a wrapper for RetrievalPlotter.plot_abundances.
+
+        Args:
+            samples_use: Array of samples from the posterior.
+            parameters_read: List of free parameter names.
+            species_to_plot: List of species to plot (optional).
+            contribution: If True, overplot the contribution function.
+            refresh: If True, recalculate and overwrite cached results.
+            model_generating_function: Optional model function for spectrum generation.
+            prt_reference: Optional reference for pRT object.
+            mode: 'bestfit' or 'median' for which sample to plot.
+            sample_posteriors: If True, plot posterior intervals.
+            volume_mixing_ratio: If True, plot volume mixing ratios instead of mass fractions.
+        Returns:
+            fig, ax: Matplotlib figure and axis objects.
+        """
         return self.plotter.plot_abundances(
             samples_use=samples_use,
             parameters_read=parameters_read,
@@ -4092,6 +4108,20 @@ class Retrieval:
         prt_reference=None,
         mode='bestfit'
     ):
+        """
+        Generate all standard plots for a retrieval, including best-fit spectrum, sample spectra, PT profile, corner plot, and abundances.
+        This is a wrapper for RetrievalPlotter.plot_all.
+
+        Args:
+            output_directory: Directory to save plots (optional).
+            ret_names: List of retrieval names for plotting (optional).
+            contribution: If True, plot contribution function.
+            model_generating_function: Optional model function for spectrum generation.
+            prt_reference: Optional reference for pRT object.
+            mode: 'bestfit' or 'median' for which sample to plot.
+        Returns:
+            None
+        """
         return self.plotter.plot_all(
             output_directory=output_directory,
             ret_names=ret_names,
@@ -4103,6 +4133,22 @@ class Retrieval:
 
     def plot_contribution(self, samples_use, parameters_read, model_generating_function=None, prt_reference=None,
                           log_scale_contribution=False, n_contour_levels=30, refresh=True, mode='bestfit'):
+        """
+        Plot the contribution function of the best-fit or median model from a retrieval.
+        This is a wrapper for RetrievalPlotter.plot_contribution.
+
+        Args:
+            samples_use: Array of samples from the posterior.
+            parameters_read: List of free parameter names.
+            model_generating_function: Optional model function for spectrum generation.
+            prt_reference: Optional reference for pRT object.
+            log_scale_contribution: If True, plot -log10(weighted flux).
+            n_contour_levels: Number of contour levels in the plot.
+            refresh: If True, recalculate and overwrite cached results.
+            mode: 'bestfit' or 'median' for which sample to plot.
+        Returns:
+            fig, ax: Matplotlib figure and axis objects.
+        """
         return self.plotter.plot_contribution(
             samples_use=samples_use,
             parameters_read=parameters_read,
@@ -4115,6 +4161,20 @@ class Retrieval:
         )
 
     def plot_corner(self, sample_dict, parameter_dict, parameters_read, plot_best_fit=True, true_values=None, **kwargs):
+        """
+        Make a corner plot of the posterior samples for the retrieved parameters.
+        This is a wrapper for RetrievalPlotter.plot_corner.
+
+        Args:
+            sample_dict: Dictionary of posterior samples for each retrieval.
+            parameter_dict: Dictionary of parameter names for each retrieval.
+            parameters_read: List of free parameter names.
+            plot_best_fit: If True, mark the best-fit point on the plot.
+            true_values: Optional dictionary of true parameter values for reference.
+            **kwargs: Additional keyword arguments passed to the plotting function.
+        Returns:
+            fig: Matplotlib figure object.
+        """
         return self.plotter.plot_corner(
             sample_dict=sample_dict,
             parameter_dict=parameter_dict,
@@ -4125,10 +4185,34 @@ class Retrieval:
         )
 
     def plot_data(self, yscale='linear'):
+        """
+        Plot the observational data used in the retrieval.
+        This is a wrapper for RetrievalPlotter.plot_data.
+
+        Args:
+            yscale: Y-axis scaling for the plot (default 'linear').
+        Returns:
+            None
+        """
         return self.plotter.plot_data(yscale=yscale)
 
     def plot_pt(self, sample_dict, parameters_read, contribution=False, refresh=False, model_generating_function=None,
                 prt_reference=None, mode='bestfit'):
+        """
+        Plot the pressure-temperature (PT) profile with error contours for the retrieval.
+        This is a wrapper for RetrievalPlotter.plot_pt.
+
+        Args:
+            sample_dict: Dictionary of posterior samples for each retrieval.
+            parameters_read: List of free parameter names.
+            contribution: If True, overplot the contribution function.
+            refresh: If True, recalculate and overwrite cached results.
+            model_generating_function: Optional model function for spectrum generation.
+            prt_reference: Optional reference for pRT object.
+            mode: 'bestfit' or 'median' for which sample to plot.
+        Returns:
+            fig, ax: Matplotlib figure and axis objects.
+        """
         return self.plotter.plot_pt(
             sample_dict=sample_dict,
             parameters_read=parameters_read,
@@ -4141,6 +4225,22 @@ class Retrieval:
 
     def plot_sampled(self, samples_use, parameters_read, downsample_factor=None, save_outputs=False,
                      nsample=None, model_generating_function=None, prt_reference=None, refresh=True):
+        """
+        Plot a set of randomly sampled output spectra for each dataset in the retrieval.
+        This is a wrapper for RetrievalPlotter.plot_sampled.
+
+        Args:
+            samples_use: Array of samples from the posterior.
+            parameters_read: List of free parameter names.
+            downsample_factor: Optional factor to downsample the spectra.
+            save_outputs: If True, save the sampled spectra to disk.
+            nsample: Number of samples to plot (optional).
+            model_generating_function: Optional model function for spectrum generation.
+            prt_reference: Optional reference for pRT object.
+            refresh: If True, recalculate and overwrite cached results.
+        Returns:
+            fig, ax: Matplotlib figure and axis objects.
+        """
         return self.plotter.plot_sampled(
             samples_use=samples_use,
             parameters_read=parameters_read,
@@ -4155,6 +4255,24 @@ class Retrieval:
     def plot_spectra(self, samples_use, parameters_read, model_generating_function=None, prt_reference=None,
                      refresh=True, mode="bestfit", marker_color_type=None, marker_cmap=None, marker_label='',
                      only_save_best_fit_spectra=False):
+        """
+        Plot the best-fit spectrum, the data from each dataset, and the residuals between the two.
+        This is a wrapper for RetrievalPlotter.plot_spectra.
+
+        Args:
+            samples_use: Array of samples from the posterior.
+            parameters_read: List of free parameter names.
+            model_generating_function: Optional model function for spectrum generation.
+            prt_reference: Optional reference for pRT object.
+            refresh: If True, recalculate and overwrite cached results.
+            mode: 'bestfit' or 'median' for which sample to plot.
+            marker_color_type: Optional marker color type for data points.
+            marker_cmap: Optional colormap for markers.
+            marker_label: Optional label for markers.
+            only_save_best_fit_spectra: If True, only save the best-fit spectra to disk.
+        Returns:
+            fig, ax, ax_r: Matplotlib figure and axis objects for the spectrum and residuals.
+        """
         return self.plotter.plot_spectra(
             samples_use=samples_use,
             parameters_read=parameters_read,

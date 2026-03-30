@@ -530,12 +530,6 @@ class SpectralModel(Radtrans):
             if 'log10_' in parameter:
                 parameter = parameter.split('log10_', 1)[1]
 
-            if parameter not in default_parameters and parameter != 'modification_parameters':  # TODO modification_parameters is deprecated, remove in version 4 # noqa: E501
-                warnings.warn(f"model parameter '{parameter}' is not used by any function of this "
-                              f"SpectralModel\n"
-                              f"To remove this warning, add a custom function using this parameter, "
-                              f"or remove it from your model")
-
     def __check_model_functions_map(self):
         for parameter, model_function in self.model_functions_map.items():
             if (
@@ -1310,7 +1304,6 @@ class SpectralModel(Radtrans):
             cloud_fraction: float = 1.0,
             complete_coverage_clouds: list[str] = None,
             irradiation_geometry: str = 'dayside_ave',
-            emission_geometry: str = None,
             stellar_intensities: npt.NDArray[np.floating] = None,
             star_effective_temperature: float = None,
             star_radius: float = None,
@@ -1336,10 +1329,6 @@ class SpectralModel(Radtrans):
         """Wrapper for the Radtrans calculate_flux function."""
         _ = kwargs  # kwargs is not used in this function, this is intended
 
-        if emission_geometry is not None:
-            # Deprecation warning is handled in Radtrans
-            irradiation_geometry = emission_geometry  # TODO remove when emission_geometry is removed
-
         self.wavelengths, self.fluxes, additional_outputs = self.calculate_flux(
             temperatures=self.temperatures,
             mass_fractions=self.mass_fractions,
@@ -1364,7 +1353,6 @@ class SpectralModel(Radtrans):
             cloud_fraction=cloud_fraction,
             complete_coverage_clouds=complete_coverage_clouds,
             irradiation_geometry=irradiation_geometry,
-            emission_geometry=emission_geometry,  # TODO remove when emission_geometry is removed
             stellar_intensities=stellar_intensities,
             star_effective_temperature=star_effective_temperature,
             star_radius=star_radius,
@@ -2835,7 +2823,6 @@ class SpectralModel(Radtrans):
 
         # Initialize the modification parameters dict
         model_parameters['modification_arguments'] = {}
-        model_parameters['modification_parameters'] = model_parameters['modification_arguments']  # TODO deprecated, remove in version 4 # noqa: E501
 
         # Check relevance of model parameters
         if check_relevance:
@@ -3721,7 +3708,7 @@ class SpectralModel(Radtrans):
             attribute_dictionary = {
                 copy.deepcopy(key): copy.deepcopy(value)
                 for key, value in self.__dict__.items()
-                if key not in ['_loaded_opacities', 'modification_parameters']
+                if key not in ['_loaded_opacities']
             }
 
         def __check_map(_map_name, _functions_label):

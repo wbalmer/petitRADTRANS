@@ -1408,7 +1408,7 @@ module fortran_radtrans_core
         subroutine compute_feautrier_radiative_transfer(frequencies_bin_edges, temperatures, weights_gauss, &
                                                         emission_cos_angles, emission_cos_angles_weights, &
                                                         optical_depths, photon_destruction_probabilities, &
-                                                        emission_geometry, &
+                                                        irradiation_geometry, &
                                                         stellar_intensity, star_irradiation_cos_angle, &
                                                         reflectances, emissivities, &
                                                         adaptive_feautrier_iterations, return_contribution, &
@@ -1422,7 +1422,7 @@ module fortran_radtrans_core
             integer, parameter :: iter_scat = 1000
             double precision, parameter :: tiniest = tiny(0d0), pi_4 = 4d0 * cst_pi
 
-            character(len=*), intent(in)  :: emission_geometry
+            character(len=*), intent(in)  :: irradiation_geometry
             logical, intent(in)           :: adaptive_feautrier_iterations
             logical, intent(in)           :: return_contribution
             integer, intent(in)           :: n_frequencies_bin_edges, n_layers, n_angles, n_g
@@ -1528,11 +1528,11 @@ module fortran_radtrans_core
                 reshape(photon_destruction_probabilities, shape(photon_destruction_probabilities_), order=[2, 3, 1])
 
             ! Irradiation treatment
-            if (trim(adjustl(emission_geometry)) == 'dayside_ave') then
+            if (trim(adjustl(irradiation_geometry)) == 'dayside_ave') then
                 geometry_coefficient = 0.5d0
-            else if (trim(adjustl(emission_geometry)) == 'planetary_ave') then
+            else if (trim(adjustl(irradiation_geometry)) == 'planetary_ave') then
                 geometry_coefficient = 0.25d0
-            else if (trim(adjustl(emission_geometry)) == 'non-isotropic') then
+            else if (trim(adjustl(irradiation_geometry)) == 'non-isotropic') then
                 geometry_coefficient = -1d0
             else
                 write(*,*) 'Invalid geometry'
@@ -1595,7 +1595,7 @@ module fortran_radtrans_core
                 I_surface_emission = emissivities(i) * planck(n_layers, i)
 
                 do l = 1, n_g
-                    if  (trim(adjustl(emission_geometry)) /= 'non-isotropic') then
+                    if  (trim(adjustl(irradiation_geometry)) /= 'non-isotropic') then
                         I_surface_reflection = surf_refl_2(i) &
                             * sum(I_star_calc(l, n_layers, :, i) * mu_weight)
                     else
