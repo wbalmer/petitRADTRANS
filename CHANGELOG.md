@@ -20,6 +20,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Feature completion: Figure out how to implement `additional_outputs` in jax compatible way.
 - Feature completion: New cloud opacities to be compatible with new condensation curves.
 - Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
+- Feature completion: Re-implement non-vertically-constant abundance profiles.
 - Optimisation: profile code for new bottlenecks.
 - Optimisation: Ensure imports are optimised.
 - Testing: ensure compatibility of spectral_model.
