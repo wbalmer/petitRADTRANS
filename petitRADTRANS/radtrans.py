@@ -2410,7 +2410,6 @@ class Radtrans:
         cloud_fraction: float = 1.0,
         complete_coverage_clouds: list[str] = None,
         irradiation_geometry: str = "dayside_ave",
-        irradiation_geometry: str = None,  # TODO deprecated, replace with irradiation_geometry everywhere in the code
         stellar_intensities: ArrayLike = None,
         star_effective_temperature: float = None,
         star_radius: float = None,
@@ -2509,8 +2508,6 @@ class Radtrans:
                 if equal to ``'dayside_ave'``: use the dayside average geometry.
                 If equal to ``'planetary_ave'``: use the planetary average geometry.
                 If equal to ``'non-isotropic'``: use the non-isotropic geometry.
-            irradiation_geometry (Optional[string]):
-                Deprecated, same as irradiation_geometry.
             stellar_intensities (Optional[array]):
                 The stellar intensity to use. If None, it will be calculated using a PHOENIX model.
             star_effective_temperature (Optional[float]):
@@ -3182,8 +3179,6 @@ class Radtrans:
                 if equal to ``'dayside_ave'``: use the dayside average geometry.
                 If equal to ``'planetary_ave'``: use the planetary average geometry.
                 If equal to ``'non-isotropic'``: use the non-isotropic geometry.
-            irradiation_geometry (Optional[string]):
-                Deprecated, same as irradiation_geometry.
             stellar_intensities (Optional[array]):
                 The stellar intensity to use. If None, it will be calculated using a PHOENIX model.
             star_effective_temperature (Optional[float]):

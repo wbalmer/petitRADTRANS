@@ -3,7 +3,9 @@ from jax.typing import ArrayLike
 from jax import Array
 
 
-def power_law_temperature_profile(pressures: ArrayLike, alpha: float, T0: float) -> Array:
+def power_law_temperature_profile(
+    pressures: ArrayLike, alpha: float, T0: float
+) -> Array:
     """
     Compute a power law profile for temperature; log(T) = a*log(P) + b.
 
@@ -18,5 +20,5 @@ def power_law_temperature_profile(pressures: ArrayLike, alpha: float, T0: float)
     Returns:
         temperatures (array): temperature values for each pressure value
     """
-    temperatures = T0*(pressures/pressures[0])**alpha
+    temperatures = T0 * (pressures / pressures[0]) ** alpha
     return temperatures

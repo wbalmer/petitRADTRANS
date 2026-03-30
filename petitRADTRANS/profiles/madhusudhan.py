@@ -1,13 +1,14 @@
 import jax.numpy as jnp
+from jax import Array
 from jax.typing import ArrayLike
 
 
 def madhusudhan_seager_temperature_profile(
-        pressures: ArrayLike,
-        log_pressure_points: tuple[float],
-        temperature_reference: float,
-        alpha_points: tuple[float],
-        beta_points: tuple[float]
+    pressures: ArrayLike,
+    log_pressure_points: tuple[float],
+    temperature_reference: float,
+    alpha_points: tuple[float],
+    beta_points: tuple[float],
 ) -> Array:
     """
     Calculate temperatures based on the Madhusudhan and Seager (2009) parameterization.
@@ -50,7 +51,7 @@ def madhusudhan_seager_temperature_profile(
     temperatures = jnp.zeros_like(pressures)
 
     # Set up masks for the different temperature regions
-    pressure_points = 10**jnp.array(log_pressure_points)
+    pressure_points = 10 ** jnp.array(log_pressure_points)
 
     # Change log10 pressure points to log pressure points as used in Madhusudhan and Seager (2009)
     nat_log_pressure_points = jnp.log(pressure_points)
@@ -70,40 +71,50 @@ def madhusudhan_seager_temperature_profile(
 
     # Branch 1: P_set is in layer 3
     t3_b1 = temperature_reference
-    t2_b1 = t3_b1 - ((1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])) ** (
-            1 / beta_points[1])
-    t1_b1 = t2_b1 + ((1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])) ** (
-            1 / beta_points[1])
-    t0_b1 = t1_b1 - ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (1 / beta_points[0])
+    t2_b1 = t3_b1 - (
+        (1.0 / alpha_points[1])
+        * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
+    ) ** (1 / beta_points[1])
+    t1_b1 = t2_b1 + (
+        (1.0 / alpha_points[1])
+        * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
+    ) ** (1 / beta_points[1])
+    t0_b1 = t1_b1 - (
+        (1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)
+    ) ** (1 / beta_points[0])
 
     # Branch 2: P_set is in layer 2
     t2_b2 = temperature_reference - (
-            (1.0 / alpha_points[1]) * (nat_log_p_set_i - nat_log_pressure_points[2])
+        (1.0 / alpha_points[1]) * (nat_log_p_set_i - nat_log_pressure_points[2])
     ) ** (1 / beta_points[1])
     t1_b2 = t2_b2 + (
         # NOTE: there was a bug here, beta_points[0] was used instead of beta_points[1]
         # This is corrected to follow the POSEIDON implementation and the Madhusudhan & Seager (2009) paper
-            (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
+        (1.0 / alpha_points[1])
+        * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
     ) ** (1 / beta_points[1])
     t3_b2 = t2_b2 + (
-            (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
+        (1.0 / alpha_points[1])
+        * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
     ) ** (1 / beta_points[1])
-    t0_b2 = t1_b2 - ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
-            1 / beta_points[0]
-    )
+    t0_b2 = t1_b2 - (
+        (1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)
+    ) ** (1 / beta_points[0])
 
     # Branch 3: P_set is in layer 1
-    t0_b3 = temperature_reference - ((1.0 / alpha_points[0]) * (nat_log_p_set_i - nat_log_p_min)) ** (
-            1 / beta_points[0]
-    )
-    t1_b3 = t0_b3 + ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
-            1 / beta_points[0]
-    )
+    t0_b3 = temperature_reference - (
+        (1.0 / alpha_points[0]) * (nat_log_p_set_i - nat_log_p_min)
+    ) ** (1 / beta_points[0])
+    t1_b3 = t0_b3 + (
+        (1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)
+    ) ** (1 / beta_points[0])
     t2_b3 = t1_b3 - (
-            (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
+        (1.0 / alpha_points[1])
+        * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
     ) ** (1 / beta_points[1])
     t3_b3 = t2_b3 + (
-            (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
+        (1.0 / alpha_points[1])
+        * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
     ) ** (1 / beta_points[1])
 
     # Select branch based on P_set
@@ -113,20 +124,20 @@ def madhusudhan_seager_temperature_profile(
     cond2 = nat_log_pressure_points[4] >= nat_log_pressure_points[1]
 
     t0 = jnp.where(cond1, t0_b1, jnp.where(cond2, t0_b2, t0_b3))
-    #t1 = jnp.where(cond1, t1_b1, jnp.where(cond2, t1_b2, t1_b3))
+    # t1 = jnp.where(cond1, t1_b1, jnp.where(cond2, t1_b2, t1_b3))
     t2 = jnp.where(cond1, t2_b1, jnp.where(cond2, t2_b2, t2_b3))
     t3 = jnp.where(cond1, t3_b1, jnp.where(cond2, t3_b2, t3_b3))
 
     temperatures = temperatures.at[mask_1].set(
-         t0
-         + ((nat_log_p[mask_1] - nat_log_pressure_points[0]) / (alpha_points[0]))
-         ** (1 / beta_points[0])
-         )
+        t0
+        + ((nat_log_p[mask_1] - nat_log_pressure_points[0]) / (alpha_points[0]))
+        ** (1 / beta_points[0])
+    )
     temperatures = temperatures.at[mask_2].set(
-         t2
-         + ((nat_log_p[mask_2] - nat_log_pressure_points[2]) / (alpha_points[1]))
-         ** (1 / beta_points[1])
-         )
+        t2
+        + ((nat_log_p[mask_2] - nat_log_pressure_points[2]) / (alpha_points[1]))
+        ** (1 / beta_points[1])
+    )
     temperatures = temperatures.at[mask_3].set(t3)
 
     return temperatures

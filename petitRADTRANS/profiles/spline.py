@@ -5,10 +5,7 @@ from interpax import interp1d
 
 
 def cubic_spline_temperature_profile(
-    pressures: ArrayLike,
-    temperature_points: ArrayLike,
-    gamma: float,
-    nnodes: int = 0
+    pressures: ArrayLike, temperature_points: ArrayLike, gamma: float, nnodes: int = 0
 ) -> tuple[Array, float]:
     """
     Compute a cubic spline profile for temperature based on pressure points.
@@ -30,13 +27,9 @@ def cubic_spline_temperature_profile(
     """
     # TODO benchmark interp1d vs PchipInterpolator for cubic spline interpolation in terms of speed and accuracy
     cs = interp1d(
-        x=jnp.linspace(
-            jnp.log10(pressures[0]),
-            jnp.log10(pressures[-1]),
-            nnodes + 2
-        ),
+        x=jnp.linspace(jnp.log10(pressures[0]), jnp.log10(pressures[-1]), nnodes + 2),
         y=temperature_points,
-        method='monotonic'
+        method="monotonic",
     )
 
     interpolated_temperatures: ArrayLike = cs(jnp.log10(pressures))
@@ -46,10 +39,7 @@ def cubic_spline_temperature_profile(
 
 
 def linear_spline_temperature_profile(
-    pressures: ArrayLike,
-    temperature_points: ArrayLike,
-    gamma: float,
-    nnodes: int = 0
+    pressures: ArrayLike, temperature_points: ArrayLike, gamma: float, nnodes: int = 0
 ) -> tuple[ArrayLike, float]:
     """
     Compute a linear spline profile for temperature based on pressure points.
@@ -72,11 +62,9 @@ def linear_spline_temperature_profile(
     interpolated_temperatures = jnp.interp(
         jnp.log10(pressures),
         jnp.linspace(
-            jnp.log10(pressures[0]),
-            jnp.log10(pressures[-1]),
-            int(nnodes) + 2
+            jnp.log10(pressures[0]), jnp.log10(pressures[-1]), int(nnodes) + 2
         ),
-        temperature_points
+        temperature_points,
     )
 
     prior = temperature_curvature_prior(interpolated_temperatures, gamma)
@@ -98,7 +86,11 @@ def temperature_curvature_prior(temperatures: ArrayLike, gamma: float) -> float:
     Returns:
         The curvature prior value.
     """
-    weighted_temp_prior = -0.5 * jnp.sum((temperatures[2:] - 2 * temperatures[1:-1] + temperatures[:-2]) ** 2) / gamma
+    weighted_temp_prior = (
+        -0.5
+        * jnp.sum((temperatures[2:] - 2 * temperatures[1:-1] + temperatures[:-2]) ** 2)
+        / gamma
+    )
     weighted_temp_prior -= 0.5 * jnp.log(2 * jnp.pi * gamma)
 
     return weighted_temp_prior

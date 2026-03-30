@@ -11,9 +11,9 @@ def temperature_profile_function_guillot(
     gravities: ArrayLike,
     intrinsic_temperature: float,
     equilibrium_temperature: float,
-    redistribution_coefficient: float = 0.25
+    redistribution_coefficient: float = 0.25,
 ) -> Array:
-    """ Returns a temperature array, in units of K, of the same dimensions as the pressure P (in bar).
+    """Returns a temperature array, in units of K, of the same dimensions as the pressure P (in bar).
 
     For this the temperature model of Guillot (2010) is used (his Equation 29).
     Source: https://doi.org/10.1051/0004-6361/200913396
@@ -32,16 +32,19 @@ def temperature_profile_function_guillot(
     """
     # Estimate tau from eq. 24: m is the column mass, dm = rho * dz, dP / dz = -g * rho, so m = P / g
     tau = infrared_mean_opacity * pressures * 1e6 / gravities
-    t_irr = equilibrium_temperature * 2.0 ** 0.5  # from eqs. 1 and 2
+    t_irr = equilibrium_temperature * 2.0**0.5  # from eqs. 1 and 2
 
     temperature = (
-            0.75 * intrinsic_temperature ** 4. * (2. / 3. + tau)
-            + 0.75 * t_irr ** 4. * redistribution_coefficient
-            * (
-                    2. / 3.
-                    + 1. / gamma / 3. ** 0.5
-                    + (gamma / 3. ** 0.5 - 1. / 3. ** 0.5 / gamma) * jnp.exp(-gamma * tau * 3. ** 0.5)
-            )
+        0.75 * intrinsic_temperature**4.0 * (2.0 / 3.0 + tau)
+        + 0.75
+        * t_irr**4.0
+        * redistribution_coefficient
+        * (
+            2.0 / 3.0
+            + 1.0 / gamma / 3.0**0.5
+            + (gamma / 3.0**0.5 - 1.0 / 3.0**0.5 / gamma)
+            * jnp.exp(-gamma * tau * 3.0**0.5)
+        )
     ) ** 0.25
 
     return temperature
@@ -53,9 +56,9 @@ def temperature_profile_function_guillot_dayside(
     gamma: float,
     gravities: ArrayLike,
     intrinsic_temperature: float,
-    equilibrium_temperature: float
+    equilibrium_temperature: float,
 ) -> Array:
-    """ Returns a dayside temperature array, in units of K, using the Guillot (2010) model.
+    """Returns a dayside temperature array, in units of K, using the Guillot (2010) model.
 
     This is a wrapper for `temperature_profile_function_guillot` with `redistribution_coefficient` set to 0.5,
     which corresponds to an average over the day side of the planet.
@@ -77,7 +80,7 @@ def temperature_profile_function_guillot_dayside(
         gravities=gravities,
         intrinsic_temperature=intrinsic_temperature,
         equilibrium_temperature=equilibrium_temperature,
-        redistribution_coefficient=0.5
+        redistribution_coefficient=0.5,
     )
 
 
@@ -87,9 +90,9 @@ def temperature_profile_function_guillot_global(
     gamma: float,
     gravities: ArrayLike,
     intrinsic_temperature: float,
-    equilibrium_temperature: float
+    equilibrium_temperature: float,
 ) -> Array:
-    """ Returns a global average temperature array, in units of K, using the Guillot (2010) model.
+    """Returns a global average temperature array, in units of K, using the Guillot (2010) model.
 
     This is a wrapper for `temperature_profile_function_guillot` with `redistribution_coefficient` set to 0.25,
     which corresponds to an average over the whole planetary surface.
@@ -111,7 +114,7 @@ def temperature_profile_function_guillot_global(
         gravities=gravities,
         intrinsic_temperature=intrinsic_temperature,
         equilibrium_temperature=equilibrium_temperature,
-        redistribution_coefficient=0.25
+        redistribution_coefficient=0.25,
     )
 
 
@@ -120,7 +123,7 @@ def temperature_profile_function_guillot_global_ret(
     delta: float,
     gamma: float,
     intrinsic_temperature: float,
-    equilibrium_temperature: float
+    equilibrium_temperature: float,
 ) -> Array:
     """Global Guillot P-T formula for retrievals, with kappa/gravity replaced by delta.
 
@@ -143,12 +146,19 @@ def temperature_profile_function_guillot_global_ret(
     intrinsic_temperature = jnp.abs(intrinsic_temperature)
     equilibrium_temperature = jnp.abs(equilibrium_temperature)
     tau = pressures * 1e6 * delta
-    t_irr = equilibrium_temperature * jnp.sqrt(2.)
-    temperature = (0.75 * intrinsic_temperature ** 4. * (2. / 3. + tau)
-                   + 0.75 * t_irr ** 4. / 4.
-                   * (2. / 3. + 1. / gamma / 3. ** 0.5
-                      + (gamma / 3. ** 0.5 - 1. / 3. ** 0.5 / gamma)
-                      * jnp.exp(-gamma * tau * 3. ** 0.5))) ** 0.25
+    t_irr = equilibrium_temperature * jnp.sqrt(2.0)
+    temperature = (
+        0.75 * intrinsic_temperature**4.0 * (2.0 / 3.0 + tau)
+        + 0.75
+        * t_irr**4.0
+        / 4.0
+        * (
+            2.0 / 3.0
+            + 1.0 / gamma / 3.0**0.5
+            + (gamma / 3.0**0.5 - 1.0 / 3.0**0.5 / gamma)
+            * jnp.exp(-gamma * tau * 3.0**0.5)
+        )
+    ) ** 0.25
     return temperature
 
 
@@ -159,7 +169,7 @@ def temperature_profile_function_guillot_metallic(
     intrinsic_temperature: float,
     equilibrium_temperature: float,
     infrared_mean_opacity_solar_metallicity: float,
-    metallicity: Optional[float] = None
+    metallicity: Optional[float] = None,
 ) -> Array:
     """Get a Guillot temperature profile depending on metallicity.
 
@@ -190,7 +200,7 @@ def temperature_profile_function_guillot_metallic(
         gamma=gamma,
         gravities=reference_gravity,
         intrinsic_temperature=intrinsic_temperature,
-        equilibrium_temperature=equilibrium_temperature
+        equilibrium_temperature=equilibrium_temperature,
     )
 
     return temperatures
@@ -203,7 +213,7 @@ def temperature_profile_function_guillot_modif(
     intrinsic_temperature: float,
     equilibrium_temperature: float,
     ptrans: float,
-    alpha: float
+    alpha: float,
 ) -> Array:
     """Modified Guillot P-T formula for retrievals.
 
@@ -223,9 +233,9 @@ def temperature_profile_function_guillot_modif(
         The modified temperature profile in K.
     """
     return temperature_profile_function_guillot_global_ret(
-            pressures,
-            jnp.abs(delta),
-            jnp.abs(gamma),
-            jnp.abs(intrinsic_temperature),
-            jnp.abs(equilibrium_temperature)
-            ) * (1. - alpha * (1. / (1. + pressures / ptrans)))
+        pressures,
+        jnp.abs(delta),
+        jnp.abs(gamma),
+        jnp.abs(intrinsic_temperature),
+        jnp.abs(equilibrium_temperature),
+    ) * (1.0 - alpha * (1.0 / (1.0 + pressures / ptrans)))
