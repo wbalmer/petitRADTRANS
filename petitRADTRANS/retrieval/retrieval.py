@@ -199,7 +199,6 @@ class Retrieval:
                     )
                     break
 
-        # TODO - Maybe inherit from retrieval config class?
         # Could actually be merged with RetrievalConfig
         self.use_mpi = use_mpi
         self.rank = rank

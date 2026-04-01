@@ -54,9 +54,15 @@ def continuum_subtract_spectrum(
     if method == "spline":
         nodes = wavelengths[0]
         if name is not None and +(name + "_nodes" in parameters.keys()):
-            nodes = parameters[name + "_nodes"].value
+            nodes = getattr(
+                parameters[name + "_nodes"], "value", parameters[name + "_nodes"]
+            )
         elif "continuum_subtract_nodes" in parameters.keys():
-            nodes = parameters["continuum_subtract_nodes"].value
+            nodes = getattr(
+                parameters["continuum_subtract_nodes"],
+                "value",
+                parameters["continuum_subtract_nodes"],
+            )
         else:
             raise ValueError("No nodes available to create spline.")
         x_nodes = jnp.linspace(wavelengths[0], wavelengths[-1], nodes)
@@ -64,22 +70,44 @@ def continuum_subtract_spectrum(
     elif method == "medfilt":
         median_filter_width = 10
         if name is not None and +(name + "_median_filter_width" in parameters.keys()):
-            median_filter_width = parameters[name + "_median_filter_width"].value
+            median_filter_width = getattr(
+                parameters[name + "_median_filter_width"],
+                "value",
+                parameters[name + "_median_filter_width"],
+            )
         elif "median_filter_width" in parameters.keys():
-            median_filter_width = parameters["median_filter_width"].value
+            median_filter_width = getattr(
+                parameters["median_filter_width"],
+                "value",
+                parameters["median_filter_width"],
+            )
         return median_filter_spectrum(np.ndarray(spectrum), size=median_filter_width)
     elif method == "savgol":
         window_length = 10
         polyorder = 3
         if name is not None and +(name + "_savgol_window_length" in parameters.keys()):
-            window_length = parameters[name + "_savgol_window_length"].value
+            window_length = getattr(
+                parameters[name + "_savgol_window_length"],
+                "value",
+                parameters[name + "_savgol_window_length"],
+            )
         elif "savgol_window_length" in parameters.keys():
-            window_length = parameters["savgol_window_length"].value
+            window_length = getattr(
+                parameters["savgol_window_length"],
+                "value",
+                parameters["savgol_window_length"],
+            )
 
         if name is not None and +(name + "_savgol_polyorder" in parameters.keys()):
-            polyorder = parameters[name + "_savgol_polyorder"].value
+            polyorder = getattr(
+                parameters[name + "_savgol_polyorder"],
+                "value",
+                parameters[name + "_savgol_polyorder"],
+            )
         elif "savgol_polyorder" in parameters.keys():
-            polyorder = parameters["savgol_polyorder"].value
+            polyorder = getattr(
+                parameters["savgol_polyorder"], "value", parameters["savgol_polyorder"]
+            )
         return savgol_filter_spectrum(
             np.ndarray(spectrum), window_length=window_length, polyorder=polyorder
         )

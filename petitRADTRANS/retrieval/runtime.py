@@ -31,6 +31,7 @@ import numpy.typing as npt
 from jax import lax, vmap, nn, tree_util, debug
 
 from petitRADTRANS.retrieval.parameter import JAX_DTYPE, Parameter
+from petitRADTRANS.retrieval.utils import _get_parameter_value
 
 if TYPE_CHECKING:
     from petitRADTRANS.radtrans import Radtrans
@@ -137,16 +138,6 @@ def _serialize_runtime_metadata_value(value: Any) -> Any:
 # These replace the mutable ``Data`` methods with free functions operating on
 # ``ObservationState`` fields and a parameter dictionary.
 # ---------------------------------------------------------------------------
-
-
-def _get_parameter_value(
-    parameters: Mapping[str, Any], name: str, default: Any = None
-) -> Any:
-    """Extract a scalar parameter value, unwrapping ``Parameter.value`` if needed."""
-    param = parameters.get(name)
-    if param is None:
-        return default
-    return param.value if hasattr(param, "value") else param
 
 
 def _apply_flux_scaling(
@@ -971,7 +962,7 @@ class RetrievalRuntime:
     def _build_model_context(
         self,
         group: ModelGroupState,
-        parameters: Mapping[str, Any],
+        physical_params: PhysicalParams,
     ) -> ModelContext:
         from petitRADTRANS.retrieval.utils import get_calculate_flux_return_values
 
@@ -985,7 +976,7 @@ class RetrievalRuntime:
             return_cloud_contribution,
             return_abundances,
             _return_any,
-        ) = get_calculate_flux_return_values(parameters)
+        ) = get_calculate_flux_return_values(physical_params)
 
         return ModelContext(
             name=group.source_name,
@@ -1014,7 +1005,7 @@ class RetrievalRuntime:
 
         model_context = self._build_model_context(
             group,
-            self.parameter_layout.build_legacy_parameter_dict(physical_params),
+            physical_params,
         )
 
         # All model functions are coerced at build time (via
@@ -1226,8 +1217,6 @@ class RetrievalRuntime:
         log_likelihood = 0.0
         log_prior = 0.0
 
-        parameters = self.parameter_layout.build_legacy_parameter_dict(physical_params)
-
         for group in self.model_groups:
             model_result = self._evaluate_model_group(group, physical_params)
 
@@ -1241,7 +1230,7 @@ class RetrievalRuntime:
             for observation_name in group.observation_names:
                 contribution = self._score_dataset(
                     observation_name,
-                    parameters,
+                    physical_params,
                     wavelengths_model,
                     spectrum_model,
                     additional_log_likelihood,
@@ -1255,8 +1244,8 @@ class RetrievalRuntime:
             if model_result.auxiliary_outputs:
                 log_prior += model_result.auxiliary_outputs.get("log_prior_weight", 0.0)
 
-        if "log_prior_weight" in parameters.keys():
-            log_prior += parameters["log_prior_weight"].value
+        if "log_prior_weight" in physical_params:
+            log_prior += physical_params["log_prior_weight"]
 
         if log_likelihood + log_prior < invalid_value:
             return invalid_value
@@ -1291,8 +1280,6 @@ class RetrievalRuntime:
         log_prior = jnp.asarray(0.0, dtype=JAX_DTYPE)
         has_invalid_contribution = jnp.asarray(False)
 
-        parameters = self.parameter_layout.build_legacy_parameter_dict(physical_params)
-
         for group in self.model_groups:
             model_result = self._evaluate_model_group(group, physical_params)
 
@@ -1308,7 +1295,7 @@ class RetrievalRuntime:
             for observation_name in group.observation_names:
                 contribution = self._score_dataset(
                     observation_name,
-                    parameters,
+                    physical_params,
                     model_result.wavelengths,
                     model_result.spectrum,
                     model_result.additional_log_likelihood,
@@ -1338,8 +1325,8 @@ class RetrievalRuntime:
             has_invalid_contribution, invalid_value, log_likelihood
         )
 
-        if "log_prior_weight" in parameters.keys():
-            log_prior = log_prior + parameters["log_prior_weight"].value
+        if "log_prior_weight" in physical_params:
+            log_prior = log_prior + physical_params["log_prior_weight"]
 
         total = log_likelihood + log_prior
 
@@ -1386,7 +1373,7 @@ class RetrievalRuntime:
     def _project_dataset_observation(
         self,
         data_name: str,
-        parameters: Mapping[str, Any],
+        parameters: PhysicalParams,
         wavelengths_model: Any,
         spectrum_model: Any,
     ) -> Any:
@@ -1398,7 +1385,6 @@ class RetrievalRuntime:
         )
 
         observation = self.observations[data_name]
-        parameter_dict = dict(parameters)
 
         if observation.photometry:
             projected = observation.photometric_transformation_function(
@@ -1408,12 +1394,12 @@ class RetrievalRuntime:
                 projected = projected[0]
             return ensure_jax_array(projected)
 
-        spectrum_params = extract_spectrum_parameters(parameter_dict, data_name)
+        spectrum_params = extract_spectrum_parameters(parameters, data_name)
         projected = process_spectrum_pipeline(
             wavelengths_model,
             spectrum_model,
             observation,
-            parameter_dict,
+            parameters,
             data_name,
             spectrum_params,
         )
@@ -1424,7 +1410,6 @@ class RetrievalRuntime:
         physical_params: PhysicalParams,
     ) -> dict[str, dict[str, Any]]:
         """Return deterministic observation-space model outputs for one parameter point."""
-        parameters = self.parameter_layout.build_legacy_parameter_dict(physical_params)
         simulated_observations: dict[str, dict[str, Any]] = {}
         parameter_payload = {
             name: float(value)
@@ -1450,15 +1435,15 @@ class RetrievalRuntime:
                 observation = self.observations[observation_name]
                 projected_values = self._project_dataset_observation(
                     observation_name,
-                    parameters,
+                    physical_params,
                     model_result.wavelengths,
                     model_result.spectrum,
                 )
                 projected_values = _apply_flux_scaling(
-                    projected_values, observation, parameters
+                    projected_values, observation, physical_params
                 )
                 projected_values = _offset_flux(
-                    projected_values, observation, parameters
+                    projected_values, observation, physical_params
                 )
                 projected_values_array = np.asarray(projected_values, dtype=float)
                 finite_mask = np.isfinite(projected_values_array)
@@ -1478,7 +1463,7 @@ class RetrievalRuntime:
                         f"source '{group.source_name}' and dataset '{observation_name}'."
                     )
                 projected_uncertainties, projected_covariance = (
-                    _scale_and_inflate_uncertainties(observation, parameters)
+                    _scale_and_inflate_uncertainties(observation, physical_params)
                 )
                 simulated_observations[observation_name] = {
                     "values": projected_values,

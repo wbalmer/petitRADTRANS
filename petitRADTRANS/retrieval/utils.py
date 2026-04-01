@@ -27,6 +27,22 @@ from petitRADTRANS.retrieval.log_likelihood import LogLikelihood
 SQRT2 = jnp.sqrt(2.0)
 
 
+def _get_parameter_value(
+    parameters: object, name: str, default: object = None
+) -> object:
+    """Extract a scalar parameter value from a mapping, unwrapping legacy ``Parameter`` objects.
+
+    This is the canonical helper for reading parameter values from either a legacy
+    parameter dictionary (where values are ``Parameter`` objects with a ``.value``
+    attribute) or a ``PhysicalParams`` mapping (where values are already unwrapped
+    scalars / JAX arrays).  It accepts any mapping that supports ``.get()``.
+    """
+    param = parameters.get(name)
+    if param is None:
+        return default
+    return param.value if hasattr(param, "value") else param
+
+
 # Prior Functions
 # Stolen from https://github.com/JohannesBuchner/MultiNest/blob/master/src/priors.f90
 def log_prior(cube, lx1, lx2):
@@ -135,32 +151,36 @@ def get_calculate_flux_return_values(parameters):
     return_abundances = False
     return_any = False
     if "contribution" in parameters.keys():
-        return_contribution = parameters["contribution"].value
+        return_contribution = _get_parameter_value(parameters, "contribution")
         return_any = True
     if "return_contribution" in parameters.keys():
-        return_contribution = parameters["return_contribution"].value
+        return_contribution = _get_parameter_value(parameters, "return_contribution")
         return_any = True
     if "return_opacities" in parameters.keys():
-        return_opacities = parameters["return_opacities"].value
+        return_opacities = _get_parameter_value(parameters, "return_opacities")
         return_any = True
     if "return_photosphere_radius" in parameters.keys():
-        return_photosphere_radius = parameters["return_photosphere_radius"].value
+        return_photosphere_radius = _get_parameter_value(
+            parameters, "return_photosphere_radius"
+        )
         return_any = True
     if "return_abundances" in parameters.keys():
-        return_abundances = parameters["return_abundances"].value
+        return_abundances = _get_parameter_value(parameters, "return_abundances")
         return_any = True
     if "return_radius_hydrostatic_equilibrium" in parameters.keys():
-        return_radius_hydrostatic_equilibrium = parameters[
-            "return_radius_hydrostatic_equilibrium"
-        ].value
+        return_radius_hydrostatic_equilibrium = _get_parameter_value(
+            parameters, "return_radius_hydrostatic_equilibrium"
+        )
         return_any = True
     if "return_rosseland_optical_depths" in parameters.keys():
-        return_rosseland_optical_depths = parameters[
-            "return_rosseland_optical_depths"
-        ].value
+        return_rosseland_optical_depths = _get_parameter_value(
+            parameters, "return_rosseland_optical_depths"
+        )
         return_any = True
     if "return_cloud_contribution" in parameters.keys():
-        return_cloud_contribution = parameters["return_cloud_contribution"].value
+        return_cloud_contribution = _get_parameter_value(
+            parameters, "return_cloud_contribution"
+        )
         return_any = True
     return (
         return_contribution,
@@ -256,10 +276,12 @@ def extract_spectrum_parameters(parameters: dict, data_name: str) -> dict:
     # Radial velocity parameters - check both data-specific and system-wide
     if data_name + "_radial_velocity" in parameters:
         param_dict["radial_velocity"] = (
-            parameters[data_name + "_radial_velocity"].value * 1e5
+            _get_parameter_value(parameters, data_name + "_radial_velocity") * 1e5
         )
     elif "system_radial_velocity" in parameters:
-        param_dict["radial_velocity"] = parameters["system_radial_velocity"].value * 1e5
+        param_dict["radial_velocity"] = (
+            _get_parameter_value(parameters, "system_radial_velocity") * 1e5
+        )
     else:
         param_dict["radial_velocity"] = None
 
@@ -301,11 +323,11 @@ def process_spectrum_pipeline(
 
     # Handle variable resolution convolution and rebin
     if data.fit_instrumental_resolution:
-        resolution_slope = spectrum_params["resolution_slope"]
-        resolution_intersect = spectrum_params["resolution_intersect"]
+        resolution_slope = _get_parameter_value(spectrum_params, "resolution_slope")
+        resolution_intersect = _get_parameter_value(
+            spectrum_params, "resolution_intersect"
+        )
         if resolution_slope is not None and resolution_intersect is not None:
-            resolution_slope = resolution_slope.value
-            resolution_intersect = resolution_intersect.value
             resolution_array = (
                 data.wavelengths * resolution_slope
             ) + resolution_intersect
@@ -350,9 +372,10 @@ def process_spectrum_pipeline(
 
     # Continuum subtraction if needed
     if data.subtract_continuum:
-        method = "spline"
-        if spectrum_params["continuum_subtraction_method"] is not None:
-            method = spectrum_params["continuum_subtraction_method"].value
+        method = (
+            _get_parameter_value(spectrum_params, "continuum_subtraction_method")
+            or "spline"
+        )
         model_spectrum_rebinned = continuum_subtract_spectrum(
             wavelengths=data.wavelengths,
             spectrum=model_spectrum_rebinned,

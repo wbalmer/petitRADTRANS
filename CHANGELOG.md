@@ -35,6 +35,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Architecture: Verify all chi2 calculations use LogLikelihood class.
 - Architecture: Set stricter dependency version limits.
 - Architecture: Optional: include ability to use FORTRAN backend, or fully deprecate legacy code.
+- Architecture: Make sure functions outside of retrieval module don't depened on retrieval files: fix spectrum_utils.
 - Documentation: Add docstrings to all new JAX functions.
 - Documentation: Verify tutorials to be v4 compatible.
 - Documentation: Reintroduce error checking where removed.
