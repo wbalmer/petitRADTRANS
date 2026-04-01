@@ -1,8 +1,8 @@
 """
-See Greco & Brandt 2016, Nasedkin et al 2023 and Yoav et al 2025 for more information on
+See Greco & Brandt 2016, Nasedkin et al 2023 and Rotman et al 2025 for more information on
 covariance matrices and fitting.
 
-Yoav et al. 2025: 10.3847/1538-4357/adef04
+Rotman et al. 2025: 10.3847/1538-4357/adef04
 """
 
 import jax.numpy as jnp
