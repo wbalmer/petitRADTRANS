@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a17] - 2026-03-30
+## [4.0.0a18] - 2026-03-30
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -21,6 +21,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Feature completion: New cloud opacities to be compatible with new condensation curves.
 - Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
 - Feature completion: Re-implement non-vertically-constant abundance profiles.
+- Feature completion: Re-implement `additional_absorption_opacities_function`
 - Optimisation: profile code for new bottlenecks.
 - Optimisation: Ensure imports are optimised.
 - Testing: ensure compatibility of spectral_model.

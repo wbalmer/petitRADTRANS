@@ -165,6 +165,25 @@ def _require_numpyro():
     NumPyroMCMC = _mcmc
 
 
+pymultinest = None
+
+
+def _require_pymultinest():
+    global pymultinest
+
+    if pymultinest is not None:
+        return
+
+    try:
+        import pymultinest as _pymultinest
+    except ImportError as error:
+        raise ImportError(
+            "PyMultiNest is not installed. This sampler cannot be used."
+        ) from error
+
+    pymultinest = _pymultinest
+
+
 # ---------------------------------------------------------------------------
 # Sampler context — the common interface between Retrieval and all samplers
 # ---------------------------------------------------------------------------
@@ -1332,12 +1351,8 @@ class PymultinestSampler(Sampler):
         super().__init__(
             log_likelihood_func, prior_func, output_directory, retrieval_name
         )
+        _require_pymultinest()
         os.makedirs(os.path.join(self.output_directory, "out_PMN/"), exist_ok=True)
-
-        try:
-            import pymultinest
-        except Exception:
-            pymultinest = None
         self.seed = -1
         self.analyzer = None
         self.outputfiles_basename = os.path.join(
