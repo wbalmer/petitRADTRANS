@@ -1,7 +1,7 @@
 import sys
 import copy
 import jax.numpy as jnp
-from jax import vmap, config
+from jax import vmap, config, debug
 from petitRADTRANS.utils import LockedDict
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.opacities.opacities import Opacity
@@ -17,16 +17,16 @@ def get_cia_aliases(name: str) -> str:
     # TODO remove in version 4.0.0
     # Try to match name with aliases
     cia_aliases = {
-        'H2--H2': ['H2H2', 'H2-H2', 'H2--H2'],
-        'H2--He': ['H2He', 'H2-He', 'H2--He', 'HeH2', 'He-H2', 'He--H2'],
-        'H2O--H2O': ['H2OH2O', 'H2O-H2O', 'H2O--H2O'],
-        'H2O--N2': ['H2ON2', 'H2O-N2', 'H2O--N2', 'N2H2O', 'N2-H2O', 'N2--H2O'],
-        'N2--H2': ['N2H2', 'N2-H2', 'N2--H2', 'H2N2', 'H2-N2', 'H2--N2'],
-        'N2--He': ['N2He', 'N2-He', 'N2--He', 'HeN2', 'He-N2', 'He--N2'],
-        'N2--N2': ['N2N2', 'N2-N2', 'N2--N2'],
-        'O2--O2': ['O2O2', 'O2-O2', 'O2--O2'],
-        'N2--O2': ['N2O2', 'N2-O2', 'N2--O2', 'O2N2', 'O2-N2', 'O2--N2'],
-        'CO2--CO2': ['CO2CO2', 'CO2-CO2', 'CO2--CO2']
+        "H2--H2": ["H2H2", "H2-H2", "H2--H2"],
+        "H2--He": ["H2He", "H2-He", "H2--He", "HeH2", "He-H2", "He--H2"],
+        "H2O--H2O": ["H2OH2O", "H2O-H2O", "H2O--H2O"],
+        "H2O--N2": ["H2ON2", "H2O-N2", "H2O--N2", "N2H2O", "N2-H2O", "N2--H2O"],
+        "N2--H2": ["N2H2", "N2-H2", "N2--H2", "H2N2", "H2-N2", "H2--N2"],
+        "N2--He": ["N2He", "N2-He", "N2--He", "HeN2", "He-N2", "He--N2"],
+        "N2--N2": ["N2N2", "N2-N2", "N2--N2"],
+        "O2--O2": ["O2O2", "O2-O2", "O2--O2"],
+        "N2--O2": ["N2O2", "N2-O2", "N2--O2", "O2N2", "O2-N2", "O2--N2"],
+        "CO2--CO2": ["CO2CO2", "CO2-CO2", "CO2--CO2"],
     }
 
     for cia, aliases in cia_aliases.items():
@@ -44,13 +44,15 @@ def get_cia_aliases(name: str) -> str:
 
 
 def init_cia_loaded_opacities(cia_contributors):
-    tmp_collision_dict = LockedDict.build_and_lock({
-        'molecules': None,
-        'weight': None,
-        'lambda': None,
-        'temperature': None,
-        'alpha': None
-    })
+    tmp_collision_dict = LockedDict.build_and_lock(
+        {
+            "molecules": None,
+            "weight": None,
+            "lambda": None,
+            "temperature": None,
+            "alpha": None,
+        }
+    )
 
     cia_loaded_opacities = LockedDict()
 
@@ -74,7 +76,9 @@ def get_cia_contributors(gas_continuum_contributors):
     return cia
 
 
-def compute_cia_opacities(cia_dicts, mass_fractions, pressures, temperatures, frequencies, mean_molar_masses):
+def compute_cia_opacities(
+    cia_dicts, mass_fractions, pressures, temperatures, frequencies, mean_molar_masses
+):
     """Wrapper to interpolate_cia, calculating each collision's combined mass fraction."""
     # Add mass fractions sharing the same basename
     species_basenames = []
@@ -82,7 +86,9 @@ def compute_cia_opacities(cia_dicts, mass_fractions, pressures, temperatures, fr
         species_basenames.append(Opacity.get_species_base_name(species))
     species_basenames = tuple(species_basenames)
 
-    base_species_mass_fractions = get_base_species_mass_fractions(mass_fractions, species_basenames)
+    base_species_mass_fractions = get_base_species_mass_fractions(
+        mass_fractions, species_basenames
+    )
 
     # Calculate CIA opacities
     cia_opacities = 0
@@ -91,9 +97,12 @@ def compute_cia_opacities(cia_dicts, mass_fractions, pressures, temperatures, fr
         # Calculate combined mass fraction
         combined_mass_fraction = 1
 
-        for collision_species in collision_dict['molecules']:
+        for collision_species in collision_dict["molecules"]:
             if collision_species in base_species_mass_fractions:
-                combined_mass_fraction = combined_mass_fraction * base_species_mass_fractions[collision_species]
+                combined_mass_fraction = (
+                    combined_mass_fraction
+                    * base_species_mass_fractions[collision_species]
+                )
             else:
                 raise ValueError(
                     f"species '{collision_species}' of CIA '{collision}' "
@@ -103,23 +112,26 @@ def compute_cia_opacities(cia_dicts, mass_fractions, pressures, temperatures, fr
                 )
 
         # Add CIA opacities
-        cia_opacities += (
-            interpolate_cia(
-                collision_dict=collision_dict,
-                combined_mass_fractions=combined_mass_fraction,
-                pressures=pressures,
-                temperatures=temperatures,
-                frequencies=frequencies,
-                mean_molar_masses=mean_molar_masses
-            )
+        cia_opacities += interpolate_cia(
+            collision_dict=collision_dict,
+            combined_mass_fractions=combined_mass_fraction,
+            pressures=pressures,
+            temperatures=temperatures,
+            frequencies=frequencies,
+            mean_molar_masses=mean_molar_masses,
         )
 
     return cia_opacities
 
 
 def interpolate_cia(
-    collision_dict, combined_mass_fractions, pressures, temperatures, frequencies, mean_molar_masses
-    ):
+    collision_dict,
+    combined_mass_fractions,
+    pressures,
+    temperatures,
+    frequencies,
+    mean_molar_masses,
+):
     """Interpolate CIA cross-sections onto the Radtrans (wavelength, temperature) grid and convert it into
     opacities.
 
@@ -133,14 +145,20 @@ def interpolate_cia(
     Returns:
         A (wavelength, temperature) array containing the CIA opacities.
     """
-    weights = jnp.array(collision_dict['weight'], dtype=JAX_DTYPE)
-    alphas = jnp.array(collision_dict['alpha'], dtype=JAX_DTYPE)
-    binned_temperatures = jnp.array(collision_dict['temperature'], dtype=JAX_DTYPE)
-    binned_wavelengths = jnp.array(collision_dict['lambda'], dtype=JAX_DTYPE)
+    weights = jnp.array(collision_dict["weight"], dtype=JAX_DTYPE)
+    alphas = jnp.array(collision_dict["alpha"], dtype=JAX_DTYPE)
+    binned_temperatures = jnp.array(collision_dict["temperature"], dtype=JAX_DTYPE)
+    binned_wavelengths = jnp.array(collision_dict["lambda"], dtype=JAX_DTYPE)
 
     factor = (
-        combined_mass_fractions / weights
-        * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
+        combined_mass_fractions
+        / weights
+        * mean_molar_masses
+        / cst.amu
+        / (cst.L0**2)
+        * pressures
+        / cst.kB
+        / temperatures
     )
 
     log10_alpha = jnp.log10(alphas)
@@ -155,10 +173,14 @@ def interpolate_cia(
     # Interpolation on frequencies for each temperature point
     # TODO do we want left/right=0 or extrapolate from boundary values?
     cia_frequency_interpolated = vmap(
-        lambda cia_opacity: jnp.interp(cst.c / frequencies, binned_wavelengths, cia_opacity, left=0.0, right=0.0)
+        lambda cia_opacity: jnp.interp(
+            cst.c / frequencies, binned_wavelengths, cia_opacity, left=0.0, right=0.0
+        )
     )(cia_temperature_interpolated.T).T
 
     # Ensure no values below sys.float_info.min
-    cia_opacities = jnp.where(cia_frequency_interpolated < sys.float_info.min, 0, cia_frequency_interpolated)
+    cia_opacities = jnp.where(
+        cia_frequency_interpolated < sys.float_info.min, 0, cia_frequency_interpolated
+    )
 
     return cia_opacities * factor

@@ -6,19 +6,18 @@ Prerequisites for basic installation
 ====================================
 To install petitRADTRANS, without retrievals, you need to install:
 
-- Python 3.10+,
-- a fortran compiler, for example ``gfortran``.
+- Python 3.12+,
 - to use the automatic data download feature, ``chromium`` [*]_.
 
-**Running retrievals:** read the :ref:`MultiNest installation instructions<retrievalsSection>`.
+**Running retrievals:** If you want to run retrievals using Multinest, please read the :ref:`MultiNest installation instructions<retrievalsSection>`.
 
 Linux
 -----
-On Linux, install Python and the fortran compiler with:
+On Linux, install Python with:
 
 .. code-block:: bash
 
-    sudo apt-get install python python-pip gfortran chromium
+    sudo apt-get install python python-pip chromium
 
 On some distributions, ``python`` may need to be replaced with ``python3``.
 
@@ -43,21 +42,6 @@ To ensure a safe installation, execute first:
     brew doctor
 
 A list of suggestions and fixes may be displayed when executing `brew doctor`. It is highly recommended to go through all of them before proceeding.
-
-Then, install a fortran compiler with:
-
-.. code-block:: bash
-
-    brew install gcc
-
-.. note:: In general, ``brew install`` is highly recommended to install all the dependencies (including conda), as this minimizes the risk of conflicts and issues.
-
-Using gfortran disk images
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. warning:: While using **homebrew is the preferred method** for installing external libraries on Mac, alternative methods exist. Use them at your own risk.
-
-François-Xavier Coudert's `github repository <https://github.com/fxcoudert/gfortran-for-macOS>`_ provides gfortran disk images (.dmg) with which you can install gfortran like any other program for Mac, through an installation wizard. Both Apple Silicon (M1, M2, M3) and Intel chip versions are available.
 
 Windows
 -------
@@ -90,7 +74,8 @@ Prerequisite for retrievals: MultiNest
 
 .. warning:: **Windows native installation:** `MultiNest retrievals <https://github.com/JohannesBuchner/MultiNest>`_, that are used by default in pRT, will not work as is on Windows. This is because MultiNest requires the LAPACK and OpenMPI libraries to function. Installing LAPACK on Windows can be a `tedious process <https://icl.utk.edu/lapack-for-windows/lapack/>`_, and OpenMPI support on Windows `has been discontinued <https://www.open-mpi.org/software/ompi/v1.6/ms-windows.php>`_, meaning that it is not possible to run MultiNest retrievals in parallel, increasing significantly computation times. This can be overcome by using WSL (see installation instructions above).
 
-If you want to use pRT's retrieval package, you need to install the PyMultiNest package:
+As of Version 4, retrievals can be run in a fully Python-native fashion using JAXNS, NumPyro or BlackJAX, all of which can be installed using `pip`.
+However, if you want to use use Multineset to run retrievals, you need to install the PyMultiNest package:
 
 1. Follow the instructions provided on the `PyMultiNest website <https://johannesbuchner.github.io/PyMultiNest/install.html#prerequisites-for-building-the-libraries>`_.
 2. Link the resulting library files by including the ``MultiNest/lib/`` to your ``LD_LIBRARY_PATH``. This can be done by adding this line at the end of your environment setup file ".bash_profile", ".bashrc", or ".zshrc" (depending on your operating system and shell type):
@@ -130,6 +115,19 @@ To be able to use the retrieval module, execute:
 
     pip install "petitRADTRANS[retrieval]" --no-build-isolation
 
+To be able to use the SBI module, execute:
+
+.. code-block:: bash
+
+    pip install "petitRADTRANS[sbi]" --no-build-isolation
+
+For the complete installation of all optional dependencies, use
+
+.. code-block:: bash
+
+    pip install "petitRADTRANS[full]" --no-build-isolation
+
+
 Compiling pRT from source
 =========================
 1. Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRANS.git>`_, or clone it from GitLab via:
@@ -148,6 +146,16 @@ Compiling pRT from source
     .. code-block:: bash
 
         pip install ".[retrieval]" --no-build-isolation
+5. **With SBI:** execute the following command in the terminal:
+
+    .. code-block:: bash
+
+        pip install ".[sbi]" --no-build-isolation
+6. **Full installation:** execute the following command in the terminal:
+
+    .. code-block:: bash
+
+        pip install ".[full]" --no-build-isolation
 
 Setting up the input_data directory
 ===================================
@@ -260,7 +268,7 @@ A common error with Apple silicon when trying to run retrievals is ``AttributeEr
 .. code-block:: bash
 
     import os
-    os.environ["DYLB_LIBRARY_PATH"] = "/path/to/Multinest/lib"
+    os.environ["DYLD_LIBRARY_PATH"] = "/path/to/Multinest/lib"
 
 Other issues
 ------------

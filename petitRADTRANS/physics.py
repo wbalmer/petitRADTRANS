@@ -9,9 +9,8 @@ from petitRADTRANS.math import running_mean
 from petitRADTRANS.profiles.guillot import temperature_profile_function_guillot_modif
 
 
-def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):
+def calculate_distance_from_luminosity(t_irr, dist, t_star, r_star, mode, mode_what):
     # TODO rework/replace this function
-    # TODO find better name -- maybe calculate_distance_from_luminosity
     mu_star = 0.0
     angle_use = False
 

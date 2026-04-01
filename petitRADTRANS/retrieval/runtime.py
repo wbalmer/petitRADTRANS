@@ -639,17 +639,17 @@ class ModelInputs:
     mean_molar_masses: Any
     gravity: Any
     planet_radius: Any
-    reference_pressure: Any = None
+    reference_pressure: Any = 0.1  # bar
     opaque_cloud_top_pressure: Any = None
     sigma_lnorm: Any = None
     cloud_particles_mean_radii: Any = None
     cloud_f_sed: Any = None
     eddy_diffusion_coefficients: Any = None
-    haze_factor: Any = None
+    haze_factor: Any = 1.0
     power_law_opacity_coefficient: Any = None
     power_law_opacity_350nm: Any = None
     cloud_hansen_b: Any = None
-    cloud_fraction: Any = None
+    cloud_fraction: Any = 1.0
     complete_coverage_clouds: tuple[str, ...] = ()
     cloud_particles_radius_distribution: str | None = None
     distance_to_system: Any = None

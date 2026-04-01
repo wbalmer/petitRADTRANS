@@ -14,9 +14,14 @@ In a nutshell, pRT allows you to calculate planetary transmission or emission sp
 **To get started with some examples on how to run pRT immediately, see** `"Getting started" <content/notebooks/getting_started.html>`_.
 **Otherwise read on for some more general information, including pRT's feature list.**
 
-.. important:: **This is the documentation of petitRADTRANS, Version 3.**
-   Version 3 comes with a lot of quality-of-life features, optimization, and code rationalization, additional opacities, but also with breaking changes.
-   See the `pRT3 changes page <content/pRT3_changes_description.html>`_ for a summary of the pRT 3 improvements and changes. If you are a Version 2 user, we strongly recommend to switch to Version 3. We explain in the `adding opacities section <content/adding_opacities.html>`_ how your opacity database can be converted to Version 3. This is only relevant if you use non-standard pRT opacities that you calculated or converted yourself. That being said, Version 2 can still be installed via ``pip install petitRADTRANS==2.7.7``, and the old documentation is available in the `here <https://petitradtrans.readthedocs.io/en/2.7.7/>`_. **But please note that Version 2 will not be maintained any longer.**
+.. important:: **This is the documentation of petitRADTRANS, Version 4.**
+   Version 4 replaces the previous Fortran radiative transfer implementation with one written in JAX.
+   JAX is a python library designed to enable fast numerical calculations on CPUs and GPUs, and enables
+   automatic differentiation, which can be used to speed up sampling methods. However, this means that
+   due to small differences in the implementation, version 4 has small numerical differences compared
+   to previous versions (of about 0.1%).  In addition to this major change, version 4 brings many optimizations,
+   code cleanup, additional opacities, but also a few breaking changes.
+   See the `pRT4 changes page <content/pRT4_changes_description.html>`_ for a summary of the pRT 4 improvements and changes.
 
 pRT feature list
 ================
@@ -64,7 +69,7 @@ Active Developers
 - Sam de Regt
 - David Hägele
 - Paul Mollière
-- Evert Nasedkin (mastermind behind the retrieval package)
+- Evert Nasedkin (mastermind behind Version 4 and the retrieval package)
 - Antonia von Stauffenberg
 
 Since publishing the first paper on pRT in 2019, the lead development has been passed on from Paul Mollière to other members of the team, listed alphabetically above. At the moment, Doriann Blain is the lead developer.

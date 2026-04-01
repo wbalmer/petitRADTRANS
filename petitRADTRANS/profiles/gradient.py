@@ -42,8 +42,13 @@ def dtdp_temperature_profile(
     # for index in range(num_layer):
     #    layer_pt_slopes[index] = parameters['PTslope_%d'%(num_layer - index)].value
     # 1.5 interpolate the P-T slopes to compute slopes for all layers
-    interp_func = interp1d(jnp.log10(layer_pressures), layer_pt_slopes, "quadratic")
-    pt_slopes_sub = interp_func(jnp.log10(p_use_sub))
+    pt_slopes_sub = interp1d(
+        jnp.log10(p_use_sub),
+        jnp.log10(layer_pressures),
+        layer_pt_slopes,
+        method="cubic",
+    )
+
     # 1.6 compute temperatures
     temperatures_sub = jnp.ones(num_sub) * jnp.nan
     temperatures_sub = temperatures_sub.at[-1].set(t_bottom)

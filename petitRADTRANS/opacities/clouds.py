@@ -53,10 +53,8 @@ def _maybe_add_opaque_cloud_deck(
     cloud_continuum_opacities, pressures, opaque_cloud_top_pressure
 ):
     def _add_opaque_deck(_cloud_continuum_opacities, _pressures, _p_top):
-        inds = jnp.where(
-            jnp.greater_equal(_pressures, _p_top * 1e6), size=_pressures.shape[0]
-        )
-        return _cloud_continuum_opacities.at[:, inds].add(1e99)
+        mask = jnp.greater_equal(_pressures, _p_top * 1e6)
+        return _cloud_continuum_opacities + jnp.where(mask[jnp.newaxis, :], 1e99, 0)
 
     return lax.cond(
         jnp.greater_equal(opaque_cloud_top_pressure, 0.0),

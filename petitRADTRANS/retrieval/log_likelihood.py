@@ -1,4 +1,3 @@
-import numpy as np
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 from jax.scipy.special import logsumexp
@@ -40,7 +39,7 @@ def get_bpics(
 
     weights = None
     if log_weights is not None:
-        log_weights = np.asarray(log_weights, dtype=float).reshape(-1)
+        log_weights = jnp.asarray(log_weights, dtype=float).reshape(-1)
         if log_weights.size != logl_samples.size:
             raise ValueError(
                 f"Expected {logl_samples.size} log weights, got {log_weights.size}"

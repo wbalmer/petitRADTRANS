@@ -47,7 +47,7 @@ def _summaries(values: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
     valid_count = jnp.maximum(1.0, jnp.sum(~mask).astype(jnp.float32))
     mean_value = jnp.sum(valid) / valid_count
     centered = jnp.where(mask, jnp.zeros_like(values), values - mean_value)
-    std_value = jnp.sqrt(jnp.sum(centered**2) / valid_count)
+    std_value = jnp.sqrt(jnp.sum(centered**2) / valid_count + 1e-8)
 
     return jnp.asarray(
         [
@@ -327,7 +327,7 @@ class DatasetSetAggregator(eqx.Module):
             (
                 jnp.mean(projected, axis=0),
                 jnp.max(projected, axis=0),
-                jnp.std(projected, axis=0),
+                jnp.sqrt(jnp.var(projected, axis=0) + 1e-8),
             ),
             axis=0,
         )

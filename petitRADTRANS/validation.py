@@ -1,6 +1,7 @@
 """
 This module provides sanity checks on inputs for the Radtrans class.
 """
+
 import os
 from typing import Union, Optional
 
@@ -19,8 +20,10 @@ def _check_anisotropic_cloud_scattering(mode: Union[str, bool]):
     Args:
         mode: The anisotropic cloud scattering mode.
     """
-    if mode not in ['auto', True, False]:
-        raise ValueError(f"anisotropic cloud scattering must be 'auto'|True|False, but was '{mode}'")
+    if mode not in ["auto", True, False]:
+        raise ValueError(
+            f"anisotropic cloud scattering must be 'auto'|True|False, but was '{mode}'"
+        )
 
 
 def _check_line_opacity_mode(mode: str):
@@ -29,7 +32,7 @@ def _check_line_opacity_mode(mode: str):
     Args:
         mode: The line opacity mode.
     """
-    if mode not in ['c-k', 'lbl']:
+    if mode not in ["c-k", "lbl"]:
         raise ValueError(f"opacity mode must be 'c-k'|'lbl', but was '{mode}'")
 
 
@@ -92,7 +95,7 @@ def _check_return_clear_spectrum_relevance(
     return_clear_spectrum: bool,
     clouds_have_effect: bool,
     opaque_cloud_top_pressure: Optional[float],
-    cloud_fraction: float
+    cloud_fraction: float,
 ):
     """Check if returning a clear spectrum is relevant and issue warnings if not.
 
@@ -104,23 +107,25 @@ def _check_return_clear_spectrum_relevance(
     """
     lax.cond(  # TODO: revert to clearer pythonic statements
         jnp.logical_and(
-            jnp.logical_and(return_clear_spectrum,
-                            jnp.logical_not(clouds_have_effect)),
-            opaque_cloud_top_pressure is None),
+            jnp.logical_and(return_clear_spectrum, jnp.logical_not(clouds_have_effect)),
+            opaque_cloud_top_pressure is None,
+        ),
         lambda: debug.print(
             "requested to return a clear spectrum, but clouds have no effect with this setup\n"
             "To remove this warning, add non-zero cloud mass fractions, set 'cloud_fraction' to a value > 0, "
-            "add an opaque cloud layer, or set 'return_clear_spectrum' to False."),
-        lambda: None
-        )
+            "add an opaque cloud layer, or set 'return_clear_spectrum' to False."
+        ),
+        lambda: None,
+    )
 
     lax.cond(
         return_clear_spectrum & (cloud_fraction < 1),
         lambda: debug.print(
             "both the clear and cloudy spectra will be returned, but the returned cloudy spectrum will have "
             "a partial cloud coverage\n"
-            "To remove this warning, set 'cloud_fraction' to 1, or set 'return_clear_spectrum' to False."),
-        lambda: None
+            "To remove this warning, set 'cloud_fraction' to 1, or set 'return_clear_spectrum' to False."
+        ),
+        lambda: None,
     )
 
 
@@ -131,17 +136,21 @@ def _check_wavelength_boundaries(boundaries: ArrayLike):
         boundaries: The wavelength boundaries.
     """
     if jnp.size(boundaries) != 2:
-        raise ValueError(f"wavelengths boundaries must be an array of 2 floats, but was {boundaries}")
+        raise ValueError(
+            f"wavelengths boundaries must be an array of 2 floats, but was {boundaries}"
+        )
 
     if not boundaries[0] < boundaries[1]:
-        raise ValueError(f"wavelengths boundaries must be an array of 2 floats in increasing order, "
-                            f"but was {boundaries}")
+        raise ValueError(
+            f"wavelengths boundaries must be an array of 2 floats in increasing order, "
+            f"but was {boundaries}"
+        )
 
 
 def _handle_grid_misalignment(
     indices: npt.NDArray[bool],
     frequencies_reference: ArrayLike,
-    frequencies_test: ArrayLike
+    frequencies_test: ArrayLike,
 ) -> npt.NDArray[bool]:
     """Handle frequency grid misalignment by extending the selection of indices.
 
@@ -160,9 +169,8 @@ def _handle_grid_misalignment(
     """
     _indices: npt.NDArray[np.signedinteger] = np.nonzero(indices)[0]
 
-    if (
-            np.abs(frequencies_test[indices][0] - frequencies_reference[0])
-            < np.abs(frequencies_test[indices][0] - frequencies_reference[1])
+    if np.abs(frequencies_test[indices][0] - frequencies_reference[0]) < np.abs(
+        frequencies_test[indices][0] - frequencies_reference[1]
     ):  # right misalignment
         # Situation is as follows:
         # 0   1   2   3
@@ -188,7 +196,9 @@ def _handle_grid_misalignment(
         # 0   1   2   3
         index_include = _indices[0] - 1
 
-    if index_include < 0 or index_include == frequencies_test.size:  # handle out-of-bounds corrections
+    if (
+        index_include < 0 or index_include == frequencies_test.size
+    ):  # handle out-of-bounds corrections
         _wavelengths = 1e4 * cst.c / frequencies_test
         wavelengths = 1e4 * cst.c / frequencies_reference
 
