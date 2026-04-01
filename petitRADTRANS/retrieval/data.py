@@ -12,13 +12,18 @@ from astropy.io import fits
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.retrieval.covariance import (
-    build_global_covariance_kernel,
-    build_local_covariance_kernel,
     normalize_covariance_mode,
     normalize_global_kernel_name,
     normalize_local_kernel_name,
 )
-from petitRADTRANS.retrieval.runtime import LikelihoodState, ObservationState
+from petitRADTRANS.retrieval.runtime import (
+    LikelihoodState,
+    ObservationState,
+    _apply_flux_scaling,
+    _offset_flux,
+    _line_b_uncertainty_scaling,
+    _scale_and_inflate_uncertainties,
+)
 
 JAX_DTYPE = jnp.float32
 if config.jax_enable_x64:
@@ -264,7 +269,6 @@ class Data:
         )
         self.n_local_covariance_kernels: int = int(n_local_covariance_kernels)
         self.covariance_jitter: float = float(covariance_jitter)
-        self._pairwise_wavelength_differences: ArrayLike | None = None
 
         if covariance is not None:
             self.inv_cov = jnp.linalg.inv(covariance)
@@ -591,23 +595,7 @@ class Data:
             b: float
                 10**b error bar scaling factor.
         """
-        b_val = -jnp.inf
-        if parameters is not None:
-            if f"{self.name}_b" in parameters.keys():
-                parameter_value = parameters[f"{self.name}_b"]
-                b_val = (
-                    parameter_value.value
-                    if hasattr(parameter_value, "value")
-                    else parameter_value
-                )
-            elif "uncertainty_scaling_b" in parameters.keys():
-                parameter_value = parameters["uncertainty_scaling_b"]
-                b_val = (
-                    parameter_value.value
-                    if hasattr(parameter_value, "value")
-                    else parameter_value
-                )
-        return b_val
+        return _line_b_uncertainty_scaling(self.name, parameters)
 
     def _validate_covariance_configuration(self) -> None:
         if not self.fit_covariance:
@@ -645,115 +633,6 @@ class Data:
             and self.n_local_covariance_kernels < 1
         ):
             self.n_local_covariance_kernels = 1
-
-    def _get_wavelength_vector(self) -> ArrayLike:
-        if self.wavelengths is None:
-            raise ValueError(
-                f"Dataset '{self.name}' has no wavelength grid for covariance fitting"
-            )
-
-        wavelength_vector = jnp.asarray(self.wavelengths)
-        if wavelength_vector.ndim != 1:
-            raise ValueError(f"Dataset '{self.name}' must provide a 1D wavelength grid")
-
-        return wavelength_vector
-
-    def _get_pairwise_wavelength_differences(self) -> ArrayLike:
-        if self._pairwise_wavelength_differences is None:
-            wavelength_vector = self._get_wavelength_vector()
-            self._pairwise_wavelength_differences = (
-                wavelength_vector[:, jnp.newaxis] - wavelength_vector[jnp.newaxis, :]
-            )
-
-        return self._pairwise_wavelength_differences
-
-    @staticmethod
-    def _parameter_value(
-        parameters_dict: dict, parameter_name: str, default: float = 0.0
-    ):
-        parameter_value = parameters_dict.get(parameter_name)
-        if parameter_value is None:
-            return default
-        return (
-            parameter_value.value
-            if hasattr(parameter_value, "value")
-            else parameter_value
-        )
-
-    def _build_base_covariance(
-        self, err_scale_factor: float, additive_variance_term: float
-    ) -> ArrayLike:
-        wavelength_vector = self._get_wavelength_vector()
-
-        if self.covariance is not None:
-            base_covariance = jnp.asarray(self.covariance) * (err_scale_factor**2)
-        elif self.uncertainties is not None:
-            scaled_uncertainties = jnp.asarray(self.uncertainties) * err_scale_factor
-            base_covariance = jnp.diag(scaled_uncertainties**2)
-        else:
-            raise ValueError("Data object has neither uncertainties nor covariance.")
-
-        identity = jnp.eye(wavelength_vector.shape[0], dtype=base_covariance.dtype)
-        return base_covariance + additive_variance_term * identity
-
-    def _build_fitted_covariance(
-        self,
-        parameters_dict: dict,
-        err_scale_factor: float,
-        additive_variance_term: float,
-    ):
-        total_covariance = self._build_base_covariance(
-            err_scale_factor, additive_variance_term
-        )
-        wavelength_vector = self._get_wavelength_vector()
-
-        if self.covariance_mode in {"global", "global_local"}:
-            global_amplitude = self._parameter_value(
-                parameters_dict, f"{self.name}_gp_global_amp", default=0.0
-            )
-            global_length = self._parameter_value(
-                parameters_dict, f"{self.name}_gp_global_length", default=1.0
-            )
-            total_covariance = total_covariance + build_global_covariance_kernel(
-                wavelength_vector,
-                amplitude=global_amplitude,
-                length_scale=global_length,
-                kernel_name=self.global_covariance_kernel,
-            )
-
-        if self.covariance_mode in {"local", "global_local"}:
-            for kernel_index in range(1, self.n_local_covariance_kernels + 1):
-                local_amplitude = self._parameter_value(
-                    parameters_dict,
-                    f"{self.name}_gp_local_{kernel_index}_amp",
-                    default=0.0,
-                )
-                local_length = self._parameter_value(
-                    parameters_dict,
-                    f"{self.name}_gp_local_{kernel_index}_length",
-                    default=1.0,
-                )
-                default_center = jnp.mean(wavelength_vector)
-                local_center = self._parameter_value(
-                    parameters_dict,
-                    f"{self.name}_gp_local_{kernel_index}_center",
-                    default=default_center,
-                )
-                total_covariance = total_covariance + build_local_covariance_kernel(
-                    wavelength_vector,
-                    amplitude=local_amplitude,
-                    length_scale=local_length,
-                    center=local_center,
-                    kernel_name=self.local_covariance_kernel,
-                )
-
-        if self.covariance_jitter > 0.0:
-            total_covariance = total_covariance + self.covariance_jitter * jnp.eye(
-                total_covariance.shape[0],
-                dtype=total_covariance.dtype,
-            )
-
-        return total_covariance
 
     def to_observation_state(self, model_contract: str = "legacy") -> ObservationState:
         return ObservationState(
@@ -816,36 +695,16 @@ class Data:
         )
 
     def apply_flux_scaling(self, input_spectrum, parameters_dict: dict) -> ArrayLike:
-        """
-        Applies scaling and offset to self.spectrum based on parameters in parameters_dict.
-        """
-
-        scale_factor = 1.0
-        if self.scale_flux:
-            param_val = parameters_dict.get(f"{self.name}_scale_factor")
-            if param_val is not None:
-                scale_factor = (
-                    param_val.value if hasattr(param_val, "value") else param_val
-                )
-
-        scaled_spectrum = input_spectrum * scale_factor
-        return scaled_spectrum
+        """Applies multiplicative flux scaling based on parameters in parameters_dict."""
+        return _apply_flux_scaling(
+            input_spectrum, self.to_observation_state(), parameters_dict
+        )
 
     def offset_flux(self, input_spectrum, parameters_dict: dict) -> ArrayLike:
-        """
-        Applies scaling and offset to self.spectrum based on parameters in parameters_dict.
-        """
-
-        offset_val = 0.0
-        if self.fit_flux_offset:
-            param_val = parameters_dict.get(f"{self.name}_offset")
-            if param_val is not None:
-                offset_val = (
-                    param_val.value if hasattr(param_val, "value") else param_val
-                )
-
-        offset_spectrum = input_spectrum - offset_val
-        return offset_spectrum
+        """Applies additive flux offset based on parameters in parameters_dict."""
+        return _offset_flux(
+            input_spectrum, self.to_observation_state(), parameters_dict
+        )
 
     def scale_and_inflate_uncertainties(
         self, parameters_dict: dict
@@ -854,56 +713,9 @@ class Data:
         Applies scaling to self.uncertainties or self.covariance.
         Returns a tuple: (scaled_uncertainties, scaled_covariance).
         """
-        scaled_uncertainties = None
-        scaled_covariance = None
-
-        # Multiplicative scaling factor for error bars
-        err_scale_factor = 1.0
-        if (
-            self.scale_uncertainties
-        ):  # This flag means apply multiplicative scaling to errors
-            param_val = parameters_dict.get(
-                f"{self.name}_scale_factor"
-            )  # Uses the same param as flux scaling
-            if param_val is not None:
-                err_scale_factor = (
-                    param_val.value if hasattr(param_val, "value") else param_val
-                )
-
-        # Additive error inflation term (log10(error_val_to_add_in_variance))
-        raw_b_val = self.line_b_uncertainty_scaling(parameters_dict)
-        additive_variance_term = jnp.where(
-            jnp.isfinite(raw_b_val),
-            10**raw_b_val,
-            0.0,
+        return _scale_and_inflate_uncertainties(
+            self.to_observation_state(), parameters_dict
         )
-
-        if self.fit_covariance:
-            scaled_covariance = self._build_fitted_covariance(
-                parameters_dict,
-                err_scale_factor=err_scale_factor,
-                additive_variance_term=additive_variance_term,
-            )
-            scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
-            return scaled_uncertainties, scaled_covariance
-
-        if self.covariance is not None:
-            scaled_covariance = self.covariance * (err_scale_factor**2)
-            scaled_covariance = scaled_covariance + additive_variance_term * jnp.eye(
-                scaled_covariance.shape[0],
-                dtype=scaled_covariance.dtype,
-            )
-            scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
-        elif self.uncertainties is not None:
-            scaled_uncertainties = self.uncertainties * err_scale_factor
-            scaled_uncertainties = jnp.sqrt(
-                scaled_uncertainties**2 + additive_variance_term
-            )
-        else:
-            # Should not happen if __init__ ensures either uncertainties or covariance exists
-            raise ValueError("Data object has neither uncertainties nor covariance.")
-
-        return scaled_uncertainties, scaled_covariance
 
 
 class PhotometryData(Data):
