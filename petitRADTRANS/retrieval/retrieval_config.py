@@ -65,7 +65,7 @@ class RetrievalConfig:
         retrieval_name: str = "retrieval_name",
         run_mode: str = "retrieval",
         sampler_type: str = "pymultinest",
-        adaptive_mesh_refinement: str = False,
+        adaptive_mesh_refinement: bool = False,
         scattering_in_emission: bool = False,
         pressures: ArrayLike | None = None,
         # --- deprecated arguments ---

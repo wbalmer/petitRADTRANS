@@ -19,61 +19,22 @@ except ImportError:
     comm = None
     rank = 0
 
-try:
-    import pymultinest
-except Exception:
-    pymultinest = None
+from jax import (
+    lax,
+    random,
+    tree,
+    vmap,
+    tree_util,
+    jit,
+    local_device_count,
+    make_mesh,
+    shard_map,
+    devices,
+)
+import jax.numpy as jnp
+from jax.sharding import NamedSharding, PartitionSpec as P
+import tensorflow_probability.substrates.jax as tfp
 
-try:
-    import ultranest
-    from ultranest.mlfriends import RobustEllipsoidRegion, MLFriends
-except Exception:
-    ultranest = None  # Mark ultranest as not available
-
-try:
-    from jax import (
-        lax,
-        random,
-        tree,
-        vmap,
-        tree_util,
-        jit,
-        local_device_count,
-        make_mesh,
-        shard_map,
-        devices,
-    )
-    import jax.numpy as jnp
-    from jax.sharding import NamedSharding, PartitionSpec as P
-except Exception:
-    jax = None
-    lax = None
-    random = None
-    tree = None
-    jnp = None
-    NamedSharding = None
-    P = None
-
-try:
-    import tensorflow_probability.substrates.jax as tfp
-except Exception:
-    tfp = None
-
-try:
-    import blackjax
-except Exception:
-    blackjax = None
-
-try:
-    import numpyro
-    from numpyro.infer import HMC as NumPyroHMC
-    from numpyro.infer import MCMC as NumPyroMCMC
-    from numpyro.infer import NUTS as NumPyroNUTS
-except Exception:
-    numpyro = None
-    NumPyroHMC = None
-    NumPyroMCMC = None
-    NumPyroNUTS = None
 
 jaxns = None
 Model = None
@@ -383,6 +344,11 @@ class BlackJAXSampler(Sampler):
         super().__init__(
             log_likelihood_func, prior_func, output_directory, retrieval_name
         )
+        try:
+            import blackjax
+        except Exception:
+            blackjax = None
+
         if blackjax is None or jax is None:
             raise ImportError(
                 "BlackJAX and JAX are required for this sampler but are not installed."
@@ -788,6 +754,16 @@ class NumPyroSampler(Sampler):
         super().__init__(
             log_likelihood_func, prior_func, output_directory, retrieval_name
         )
+        try:
+            import numpyro
+            from numpyro.infer import HMC as NumPyroHMC
+            from numpyro.infer import MCMC as NumPyroMCMC
+            from numpyro.infer import NUTS as NumPyroNUTS
+        except Exception:
+            numpyro = None
+            NumPyroHMC = None
+            NumPyroMCMC = None
+            NumPyroNUTS = None
         if numpyro is None or jax is None:
             raise ImportError(
                 "NumPyro and JAX are required for this sampler but are not installed."
@@ -1288,6 +1264,10 @@ class PymultinestSampler(Sampler):
         )
         os.makedirs(os.path.join(self.output_directory, "out_PMN/"), exist_ok=True)
 
+        try:
+            import pymultinest
+        except Exception:
+            pymultinest = None
         self.seed = -1
         self.analyzer = None
         self.outputfiles_basename = os.path.join(
@@ -1498,6 +1478,12 @@ class UltranestSampler(Sampler):
         super().__init__(
             log_likelihood_func, prior_func, output_directory, retrieval_name
         )
+        try:
+            import ultranest
+            from ultranest.mlfriends import RobustEllipsoidRegion, MLFriends
+        except Exception:
+            ultranest = None  # Mark ultranest as not available
+
         if ultranest is None:
             raise ImportError(
                 "Ultranest module is not installed. This sampler cannot be used."

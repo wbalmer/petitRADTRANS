@@ -52,9 +52,13 @@ def _init_cloud_branch_outputs(frequencies, pressures, n_clouds):
 def _maybe_add_opaque_cloud_deck(
     cloud_continuum_opacities, pressures, opaque_cloud_top_pressure
 ):
+    # Use a large but finite value so that float32 does not overflow to inf.
+    # inf * 0 = nan in einsum operations, so we must avoid inf here.
+    _OPAQUE_DECK_OPACITY = jnp.finfo(JAX_DTYPE).max / 2
+
     def _add_opaque_deck(_cloud_continuum_opacities, _pressures, _p_top):
         mask = jnp.greater_equal(_pressures, _p_top * 1e6)
-        return _cloud_continuum_opacities + jnp.where(mask[jnp.newaxis, :], 1e99, 0)
+        return _cloud_continuum_opacities + jnp.where(mask[jnp.newaxis, :], _OPAQUE_DECK_OPACITY, 0)
 
     return lax.cond(
         jnp.greater_equal(opaque_cloud_top_pressure, 0.0),

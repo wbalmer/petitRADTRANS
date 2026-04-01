@@ -14,7 +14,6 @@ import warnings
 import numpy as np
 from scipy.special import erfcinv, gamma
 from typing import Tuple, Union, Optional
-import copy
 from jax import lax, numpy as jnp
 from petitRADTRANS.physics import shift_wavelengths_by_radial_velocity
 from petitRADTRANS.radtrans_core.spectrum_utils import (

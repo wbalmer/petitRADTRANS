@@ -27,10 +27,11 @@ def _build_jaxns_prior(distribution, name):
 class Parameter:
     """
     Parameter
-    This class allows easy translation between the pyMultinest hypercube and
-    the physical unit space. Each parameter includes a name, which can be used
-    as a reference in the model function, a value, a flag of whether it's a free parameter,
-    and if it's free, a function that translates the unit hypercube into physical space.
+    This class provides the interface for defining and managing parameters in a retrieval.
+    Each parameter includes a name, which can be used as a reference in the model function,
+    a value, and flag of whether it's a free parameter, and if it's free. You can also define
+    a function that translates the unit hypercube into physical space for a pymultinest retrieval,
+    or a tensorflow probability distribution to define the prior for JAX-based retrievals.
     The remainder of the arguments deal with the corner plots.
 
     Args:

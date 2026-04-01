@@ -922,9 +922,11 @@ class Radtrans:
         )
         max_temperature_grid_size = int(np.max(temperature_grid_sizes))
         max_pressure_grid_size = int(np.max(pressure_grid_sizes))
-        max_temperature_pressure_grid_size = int(
-            np.max(temperature_grid_sizes * pressure_grid_sizes)
-        )
+        # Use max_T * max_P as the flat T-P dimension so that the stride used by
+        # interpolate_line_opacities (= temperature_pressure_grid_input.shape[1] = max_P)
+        # matches the stride of the stacked opacity grid.  Using max(T_i * P_i) instead
+        # gave the wrong stride whenever species had different P grid sizes.
+        max_temperature_pressure_grid_size = max_temperature_grid_size * max_pressure_grid_size
         n_g = int(self._lines_loaded_opacities["g_gauss"].size)
 
         temperature_pressure_grid_stacked = np.zeros(
@@ -965,19 +967,28 @@ class Radtrans:
                     mode="edge",
                 )
 
-            if opacity_grid.shape[-1] < max_temperature_pressure_grid_size:
-                opacity_grid = np.pad(
-                    opacity_grid,
+            # Reshape the flat (T_act * P_act) opacity dimension to 2D (T_act, P_act),
+            # pad to (max_T, max_P), then flatten back so the stride equals max_P.
+            opacity_grid_2d = opacity_grid.reshape(
+                n_g, self._frequencies.size, temperature_grid_size, pressure_grid_size
+            )
+            if (
+                temperature_grid_size < max_temperature_grid_size
+                or pressure_grid_size < max_pressure_grid_size
+            ):
+                opacity_grid_2d = np.pad(
+                    opacity_grid_2d,
                     (
                         (0, 0),
                         (0, 0),
-                        (
-                            0,
-                            max_temperature_pressure_grid_size - opacity_grid.shape[-1],
-                        ),
+                        (0, max_temperature_grid_size - temperature_grid_size),
+                        (0, max_pressure_grid_size - pressure_grid_size),
                     ),
                     mode="edge",
                 )
+            opacity_grid = opacity_grid_2d.reshape(
+                n_g, self._frequencies.size, max_temperature_pressure_grid_size
+            )
 
             temperature_pressure_grid_stacked[i_species] = temperature_pressure_grid
             opacity_grid_stacked[i_species] = opacity_grid
