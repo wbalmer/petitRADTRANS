@@ -184,6 +184,31 @@ def _require_pymultinest():
     pymultinest = _pymultinest
 
 
+ultranest = None
+MLFriends = None
+RobustEllipsoidRegion = None
+
+
+def _require_ultranest():
+    global ultranest, MLFriends, RobustEllipsoidRegion
+
+    if ultranest is not None:
+        return
+
+    try:
+        import ultranest as _ultranest
+        from ultranest.mlfriends import MLFriends as _MLFriends
+        from ultranest.mlfriends import RobustEllipsoidRegion as _RobustEllipsoidRegion
+    except ImportError as error:
+        raise ImportError(
+            "UltraNest is not installed. This sampler cannot be used."
+        ) from error
+
+    ultranest = _ultranest
+    MLFriends = _MLFriends
+    RobustEllipsoidRegion = _RobustEllipsoidRegion
+
+
 # ---------------------------------------------------------------------------
 # Sampler context — the common interface between Retrieval and all samplers
 # ---------------------------------------------------------------------------
@@ -490,7 +515,7 @@ class BlackJAXSampler(Sampler):
             ),
             "progress_bar": sampler_kwargs.pop("progress_bar", False),
             "seed": sampler_kwargs.pop("seed", 42654),
-            "jit": sampler_kwargs.pop("jit", True),
+            "use_jit": sampler_kwargs.pop("use_jit", True),
             "log_jacobian_fn": log_jacobian,
             "num_chains": sampler_kwargs.pop("num_chains", 1),
         }
@@ -516,7 +541,7 @@ class BlackJAXSampler(Sampler):
             "is_mass_matrix_diagonal": run_kwargs["is_mass_matrix_diagonal"],
             "num_chains": run_kwargs["num_chains"],
             "seed": run_kwargs["seed"],
-            "jit": run_kwargs["jit"],
+            "use_jit": run_kwargs["use_jit"],
         }
         if "num_integration_steps" in run_kwargs:
             summary_parameters["num_integration_steps"] = run_kwargs[
@@ -893,7 +918,7 @@ class NumPyroSampler(Sampler):
             ),
             "progress_bar": sampler_kwargs.pop("progress_bar", False),
             "seed": sampler_kwargs.pop("seed", 42654),
-            "jit": sampler_kwargs.pop("jit", True),
+            "use_jit": sampler_kwargs.pop("use_jit", True),
             "log_jacobian_fn": log_jacobian,
             "num_chains": sampler_kwargs.pop("num_chains", 1),
             "thinning": sampler_kwargs.pop("thinning", 1),
@@ -927,7 +952,7 @@ class NumPyroSampler(Sampler):
             "thinning": run_kwargs["thinning"],
             "chain_method": run_kwargs["chain_method"],
             "seed": run_kwargs["seed"],
-            "jit": run_kwargs["jit"],
+            "use_jit": run_kwargs["use_jit"],
         }
         if "num_steps" in run_kwargs:
             summary_parameters["num_integration_steps"] = run_kwargs["num_steps"]
@@ -1071,7 +1096,7 @@ class NumPyroSampler(Sampler):
             numpyro_kwargs=numpyro_kwargs,
         )
 
-        if not jit:
+        if not use_jit:
             warnings.warn(
                 "NumPyro MCMC does not expose a simple non-JIT execution mode through this wrapper; "
                 "'jit=False' is ignored.",
@@ -1563,17 +1588,7 @@ class UltranestSampler(Sampler):
         super().__init__(
             log_likelihood_func, prior_func, output_directory, retrieval_name
         )
-        try:
-            import ultranest
-            from ultranest.mlfriends import RobustEllipsoidRegion, MLFriends
-        except Exception:
-            ultranest = None  # Mark ultranest as not available
-
-        if ultranest is None:
-            raise ImportError(
-                "Ultranest module is not installed. This sampler cannot be used."
-            )
-
+        _require_ultranest()
         self.results = None
 
     @classmethod
@@ -1651,12 +1666,6 @@ class UltranestSampler(Sampler):
         return sampler, run_kwargs, summary_parameters
 
     def run_sampler(self, parameter_names, **kwargs):
-        if ultranest is None:  # Should have been caught by __init__
-            warnings.warn(
-                "Ultranest module not found, cannot run UltranestSampler.",
-                RuntimeWarning,
-            )
-            return None
         log_dir = os.path.join(
             self.output_directory, "out_" + self.retrieval_name + "_ultranest"
         )
@@ -1882,7 +1891,7 @@ class JAXNSSampler(Sampler):
             "verbose": sampler_kwargs.pop("verbose", False),
         }
         jaxns_kwargs["seed"] = sampler_kwargs.pop("seed", 42654)
-        use_jit = sampler_kwargs.pop("jit", True)
+        use_jit = sampler_kwargs.pop("use_jit", True)
         jaxns_kwargs.update(sampler_kwargs)
 
         sampler = cls(
@@ -1892,7 +1901,7 @@ class JAXNSSampler(Sampler):
             retrieval_name=context.retrieval_name,
         )
 
-        run_kwargs = {"jit": use_jit, **jaxns_kwargs}
+        run_kwargs = {"use_jit": use_jit, **jaxns_kwargs}
         summary_parameters = {
             **jaxns_kwargs,
             "sampler_type": "jaxns",
@@ -1905,7 +1914,7 @@ class JAXNSSampler(Sampler):
         results = self.get_results()
         return results, {"stats": results}
 
-    def run_sampler(self, use_use_jit=True, parameters={}, **jaxns_kwargs):
+    def run_sampler(self, use_jit=True, parameters={}, **jaxns_kwargs):
         """
         Run the JAXNS sampler.
         """
