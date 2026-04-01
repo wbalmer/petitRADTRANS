@@ -19,21 +19,64 @@ except ImportError:
     comm = None
     rank = 0
 
-from jax import (
-    lax,
-    random,
-    tree,
-    vmap,
-    tree_util,
-    jit,
-    local_device_count,
-    make_mesh,
-    shard_map,
-    devices,
-)
-import jax.numpy as jnp
-from jax.sharding import NamedSharding, PartitionSpec as P
-import tensorflow_probability.substrates.jax as tfp
+lax = None
+random = None
+tree = None
+vmap = None
+tree_util = None
+jit = None
+local_device_count = None
+make_mesh = None
+shard_map = None
+devices = None
+jnp = None
+NamedSharding = None
+P = None
+tfp = None
+
+
+def _require_jax():
+    global lax, random, tree, vmap, tree_util, jit, local_device_count
+    global make_mesh, shard_map, devices, jnp, NamedSharding, P, tfp
+
+    if jnp is not None:
+        return
+
+    try:
+        from jax import (
+            lax as _lax,
+            random as _random,
+            tree as _tree,
+            vmap as _vmap,
+            tree_util as _tree_util,
+            jit as _jit,
+            local_device_count as _ldc,
+            make_mesh as _mm,
+            shard_map as _sm,
+            devices as _devices,
+        )
+        import jax.numpy as _jnp
+        from jax.sharding import NamedSharding as _ns, PartitionSpec as _ps
+        import tensorflow_probability.substrates.jax as _tfp
+    except ImportError as error:
+        raise ImportError(
+            "JAX (and tensorflow-probability) are required for JAX-based samplers but are not installed."
+        ) from error
+
+    lax = _lax
+    random = _random
+    tree = _tree
+    vmap = _vmap
+    tree_util = _tree_util
+    jit = _jit
+    local_device_count = _ldc
+    make_mesh = _mm
+    shard_map = _sm
+    devices = _devices
+    jnp = _jnp
+    NamedSharding = _ns
+    P = _ps
+    tfp = _tfp
 
 
 jaxns = None
@@ -73,6 +116,53 @@ def _require_jaxns():
     load_results = jaxns_load_results
     ShardedStaticNestedSampler = jaxns_sharded_static_nested_sampler
     UniformSampler = jaxns_uniform_sampler
+
+
+blackjax = None
+
+
+def _require_blackjax():
+    global blackjax
+
+    if blackjax is not None:
+        return
+
+    try:
+        import blackjax as _blackjax
+    except ImportError as error:
+        raise ImportError(
+            "BlackJAX is not installed. This sampler cannot be used."
+        ) from error
+
+    blackjax = _blackjax
+
+
+numpyro = None
+NumPyroHMC = None
+NumPyroNUTS = None
+NumPyroMCMC = None
+
+
+def _require_numpyro():
+    global numpyro, NumPyroHMC, NumPyroNUTS, NumPyroMCMC
+
+    if numpyro is not None:
+        return
+
+    try:
+        import numpyro as _numpyro
+        from numpyro.infer import HMC as _hmc
+        from numpyro.infer import MCMC as _mcmc
+        from numpyro.infer import NUTS as _nuts
+    except ImportError as error:
+        raise ImportError(
+            "NumPyro is not installed. This sampler cannot be used."
+        ) from error
+
+    numpyro = _numpyro
+    NumPyroHMC = _hmc
+    NumPyroNUTS = _nuts
+    NumPyroMCMC = _mcmc
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +209,7 @@ def _build_unconstrained_mcmc_interface(context: SamplerContext):
 
     Returns ``(free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian)``.
     """
+    _require_jax()
     from petitRADTRANS.retrieval.parameter import JAX_DTYPE
 
     _check_runtime_native_support(context, "Gradient-based JAX samplers")
@@ -344,16 +435,8 @@ class BlackJAXSampler(Sampler):
         super().__init__(
             log_likelihood_func, prior_func, output_directory, retrieval_name
         )
-        try:
-            import blackjax
-        except Exception:
-            blackjax = None
-
-        if blackjax is None or jax is None:
-            raise ImportError(
-                "BlackJAX and JAX are required for this sampler but are not installed."
-            )
-
+        _require_jax()
+        _require_blackjax()
         os.makedirs(os.path.join(self.output_directory, "out_BlackJAX"), exist_ok=True)
         self.results = None
 
@@ -754,21 +837,8 @@ class NumPyroSampler(Sampler):
         super().__init__(
             log_likelihood_func, prior_func, output_directory, retrieval_name
         )
-        try:
-            import numpyro
-            from numpyro.infer import HMC as NumPyroHMC
-            from numpyro.infer import MCMC as NumPyroMCMC
-            from numpyro.infer import NUTS as NumPyroNUTS
-        except Exception:
-            numpyro = None
-            NumPyroHMC = None
-            NumPyroMCMC = None
-            NumPyroNUTS = None
-        if numpyro is None or jax is None:
-            raise ImportError(
-                "NumPyro and JAX are required for this sampler but are not installed."
-            )
-
+        _require_jax()
+        _require_numpyro()
         os.makedirs(os.path.join(self.output_directory, "out_NumPyro"), exist_ok=True)
         self.results = None
         self.mcmc = None
@@ -1718,6 +1788,7 @@ class JAXNSSampler(Sampler):
         super().__init__(
             log_likelihood_func, prior_func, output_directory, retrieval_name
         )
+        _require_jax()
         _require_jaxns()
         os.makedirs(os.path.join(self.output_directory, "out_JAXNS/"), exist_ok=True)
         self.jaxns_parameters = {}
@@ -1769,6 +1840,7 @@ class JAXNSSampler(Sampler):
 
     @classmethod
     def prepare(cls, context: SamplerContext, **sampler_kwargs):
+        _require_jax()
         if tfp is None:
             raise ImportError(
                 "TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed."
