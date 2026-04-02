@@ -515,7 +515,7 @@ class BlackJAXSampler(Sampler):
             ),
             "progress_bar": sampler_kwargs.pop("progress_bar", False),
             "seed": sampler_kwargs.pop("seed", 42654),
-            "use_jit": sampler_kwargs.pop("use_jit", True),
+            "use_jit": sampler_kwargs.pop("use_jit", sampler_kwargs.pop("jit", True)),
             "log_jacobian_fn": log_jacobian,
             "num_chains": sampler_kwargs.pop("num_chains", 1),
         }
@@ -636,6 +636,9 @@ class BlackJAXSampler(Sampler):
         **blackjax_kwargs,
     ):
         # --- Single warmup run; adapted parameters are shared across all chains. ---
+        # Discard legacy 'jit' alias that older code or users may pass; use_jit
+        # is the named parameter that controls JIT compilation in this wrapper.
+        blackjax_kwargs.pop("jit", None)
         warmup = blackjax.window_adaptation(
             self.algorithm_factory,
             self.log_likelihood_func,
@@ -918,7 +921,7 @@ class NumPyroSampler(Sampler):
             ),
             "progress_bar": sampler_kwargs.pop("progress_bar", False),
             "seed": sampler_kwargs.pop("seed", 42654),
-            "use_jit": sampler_kwargs.pop("use_jit", True),
+            "use_jit": sampler_kwargs.pop("use_jit", sampler_kwargs.pop("jit", True)),
             "log_jacobian_fn": log_jacobian,
             "num_chains": sampler_kwargs.pop("num_chains", 1),
             "thinning": sampler_kwargs.pop("thinning", 1),
@@ -997,6 +1000,9 @@ class NumPyroSampler(Sampler):
         numpyro_kwargs,
     ):
         numpyro_kwargs = dict(numpyro_kwargs)
+        # Discard legacy 'jit' alias that older code or users may pass; use_jit
+        # is the named parameter that controls JIT compilation in this wrapper.
+        numpyro_kwargs.pop("jit", None)
         kernel_kwargs = {
             "potential_fn": lambda position: -log_likelihood_func(position),
             "step_size": initial_step_size,
