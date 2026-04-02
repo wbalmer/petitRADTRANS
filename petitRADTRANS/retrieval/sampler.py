@@ -1002,7 +1002,7 @@ class NumPyroSampler(Sampler):
         numpyro_kwargs = dict(numpyro_kwargs)
         # Discard legacy 'jit' alias that older code or users may pass; use_jit
         # is the named parameter that controls JIT compilation in this wrapper.
-        numpyro_kwargs.pop("jit", None)
+        numpyro_kwargs.pop("use_jit", None)
         kernel_kwargs = {
             "potential_fn": lambda position: -log_likelihood_func(position),
             "step_size": initial_step_size,
