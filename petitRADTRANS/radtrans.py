@@ -189,6 +189,17 @@ class Radtrans:
 
         self._anisotropic_cloud_scattering = anisotropic_cloud_scattering
 
+        # Pre-resolve derived config used by simple_calculate_flux / _simple_calculate_flux_kernel
+        # so that the method does not read mutable instance state at call time.
+        self._sum_opacities_emission: bool = self._set_sum_opacities(
+            emission=True,
+            line_opacity_mode=self._line_opacity_mode,
+            scattering_in_emission=self._scattering_in_emission,
+        )
+        self._anisotropic_cloud_scattering_emission: bool = (
+            self._anisotropic_cloud_scattering in (True, "auto")
+        )
+
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
         self._path_input_data = path_input_data
@@ -926,7 +937,9 @@ class Radtrans:
         # interpolate_line_opacities (= temperature_pressure_grid_input.shape[1] = max_P)
         # matches the stride of the stacked opacity grid.  Using max(T_i * P_i) instead
         # gave the wrong stride whenever species had different P grid sizes.
-        max_temperature_pressure_grid_size = max_temperature_grid_size * max_pressure_grid_size
+        max_temperature_pressure_grid_size = (
+            max_temperature_grid_size * max_pressure_grid_size
+        )
         n_g = int(self._lines_loaded_opacities["g_gauss"].size)
 
         temperature_pressure_grid_stacked = np.zeros(
@@ -2085,6 +2098,8 @@ class Radtrans:
             "scattering_in_transmission": self.__scattering_in_transmission,
             "sum_opacities": self.__sum_opacities,
             "absorber_present": self.__absorber_present,
+            "sum_opacities_emission": self._sum_opacities_emission,
+            "anisotropic_cloud_scattering_emission": self._anisotropic_cloud_scattering_emission,
         }
         return children, aux_data
 
@@ -2119,6 +2134,10 @@ class Radtrans:
         ]
         instance._Radtrans__sum_opacities = aux_data["sum_opacities"]
         instance._Radtrans__absorber_present = aux_data["absorber_present"]
+        instance._sum_opacities_emission = aux_data["sum_opacities_emission"]
+        instance._anisotropic_cloud_scattering_emission = aux_data[
+            "anisotropic_cloud_scattering_emission"
+        ]
         return instance
 
     def calculate_contribution_spectra(
@@ -2909,17 +2928,10 @@ class Radtrans:
         frequencies_to_wavelengths: bool = True,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, any]]:
         """JAX-friendly emission-spectrum wrapper around the pure simple-flux kernel."""
-        (anisotropic_cloud_scattering, complete_coverage_clouds, _, sum_opacities) = (
-            self._init_spectral_function(
-                is_emission=True,
-                reference_gravity=reference_gravity,
-                complete_coverage_clouds=complete_coverage_clouds,
-                return_clear_spectrum=False,
-                mass_fractions=mass_fractions,
-                cloud_fraction=cloud_fraction,
-                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-            )
-        )
+        if complete_coverage_clouds is None:
+            complete_coverage_clouds = ()
+        else:
+            complete_coverage_clouds = tuple(complete_coverage_clouds)
 
         return self._simple_calculate_flux_kernel(
             temperatures=temperatures,
@@ -2958,8 +2970,8 @@ class Radtrans:
             chunk_feautrier=chunk_feautrier,
             feautrier_chunk_size=feautrier_chunk_size,
             frequencies_to_wavelengths=frequencies_to_wavelengths,
-            sum_opacities=sum_opacities,
-            anisotropic_cloud_scattering=anisotropic_cloud_scattering,
+            sum_opacities=self._sum_opacities_emission,
+            anisotropic_cloud_scattering=self._anisotropic_cloud_scattering_emission,
         )
 
     def calculate_flux_autodiff(
