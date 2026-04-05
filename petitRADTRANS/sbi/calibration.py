@@ -405,6 +405,7 @@ def posterior_predictive_report_from_samples(
     interval_level: float = 0.9,
     simulator: RuntimeSimulator | None = None,
     seed: int | None = None,
+    n_predictive_forward_model_samples: int | None = None,
 ) -> PosteriorPredictiveReport:
     """Summarize posterior-predictive draws for one observed system.
 
@@ -427,6 +428,12 @@ def posterior_predictive_report_from_samples(
         simulator is constructed from ``task``.
     seed:
         Optional seed used when instantiating the simulator.
+    n_predictive_forward_model_samples:
+        Number of posterior draws passed through the forward model to generate
+        the predictive distribution.  When ``None`` all ``posterior_samples``
+        are used.  Setting this to a small value (e.g. 50–200) dramatically
+        reduces the number of expensive petitRADTRANS calls without materially
+        affecting the predictive summary.
 
     Returns
     -------
@@ -443,6 +450,11 @@ def posterior_predictive_report_from_samples(
     physical_parameters = _posterior_space_to_physical(
         task, sample_array, parameter_space
     )
+    if n_predictive_forward_model_samples is not None:
+        n_use = min(int(n_predictive_forward_model_samples), physical_parameters.shape[0])
+        rng = np.random.default_rng(seed)
+        indices = rng.choice(physical_parameters.shape[0], size=n_use, replace=False)
+        physical_parameters = physical_parameters[indices]
     simulator = simulator or RuntimeSimulator(task=task, seed=seed)
     predictive_batch = simulator.simulate_from_parameters(physical_parameters)
 
@@ -508,6 +520,7 @@ def generate_posterior_predictive_report(
     max_cases: int | None = None,
     seed: int | None = None,
     simulator: RuntimeSimulator | None = None,
+    n_predictive_forward_model_samples: int | None = None,
 ) -> PosteriorPredictiveReport:
     """Generate posterior-predictive summaries for a held-out dataset split.
 
@@ -531,6 +544,12 @@ def generate_posterior_predictive_report(
         Optional base seed used to make predictive sampling reproducible.
     simulator:
         Optional runtime simulator override.
+    n_predictive_forward_model_samples:
+        Number of posterior draws passed through the forward model per
+        held-out case.  When ``None`` all ``n_posterior_samples`` draws are
+        forwarded.  Subsampling here is the primary lever for keeping the
+        total number of petitRADTRANS calls to a manageable level when
+        evaluating many held-out cases.
 
     Returns
     -------
@@ -568,8 +587,11 @@ def generate_posterior_predictive_report(
     interval_hits: dict[str, list[np.ndarray]] = {}
 
     base_seed = 0 if seed is None else int(seed)
+    n_cases = len(selected_indices)
+    rng = np.random.default_rng(seed)
 
     for case_offset, sample_index in enumerate(selected_indices):
+        print(f'Posterior-predictive case {case_offset + 1}/{n_cases} ...', flush=True)
         encoded = posterior.encode_observation(normalized_blocks_batch[sample_index])
         posterior_samples = posterior.sample_posterior(
             encoded,
@@ -579,6 +601,10 @@ def generate_posterior_predictive_report(
         physical_parameters = _posterior_space_to_physical(
             task, posterior_samples, resolved_parameter_space
         )
+        if n_predictive_forward_model_samples is not None:
+            n_use = min(int(n_predictive_forward_model_samples), physical_parameters.shape[0])
+            indices = rng.choice(physical_parameters.shape[0], size=n_use, replace=False)
+            physical_parameters = physical_parameters[indices]
         predictive_batch = simulator.simulate_from_parameters(physical_parameters)
 
         for observation_name, payload in predictive_batch.observations.items():

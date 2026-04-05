@@ -146,6 +146,7 @@ class AmortizedRetrieval:
         n_posterior_samples: int = 1000,
         include_posterior_predictive: bool = False,
         posterior_predictive_interval_level: float = 0.9,
+        n_predictive_forward_model_samples: int | None = None,
         seed: int | None = None,
     ) -> AmortizedRetrievalResult:
         """Infer a posterior for one structured observation.
@@ -161,6 +162,12 @@ class AmortizedRetrieval:
         posterior_predictive_interval_level:
             Predictive interval level used when generating the optional
             posterior-predictive report.
+        n_predictive_forward_model_samples:
+            Number of posterior draws passed through the forward model when
+            generating the posterior-predictive summary.  When ``None`` all
+            ``n_posterior_samples`` draws are forwarded.  Set this to a small
+            value (e.g. 50–200) to avoid a multi-hour hang when
+            ``n_posterior_samples`` is large.
         seed:
             Optional seed for posterior and posterior-predictive sampling.
 
@@ -187,6 +194,7 @@ class AmortizedRetrieval:
                 posterior=posterior,
                 observation_blocks=observation_blocks,
                 interval_level=posterior_predictive_interval_level,
+                n_predictive_forward_model_samples=n_predictive_forward_model_samples,
                 seed=seed,
             )
 
@@ -208,6 +216,7 @@ class AmortizedRetrieval:
         posterior: PosteriorSamples,
         observation_blocks: list[ObservationBlock],
         interval_level: float = 0.9,
+        n_predictive_forward_model_samples: int | None = None,
         seed: int | None = None,
     ) -> PosteriorPredictiveReport:
         """Generate posterior-predictive draws for a fitted observation.
@@ -220,6 +229,11 @@ class AmortizedRetrieval:
             Original observation blocks used for user-facing comparison.
         interval_level:
             Central predictive interval level to report.
+        n_predictive_forward_model_samples:
+            Number of posterior draws passed through the forward model.  When
+            ``None`` all samples in ``posterior`` are used.  Set this to a
+            small value (e.g. 50–200) to keep the number of expensive
+            petitRADTRANS calls manageable.
         seed:
             Optional seed for predictive simulation.
 
@@ -238,6 +252,7 @@ class AmortizedRetrieval:
             interval_level=interval_level,
             simulator=self.simulator,
             seed=seed,
+            n_predictive_forward_model_samples=n_predictive_forward_model_samples,
         )
 
     def diagnose_domain(

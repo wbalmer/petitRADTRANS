@@ -62,6 +62,7 @@ from petitRADTRANS.sbi import (  # noqa: E402
     SBITask,
     SimulationConfig,
     SimulationBasedCalibrationReport,
+    TaskPreprocessingMetadata,
     ZarrSimulationDatasetStore,
     build_observation_block,
     generate_posterior_predictive_report,
@@ -84,6 +85,16 @@ N_SIMULATIONS = 48  # 100_000 (minimum), probably closer to 1_000_000 for a seri
 NUM_EPOCHS = 20  # 160
 BATCH_SIZE = 8   # 256, or 512 if hardware allows
 N_POSTERIOR_SAMPLES = 256  # 16_384
+# Maximum number of posterior draws forwarded through the pRT forward model per
+# posterior-predictive check.  This is the primary knob for preventing a
+# multi-hour hang: each draw requires one full pRT spectrum evaluation.
+# 50-200 is usually sufficient for a good predictive summary; None uses all
+# N_POSTERIOR_SAMPLES draws (very slow at production sample counts).
+N_PREDICTIVE_FORWARD_MODEL_SAMPLES = 50  # None to use all N_POSTERIOR_SAMPLES
+# When True, skip simulation and training and load the previously saved
+# posterior from posterior_dir.  The simulation_dataset.zarr store must also
+# exist so that the dataset reader can be re-opened.
+RESUME_FROM_SAVED_POSTERIOR = True
 RUN_EXACT_RETRIEVAL = False
 OUTPUT_ROOT: Path | None = None
 GENERATE_PLOTS = True
@@ -400,53 +411,68 @@ def main() -> None:
     checkpoint_dir = sbi_output_root / 'checkpoints'
     posterior_dir = sbi_output_root / 'posterior_model'
 
-    split_counts: dict[str, int] = {
-        DatasetSplit.TRAIN.value: max(N_SIMULATIONS - 8, 8),
-        DatasetSplit.VALIDATION.value: 4,
-        DatasetSplit.TEST.value: 4,
-    }
-    total_requested = sum(split_counts.values())
-    if total_requested != N_SIMULATIONS:
-        split_counts[DatasetSplit.TRAIN.value] += N_SIMULATIONS - total_requested
+    if RESUME_FROM_SAVED_POSTERIOR:
+        print('Resuming: loading saved posterior and reopening existing dataset...')
+        store = ZarrSimulationDatasetStore(chunk_size=BATCH_SIZE)
+        dataset = store.open(dataset_uri)
+        posterior = ConditionalSplineFlowPosterior.load(posterior_dir.as_posix())
+        preprocessing_metadata = TaskPreprocessingMetadata.from_payload(
+            posterior.preprocessing_metadata_payload
+        )
+        reader = NormalizedObservationDatasetReader(
+            dataset=dataset,
+            preprocessing_metadata=preprocessing_metadata,
+        )
+        print('Loaded posterior parameter_dim:', posterior.parameter_dim)
+        print('Loaded posterior parameter_space:', posterior.parameter_space)
+    else:
+        split_counts: dict[str, int] = {
+            DatasetSplit.TRAIN.value: max(N_SIMULATIONS - 8, 8),
+            DatasetSplit.VALIDATION.value: 4,
+            DatasetSplit.TEST.value: 4,
+        }
+        total_requested = sum(split_counts.values())
+        if total_requested != N_SIMULATIONS:
+            split_counts[DatasetSplit.TRAIN.value] += N_SIMULATIONS - total_requested
 
-    print('Generating simulation dataset...')
-    generated = generate_simulation_dataset(
-        task=task,
-        storage_uri=dataset_uri,
-        n_simulations=N_SIMULATIONS,
-        chunk_size=BATCH_SIZE,
-        split_counts=split_counts,
-        dataset_version='0.1.0',
-    )
-    print('Simulation dataset splits:', generated.manifest.splits)
+        print('Generating simulation dataset...')
+        generated = generate_simulation_dataset(
+            task=task,
+            storage_uri=dataset_uri,
+            n_simulations=N_SIMULATIONS,
+            chunk_size=BATCH_SIZE,
+            split_counts=split_counts,
+            dataset_version='0.1.0',
+        )
+        print('Simulation dataset splits:', generated.manifest.splits)
 
-    store = ZarrSimulationDatasetStore(chunk_size=BATCH_SIZE)
-    dataset = store.open(generated.manifest)
-    assert generated.preprocessing_metadata is not None
-    reader = NormalizedObservationDatasetReader(
-        dataset=dataset,
-        preprocessing_metadata=generated.preprocessing_metadata,
-    )
+        store = ZarrSimulationDatasetStore(chunk_size=BATCH_SIZE)
+        dataset = store.open(generated.manifest)
+        assert generated.preprocessing_metadata is not None
+        reader = NormalizedObservationDatasetReader(
+            dataset=dataset,
+            preprocessing_metadata=generated.preprocessing_metadata,
+        )
 
-    print('Training conditional spline posterior...')
-    posterior = ConditionalSplineFlowPosterior(
-        parameter_dim=len(task.parameter_names),
-        embedding_dim=64,  # 256
-        num_coupling_layers=4,  # 12
-        hidden_dim=64,  # 512
-        learning_rate=1e-3,  # 2e-4
-        batch_size=BATCH_SIZE,
-        num_epochs=NUM_EPOCHS,
-        parameter_space='unconstrained',
-        checkpoint_directory=checkpoint_dir.as_posix(),
-        checkpoint_backend='equinox',
-        seed=123,
-        task_metadata={'task_name': task.name},
-    )
-    training_artifacts = posterior.fit(reader)
-    posterior.save(posterior_dir.as_posix())
-    print('Finished training epochs:', len(training_artifacts.history['train_loss']))
-    print('Posterior saved to:', posterior_dir)
+        print('Training conditional spline posterior...')
+        posterior = ConditionalSplineFlowPosterior(
+            parameter_dim=len(task.parameter_names),
+            embedding_dim=64,  # 256
+            num_coupling_layers=4,  # 12
+            hidden_dim=64,  # 512
+            learning_rate=1e-3,  # 2e-4
+            batch_size=BATCH_SIZE,
+            num_epochs=NUM_EPOCHS,
+            parameter_space='unconstrained',
+            checkpoint_directory=checkpoint_dir.as_posix(),
+            checkpoint_backend='equinox',
+            seed=123,
+            task_metadata={'task_name': task.name},
+        )
+        training_artifacts = posterior.fit(reader)
+        posterior.save(posterior_dir.as_posix())
+        print('Finished training epochs:', len(training_artifacts.history['train_loss']))
+        print('Posterior saved to:', posterior_dir)
 
     print('Computing calibration reports on held-out simulations...')
     sbc_report = generate_sbc_report(
@@ -465,6 +491,7 @@ def main() -> None:
         n_posterior_samples=min(N_POSTERIOR_SAMPLES, 4_096),
         interval_level=0.9,
         seed=654,
+        n_predictive_forward_model_samples=N_PREDICTIVE_FORWARD_MODEL_SAMPLES,
     )
     print('SBC mean rank:', sbc_report.mean_rank)
     print('SBC normalized mean-rank error:', sbc_report.normalized_mean_rank_error)
@@ -481,6 +508,7 @@ def main() -> None:
         n_posterior_samples=N_POSTERIOR_SAMPLES,
         include_posterior_predictive=True,
         posterior_predictive_interval_level=0.9,
+        n_predictive_forward_model_samples=N_PREDICTIVE_FORWARD_MODEL_SAMPLES,
         seed=777,
     )
 
