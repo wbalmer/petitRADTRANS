@@ -7,49 +7,48 @@ defines the core task, simulation, dataset, posterior, and benchmarking
 interfaces without committing to one training backend or storage engine.
 """
 
-from .artifacts import ArtifactMetadata, ArtifactRegistry, ArtifactRole, FileArtifactRegistry, RegisteredArtifact
-from .benchmark import BenchmarkComparison, BenchmarkMetrics, RetrievalBenchmarkCase, RetrievalBenchmarkSuite
+# Benchmarking
+from .benchmark import (
+    BenchmarkComparison,
+    BenchmarkMetrics,
+    RetrievalBenchmarkCase,
+    RetrievalBenchmarkSuite,
+)
+
+# Calibration / diagnostics
 from .calibration import (
-    CoverageLevelReport,
     PosteriorPredictiveReport,
     SimulationBasedCalibrationReport,
-    central_credible_interval,
-    empirical_interval_coverage,
     generate_posterior_predictive_report,
     generate_sbc_report,
-    posterior_predictive_report_from_samples,
-    simulation_based_calibration_report,
 )
-from .compatibility import CompatibilityReport, TaskCompatibilityError, TaskFingerprint
+
+# Error types users may need to catch
+from .compatibility import TaskCompatibilityError
+
+# Dataset generation and access
 from .dataset import (
-    DatasetSplit,
-    GeneratedSimulationDataset,
-    NormalizedObservationDatasetReader,
-    SimulationDatasetManifest,
     SimulationDatasetStore,
-    SimulationDatasetWriter,
-    SplitSamplingPolicy,
     StoredSimulationDataset,
     ZarrSimulationDatasetStore,
-    ZarrSimulationDatasetWriter,
     generate_simulation_dataset,
 )
-from .encoders import DatasetSetAggregator, HierarchicalObservationEncoder, PhotometryPointEncoder, SpectralPatchEncoder
-from .estimator_registry import (
-    get_posterior_estimator_class,
-    load_posterior_estimator,
-    register_posterior_estimator,
+
+# Observation encoders
+from .encoders import (
+    HierarchicalObservationEncoder,
+    PhotometryPointEncoder,
+    SpectralPatchEncoder,
 )
-from .flows import (
-    ConditionalAffineCoupling,
-    ConditionalAffineFlow,
-    ConditionalRationalQuadraticSplineCoupling,
-    ConditionalSplineFlow,
-    CouplingConditioner,
-)
+
+# Posterior loading
+from .estimator_registry import load_posterior_estimator
+
+# High-level inference entry point
 from .inference import AmortizedRetrieval, AmortizedRetrievalResult, OODDiagnostic
+
+# Observation types and utilities
 from .observation import (
-    EncodedObservation,
     ObservationBlock,
     ObservationEncoder,
     ObservationModality,
@@ -57,129 +56,106 @@ from .observation import (
     build_observation_block_batch,
     build_observation_blocks_from_sample,
 )
+
+# Posterior estimators
 from .posterior import (
     ConditionalFlowPosterior,
     ConditionalSplineFlowPosterior,
     FlowMatchingPosterior,
-    POSTERIOR_METADATA_SCHEMA_VERSION,
     PersistentPosteriorEstimator,
     PosteriorBatch,
     PosteriorEstimator,
     PosteriorSamples,
-    TrainingArtifacts,
 )
+
+# Plotting
 from .plotting import (
     plot_posterior_marginals,
     plot_posterior_predictive_report,
     plot_sbc_rank_histograms,
 )
+
+# Preprocessing
 from .preprocessing import (
-    BlockNormalizationStats,
     TaskPreprocessingMetadata,
-    compute_block_normalization_stats,
     fit_task_preprocessing,
     normalize_observation_block,
     normalize_observation_blocks,
 )
-from .simulator import BatchedSimulator, ProposalSampler, RuntimeSimulator, SimulationBatch, Simulator
+
+# Simulator
+from .simulator import ProposalSampler, RuntimeSimulator, SimulationBatch, Simulator
+
+# Task configuration
 from .task import NoiseModelConfig, ObservationSchema, SBITask, SimulationConfig
-from .training import (
-    CheckpointBackend,
-    EarlyStoppingConfig,
-    EquinoxCheckpointBackend,
-    OrbaxCheckpointBackend,
-    SBITrainer,
-    TrainingConfig,
-    resolve_checkpoint_backend,
-)
+
+# Training
+from .training import EarlyStoppingConfig, SBITrainer, TrainingConfig
 
 __all__ = [
-    'AmortizedRetrieval',
-    'AmortizedRetrievalResult',
-    'ArtifactMetadata',
-    'ArtifactRegistry',
-    'ArtifactRole',
-    'FileArtifactRegistry',
-    'BatchedSimulator',
-    'BenchmarkComparison',
-    'BenchmarkMetrics',
-    'central_credible_interval',
-    'CoverageLevelReport',
-    'CompatibilityReport',
-    'ConditionalAffineCoupling',
-    'ConditionalAffineFlow',
-    'ConditionalRationalQuadraticSplineCoupling',
-    'ConditionalFlowPosterior',
-    'ConditionalSplineFlow',
-    'ConditionalSplineFlowPosterior',
-    'CouplingConditioner',
-    'DatasetSplit',
-    'EncodedObservation',
-    'GeneratedSimulationDataset',
-    'FlowMatchingPosterior',
-    'get_posterior_estimator_class',
-    'HierarchicalObservationEncoder',
-    'load_posterior_estimator',
-    'NoiseModelConfig',
-    'NormalizedObservationDatasetReader',
-    'ObservationBlock',
-    'ObservationEncoder',
-    'ObservationModality',
-    'ObservationSchema',
-    'OODDiagnostic',
-    'PosteriorBatch',
-    'PosteriorEstimator',
-    'POSTERIOR_METADATA_SCHEMA_VERSION',
-    'PosteriorSamples',
-    'plot_posterior_marginals',
-    'plot_posterior_predictive_report',
-    'plot_sbc_rank_histograms',
-    'ProposalSampler',
-    'RetrievalBenchmarkCase',
-    'RetrievalBenchmarkSuite',
-    'RuntimeSimulator',
-    'SBITask',
-    'SimulationBatch',
-    'SimulationConfig',
-    'SimulationDatasetManifest',
-    'SimulationDatasetStore',
-    'SimulationDatasetWriter',
-    'Simulator',
-    'SplitSamplingPolicy',
-    'SpectralPatchEncoder',
-    'StoredSimulationDataset',
-    'TaskPreprocessingMetadata',
-    'TaskCompatibilityError',
-    'TaskFingerprint',
-    'TrainingArtifacts',
-    'ZarrSimulationDatasetStore',
-    'ZarrSimulationDatasetWriter',
-    'BlockNormalizationStats',
-    'build_observation_block',
-    'build_observation_block_batch',
-    'build_observation_blocks_from_sample',
-    'compute_block_normalization_stats',
-    'DatasetSetAggregator',
-    'empirical_interval_coverage',
-    'CheckpointBackend',
-    'EarlyStoppingConfig',
-    'EquinoxCheckpointBackend',
-    'fit_task_preprocessing',
-    'generate_simulation_dataset',
-    'normalize_observation_block',
-    'normalize_observation_blocks',
-    'OrbaxCheckpointBackend',
-    'PhotometryPointEncoder',
-    'PersistentPosteriorEstimator',
-    'PosteriorPredictiveReport',
-    'RegisteredArtifact',
-    'register_posterior_estimator',
-    'resolve_checkpoint_backend',
-    'SBITrainer',
-    'SimulationBasedCalibrationReport',
-    'simulation_based_calibration_report',
-    'TrainingConfig',
-    'generate_posterior_predictive_report',
-    'generate_sbc_report',
-    'posterior_predictive_report_from_samples',
+    # Benchmarking
+    "BenchmarkComparison",
+    "BenchmarkMetrics",
+    "RetrievalBenchmarkCase",
+    "RetrievalBenchmarkSuite",
+    # Calibration / diagnostics
+    "OODDiagnostic",
+    "PosteriorPredictiveReport",
+    "SimulationBasedCalibrationReport",
+    "generate_posterior_predictive_report",
+    "generate_sbc_report",
+    # Errors
+    "TaskCompatibilityError",
+    # Datasets
+    "SimulationDatasetStore",
+    "StoredSimulationDataset",
+    "ZarrSimulationDatasetStore",
+    "generate_simulation_dataset",
+    # Encoders
+    "HierarchicalObservationEncoder",
+    "PhotometryPointEncoder",
+    "SpectralPatchEncoder",
+    # Posterior loading
+    "load_posterior_estimator",
+    # Inference
+    "AmortizedRetrieval",
+    "AmortizedRetrievalResult",
+    # Observations
+    "ObservationBlock",
+    "ObservationEncoder",
+    "ObservationModality",
+    "build_observation_block",
+    "build_observation_block_batch",
+    "build_observation_blocks_from_sample",
+    # Posteriors
+    "ConditionalFlowPosterior",
+    "ConditionalSplineFlowPosterior",
+    "FlowMatchingPosterior",
+    "PersistentPosteriorEstimator",
+    "PosteriorBatch",
+    "PosteriorEstimator",
+    "PosteriorSamples",
+    # Plotting
+    "plot_posterior_marginals",
+    "plot_posterior_predictive_report",
+    "plot_sbc_rank_histograms",
+    # Preprocessing
+    "TaskPreprocessingMetadata",
+    "fit_task_preprocessing",
+    "normalize_observation_block",
+    "normalize_observation_blocks",
+    # Simulator
+    "ProposalSampler",
+    "RuntimeSimulator",
+    "SimulationBatch",
+    "Simulator",
+    # Task configuration
+    "NoiseModelConfig",
+    "ObservationSchema",
+    "SBITask",
+    "SimulationConfig",
+    # Training
+    "EarlyStoppingConfig",
+    "SBITrainer",
+    "TrainingConfig",
 ]

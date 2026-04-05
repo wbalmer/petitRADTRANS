@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a18] - 2026-03-30
+## [4.0.0a19] - 2026-04-05
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -35,7 +35,6 @@ Ready for beta testing with version 4.0.0.a16.
 - Architecture: Verify all chi2 calculations use LogLikelihood class.
 - Architecture: Set stricter dependency version limits.
 - Architecture: Optional: include ability to use FORTRAN backend, or fully deprecate legacy code.
-- Architecture: Make sure functions outside of retrieval module don't depened on retrieval files: fix spectrum_utils.
 - Documentation: Add docstrings to all new JAX functions.
 - Documentation: Verify tutorials to be v4 compatible.
 - Documentation: Reintroduce error checking where removed.
@@ -53,6 +52,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: Implement additional radiative transfer methods.
 
 ### Changed
+- a19 Vectorised likelihood in retrieval module and training set generation in SBI module.
 - a17 `emission_geometry` is now `irradiation_geometry` throughout, renamed other args in `Opacity`.
 - a16: Shard_map parallelisation for MCMC samplers
 - a15 Reverse-mode differentiation changes to rebinning and particle radius functions.
@@ -72,7 +72,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Translated `fortran_radtrans_core` to JAX.
 - Translated `fortran_rebin` to JAX.
 - Translated `fortran_chemistry` to JAX.
-- Updated `Radtrans` to use JAX arrays and the JAX backend (incomplete).
+- Updated `Radtrans` to use JAX arrays and the JAX backend.
 - `Retrieval` module should use JAX arrays throughout.
 - `Chemistry` module should use JAX arrays throughout.
 - `math.py` now uses JAX arrays.

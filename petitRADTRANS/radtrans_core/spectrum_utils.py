@@ -4,7 +4,6 @@ from jax.typing import ArrayLike
 import numpy as np
 from interpax import interp1d
 
-import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.math import gaussian_weights_running, median_filter, savgol_filter
 
 """
@@ -49,7 +48,10 @@ def continuum_subtract_spectrum(
     method: str = "spline",
     name: str = None,
 ) -> ArrayLike:
-    """ """
+    """
+    # TODO Docstring
+    # TODO ensure everything uses JAX arrays instead of numpy arrays.
+    """
 
     if method == "spline":
         nodes = wavelengths[0]
@@ -81,7 +83,7 @@ def continuum_subtract_spectrum(
                 "value",
                 parameters["median_filter_width"],
             )
-        return median_filter_spectrum(np.ndarray(spectrum), size=median_filter_width)
+        return median_filter_spectrum(jnp.array(spectrum), size=median_filter_width)
     elif method == "savgol":
         window_length = 10
         polyorder = 3
@@ -109,7 +111,7 @@ def continuum_subtract_spectrum(
                 parameters["savgol_polyorder"], "value", parameters["savgol_polyorder"]
             )
         return savgol_filter_spectrum(
-            np.ndarray(spectrum), window_length=window_length, polyorder=polyorder
+            jnp.array(spectrum), window_length=window_length, polyorder=polyorder
         )
 
 
@@ -298,7 +300,12 @@ def _convolve_running(input_spectrum, sigma_lsf_gauss_filter, **kwargs):
 
 
 def convolve_and_sample_variable_resolution_breads(
-    wavelengths, resolutions, model_wavelengths, model_fluxes, num_sigma=3
+    wavelengths,
+    resolutions,
+    model_wavelengths,
+    model_fluxes,
+    num_sigma=3,
+    filter_size=None,
 ):
     """
     Simulate the observations of a model.
@@ -317,49 +324,46 @@ def convolve_and_sample_variable_resolution_breads(
             the fluxes of the model (length of N_model)
         num_sigma: float
             number of +/- sigmas to evaluate the LSF to.
+        filter_size: int or None
+            Number of points in the LSF filter. Must be provided as a static Python int
+            when this function is JIT-compiled (declare it via static_argnums/static_argnames).
+            If None, computed automatically from the data; this path is not JIT-compatible.
 
     Returns:
         output_model: np.ndarray
             the fluxes in each of the wavelength channels (length of N_output)
     """
 
-    # JX added to use function with input R, instead of LSF FWHM.
-    # first get FWHM of LSF from lambda / R. Then convert FWHM to stddev of Gaussian
     sigmas_wvs = wavelengths / (
-        resolutions * 2 * np.sqrt(2 * np.log(2))
+        resolutions * 2 * jnp.sqrt(2 * jnp.log(2))
     )  # corrected a math error here, July 15 2024
 
-    model_in_range = np.where(
-        (model_wavelengths >= np.min(wavelengths))
-        & (model_wavelengths < np.max(wavelengths))
+    in_range_mask = jnp.logical_and(
+        model_wavelengths >= jnp.min(wavelengths),
+        model_wavelengths < jnp.max(wavelengths),
     )
-    dwv_model = np.abs(
-        model_wavelengths[model_in_range]
-        - np.roll(model_wavelengths[model_in_range], 1)
-    )
-    dwv_model[0] = dwv_model[1]
+    dwv_model = jnp.abs(model_wavelengths - jnp.roll(model_wavelengths, 1))
+    dwv_model = dwv_model.at[0].set(dwv_model[1])
+    dwv_model_min = jnp.min(jnp.where(in_range_mask, dwv_model, jnp.inf))
 
-    filter_size = int(np.ceil(np.max((2 * num_sigma * sigmas_wvs) / np.min(dwv_model))))
-    filter_coords = np.linspace(-num_sigma, num_sigma, filter_size)
+    if filter_size is None:
+        filter_size = int(jnp.ceil(jnp.max(2 * num_sigma * sigmas_wvs) / dwv_model_min))
+    filter_coords = jnp.linspace(-num_sigma, num_sigma, filter_size)
 
-    # Commenting out try-except block from breads, doesn't seem to do anything.
-    # try:
-    filter_coords = np.tile(
+    filter_coords = jnp.tile(
         filter_coords, [wavelengths.shape[0], 1]
     )  # shape of (N_output, filter_size)
-    # except Exception as e:
-    # print(e)
-    # print('reached exception for ' + str(filter_size))
 
     filter_wv_coords = (
         filter_coords * sigmas_wvs[:, None] + wavelengths[:, None]
     )  # model wavelengths we want
-    lsf = np.exp(-(filter_coords**2) / 2) / np.sqrt(2 * np.pi)
+    lsf = jnp.exp(-(filter_coords**2) / 2) / jnp.sqrt(2 * jnp.pi)
 
-    model_interp = interp1d(model_wavelengths, model_fluxes, method="cubic")
-    filter_model = model_interp(filter_wv_coords)
+    filter_model = interp1d(
+        filter_wv_coords, model_wavelengths, model_fluxes, method="cubic"
+    )
 
-    output_model = np.nansum(filter_model * lsf, axis=1) / np.sum(lsf, axis=1)
+    output_model = jnp.nansum(filter_model * lsf, axis=1) / jnp.sum(lsf, axis=1)
 
     return output_model
 
@@ -391,25 +395,28 @@ def filter_spectrum_with_spline(
             High-pass filtered fluxes of the input spectrum
     """
     if uncertainties is None:
-        uncertainties = np.ones(fluxes.shape)
+        uncertainties = jnp.ones(fluxes.shape)
 
     if m_spline is None:
         m_spline = linear_spline_interpolation(x_nodes, wavelengths, spline_degree=3)
 
     normalised_spline_matrix = m_spline / uncertainties[:, None]
     weighted_fluxes = fluxes / uncertainties
-    where_finite = np.where(np.isfinite(weighted_fluxes))
-    normalised_spline_matrix = normalised_spline_matrix[where_finite[0], :]
-    weighted_fluxes = weighted_fluxes[where_finite]
 
-    paras, _, _, _ = jnp.linalg.lstsq(normalised_spline_matrix, weighted_fluxes)
-    spline_model = np.dot(normalised_spline_matrix, paras)
+    # Use a boolean mask instead of jnp.where (1-arg form) so the output shape stays static
+    finite_mask = jnp.isfinite(weighted_fluxes)
+    normalised_spline_matrix_m = normalised_spline_matrix * finite_mask[:, None]
+    weighted_fluxes_m = jnp.where(finite_mask, weighted_fluxes, 0.0)
+
+    paras, _, _, _ = jnp.linalg.lstsq(normalised_spline_matrix_m, weighted_fluxes_m)
+    # Evaluate the spline model over all wavelengths (not just finite ones).
+    spline_model = normalised_spline_matrix @ paras
     residuals = weighted_fluxes - spline_model
 
-    # LPF_fluxes = np.zeros(fluxes.shape)+np.nan
-    high_pass_filtered_fluxes = np.zeros(fluxes.shape) + np.nan
-    # LPF_fluxes[where_finite] = m*uncertainties[where_finite]
-    high_pass_filtered_fluxes[where_finite] = residuals * uncertainties[where_finite]
+    residuals_finite = jnp.where(finite_mask, residuals, 0.0)
+    high_pass_filtered_fluxes = jnp.where(
+        finite_mask, residuals_finite * uncertainties, jnp.nan
+    )
 
     return high_pass_filtered_fluxes  # ,LPF_spec
 
@@ -462,7 +469,6 @@ def linear_spline_interpolation(x_knots, x_samples, spline_degree=3):
         def _eval_basis(chunk_idx):
             """Evaluate the basis function for index chunk_idx using interpax cubic spline."""
             tmp_y_vec = jnp.zeros(n_nodes).at[chunk_idx].set(1.0)
-            # interpax.interp1d(xq, x, f, method='cubic') - query points, knots, values
             evals = interp1d(
                 x_samples_arr, nodes, tmp_y_vec, method="cubic", extrap=0.0
             )
