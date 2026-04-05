@@ -1,5 +1,4 @@
 import jax.numpy as jnp
-from jax import config
 from petitRADTRANS.radtrans_core import radiative_transfer_core
 from petitRADTRANS.opacities.cia import compute_cia_opacities
 from petitRADTRANS.opacities.hminus import (
@@ -7,9 +6,7 @@ from petitRADTRANS.opacities.hminus import (
 )
 from petitRADTRANS.opacities.rayleigh import compute_rayleigh_scattering_opacities
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 # JAX-friendly sentinels and helpers for optional inputs
 _MISSING_FLOAT = jnp.array(-1.0, dtype=JAX_DTYPE)

@@ -236,12 +236,13 @@ def _validate_preprocessing_metadata(
         )
 
 
-@dataclass(frozen=True)
+@dataclass
 class NormalizedObservationDatasetReader:
     """Lightweight reader yielding normalized ObservationBlock batches for training."""
 
     dataset: StoredSimulationDataset
     preprocessing_metadata: TaskPreprocessingMetadata
+    _split_cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     def iter_batches(
         self,
@@ -280,26 +281,35 @@ class NormalizedObservationDatasetReader:
         Notes
         -----
         Observation blocks are always normalized with the stored preprocessing
-        metadata before they are exposed to training code.
+        metadata before they are exposed to training code.  The per-epoch
+        disk read and block normalization are cached after the first call for
+        each ``(split, parameter_space)`` pair, so subsequent epochs pay only
+        the cost of mini-batch slicing.
         """
-        split_data = self.dataset.read_split(split)
-        raw_blocks = build_observation_block_batch(
-            split_data["observations"],
-            self.dataset.manifest.observation_schema["modalities"],
-        )
-        normalized_blocks = [
-            normalize_observation_blocks(blocks, self.preprocessing_metadata)
-            for blocks in raw_blocks
-        ]
+        cache_key = (split, parameter_space)
+        if cache_key not in self._split_cache:
+            split_data = self.dataset.read_split(split)
+            raw_blocks = build_observation_block_batch(
+                split_data["observations"],
+                self.dataset.manifest.observation_schema["modalities"],
+            )
+            normalized_blocks = [
+                normalize_observation_blocks(blocks, self.preprocessing_metadata)
+                for blocks in raw_blocks
+            ]
 
-        if parameter_space == "physical":
-            parameters = split_data["parameters"]
-        elif parameter_space == "cube":
-            parameters = split_data["cube_parameters"]
-        elif parameter_space == "unconstrained":
-            parameters = split_data["unconstrained_parameters"]
-        else:
-            raise ValueError(f"Unsupported parameter_space: {parameter_space!r}")
+            if parameter_space == "physical":
+                parameters = split_data["parameters"]
+            elif parameter_space == "cube":
+                parameters = split_data["cube_parameters"]
+            elif parameter_space == "unconstrained":
+                parameters = split_data["unconstrained_parameters"]
+            else:
+                raise ValueError(f"Unsupported parameter_space: {parameter_space!r}")
+
+            self._split_cache[cache_key] = (normalized_blocks, parameters)
+
+        normalized_blocks, parameters = self._split_cache[cache_key]
 
         indices = np.arange(len(normalized_blocks))
         if shuffle:
@@ -312,8 +322,7 @@ class NormalizedObservationDatasetReader:
 
             if encoder is not None:
                 batch_observations = np.asarray(
-                    [encoder.encode(blocks).embedding for blocks in batch_observations],
-                    dtype=float,
+                    encoder.encode_stacked_batch(batch_observations)
                 )
 
             yield PosteriorBatch(

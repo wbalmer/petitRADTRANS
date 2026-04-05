@@ -2,7 +2,7 @@ import sys
 import copy
 
 import jax.numpy as jnp
-from jax import lax, typing, config
+from jax import lax, typing
 
 try:
     from petitRADTRANS.chemistry.prt_easychem import get_exoatmos_abundances
@@ -27,9 +27,7 @@ from petitRADTRANS.chemistry.utils import (
 )
 from petitRADTRANS.chemistry import clouds as fc
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 INVALID_VALUE = jnp.array(jnp.inf, JAX_DTYPE)
 

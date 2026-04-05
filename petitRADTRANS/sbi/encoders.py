@@ -197,6 +197,81 @@ class SpectralPatchEncoder(eqx.Module):
         pooled = jnp.mean(patch_embeddings, axis=0)
         return self.output_projection(pooled)
 
+    def _encode_block_raw(
+        self,
+        values: jnp.ndarray,
+        uncertainties: jnp.ndarray,
+        coordinates: jnp.ndarray,
+        mask: jnp.ndarray,
+    ) -> jnp.ndarray:
+        """Encode pre-processed block arrays (vmappable — no ObservationBlock input).
+
+        Parameters
+        ----------
+        values, uncertainties, coordinates:
+            Float32 1-D arrays already produced by ``_as_vector``.
+            ``uncertainties`` and ``coordinates`` may have length 0 to indicate
+            absence.
+        mask:
+            Boolean 1-D array already produced by ``_safe_mask``.
+
+        Returns
+        -------
+        jnp.ndarray
+            Dense spectral embedding of shape ``(embedding_dim,)``.
+        """
+        if values.shape[0] == 0:
+            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
+
+        n = values.shape[0]
+        ps = self.patch_size
+        n_patches = -(-n // ps)
+        padded_length = n_patches * ps
+        pad_size = padded_length - n
+
+        padding_indicator = jnp.arange(padded_length) >= n
+
+        values_padded = jnp.concatenate(
+            [values, jnp.zeros(pad_size, dtype=jnp.float32)]
+        )
+        mask_padded = jnp.concatenate([mask, jnp.ones(pad_size, dtype=bool)])
+        values_2d = values_padded.reshape(n_patches, ps)
+        mask_2d = mask_padded.reshape(n_patches, ps)
+
+        if uncertainties.shape[0] > 0:
+            unc_pad = max(0, padded_length - uncertainties.shape[0])
+            unc_padded = jnp.concatenate(
+                [uncertainties, jnp.zeros(unc_pad, dtype=jnp.float32)]
+            )[:padded_length]
+            unc_mask_2d = padding_indicator.reshape(n_patches, ps)
+        else:
+            unc_padded = jnp.zeros(padded_length, dtype=jnp.float32)
+            unc_mask_2d = jnp.ones((n_patches, ps), dtype=bool)
+        unc_2d = unc_padded.reshape(n_patches, ps)
+
+        if coordinates.shape[0] > 0:
+            coord_pad = max(0, padded_length - coordinates.shape[0])
+            coord_padded = jnp.concatenate(
+                [coordinates, jnp.zeros(coord_pad, dtype=jnp.float32)]
+            )[:padded_length]
+            coord_mask_2d = padding_indicator.reshape(n_patches, ps)
+        else:
+            coord_padded = jnp.zeros(padded_length, dtype=jnp.float32)
+            coord_mask_2d = jnp.ones((n_patches, ps), dtype=bool)
+        coord_2d = coord_padded.reshape(n_patches, ps)
+
+        def _patch_summary(v, vm, u, um, c, cm):
+            return jnp.concatenate(
+                (_summaries(v, vm), _summaries(u, um), _summaries(c, cm))
+            )
+
+        summaries = vmap(_patch_summary)(
+            values_2d, mask_2d, unc_2d, unc_mask_2d, coord_2d, coord_mask_2d
+        )
+        patch_embeddings = vmap(self.patch_mlp)(summaries)
+        pooled = jnp.mean(patch_embeddings, axis=0)
+        return self.output_projection(pooled)
+
 
 class PhotometryPointEncoder(eqx.Module):
     """Learned photometry encoder using per-point MLP features and pooling.
@@ -251,6 +326,49 @@ class PhotometryPointEncoder(eqx.Module):
         coordinates = _as_vector(block.coordinates)
         mask = _safe_mask(block.mask, values.shape[0])
 
+        if values.shape[0] == 0:
+            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
+
+        if uncertainties.shape[0] == 0:
+            uncertainties = jnp.zeros_like(values)
+        if coordinates.shape[0] == 0:
+            coordinates = jnp.zeros_like(values)
+
+        widths = jnp.concatenate(
+            (jnp.diff(coordinates), jnp.zeros((1,), dtype=coordinates.dtype)), axis=0
+        )
+        point_features = jnp.stack(
+            (values, uncertainties, coordinates, widths), axis=-1
+        )
+        encoded_points = vmap(self.point_mlp)(point_features)
+        valid_weights = (~mask).astype(jnp.float32)[:, None]
+        pooled = jnp.sum(encoded_points * valid_weights, axis=0) / jnp.maximum(
+            jnp.sum(valid_weights), 1.0
+        )
+        return self.output_projection(pooled)
+
+    def _encode_block_raw(
+        self,
+        values: jnp.ndarray,
+        uncertainties: jnp.ndarray,
+        coordinates: jnp.ndarray,
+        mask: jnp.ndarray,
+    ) -> jnp.ndarray:
+        """Encode pre-processed block arrays (vmappable — no ObservationBlock input).
+
+        Parameters
+        ----------
+        values, uncertainties, coordinates:
+            Float32 1-D arrays already produced by ``_as_vector``.
+            ``uncertainties`` and ``coordinates`` may have length 0.
+        mask:
+            Boolean 1-D array already produced by ``_safe_mask``.
+
+        Returns
+        -------
+        jnp.ndarray
+            Dense photometric embedding of shape ``(embedding_dim,)``.
+        """
         if values.shape[0] == 0:
             return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
 
@@ -433,6 +551,82 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
                 "modalities": [block.modality.value for block in blocks],
             },
         )
+
+    def encode_stacked_batch(
+        self, blocks_batch: list[list[ObservationBlock]]
+    ) -> jnp.ndarray:
+        """Encode a batch of identically-structured observations using vmap.
+
+        All observations must share the same block structure (same number of
+        blocks, same array shapes per block).  This is always the case for SBI
+        tasks where every observation is produced by the same forward model.
+
+        Parameters
+        ----------
+        blocks_batch:
+            Outer list indexes samples; inner list holds the per-block
+            observation data for one sample.
+
+        Returns
+        -------
+        jnp.ndarray
+            Float32 array of shape ``(n_samples, embedding_dim)``.
+        """
+        if not blocks_batch:
+            return jnp.zeros((0, self.embedding_dim), dtype=jnp.float32)
+
+        n_samples = len(blocks_batch)
+        first_blocks = blocks_batch[0]
+        n_blocks = len(first_blocks)
+        modalities = [block.modality for block in first_blocks]
+
+        # Stack pre-processed block arrays across the sample dimension.
+        # stacked_per_block[j] = (values_b, unc_b, coord_b, mask_b)
+        # where each array has shape (n_samples, n_wl_j).
+        stacked_per_block = []
+        for j in range(n_blocks):
+            v_list = [_as_vector(obs[j].values) for obs in blocks_batch]
+            u_list = [_as_vector(obs[j].uncertainties) for obs in blocks_batch]
+            c_list = [_as_vector(obs[j].coordinates) for obs in blocks_batch]
+            n_wl = v_list[0].shape[0]
+            m_list = [_safe_mask(obs[j].mask, n_wl) for obs in blocks_batch]
+            stacked_per_block.append(
+                (
+                    jnp.stack(v_list),
+                    jnp.stack(u_list),
+                    jnp.stack(c_list),
+                    jnp.stack(m_list),
+                )
+            )
+
+        # Build a vmappable single-observation encode closure.
+        # modalities is captured as a static Python list (constant for the task).
+        encoder_self = self
+
+        def _encode_one(*flat_arrays: jnp.ndarray) -> jnp.ndarray:
+            block_embeddings = []
+            for j, modality in enumerate(modalities):
+                v = flat_arrays[4 * j]
+                u = flat_arrays[4 * j + 1]
+                c = flat_arrays[4 * j + 2]
+                m = flat_arrays[4 * j + 3]
+                if modality is ObservationModality.SPECTRUM:
+                    emb = encoder_self.spectrum_encoder._encode_block_raw(v, u, c, m)
+                elif modality is ObservationModality.PHOTOMETRY:
+                    emb = encoder_self.photometry_encoder._encode_block_raw(v, u, c, m)
+                else:
+                    emb = _resize_embedding(v, encoder_self.embedding_dim)
+                block_embeddings.append(
+                    _resize_embedding(emb, encoder_self.embedding_dim)
+                )
+            aggregated = encoder_self.aggregator.aggregate(block_embeddings)
+            return _resize_embedding(aggregated, encoder_self.embedding_dim)
+
+        # Flatten all stacked arrays into positional args for vmap.
+        flat_stacked = tuple(
+            arr for v, u, c, m in stacked_per_block for arr in (v, u, c, m)
+        )
+        return vmap(_encode_one)(*flat_stacked)  # (n_samples, embedding_dim)
 
 
 __all__ = [

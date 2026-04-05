@@ -1,11 +1,8 @@
 import jax.numpy as jnp
-from jax import config
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import frequency2wavelength
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 def get_non_cia_gas_continuum_contributions():

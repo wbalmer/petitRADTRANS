@@ -39,10 +39,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Sentinel value returned for invalid model evaluations.  Using a finite but
-# extremely negative number avoids NaN-propagation issues when JAX traces
-# through accumulation code.
-INVALID_LOG_LIKELIHOOD = jnp.asarray(-1e99, dtype=JAX_DTYPE)
+# Sentinel value returned for invalid model evaluations.  Use the most
+# negative finite value representable in the active JAX dtype so that the
+# sentinel is safely representable in both float32 and float64 without
+# overflowing to -inf.
+INVALID_LOG_LIKELIHOOD = jnp.asarray(jnp.finfo(JAX_DTYPE).min, dtype=JAX_DTYPE)
 
 
 def _flatten_parameter_values(
@@ -497,28 +498,37 @@ class PhysicalParams:
 
     def get(self, name: str, default: Any = None) -> Any:
         """Return a parameter value by name with an optional default."""
-        return self.as_dict().get(name, default)
+        if name in self.dynamic_names:
+            return self.dynamic_values[self.dynamic_names.index(name)]
+        for k, v in self.static_items:
+            if k == name:
+                return v
+        return default
 
     def __getitem__(self, name: str) -> Any:
         """Return a parameter value by name, raising ``KeyError`` if missing."""
-        mapping = self.as_dict()
-        try:
-            return mapping[name]
-        except KeyError:
-            raise KeyError(name) from None
+        if name in self.dynamic_names:
+            return self.dynamic_values[self.dynamic_names.index(name)]
+        for k, v in self.static_items:
+            if k == name:
+                return v
+        raise KeyError(name)
 
     def __contains__(self, name: object) -> bool:
         """Return ``True`` if *name* is a known parameter."""
-        return name in self.as_dict()
+        return name in self.ordered_names
 
     def keys(self):
         """Return the parameter names in original order."""
-        return self.as_dict().keys()
+        return self.ordered_names
 
     def ordered_items(self) -> tuple[tuple[str, Any], ...]:
         """Return ordered ``(name, value)`` pairs for all parameters."""
-        mapping = self.as_dict()
-        return tuple((name, mapping[name]) for name in self.ordered_names)
+        dynamic = dict(zip(self.dynamic_names, self.dynamic_values, strict=True))
+        static = dict(self.static_items)
+        return tuple(
+            (n, dynamic[n] if n in dynamic else static[n]) for n in self.ordered_names
+        )
 
     def as_legacy_dict(self) -> dict[str, Any]:
         """Return parameters wrapped as ``SimpleNamespace(value=...)`` objects.
@@ -736,6 +746,7 @@ class ModelInputs:
         )
 
 
+@tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class ModelResult:
     """Normalized output emitted by runtime model evaluation.
@@ -747,6 +758,12 @@ class ModelResult:
     For JIT compatibility, invalid results carry NaN-filled spectrum arrays of
     the expected shape rather than ``None`` so that downstream tracing always
     sees consistent types.
+
+    The class is registered as a JAX pytree so that ``jax.vmap`` and ``jax.jit``
+    can propagate batched spectra through model evaluation pipelines.  The
+    ``kind`` field and ``auxiliary_outputs`` keys are treated as static
+    (aux_data); all array-valued fields — including the values inside
+    ``auxiliary_outputs`` — are dynamic leaves.
     """
 
     kind: str
@@ -757,6 +774,46 @@ class ModelResult:
     additional_log_likelihood: Any = 0.0
     auxiliary_outputs: Mapping[str, Any] = field(default_factory=dict)
     atmospheric_column_fluxes: Any = None
+
+    # ------------------------------------------------------------------
+    # JAX pytree protocol
+    # ------------------------------------------------------------------
+
+    def tree_flatten(self):
+        """Flatten for JAX pytree operations (jit, vmap, grad, …).
+
+        ``kind`` and the keys of ``auxiliary_outputs`` go into ``aux_data``
+        (static — must be identical across a vmap batch).  All array-valued
+        fields, including the *values* of ``auxiliary_outputs``, are leaves.
+        """
+        aux_keys = tuple(self.auxiliary_outputs.keys())
+        children = (
+            self.wavelengths,
+            self.spectrum,
+            self.pressures,
+            self.temperatures,
+            self.additional_log_likelihood,
+            self.atmospheric_column_fluxes,
+            *(self.auxiliary_outputs[k] for k in aux_keys),
+        )
+        aux_data = {"kind": self.kind, "aux_keys": aux_keys}
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        """Reconstruct a ``ModelResult`` from pytree parts."""
+        aux_keys = aux_data["aux_keys"]
+        n_base = 6
+        return cls(
+            kind=aux_data["kind"],
+            wavelengths=children[0],
+            spectrum=children[1],
+            pressures=children[2],
+            temperatures=children[3],
+            additional_log_likelihood=children[4],
+            atmospheric_column_fluxes=children[5],
+            auxiliary_outputs=dict(zip(aux_keys, children[n_base:])),
+        )
 
     # ------------------------------------------------------------------
     # JIT-safe helpers
@@ -800,6 +857,9 @@ class ModelGroupState:
     model_generating_function: Any = None
     radtrans_object: Any = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    model_context: Any = (
+        None  # pre-built ModelContext; populated by RetrievalRuntime.from_data
+    )
 
 
 @dataclass(frozen=True)
@@ -862,6 +922,31 @@ class RetrievalRuntime:
             source_name = observation.external_radtrans_reference or data_name
             grouped_observations.setdefault(source_name, []).append(data_name)
 
+        from petitRADTRANS.retrieval.utils import get_calculate_flux_return_values
+
+        # Compute diagnostic-output flags once from static parameter template values.
+        # These flags only depend on which parameter *names* are present (never on
+        # sampled values), so they can be resolved at construction time and stored
+        # on each ModelGroupState rather than re-scanned on every evaluation.
+        template_params = {
+            name: template.value
+            for name, template in zip(
+                parameter_layout.parameter_names,
+                parameter_layout.parameter_templates,
+                strict=True,
+            )
+        }
+        (
+            _return_contribution,
+            _return_opacities,
+            _return_photosphere_radius,
+            _return_rosseland_optical_depths,
+            _return_radius_hydrostatic_equilibrium,
+            _return_cloud_contribution,
+            _return_abundances,
+            _return_any,
+        ) = get_calculate_flux_return_values(template_params)
+
         model_groups = []
         for source_name, observation_names in grouped_observations.items():
             source_observation = observations[source_name]
@@ -883,6 +968,23 @@ class RetrievalRuntime:
             ):
                 if key in obs_meta and obs_meta[key] is not None:
                     group_metadata[key] = obs_meta[key]
+            prebuilt_context = ModelContext(
+                name=source_name,
+                mode=group_metadata.get("mode", "unknown"),
+                radtrans=source_observation.radtrans_object,
+                adaptive_mesh_refinement=adaptive_mesh_refinement,
+                variability_atmospheric_column_model_flux_return_mode=(
+                    source_observation.variability_atmospheric_column_model_flux_return_mode
+                ),
+                return_contribution=_return_contribution,
+                return_opacities=_return_opacities,
+                return_photosphere_radius=_return_photosphere_radius,
+                return_rosseland_optical_depths=_return_rosseland_optical_depths,
+                return_radius_hydrostatic_equilibrium=_return_radius_hydrostatic_equilibrium,
+                return_cloud_contribution=_return_cloud_contribution,
+                return_abundances=_return_abundances,
+                model_metadata=group_metadata,
+            )
             model_groups.append(
                 ModelGroupState(
                     source_name=source_name,
@@ -891,6 +993,7 @@ class RetrievalRuntime:
                     model_generating_function=source_observation.model_generating_function,
                     radtrans_object=source_observation.radtrans_object,
                     metadata=group_metadata,
+                    model_context=prebuilt_context,
                 )
             )
 
@@ -924,78 +1027,6 @@ class RetrievalRuntime:
             ),
         )
 
-    @staticmethod
-    def _parse_uncertainties_mode(
-        uncertainties_mode: str,
-    ) -> tuple[bool, str, float | None]:
-        retrieve_uncertainties = False
-        beta_mode = "multiply"
-        beta = 1.0
-
-        if uncertainties_mode == "default":
-            beta = 1.0
-        elif uncertainties_mode == "optimize":
-            warnings.warn(
-                "automatically optimizing for uncertainties, be sure of what you are doing..."
-            )
-            beta = None
-        elif uncertainties_mode == "retrieve":
-            warnings.warn(
-                "retrieving uncertainties (multiply mode), be sure of what you are doing..."
-            )
-            retrieve_uncertainties = True
-            beta_mode = "multiply"
-        elif uncertainties_mode == "retrieve_add":
-            warnings.warn(
-                "retrieving uncertainties (add mode), be sure of what you are doing..."
-            )
-            retrieve_uncertainties = True
-            beta_mode = "add"
-        else:
-            raise ValueError(
-                "uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
-                f"but was '{uncertainties_mode}'"
-            )
-
-        return retrieve_uncertainties, beta_mode, beta
-
-    def _build_model_context(
-        self,
-        group: ModelGroupState,
-        physical_params: PhysicalParams,
-    ) -> ModelContext:
-        from petitRADTRANS.retrieval.utils import get_calculate_flux_return_values
-
-        source_observation = self.observations[group.source_name]
-        (
-            return_contribution,
-            return_opacities,
-            return_photosphere_radius,
-            return_rosseland_optical_depths,
-            return_radius_hydrostatic_equilibrium,
-            return_cloud_contribution,
-            return_abundances,
-            _return_any,
-        ) = get_calculate_flux_return_values(physical_params)
-
-        return ModelContext(
-            name=group.source_name,
-            mode=group.metadata.get("mode", "unknown"),
-            radtrans=group.radtrans_object,
-            adaptive_mesh_refinement=self.adaptive_mesh_refinement,
-            variability_atmospheric_column_model_flux_return_mode=(
-                source_observation.variability_atmospheric_column_model_flux_return_mode
-            ),
-            return_contribution=return_contribution,
-            return_opacities=return_opacities,
-            return_photosphere_radius=return_photosphere_radius,
-            return_rosseland_optical_depths=return_rosseland_optical_depths,
-            return_radius_hydrostatic_equilibrium=return_radius_hydrostatic_equilibrium,
-            return_cloud_contribution=return_cloud_contribution,
-            return_abundances=return_abundances,
-            model_metadata=group.metadata,
-        )
-
     def _evaluate_model_group(
         self,
         group: ModelGroupState,
@@ -1003,16 +1034,12 @@ class RetrievalRuntime:
     ) -> ModelResult:
         from petitRADTRANS.retrieval.models import _normalize_model_output
 
-        model_context = self._build_model_context(
-            group,
-            physical_params,
-        )
-
         # All model functions are coerced at build time (via
         # coerce_model_generating_function) so they share the same
         # (model_context, physical_params, pt_plot_mode) calling convention.
+        # model_context is pre-built on the group; no per-evaluation reconstruction.
         model_output = group.model_generating_function(
-            model_context,
+            group.model_context,
             physical_params,
             pt_plot_mode=False,
         )
@@ -1275,7 +1302,7 @@ class RetrievalRuntime:
         comparisons.
         """
         invalid_value = INVALID_LOG_LIKELIHOOD
-        tiny = 1e-99
+        tiny = jnp.finfo(JAX_DTYPE).tiny
         log_likelihood_contributions = []
         log_prior = jnp.asarray(0.0, dtype=JAX_DTYPE)
         has_invalid_contribution = jnp.asarray(False)
@@ -1370,6 +1397,164 @@ class RetrievalRuntime:
 
         return vmap(evaluate_single)(free_parameter_values)
 
+    def evaluate_jax_batched(
+        self,
+        free_parameter_values: Any,
+        *,
+        uncertainties_mode: str = "default",
+        print_log_likelihood_for_debugging: bool = False,
+    ) -> Any:
+        """Evaluate a batch of parameter vectors with an explicit per-stage vmap.
+
+        For model groups using ``MODEL_CONTRACT_RUNTIME_NATIVE`` this method
+        makes the batch structure explicit to XLA:
+
+        1. The model-generating function is vmapped with ``model_context`` as
+           a *static* axis (``in_axes=(None, 0)``), so the ``Radtrans`` object
+           and all pre-built flags are never re-traced across samples.
+        2. Scoring (``_score_dataset``) is vmapped over the resulting batched
+           spectra.
+
+        For non-native groups the method falls back to
+        :meth:`evaluate_vectorized_jax`, which applies a single vmap over the
+        full ``evaluate_jax`` pipeline.
+
+        A one-dimensional input is handled as a single sample (no batching).
+        Higher-rank inputs are mapped over the leading dimension.
+
+        Args:
+            free_parameter_values: Shape ``(n_samples, n_free_params)`` or
+                ``(n_free_params,)`` for a single sample.
+
+        Returns:
+            Log-posterior contributions, shape ``(n_samples,)`` or scalar.
+        """
+        from petitRADTRANS.retrieval.models import (
+            MODEL_CONTRACT_RUNTIME_NATIVE,
+            calculate_emission_spectra_batched,
+        )
+
+        free_parameter_values = jnp.asarray(free_parameter_values, dtype=JAX_DTYPE)
+        if jnp.ndim(free_parameter_values) == 1:
+            # Single-sample path — delegate to evaluate_jax directly.
+            physical_params = self.parameter_layout.physical_params_from_free_values(
+                free_parameter_values
+            )
+            return self.evaluate_jax(
+                physical_params=physical_params,
+                uncertainties_mode=uncertainties_mode,
+                print_log_likelihood_for_debugging=print_log_likelihood_for_debugging,
+            )
+
+        # Check whether all model groups use the runtime-native contract so we
+        # can apply the explicit per-stage vmap.
+        all_native = all(
+            g.model_contract == MODEL_CONTRACT_RUNTIME_NATIVE for g in self.model_groups
+        )
+        if not all_native:
+            return self.evaluate_vectorized_jax(
+                free_parameter_values,
+                uncertainties_mode=uncertainties_mode,
+                print_log_likelihood_for_debugging=print_log_likelihood_for_debugging,
+            )
+
+        # Build batched PhysicalParams by vmapping the parameter layout transform.
+        # Each leaf of batched_physical_params has shape (n_samples, ...).
+        batched_physical_params = vmap(
+            self.parameter_layout.physical_params_from_free_values
+        )(free_parameter_values)
+
+        invalid_value = INVALID_LOG_LIKELIHOOD
+        tiny = jnp.asarray(jnp.finfo(JAX_DTYPE).tiny, dtype=JAX_DTYPE)
+
+        batched_log_priors = jnp.zeros(free_parameter_values.shape[0], dtype=JAX_DTYPE)
+        batched_has_invalid = jnp.zeros(free_parameter_values.shape[0], dtype=bool)
+        batched_contributions = []
+
+        for group in self.model_groups:
+            # Stage 1: vmap the model-generating function with model_context
+            # as a *static* outer argument.  Only physical_params is batched.
+            batched_model_results = vmap(
+                group.model_generating_function, in_axes=(None, 0)
+            )(group.model_context, batched_physical_params)
+
+            # Validity: any sample with a NaN spectrum is flagged invalid.
+            batched_valid = ~jnp.isnan(batched_model_results.spectrum).all(axis=-1)
+            batched_has_invalid = jnp.logical_or(batched_has_invalid, ~batched_valid)
+
+            batched_group_contributions = jnp.zeros(
+                free_parameter_values.shape[0], dtype=JAX_DTYPE
+            )
+
+            # Stage 2: vmap _score_dataset over the batched spectra.
+            # additional_log_likelihood is now a proper batched leaf (shape
+            # (n_samples,)) thanks to ModelResult's pytree registration.
+            batched_additional_ll = jnp.asarray(
+                batched_model_results.additional_log_likelihood, dtype=JAX_DTYPE
+            )
+            if batched_additional_ll.ndim == 0:
+                batched_additional_ll = jnp.broadcast_to(
+                    batched_additional_ll, (free_parameter_values.shape[0],)
+                )
+            for observation_name in group.observation_names:
+
+                def score_one(
+                    physical_params_single, wavelengths, spectrum, additional_ll
+                ):
+                    return self._score_dataset(
+                        observation_name,
+                        physical_params_single,
+                        wavelengths,
+                        spectrum,
+                        additional_ll,
+                    )
+
+                batched_scores = vmap(score_one)(
+                    batched_physical_params,
+                    batched_model_results.wavelengths,
+                    batched_model_results.spectrum,
+                    batched_additional_ll,
+                )
+                contribution_invalid = batched_scores <= invalid_value
+                batched_has_invalid = jnp.logical_or(
+                    batched_has_invalid, contribution_invalid
+                )
+                batched_group_contributions = jnp.where(
+                    contribution_invalid,
+                    invalid_value,
+                    batched_group_contributions + batched_scores,
+                )
+
+            batched_contributions.append(batched_group_contributions)
+
+            # Accumulate per-sample log-prior contributions.
+            if batched_model_results.auxiliary_outputs:
+                log_prior_weights = batched_model_results.auxiliary_outputs.get(
+                    "log_prior_weight", 0.0
+                )
+                batched_log_priors = batched_log_priors + jnp.asarray(
+                    log_prior_weights, dtype=JAX_DTYPE
+                )
+
+        batched_log_likelihood = jnp.sum(
+            jnp.stack(batched_contributions, axis=-1), axis=-1
+        )
+        batched_log_likelihood = jnp.where(
+            batched_has_invalid, invalid_value, batched_log_likelihood
+        )
+
+        if "log_prior_weight" in batched_physical_params:
+            batched_log_priors = (
+                batched_log_priors + batched_physical_params["log_prior_weight"]
+            )
+
+        totals = batched_log_likelihood + batched_log_priors
+        totals = jnp.where(totals < invalid_value, invalid_value, totals)
+        totals = jnp.where(
+            jnp.abs(totals) < tiny, jnp.asarray(tiny, dtype=JAX_DTYPE), totals
+        )
+        return totals
+
     def _project_dataset_observation(
         self,
         data_name: str,
@@ -1404,84 +1589,6 @@ class RetrievalRuntime:
             spectrum_params,
         )
         return ensure_jax_array(projected)
-
-    def simulate_observations_scalar(
-        self,
-        physical_params: PhysicalParams,
-    ) -> dict[str, dict[str, Any]]:
-        """Return deterministic observation-space model outputs for one parameter point."""
-        simulated_observations: dict[str, dict[str, Any]] = {}
-        parameter_payload = {
-            name: float(value)
-            for name, value in zip(
-                self.parameter_layout.free_parameter_names,
-                np.asarray(
-                    self.parameter_layout.free_parameter_vector(physical_params),
-                    dtype=float,
-                ),
-                strict=True,
-            )
-        }
-
-        for group in self.model_groups:
-            model_result = self._evaluate_model_group(group, physical_params)
-
-            if not model_result.spectrum_is_valid():
-                raise ValueError(
-                    f"Model evaluation for source '{group.source_name}' returned an invalid result."
-                )
-
-            for observation_name in group.observation_names:
-                observation = self.observations[observation_name]
-                projected_values = self._project_dataset_observation(
-                    observation_name,
-                    physical_params,
-                    model_result.wavelengths,
-                    model_result.spectrum,
-                )
-                projected_values = _apply_flux_scaling(
-                    projected_values, observation, physical_params
-                )
-                projected_values = _offset_flux(
-                    projected_values, observation, physical_params
-                )
-                projected_values_array = np.asarray(projected_values, dtype=float)
-                finite_mask = np.isfinite(projected_values_array)
-                if not finite_mask.all():
-                    non_finite_count = int(finite_mask.size - finite_mask.sum())
-                    logger.error(
-                        "Non-finite projected observation values detected for source '%s' and dataset '%s' "
-                        "(non_finite_count=%d, total_values=%d, parameters=%s)",
-                        group.source_name,
-                        observation_name,
-                        non_finite_count,
-                        int(finite_mask.size),
-                        parameter_payload,
-                    )
-                    raise ValueError(
-                        "Projected observation values contain non-finite entries for "
-                        f"source '{group.source_name}' and dataset '{observation_name}'."
-                    )
-                projected_uncertainties, projected_covariance = (
-                    _scale_and_inflate_uncertainties(observation, physical_params)
-                )
-                simulated_observations[observation_name] = {
-                    "values": projected_values,
-                    "uncertainties": projected_uncertainties,
-                    "covariance": projected_covariance,
-                    "mask": observation.mask,
-                    "coordinates": observation.wavelengths,
-                    "metadata": {
-                        "photometry": observation.photometry,
-                        "source_name": group.source_name,
-                        "line_opacity_mode": observation.line_opacity_mode,
-                        "scale_flux": observation.scale_flux,
-                        "scale_uncertainties": observation.scale_uncertainties,
-                        "fit_flux_offset": observation.fit_flux_offset,
-                    },
-                }
-
-        return simulated_observations
 
 
 @dataclass(frozen=True)

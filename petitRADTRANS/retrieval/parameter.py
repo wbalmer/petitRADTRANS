@@ -1,5 +1,6 @@
 import jax.numpy as jnp
-from jax import config, tree_util
+from jax import tree_util
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 from petitRADTRANS.retrieval.utils import (
     log_prior,
     uniform_prior,
@@ -7,10 +8,6 @@ from petitRADTRANS.retrieval.utils import (
     log_gaussian_prior,
     delta_prior,
 )
-
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
 
 
 def _build_jaxns_prior(distribution, name):

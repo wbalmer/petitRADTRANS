@@ -354,6 +354,7 @@ def generate_sbc_report(
     truths = []
     base_seed = 0 if seed is None else int(seed)
     case_index = 0
+    has_batch_encode = hasattr(posterior, "batch_encode_observation")
 
     for batch in dataset_reader.iter_batches(
         split=split,
@@ -361,8 +362,18 @@ def generate_sbc_report(
         shuffle=False,
         parameter_space=resolved_parameter_space,
     ):
-        for sample_offset, observation_blocks in enumerate(batch.observations):
-            encoded = posterior.encode_observation(observation_blocks)
+        # Encode all observations in the batch with one vmapped forward pass
+        # when the posterior supports it; otherwise fall back to serial encoding.
+        if has_batch_encode:
+            encoded_batch = posterior.batch_encode_observation(batch.observations)
+        else:
+            encoded_batch = [
+                posterior.encode_observation(obs) for obs in batch.observations
+            ]
+
+        for sample_offset, encoded in enumerate(encoded_batch):
+            if max_cases is not None and case_index >= int(max_cases):
+                break
             draws = posterior.sample_posterior(
                 encoded,
                 n_samples=n_posterior_samples,
@@ -371,9 +382,6 @@ def generate_sbc_report(
             posterior_draws.append(np.asarray(draws, dtype=float))
             truths.append(np.asarray(batch.parameters[sample_offset], dtype=float))
             case_index += 1
-
-            if max_cases is not None and case_index >= int(max_cases):
-                break
 
         if max_cases is not None and case_index >= int(max_cases):
             break
@@ -451,7 +459,9 @@ def posterior_predictive_report_from_samples(
         task, sample_array, parameter_space
     )
     if n_predictive_forward_model_samples is not None:
-        n_use = min(int(n_predictive_forward_model_samples), physical_parameters.shape[0])
+        n_use = min(
+            int(n_predictive_forward_model_samples), physical_parameters.shape[0]
+        )
         rng = np.random.default_rng(seed)
         indices = rng.choice(physical_parameters.shape[0], size=n_use, replace=False)
         physical_parameters = physical_parameters[indices]
@@ -589,10 +599,24 @@ def generate_posterior_predictive_report(
     base_seed = 0 if seed is None else int(seed)
     n_cases = len(selected_indices)
     rng = np.random.default_rng(seed)
+    has_batch_encode = hasattr(posterior, "batch_encode_observation")
+
+    # Batch-encode all selected observations in one vmapped forward pass when
+    # the posterior supports it; otherwise encode case-by-case.
+    if has_batch_encode:
+        selected_blocks = [normalized_blocks_batch[i] for i in selected_indices]
+        encoded_all = posterior.batch_encode_observation(selected_blocks)
+    else:
+        encoded_all = None
 
     for case_offset, sample_index in enumerate(selected_indices):
-        print(f'Posterior-predictive case {case_offset + 1}/{n_cases} ...', flush=True)
-        encoded = posterior.encode_observation(normalized_blocks_batch[sample_index])
+        print(f"Posterior-predictive case {case_offset + 1}/{n_cases} ...", flush=True)
+        if encoded_all is not None:
+            encoded = encoded_all[case_offset]
+        else:
+            encoded = posterior.encode_observation(
+                normalized_blocks_batch[sample_index]
+            )
         posterior_samples = posterior.sample_posterior(
             encoded,
             n_samples=n_posterior_samples,
@@ -602,8 +626,12 @@ def generate_posterior_predictive_report(
             task, posterior_samples, resolved_parameter_space
         )
         if n_predictive_forward_model_samples is not None:
-            n_use = min(int(n_predictive_forward_model_samples), physical_parameters.shape[0])
-            indices = rng.choice(physical_parameters.shape[0], size=n_use, replace=False)
+            n_use = min(
+                int(n_predictive_forward_model_samples), physical_parameters.shape[0]
+            )
+            indices = rng.choice(
+                physical_parameters.shape[0], size=n_use, replace=False
+            )
             physical_parameters = physical_parameters[indices]
         predictive_batch = simulator.simulate_from_parameters(physical_parameters)
 

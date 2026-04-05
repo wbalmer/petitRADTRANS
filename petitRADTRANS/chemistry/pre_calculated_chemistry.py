@@ -5,7 +5,7 @@ import os
 import h5py
 import jax.numpy as jnp
 import numpy as np  # For file I/O, as JAX doesn't handle it directly
-from jax import lax, config, vmap
+from jax import lax, vmap
 
 from jax.typing import ArrayLike
 
@@ -15,9 +15,7 @@ from petitRADTRANS.config.configuration import (
     petitradtrans_config_parser,
 )
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 def interpolate_chemical_table(

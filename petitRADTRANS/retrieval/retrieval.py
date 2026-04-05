@@ -10,30 +10,21 @@ import numpy.typing as npt
 from typing import Callable
 
 from scipy.stats import binned_statistic
-from jax import vmap, lax, random, devices, config, numpy as jnp
-import tensorflow_probability.substrates.jax as tfp
-
-tfpd = tfp.distributions
+from jax import vmap, lax, numpy as jnp
 
 import petitRADTRANS
-import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity, CorrelatedKOpacity
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.radtrans_core.spectrum_utils import (
-    continuum_subtract_spectrum,
     convolve,
     convolve_and_sample_variable_resolution_breads,
     filter_spectrum_with_spline,
     rebin_spectrum_bin,
 )
-from petitRADTRANS.math import running_mean
-from petitRADTRANS.opacities import CorrelatedKOpacity
 from petitRADTRANS.physics import (
-    wavelength2frequency,
     shift_wavelengths_by_radial_velocity,
 )
-import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
@@ -76,13 +67,11 @@ from petitRADTRANS.retrieval.log_likelihood import (
     get_bic,
     get_bpics,
 )
-from petitRADTRANS.utils import flatten_object, list_str2str
+from petitRADTRANS.utils import list_str2str
 
 # noinspection PyUnresolvedReferences
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 SAMPLER_DISPATCH: dict[str, type[Sampler]] = {
     "pymultinest": PymultinestSampler,
@@ -3677,7 +3666,7 @@ class Retrieval:
 
         def log_likelihood_batch(physical_positions):
             return np.asarray(
-                runtime.evaluate_vectorized_jax(
+                runtime.evaluate_jax_batched(
                     free_parameter_values=physical_positions,
                     uncertainties_mode=self.uncertainties_mode,
                     print_log_likelihood_for_debugging=False,

@@ -12,6 +12,7 @@ subdir('slurm_runs')
 subdir('stellar_spectra')
 
 py.install_sources([
+    'jax_dtype.py',
     'math.py',
     'physical_constants.py',
     'physics.py',

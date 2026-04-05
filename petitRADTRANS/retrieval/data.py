@@ -5,7 +5,6 @@ from typing import Callable
 
 import numpy as np
 import jax.numpy as jnp
-from jax import config
 from numpy import genfromtxt
 from jax.typing import ArrayLike
 from astropy.io import fits
@@ -25,9 +24,7 @@ from petitRADTRANS.retrieval.runtime import (
     _scale_and_inflate_uncertainties,
 )
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 class Data:

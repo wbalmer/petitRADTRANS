@@ -1,13 +1,10 @@
 import jax.numpy as jnp
-from jax import config
 from petitRADTRANS.radtrans_core.rayleigh_scattering import compute_rayleigh_scattering
 from petitRADTRANS.chemistry.utils import get_base_species_mass_fractions
 from petitRADTRANS.opacities.opacities import Opacity
 from petitRADTRANS.physics import frequency2wavelength, hz2um
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 def compute_power_law_opacities(

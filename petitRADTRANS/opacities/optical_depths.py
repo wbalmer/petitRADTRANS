@@ -1,15 +1,13 @@
 import copy
 import jax.numpy as jnp
-from jax import config, debug
+from jax import debug
 from interpax import interp1d
 from petitRADTRANS.radtrans_core import radiative_transfer_core
 from petitRADTRANS.opacities.continuum import combine_opacities
 from petitRADTRANS.opacities.clouds import compute_species_optical_depths
 from petitRADTRANS.physics import frequency2wavelength
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 def compute_optical_depths(

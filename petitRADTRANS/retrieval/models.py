@@ -3644,6 +3644,35 @@ def calculate_emission_spectrum_runtime(
     )
 
 
+def calculate_emission_spectra_batched(
+    model_context: ModelContext,
+    batched_model_inputs: ModelInputs,
+) -> ModelResult:
+    """Evaluate emission spectra for a batch of model inputs via vmap.
+
+    ``model_context`` (including the ``Radtrans`` object and all static flags)
+    is treated as static across the batch.  Only the per-sample arrays inside
+    ``batched_model_inputs`` are mapped over.  Each leaf of
+    ``batched_model_inputs`` must carry a leading batch dimension.
+
+    This is the preferred entry point when the caller has already constructed
+    batched ``ModelInputs`` and wants to run the RT kernel efficiently without
+    wrapping the full evaluation pipeline.
+
+    Args:
+        model_context: Static evaluation context shared across all samples.
+        batched_model_inputs: A ``ModelInputs`` pytree whose leaves each have
+            shape ``(batch_size, ...)`` — i.e. the first axis is the batch dim.
+
+    Returns:
+        A ``ModelResult`` whose ``wavelengths`` and ``spectrum`` leaves have a
+        leading batch dimension ``(batch_size, n_wavelengths)``.
+    """
+    return vmap(calculate_emission_spectrum_runtime, in_axes=(None, 0))(
+        model_context, batched_model_inputs
+    )
+
+
 def calculate_transmission_spectrum_runtime(
     model_context: ModelContext,
     model_inputs: ModelInputs,

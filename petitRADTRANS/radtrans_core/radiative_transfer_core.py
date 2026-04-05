@@ -5,7 +5,7 @@ JAX implementation of fortran_core.core
 
 from typing import Any, Optional
 import jax.numpy as jnp
-from jax import Array, config, jit, vmap, lax, debug
+from jax import Array, jit, vmap, lax, debug
 from jax.typing import ArrayLike
 import petitRADTRANS.physical_constants as cst
 import petitRADTRANS.radtrans_core.physics_core as physics_core
@@ -13,11 +13,10 @@ import petitRADTRANS.radtrans_core.linalg as linalg
 
 
 CST_PI = jnp.pi  # Or the specific precision from Fortran
-TINIEST = jnp.finfo(jnp.float32).tiny
-HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float32).max)
-if config.jax_enable_x64:
-    TINIEST = jnp.finfo(jnp.float64).tiny
-    HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
+from petitRADTRANS.jax_dtype import JAX_DTYPE
+
+TINIEST = jnp.finfo(JAX_DTYPE).tiny
+HUGE_SQRT = jnp.sqrt(jnp.finfo(JAX_DTYPE).max)
 
 
 _UNROLL_SPECIES_LIMIT = 8
@@ -469,11 +468,11 @@ def _ng_accelerated_batched(
 
     skip = (
         (AB_denom < TINIEST)
-        | (jnp.abs(A1) < 1e-250)
-        | (jnp.abs(A2) < 1e-250)
-        | (jnp.abs(B2) < 1e-250)
-        | (jnp.abs(C1) < 1e-250)
-        | (jnp.abs(C2) < 1e-250)
+        | (jnp.abs(A1) < TINIEST)
+        | (jnp.abs(A2) < TINIEST)
+        | (jnp.abs(B2) < TINIEST)
+        | (jnp.abs(C1) < TINIEST)
+        | (jnp.abs(C2) < TINIEST)
     )  # (batch,)
 
     safe_denom = jnp.where(AB_denom == 0.0, 1.0, AB_denom)
@@ -887,8 +886,8 @@ def _compute_feautrier_radiative_transfer_chunk(
                 1.0
                 - current_flux_gf_prev
                 / jnp.where(
-                    jnp.abs(flux_gf_cur) < 1e-100,
-                    1e-100,
+                    jnp.abs(flux_gf_cur) < TINIEST,
+                    TINIEST,
                     flux_gf_cur,
                 )
             )
@@ -989,7 +988,7 @@ def _compute_feautrier_radiative_transfer_chunk(
             0, n_angles, i_mu_body, jnp.zeros((n_layers, n_freq_bins))
         )
         total = jnp.sum(accumulated, axis=0, keepdims=True)
-        return jnp.where(jnp.abs(total) < 1e-100, 0.0, accumulated / total)
+        return jnp.where(jnp.abs(total) < TINIEST, 0.0, accumulated / total)
 
     emission_contribution_lf = lax.cond(
         return_contribution,

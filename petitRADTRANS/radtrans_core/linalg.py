@@ -2,16 +2,15 @@ from functools import partial
 
 from jax import default_backend
 import jax.numpy as jnp
-from jax import lax, jit, config
+from jax import lax, jit
 
-TINIEST = jnp.finfo(jnp.float32).tiny
-HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float32).max)
-if config.jax_enable_x64:
-    TINIEST = jnp.finfo(jnp.float64).tiny
-    HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
+from petitRADTRANS.jax_dtype import JAX_DTYPE
+
+TINIEST = jnp.finfo(JAX_DTYPE).tiny
+HUGE_SQRT = jnp.sqrt(jnp.finfo(JAX_DTYPE).max)
 
 # Detect GPU once at import time to choose optimal tridiagonal solver.
-_USE_GPU = default_backend() != 'cpu'
+_USE_GPU = default_backend() != "cpu"
 
 
 @jit
@@ -51,7 +50,9 @@ def solve_tridiagonal_thomas(a, b, c, d):
         #     raise ValueError("The matrix is singular.")
 
         c_p = c_p.at[..., i].set(c[..., i] / denominator)
-        d_p = d_p.at[..., i].set((d[..., i] - a[..., i] * d_p[..., i - 1]) / denominator)
+        d_p = d_p.at[..., i].set(
+            (d[..., i] - a[..., i] * d_p[..., i - 1]) / denominator
+        )
 
         return c_p, d_p
 
@@ -59,7 +60,9 @@ def solve_tridiagonal_thomas(a, b, c, d):
 
     # Handle the last element
     denominator = b[..., n - 1] - a[..., n - 1] * c_p[..., n - 2]
-    d_p = d_p.at[..., n - 1].set((d[..., n - 1] - a[..., n - 1] * d_p[..., n - 2]) / denominator)
+    d_p = d_p.at[..., n - 1].set(
+        (d[..., n - 1] - a[..., n - 1] * d_p[..., n - 2]) / denominator
+    )
 
     # Backward substitution
     x = jnp.zeros_like(d)
@@ -92,12 +95,12 @@ def solve_tridiagonal_thomas_batched(a, b, c, d):
     n = b.shape[1]
 
     # ---- forward sweep: initialise with row 0 ----
-    c0 = c[:, 0] / b[:, 0]   # (batch,)
-    d0 = d[:, 0] / b[:, 0]   # (batch,)
+    c0 = c[:, 0] / b[:, 0]  # (batch,)
+    d0 = d[:, 0] / b[:, 0]  # (batch,)
 
     def fwd_step(carry, k):
         c_prev, d_prev = carry
-        denom    = b[:, k] - a[:, k] * c_prev
+        denom = b[:, k] - a[:, k] * c_prev
         safe_den = jnp.where(jnp.abs(denom) < TINIEST, TINIEST, denom)
         c_k = c[:, k] / safe_den
         d_k = (d[:, k] - a[:, k] * d_prev) / safe_den
@@ -109,7 +112,7 @@ def solve_tridiagonal_thomas_batched(a, b, c, d):
     d_all = jnp.concatenate([d0[None, :], d_rest], axis=0)
 
     # ---- back substitution ----
-    x_last = d_all[n - 1, :]   # (batch,)
+    x_last = d_all[n - 1, :]  # (batch,)
 
     def bwd_step(x_next, k):
         x_k = d_all[k, :] - c_all[k, :] * x_next
@@ -119,21 +122,21 @@ def solve_tridiagonal_thomas_batched(a, b, c, d):
     # x_rest is (n-1, batch) in reverse order; rebuild full solution
     x_all = jnp.concatenate([x_rest[::-1, :], x_last[None, :]], axis=0)  # (n, batch)
 
-    return x_all.T   # (batch, n)
+    return x_all.T  # (batch, n)
 
 
 @partial(jit, static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
 def solve_tridiagonal_thomas_batched_feautrier_fused(
-        a,
-        b,
-        c,
-        d_inner,
-        d_surf,
-        angle_weight_a,
-        n_g,
-        n_freq_bins,
-        n_angles,
-        n_layers,
+    a,
+    b,
+    c,
+    d_inner,
+    d_surf,
+    angle_weight_a,
+    n_g,
+    n_freq_bins,
+    n_angles,
+    n_layers,
 ):
     """
     Solves Feautrier tridiagonal systems without materialising the full
@@ -177,6 +180,7 @@ def solve_tridiagonal_thomas_batched_feautrier_fused(
     d0 = _broadcast_rhs_layer(0) / b[:, 0]
 
     if n > 2:
+
         def fwd_step(carry, k):
             c_prev, d_prev = carry
             denom = b[:, k] - a[:, k] * c_prev
@@ -204,9 +208,7 @@ def solve_tridiagonal_thomas_batched_feautrier_fused(
 
     denom_last = b[:, n - 1] - a[:, n - 1] * c_nm2
     safe_denom_last = jnp.where(jnp.abs(denom_last) < TINIEST, TINIEST, denom_last)
-    x_last_flat = (
-        d_surf.reshape(batch) - a[:, n - 1] * d_nm2
-    ) / safe_denom_last
+    x_last_flat = (d_surf.reshape(batch) - a[:, n - 1] * d_nm2) / safe_denom_last
 
     if n == 1:
         weighted_layers = _weighted_gf(x_last_flat)[None, :]
@@ -222,6 +224,7 @@ def solve_tridiagonal_thomas_batched_feautrier_fused(
     weighted_nm2 = _weighted_gf(x_nm2_flat)
 
     if n > 2:
+
         def bwd_step(x_next, k):
             x_k = d_upto_nm2[k, :] - c_upto_nm2[k, :] * x_next
             return x_k, _weighted_gf(x_k)
@@ -232,7 +235,11 @@ def solve_tridiagonal_thomas_batched_feautrier_fused(
             jnp.arange(n - 3, -1, -1),
         )
         weighted_layers = jnp.concatenate(
-            [weighted_rest_desc[::-1, :], weighted_nm2[None, :], weighted_last[None, :]],
+            [
+                weighted_rest_desc[::-1, :],
+                weighted_nm2[None, :],
+                weighted_last[None, :],
+            ],
             axis=0,
         )
     else:
@@ -247,8 +254,10 @@ def solve_tridiagonal_thomas_batched_feautrier_fused(
     return I_H_top, x_last, x_nm2, J_bol_gfl
 
 
-#@jit(static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
-def solve_tridiagonal_thomas_batched_fused(a, b, c, d, mu_weight_flat, n_g, n_freq_bins, n_angles, n_layers):
+# @jit(static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
+def solve_tridiagonal_thomas_batched_fused(
+    a, b, c, d, mu_weight_flat, n_g, n_freq_bins, n_angles, n_layers
+):
     """
     Solves n_batch independent tridiagonal systems simultaneously and fuses
     three downstream post-processing steps into the backward substitution pass,
@@ -303,22 +312,22 @@ def solve_tridiagonal_thomas_batched_fused(a, b, c, d, mu_weight_flat, n_g, n_fr
     # n_g, n_freq_bins, n_angles, n_layers are all static (concrete Python ints).
     # We never call b.shape for n or derive n_angles from a traced value, so
     # jnp.zeros and jnp.arange receive concrete arguments throughout.
-    n    = n_layers
+    n = n_layers
     n_gf = n_g * n_freq_bins
 
     # ----------------------------------------------------------------
     # Forward sweep — identical to the original solver.
     # Produces c_all (n, batch) and d_all (n, batch).
     # ----------------------------------------------------------------
-    c0 = c[:, 0] / b[:, 0]   # (batch,)
-    d0 = d[:, 0] / b[:, 0]   # (batch,)
+    c0 = c[:, 0] / b[:, 0]  # (batch,)
+    d0 = d[:, 0] / b[:, 0]  # (batch,)
 
     def fwd_step(carry, k):
         c_prev, d_prev = carry
-        denom    = b[:, k] - a[:, k] * c_prev
+        denom = b[:, k] - a[:, k] * c_prev
         safe_den = jnp.where(jnp.abs(denom) < TINIEST, TINIEST, denom)
-        c_k      = c[:, k] / safe_den
-        d_k      = (d[:, k] - a[:, k] * d_prev) / safe_den
+        c_k = c[:, k] / safe_den
+        d_k = (d[:, k] - a[:, k] * d_prev) / safe_den
         return (c_k, d_k), (c_k, d_k)
 
     _, (c_rest, d_rest) = lax.scan(fwd_step, (c0, d0), jnp.arange(1, n))
@@ -338,14 +347,16 @@ def solve_tridiagonal_thomas_batched_fused(a, b, c, d, mu_weight_flat, n_g, n_fr
     # weighted_k: (n_gf,) = sum over angles of x_k * mu_weight_flat.
     def _weighted_gf(x_k):
         # reshape (n_gf * n_angles,) → (n_gf, n_angles), then dot with mu_weight_a
-        return (x_k.reshape(n_gf, n_angles) * mu_weight_flat.reshape(n_gf, n_angles)).sum(axis=1)
+        return (
+            x_k.reshape(n_gf, n_angles) * mu_weight_flat.reshape(n_gf, n_angles)
+        ).sum(axis=1)
         # shape (n_gf,)
 
-    x_last = d_all[n - 1, :]                              # x[n-1], (batch,)
-    x_nm2  = d_all[n - 2, :] - c_all[n - 2, :] * x_last  # x[n-2], (batch,)
+    x_last = d_all[n - 1, :]  # x[n-1], (batch,)
+    x_nm2 = d_all[n - 2, :] - c_all[n - 2, :] * x_last  # x[n-2], (batch,)
 
     # Seed J_bol accumulator with contributions from layers n-1 and n-2.
-    J_bol_acc = jnp.zeros((n_gf, n))                      # (n_gf, n_layers)
+    J_bol_acc = jnp.zeros((n_gf, n))  # (n_gf, n_layers)
     J_bol_acc = J_bol_acc.at[:, n - 1].set(_weighted_gf(x_last))
     J_bol_acc = J_bol_acc.at[:, n - 2].set(_weighted_gf(x_nm2))
 
@@ -355,8 +366,8 @@ def solve_tridiagonal_thomas_batched_fused(a, b, c, d, mu_weight_flat, n_g, n_fr
     # No scan output (ys=None) — only the carry is used.
     def bwd_step(carry, k):
         x_next, J_bol = carry
-        x_k    = d_all[k, :] - c_all[k, :] * x_next      # (batch,)
-        J_bol  = J_bol.at[:, k].add(_weighted_gf(x_k))    # dynamic scatter
+        x_k = d_all[k, :] - c_all[k, :] * x_next  # (batch,)
+        J_bol = J_bol.at[:, k].add(_weighted_gf(x_k))  # dynamic scatter
         return (x_k, J_bol), None
 
     (x_0, J_bol_acc), _ = lax.scan(
@@ -368,8 +379,8 @@ def solve_tridiagonal_thomas_batched_fused(a, b, c, d, mu_weight_flat, n_g, n_fr
     # ----------------------------------------------------------------
     # Assemble outputs — no I_J_flat or I_J_gfal ever materialised.
     # ----------------------------------------------------------------
-    I_H_top_flat = -x_0                                    # (batch,)
-    J_bol_gfl    = J_bol_acc.reshape(n_g, n_freq_bins, n)  # (g, f, l)
+    I_H_top_flat = -x_0  # (batch,)
+    J_bol_gfl = J_bol_acc.reshape(n_g, n_freq_bins, n)  # (g, f, l)
 
     return I_H_top_flat, x_last, x_nm2, J_bol_gfl
 
@@ -446,8 +457,8 @@ def solve_tridiagonal_pcr(a, b, c, d):
         # --- Calculate reduction factors alpha and gamma ---
         # Use jnp.where to avoid division by zero if b_left/b_right are zero
         # This is safe for diagonally-dominant systems.
-        alpha = jnp.where(b_left != 0, -a_pcr / b_left, 0.)
-        gamma = jnp.where(b_right != 0, -c_pcr / b_right, 0.)
+        alpha = jnp.where(b_left != 0, -a_pcr / b_left, 0.0)
+        gamma = jnp.where(b_right != 0, -c_pcr / b_right, 0.0)
 
         # --- Update the diagonals and the right-hand side ---
         # The update corresponds to climinating off-diagonal elements
@@ -480,16 +491,16 @@ def solve_tridiagonal_pcr(a, b, c, d):
 
 @partial(jit, static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
 def solve_tridiagonal_pcr_batched_feautrier_fused(
-        a,
-        b,
-        c,
-        d_inner,
-        d_surf,
-        angle_weight_a,
-        n_g,
-        n_freq_bins,
-        n_angles,
-        n_layers,
+    a,
+    b,
+    c,
+    d_inner,
+    d_surf,
+    angle_weight_a,
+    n_g,
+    n_freq_bins,
+    n_angles,
+    n_layers,
 ):
     """PCR-based Feautrier tridiagonal solver optimised for GPU.
 
@@ -523,25 +534,27 @@ def solve_tridiagonal_pcr_batched_feautrier_fused(
     # Build the full RHS (batch, n_layers) by broadcasting d_inner over
     # angles and placing d_surf at the surface layer.
     d_inner_broadcast = jnp.broadcast_to(
-        d_inner[:, :, :, None],                           # (g, f, l-1, 1)
+        d_inner[:, :, :, None],  # (g, f, l-1, 1)
         (n_g, n_freq_bins, n_layers - 1, n_angles),
-    ).reshape(batch, n_layers - 1)                         # (batch, l-1)
-    d_surf_flat = d_surf.reshape(batch, 1)                 # (batch, 1)
+    ).reshape(
+        batch, n_layers - 1
+    )  # (batch, l-1)
+    d_surf_flat = d_surf.reshape(batch, 1)  # (batch, 1)
     d_full = jnp.concatenate([d_inner_broadcast, d_surf_flat], axis=1)  # (batch, n)
 
     # Solve with PCR
-    x_full = solve_tridiagonal_pcr(a, b, c, d_full)        # (batch, n)
+    x_full = solve_tridiagonal_pcr(a, b, c, d_full)  # (batch, n)
 
     # Extract outputs matching the Thomas fused solver interface
-    x_last_flat = x_full[:, n - 1]                         # (batch,)
+    x_last_flat = x_full[:, n - 1]  # (batch,)
     x_nm2_flat = x_full[:, n - 2] if n > 1 else x_last_flat
-    x0_flat = x_full[:, 0]                                 # (batch,)
+    x0_flat = x_full[:, 0]  # (batch,)
 
     # J_bol: angle-weighted mean intensity per (g, f, l)
-    x_gfal = x_full.reshape(n_gf, n_angles, n)             # (gf, a, l)
-    J_bol_gfl = jnp.sum(
-        x_gfal * angle_weight_a[None, :, None], axis=1
-    ).reshape(n_g, n_freq_bins, n)                          # (g, f, l)
+    x_gfal = x_full.reshape(n_gf, n_angles, n)  # (gf, a, l)
+    J_bol_gfl = jnp.sum(x_gfal * angle_weight_a[None, :, None], axis=1).reshape(
+        n_g, n_freq_bins, n
+    )  # (g, f, l)
 
     I_H_top = (-x0_flat).reshape(n_g, n_freq_bins, n_angles)
     x_last = x_last_flat.reshape(n_g, n_freq_bins, n_angles)
@@ -550,8 +563,9 @@ def solve_tridiagonal_pcr_batched_feautrier_fused(
     return I_H_top, x_last, x_nm2, J_bol_gfl
 
 
-def solve_feautrier_tridiagonal(a, b, c, d_inner, d_surf, angle_weight_a,
-                                n_g, n_freq_bins, n_angles, n_layers):
+def solve_feautrier_tridiagonal(
+    a, b, c, d_inner, d_surf, angle_weight_a, n_g, n_freq_bins, n_angles, n_layers
+):
     """Dispatch to the optimal Feautrier tridiagonal solver for the current device.
 
     Uses the sequential Thomas algorithm on CPU (good sequential throughput)
@@ -561,12 +575,28 @@ def solve_feautrier_tridiagonal(a, b, c, d_inner, d_surf, angle_weight_a,
     """
     if _USE_GPU:
         return solve_tridiagonal_pcr_batched_feautrier_fused(
-            a, b, c, d_inner, d_surf, angle_weight_a,
-            n_g, n_freq_bins, n_angles, n_layers,
+            a,
+            b,
+            c,
+            d_inner,
+            d_surf,
+            angle_weight_a,
+            n_g,
+            n_freq_bins,
+            n_angles,
+            n_layers,
         )
     return solve_tridiagonal_thomas_batched_feautrier_fused(
-        a, b, c, d_inner, d_surf, angle_weight_a,
-        n_g, n_freq_bins, n_angles, n_layers,
+        a,
+        b,
+        c,
+        d_inner,
+        d_surf,
+        angle_weight_a,
+        n_g,
+        n_freq_bins,
+        n_angles,
+        n_layers,
     )
 
 
@@ -596,7 +626,7 @@ def linear_fit(x, y):
     b = lax.cond(
         jnp.abs(denominator) < 1e-15,  # Use a small tolerance
         lambda: 0.0,  # If denominator is zero, slope is effectively zero
-        lambda: (sum_x * sum_y / ndata - sum_xy) / denominator
+        lambda: (sum_x * sum_y / ndata - sum_xy) / denominator,
     )
 
     # Fortran: a = sum(y-b*x)/dble(ndata)

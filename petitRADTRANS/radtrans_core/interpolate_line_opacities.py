@@ -3,11 +3,9 @@ JAX implementation of fortran_inputs.interpolate_line_opacities
 """
 
 import jax.numpy as jnp
-from jax import lax, vmap, jit, config
+from jax import lax, vmap, jit
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 @jit

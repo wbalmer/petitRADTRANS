@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 from jax.scipy.special import logsumexp
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 def get_bic(max_logl: float, n_data: int, n_params: int) -> float:
@@ -32,14 +33,14 @@ def get_bpics(
         Ando (2011), DOI 10.1080/01966324.2011.10737798.
         Thorngren et al. (2025), DOI 10.3847/1538-4365/ae0e71.
     """
-    logl_samples = jnp.asarray(logl_samples, dtype=float).reshape(-1)
+    logl_samples = jnp.asarray(logl_samples, dtype=JAX_DTYPE).reshape(-1)
 
     if logl_samples.size == 0:
         raise ValueError("logl_samples must contain at least one value")
 
     weights = None
     if log_weights is not None:
-        log_weights = jnp.asarray(log_weights, dtype=float).reshape(-1)
+        log_weights = jnp.asarray(log_weights, dtype=JAX_DTYPE).reshape(-1)
         if log_weights.size != logl_samples.size:
             raise ValueError(
                 f"Expected {logl_samples.size} log weights, got {log_weights.size}"

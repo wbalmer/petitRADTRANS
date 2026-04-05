@@ -5,7 +5,7 @@ import os
 from typing import Any, Callable
 
 import jax.numpy as jnp
-from jax import jit, vmap, lax, config, tree_util, debug
+from jax import jit, vmap, lax, tree_util, debug
 from jax.typing import ArrayLike
 
 import numpy as np
@@ -45,9 +45,7 @@ from petitRADTRANS.validation import (
     _handle_grid_misalignment,
 )
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 # JAX-friendly sentinels and helpers for optional inputs
 _MISSING_FLOAT = jnp.array(-1.0, dtype=JAX_DTYPE)

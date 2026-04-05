@@ -24,6 +24,8 @@ from petitRADTRANS.radtrans_core.spectrum_utils import (
 )
 from petitRADTRANS.retrieval.log_likelihood import LogLikelihood
 
+from petitRADTRANS.jax_dtype import JAX_DTYPE
+
 SQRT2 = jnp.sqrt(2.0)
 
 
@@ -473,7 +475,7 @@ def compute_log_likelihood_for_spectrum(
             )
 
     # Return NaN compensation or computed value
-    return lax.cond(has_nans, lambda: -1e99, compute_likelihood)
+    return lax.cond(has_nans, lambda: jnp.finfo(JAX_DTYPE).min, compute_likelihood)
 
 
 def handle_dimenstionality_dispatch(

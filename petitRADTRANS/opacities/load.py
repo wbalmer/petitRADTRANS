@@ -2,7 +2,6 @@ import os
 import numpy as np
 import numpy.typing as npt
 import jax.numpy as jnp
-from jax import config
 from jax.typing import ArrayLike
 import h5py
 import warnings
@@ -30,9 +29,7 @@ if load_mpi:
         rank = 0
 
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 # JAX-friendly sentinels and helpers for optional inputs
 _MISSING_FLOAT = jnp.array(-1.0, dtype=JAX_DTYPE)

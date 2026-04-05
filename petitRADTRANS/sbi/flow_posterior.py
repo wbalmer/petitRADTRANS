@@ -164,6 +164,17 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         if isinstance(observations, (np.ndarray, jnp.ndarray)):
             return jnp.asarray(observations, dtype=jnp.float32)
 
+        # Use vmap-based batch encoding when all observations share the same
+        # block structure (always the case for SBI tasks).
+        if (
+            isinstance(observations, list)
+            and observations
+            and isinstance(observations[0], list)
+        ):
+            return jnp.asarray(
+                model.encoder.encode_stacked_batch(observations), dtype=jnp.float32
+            )
+
         embeddings = [model.encoder.encode(blocks).embedding for blocks in observations]
         return jnp.stack(embeddings, axis=0)
 
@@ -383,6 +394,26 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             observation family.
         """
         return self.model.encoder.encode(blocks)
+
+    def batch_encode_observation(
+        self, blocks_list: list[list[ObservationBlock]]
+    ) -> list[EncodedObservation]:
+        """Encode a batch of observations using a single vmapped forward pass.
+
+        Parameters
+        ----------
+        blocks_list:
+            List of per-sample observation block lists.
+
+        Returns
+        -------
+        list[EncodedObservation]
+            One encoded observation per input sample.
+        """
+        embeddings = self.model.encoder.encode_stacked_batch(blocks_list)
+        return [
+            EncodedObservation(embedding=embeddings[i]) for i in range(len(blocks_list))
+        ]
 
     def sample_posterior(
         self,

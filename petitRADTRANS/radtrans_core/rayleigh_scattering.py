@@ -3,7 +3,9 @@ from jax import jit, vmap, lax
 
 import petitRADTRANS.physical_constants as cst
 
-ABUNDANCE_THRESHOLD = 1e-60
+from petitRADTRANS.jax_dtype import JAX_DTYPE
+
+ABUNDANCE_THRESHOLD = jnp.finfo(JAX_DTYPE).tiny
 
 
 @jit

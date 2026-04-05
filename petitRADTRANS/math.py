@@ -172,7 +172,7 @@ def compute_resolving_power(array: ArrayLike) -> float:
     Returns:
         The mean resolving power of the array.
     """
-    return jnp.mean(array[:-1] / jnp.diff(array) + 0.5, dtype=float)
+    return jnp.mean(array[:-1] / jnp.diff(array) + 0.5)
 
 
 def feature_scaling(

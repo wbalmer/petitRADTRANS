@@ -4,7 +4,6 @@ import copy
 import warnings
 
 import jax.numpy as jnp
-from jax import config
 from petitRADTRANS.opacities.opacities import CloudOpacity
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.chemistry.condensation_curves import (
@@ -103,9 +102,7 @@ __molar_masses = {
     "Zn": get_species_molar_mass("Zn"),
 }
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 def _get_species_molar_mass(species):

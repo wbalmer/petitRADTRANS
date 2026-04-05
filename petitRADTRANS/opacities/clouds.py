@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from jax import lax, debug, jit, config
+from jax import lax, debug, jit
 from jax.typing import ArrayLike
 from petitRADTRANS.radtrans_core import radiative_transfer_core, cloud_core
 from petitRADTRANS.opacities.opacities import CloudOpacity, Opacity
@@ -8,9 +8,7 @@ import petitRADTRANS.physical_constants as cst
 
 from petitRADTRANS.utils import LockedDict
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 # JAX-friendly sentinels and helpers for optional inputs
 _MISSING_FLOAT = jnp.array(-1.0, dtype=JAX_DTYPE)

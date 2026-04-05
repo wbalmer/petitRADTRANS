@@ -1639,7 +1639,7 @@ class UltranestSampler(Sampler):
 
             def log_likelihood_batch(physical_positions):
                 return np.asarray(
-                    runtime.evaluate_vectorized_jax(
+                    runtime.evaluate_jax_batched(
                         free_parameter_values=physical_positions,
                         uncertainties_mode=context.uncertainties_mode,
                         print_log_likelihood_for_debugging=False,

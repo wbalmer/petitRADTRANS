@@ -1,7 +1,6 @@
 import datetime
 import numpy as np
 import jax.numpy as jnp
-from jax import config
 import h5py
 
 import petitRADTRANS
@@ -26,9 +25,7 @@ if load_mpi:
         rank = 0
 
 
-JAX_DTYPE = jnp.float32
-if config.jax_enable_x64:
-    JAX_DTYPE = jnp.float64
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 def write_cia_opacities(
