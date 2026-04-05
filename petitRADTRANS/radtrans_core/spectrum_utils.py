@@ -403,14 +403,17 @@ def filter_spectrum_with_spline(
     normalised_spline_matrix = m_spline / uncertainties[:, None]
     weighted_fluxes = fluxes / uncertainties
 
-    # Use a boolean mask instead of jnp.where (1-arg form) so the output shape stays static
+    # Use jnp.where (not multiplication) to zero out non-finite rows so that
+    # IEEE-754 arithmetic ``0.0 * inf = NaN`` cannot poison the lstsq.
     finite_mask = jnp.isfinite(weighted_fluxes)
-    normalised_spline_matrix_m = normalised_spline_matrix * finite_mask[:, None]
+    normalised_spline_matrix_m = jnp.where(
+        finite_mask[:, None], normalised_spline_matrix, 0.0
+    )
     weighted_fluxes_m = jnp.where(finite_mask, weighted_fluxes, 0.0)
 
     paras, _, _, _ = jnp.linalg.lstsq(normalised_spline_matrix_m, weighted_fluxes_m)
     # Evaluate the spline model over all wavelengths (not just finite ones).
-    spline_model = normalised_spline_matrix @ paras
+    spline_model = normalised_spline_matrix_m @ paras
     residuals = weighted_fluxes - spline_model
 
     residuals_finite = jnp.where(finite_mask, residuals, 0.0)
