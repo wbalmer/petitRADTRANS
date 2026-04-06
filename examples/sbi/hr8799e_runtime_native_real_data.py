@@ -81,20 +81,15 @@ tfpd = tfp.distributions
 # Currently set to small values for demonstration.
 # Commented values are production recommendations.
 # N_SIMULATIONS is the most important parameter for scaling to more complex problems
-N_SIMULATIONS = 48  # 100_000 (minimum), probably closer to 1_000_000 for a serious retrieval.
-NUM_EPOCHS = 20  # 160
-BATCH_SIZE = 8   # 256, or 512 if hardware allows
-N_POSTERIOR_SAMPLES = 256  # 16_384
+N_SIMULATIONS = 100_000  # 100_000 (minimum), probably closer to 1_000_000 for a serious retrieval.
+NUM_EPOCHS = 100  # 160
+BATCH_SIZE = 128   # 256, or 512 if hardware allows
+N_POSTERIOR_SAMPLES = 512  # 16_384
 # Maximum number of posterior draws forwarded through the pRT forward model per
-# posterior-predictive check.  This is the primary knob for preventing a
-# multi-hour hang: each draw requires one full pRT spectrum evaluation.
-# 50-200 is usually sufficient for a good predictive summary; None uses all
-# N_POSTERIOR_SAMPLES draws (very slow at production sample counts).
-N_PREDICTIVE_FORWARD_MODEL_SAMPLES = 50  # None to use all N_POSTERIOR_SAMPLES
-# When True, skip simulation and training and load the previously saved
-# posterior from posterior_dir.  The simulation_dataset.zarr store must also
-# exist so that the dataset reader can be re-opened.
-RESUME_FROM_SAVED_POSTERIOR = True
+# posterior-predictive check.
+N_PREDICTIVE_FORWARD_MODEL_SAMPLES = 128  # None to use all N_POSTERIOR_SAMPLES
+# When True, skip simulation and training and load the previously saved posterior
+RESUME_FROM_SAVED_POSTERIOR = False
 RUN_EXACT_RETRIEVAL = False
 OUTPUT_ROOT: Path | None = None
 GENERATE_PLOTS = True
@@ -131,7 +126,7 @@ def build_retrieval_config(example_data_file: Path) -> tuple[RetrievalConfig, jn
 
     pressures = jnp.logspace(-6.0, 2.0, 100)
     retrieval_config = RetrievalConfig(
-        retrieval_name='hr8799e_runtime_native_emission_jaxns',
+        retrieval_name='hr8799e_runtime_native_emission_jaxns_v2',
         run_mode='retrieval',
         sampler_type='jaxns',
         adaptive_mesh_refinement=False,  # type: ignore[arg-type]
@@ -383,7 +378,7 @@ def main() -> None:
     print(f'Photometry file available: {photometry_data_file is not None}')
 
     if OUTPUT_ROOT is None:
-        output_root = example_data_file.parents[4] / 'runs' / 'retrieval_jax_runtime_emission'
+        output_root = example_data_file.parents[4] / 'runs' / 'retrieval_jax_runtime_emission_v2'
     else:
         output_root = OUTPUT_ROOT.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
@@ -457,10 +452,10 @@ def main() -> None:
         print('Training conditional spline posterior...')
         posterior = ConditionalSplineFlowPosterior(
             parameter_dim=len(task.parameter_names),
-            embedding_dim=64,  # 256
-            num_coupling_layers=4,  # 12
-            hidden_dim=64,  # 512
-            learning_rate=1e-3,  # 2e-4
+            embedding_dim=128,  # 256
+            num_coupling_layers=6,  # 12
+            hidden_dim=128,  # 512
+            learning_rate=2e-4,  # 2e-4
             batch_size=BATCH_SIZE,
             num_epochs=NUM_EPOCHS,
             parameter_space='unconstrained',
@@ -513,6 +508,13 @@ def main() -> None:
     )
 
     posterior_samples = np.asarray(result.posterior.samples, dtype=float)
+    # AmortizedRetrieval.infer() now returns physical-space samples.  Guard
+    # against old library versions that may still return unconstrained samples.
+    if result.metadata.get('parameter_space', 'unconstrained') != 'physical':
+        posterior_samples = np.asarray(
+            task.parameter_layout.transform_unconstrained_batch(posterior_samples),
+            dtype=float,
+        )
     print('Posterior sample matrix shape:', posterior_samples.shape)
     print('First posterior draw:', posterior_samples[0])
     print('Inference preprocessing applied:', result.metadata['preprocessing_applied'])

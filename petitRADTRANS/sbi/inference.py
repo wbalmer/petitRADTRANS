@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+import numpy as np
+
 from .calibration import (
     PosteriorPredictiveReport,
+    _posterior_space_to_physical,
     posterior_predictive_report_from_samples,
 )
 from .observation import ObservationBlock
@@ -190,12 +193,34 @@ class AmortizedRetrieval:
         posterior_predictive = None
 
         if include_posterior_predictive:
+            # posterior_predictive_report_from_samples reads parameter_space from the
+            # estimator and performs the transform internally, so pass the original
+            # (possibly unconstrained) posterior here.
             posterior_predictive = self.posterior_predictive(
                 posterior=posterior,
                 observation_blocks=observation_blocks,
                 interval_level=posterior_predictive_interval_level,
                 n_predictive_forward_model_samples=n_predictive_forward_model_samples,
                 seed=seed,
+            )
+
+        # Transform samples into physical parameter space so that callers always
+        # receive meaningful, directly interpretable parameter values.
+        parameter_space = getattr(
+            self.posterior_estimator, "parameter_space", "physical"
+        )
+        if parameter_space != "physical":
+            physical_samples = np.asarray(
+                _posterior_space_to_physical(
+                    self.task, posterior.samples, parameter_space
+                ),
+                dtype=float,
+            )
+            posterior = PosteriorSamples(
+                samples=physical_samples,
+                log_probabilities=posterior.log_probabilities,
+                weights=posterior.weights,
+                metadata=posterior.metadata,
             )
 
         return AmortizedRetrievalResult(
@@ -208,6 +233,7 @@ class AmortizedRetrieval:
                     if self.preprocessing_metadata is None
                     else self.preprocessing_metadata.version
                 ),
+                "parameter_space": "physical",
             },
         )
 
