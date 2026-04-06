@@ -32,6 +32,8 @@ from .dataset import (
     StoredSimulationDataset,
     ZarrSimulationDatasetStore,
     generate_simulation_dataset,
+    DatasetSplit,
+    NormalizedObservationDatasetReader
 )
 
 # Observation encoders
@@ -111,6 +113,8 @@ __all__ = [
     "StoredSimulationDataset",
     "ZarrSimulationDatasetStore",
     "generate_simulation_dataset",
+    "DatasetSplit",
+    "NormalizedObservationDatasetReader",
     # Encoders
     "HierarchicalObservationEncoder",
     "PhotometryPointEncoder",
