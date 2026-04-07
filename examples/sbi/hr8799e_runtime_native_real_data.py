@@ -83,7 +83,7 @@ tfpd = tfp.distributions
 # N_SIMULATIONS is the most important parameter for scaling to more complex problems
 N_SIMULATIONS = 100_000  # 100_000 (minimum), probably closer to 1_000_000 for a serious retrieval.
 NUM_EPOCHS = 100  # 160
-BATCH_SIZE = 128   # 256, or 512 if hardware allows
+BATCH_SIZE = 256   # 256, or 512 if hardware allows
 N_POSTERIOR_SAMPLES = 512  # 16_384
 # Maximum number of posterior draws forwarded through the pRT forward model per
 # posterior-predictive check.
@@ -402,7 +402,7 @@ def main() -> None:
     task = build_sbi_task(retrieval_config)
     sbi_output_root = output_root / 'sbi'
     sbi_output_root.mkdir(parents=True, exist_ok=True)
-    dataset_uri = (sbi_output_root / 'simulation_dataset.zarr').as_posix()
+    dataset_uri = (sbi_output_root / 'simulation_dataset.h5').as_posix()
     checkpoint_dir = sbi_output_root / 'checkpoints'
     posterior_dir = sbi_output_root / 'posterior_model'
 
@@ -421,10 +421,12 @@ def main() -> None:
         print('Loaded posterior parameter_dim:', posterior.parameter_dim)
         print('Loaded posterior parameter_space:', posterior.parameter_space)
     else:
+        n_test = max(4, min(4_000, N_SIMULATIONS // 50))   # ~2 %, capped at 2 000
+        n_val  = max(4, min(2_000, N_SIMULATIONS // 100))  # ~1 %, capped at 2 000
         split_counts: dict[str, int] = {
-            DatasetSplit.TRAIN.value: max(N_SIMULATIONS - 8, 8),
-            DatasetSplit.VALIDATION.value: 4,
-            DatasetSplit.TEST.value: 4,
+            DatasetSplit.TRAIN.value: N_SIMULATIONS - n_test - n_val,
+            DatasetSplit.VALIDATION.value: n_val,
+            DatasetSplit.TEST.value: n_test,
         }
         total_requested = sum(split_counts.values())
         if total_requested != N_SIMULATIONS:
@@ -438,6 +440,8 @@ def main() -> None:
             chunk_size=BATCH_SIZE,
             split_counts=split_counts,
             dataset_version='0.1.0',
+            resume = True,
+            backend = "hdf5"
         )
         print('Simulation dataset splits:', generated.manifest.splits)
 
