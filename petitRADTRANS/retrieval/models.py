@@ -53,7 +53,10 @@ from petitRADTRANS.retrieval.runtime import (
     PhysicalParams,
     _radtrans_wavelength_grid,
 )
-from petitRADTRANS.retrieval.utils import get_calculate_flux_return_values
+from petitRADTRANS.retrieval.utils import (
+    get_calculate_flux_return_values,
+    _get_parameter_value,
+)
 
 # Global constants to reduce calculations and initializations.
 # PGLOBAL = jnp.logspace(-6, 3, 1000)
@@ -71,17 +74,18 @@ _SINUSOIDAL_SUFFIXES = ("_amplitude", "_period", "_phase", "_offset")
 
 def _compute_gravity(physical_params):
     if "log_g" in physical_params.keys() and "mass" in physical_params.keys():
-        gravity = 10 ** physical_params["log_g"]
+        gravity = 10 ** _get_parameter_value(physical_params, "log_g")
         planet_radius, _, _ = Planet.reference_gravity2radius(
-            reference_gravity=gravity, mass=physical_params["mass"]
+            reference_gravity=gravity,
+            mass=_get_parameter_value(physical_params, "mass"),
         )
     elif "log_g" in physical_params.keys():
-        gravity = 10 ** physical_params["log_g"]
-        planet_radius = physical_params["planet_radius"]
+        gravity = 10 ** _get_parameter_value(physical_params, "log_g")
+        planet_radius = _get_parameter_value(physical_params, "planet_radius")
     elif "mass" in physical_params.keys() or "planet_mass" in physical_params.keys():
-        planet_radius = physical_params["planet_radius"]
+        planet_radius = _get_parameter_value(physical_params, "planet_radius")
         gravity, _, _ = Planet.mass2reference_gravity(
-            mass=physical_params["mass"], radius=planet_radius
+            mass=_get_parameter_value(physical_params, "mass"), radius=planet_radius
         )
     else:
         raise KeyError("Pick two of log_g, planet_radius and mass priors!")

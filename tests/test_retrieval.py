@@ -109,13 +109,40 @@ class _RecordingUltranestSampler:
 
     @classmethod
     def prepare(cls, context, **kwargs):
+        vectorized = kwargs.pop('vectorized', False)
+
+        if vectorized:
+            runtime = context.runtime
+            uncertainties_mode = context.uncertainties_mode
+            parameter_layout = context.parameter_layout
+
+            def log_likelihood_batch(physical_positions):
+                return np.asarray(
+                    runtime.evaluate_jax_batched(
+                        free_parameter_values=physical_positions,
+                        uncertainties_mode=uncertainties_mode,
+                        print_log_likelihood_for_debugging=False,
+                    )
+                )
+
+            def prior_transform(cube):
+                return parameter_layout.prior_transform_numpy(cube)
+
+            log_likelihood_func = log_likelihood_batch
+            prior_func = prior_transform
+        else:
+            log_likelihood_func = context.log_likelihood_func
+            prior_func = context.prior_ultranest_func
+
         instance = cls(
-            log_likelihood_func=context.log_likelihood_func,
-            prior_func=context.prior_func,
+            log_likelihood_func=log_likelihood_func,
+            prior_func=prior_func,
             output_directory=context.output_directory,
             retrieval_name=context.retrieval_name,
         )
-        return instance, kwargs, {}
+        run_kwargs = {'vectorized': vectorized}
+        run_kwargs.update(kwargs)
+        return instance, run_kwargs, {}
 
     def run_sampler(self, **kwargs):
         self.run_kwargs = kwargs
@@ -520,6 +547,7 @@ def test_calculate_forward_model_accepts_runtime_native_model_functions():
         transform_prior_cube_coordinate=lambda x: 4.0 * x,
     )
 
+    @mark_model_function_runtime_native
     def runtime_native_model(context, params, pt_plot_mode=False):
         del context, pt_plot_mode
         amplitude = params.get('amplitude')
