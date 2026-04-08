@@ -4375,9 +4375,9 @@ class Radtrans:
                 "particles_radii"
             ]
 
-        if cloud_particles_mean_radii:
+        if cloud_particles_mean_radii is not None:
             additional_outputs["cloud_particles_mean_radii"] = (
-                self._clouds_loaded_opacities["particles_radii"]
+                cloud_particles_mean_radii
             )
 
         if return_particles_densities:
