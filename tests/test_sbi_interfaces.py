@@ -8,6 +8,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+try:
+    import pymultinest as _real_pymultinest  # noqa: F401 – ensure the real module wins if installed
+except (ImportError, SystemExit):
+    pass
 sys.modules.setdefault('pymultinest', SimpleNamespace())
 
 from petitRADTRANS.retrieval.runtime import ParameterLayout  # noqa: E402
@@ -255,6 +259,7 @@ def test_amortized_retrieval_can_emit_posterior_predictive_report(tmp_path):
         chunk_size=3,
         split_counts={DatasetSplit.TRAIN: 12, DatasetSplit.VALIDATION: 2, DatasetSplit.TEST: 4},
         dataset_version='0.8.6',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=3)
     dataset = store.open(generated.manifest)
@@ -313,6 +318,7 @@ def test_amortized_retrieval_normalizes_raw_observations_but_reports_raw_scale(t
         chunk_size=3,
         split_counts={DatasetSplit.TRAIN: 12, DatasetSplit.VALIDATION: 2, DatasetSplit.TEST: 4},
         dataset_version='0.8.7',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=3)
     dataset = store.open(generated.manifest)
@@ -382,6 +388,7 @@ def test_amortized_retrieval_uses_posterior_preprocessing_metadata_by_default(tm
         chunk_size=3,
         split_counts={DatasetSplit.TRAIN: 12, DatasetSplit.VALIDATION: 2, DatasetSplit.TEST: 4},
         dataset_version='0.8.8',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=3)
     dataset = store.open(generated.manifest)
@@ -785,6 +792,7 @@ def test_generate_simulation_dataset_returns_preprocessing_artifact(tmp_path):
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 3, DatasetSplit.VALIDATION: 2},
         dataset_version='0.3.0',
+        backend='zarr',
     )
 
     store = ZarrSimulationDatasetStore(chunk_size=2)
@@ -819,6 +827,7 @@ def test_generate_simulation_dataset_aborts_on_non_finite_observations(tmp_path)
             chunk_size=2,
             split_counts={DatasetSplit.TRAIN: 2},
             dataset_version='0.3.1',
+            backend='zarr',
         )
 
 
@@ -850,6 +859,7 @@ def test_generate_simulation_dataset_supports_mixed_spectrum_and_photometry(tmp_
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 2, DatasetSplit.TEST: 2},
         dataset_version='0.4.0',
+        backend='zarr',
     )
 
     store = ZarrSimulationDatasetStore(chunk_size=2)
@@ -908,6 +918,7 @@ def test_normalized_dataset_reader_yields_training_batches(tmp_path):
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 4},
         dataset_version='0.5.0',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
@@ -937,6 +948,7 @@ def test_normalized_dataset_reader_supports_encoded_mode(tmp_path):
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 4},
         dataset_version='0.5.1',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
@@ -1024,6 +1036,7 @@ def test_conditional_flow_posterior_fit_sample_and_save_load(tmp_path):
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
         dataset_version='0.8.0',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
@@ -1091,6 +1104,7 @@ def test_spline_posterior_training_resumes_from_latest_checkpoint(tmp_path):
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 8, DatasetSplit.VALIDATION: 2},
         dataset_version='0.8.1',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
@@ -1161,6 +1175,7 @@ def test_posterior_model_save_registers_artifact_metadata(tmp_path):
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
         dataset_version='0.8.2',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
@@ -1210,6 +1225,7 @@ def test_posterior_checkpoint_falls_back_from_orbax_for_callable_leaves(tmp_path
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
         dataset_version='0.8.3',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
@@ -1280,6 +1296,7 @@ def test_generic_loader_supports_legacy_flow_metadata(tmp_path):
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
         dataset_version='0.8.2',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
@@ -1333,6 +1350,7 @@ def test_flow_matching_posterior_fit_sample_and_generic_load(tmp_path):
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
         dataset_version='0.8.9',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
@@ -1390,6 +1408,7 @@ def test_spline_posterior_holdout_interval_coverage(tmp_path):
         chunk_size=3,
         split_counts={DatasetSplit.TRAIN: 12, DatasetSplit.VALIDATION: 2, DatasetSplit.TEST: 4},
         dataset_version='0.8.3',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=3)
     dataset = store.open(generated.manifest)
@@ -1449,6 +1468,7 @@ def test_generate_sbc_report_returns_rank_summaries(tmp_path):
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 10, DatasetSplit.VALIDATION: 2, DatasetSplit.TEST: 4},
         dataset_version='0.8.4',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
@@ -1506,6 +1526,7 @@ def test_generate_posterior_predictive_report_summarizes_heldout_split(tmp_path)
         chunk_size=3,
         split_counts={DatasetSplit.TRAIN: 12, DatasetSplit.VALIDATION: 2, DatasetSplit.TEST: 4},
         dataset_version='0.8.5',
+        backend='zarr',
     )
     store = ZarrSimulationDatasetStore(chunk_size=3)
     dataset = store.open(generated.manifest)
@@ -1569,6 +1590,7 @@ def test_generate_simulation_dataset_supports_resume_and_deterministic_split_pol
         split_counts={DatasetSplit.TRAIN: 2, DatasetSplit.VALIDATION: 2},
         split_policy=SplitSamplingPolicy.ROUND_ROBIN,
         dataset_version='0.6.0',
+        backend='zarr',
     )
     resumed = generate_simulation_dataset(
         task=task,
@@ -1579,6 +1601,7 @@ def test_generate_simulation_dataset_supports_resume_and_deterministic_split_pol
         split_policy=SplitSamplingPolicy.ROUND_ROBIN,
         dataset_version='0.6.0',
         resume=True,
+        backend='zarr',
     )
 
     store = ZarrSimulationDatasetStore(chunk_size=2)
@@ -1612,6 +1635,7 @@ def test_shuffled_split_policy_is_deterministic_for_same_seed(tmp_path):
         split_policy=SplitSamplingPolicy.SHUFFLED,
         split_seed=99,
         dataset_version='0.7.0',
+        backend='zarr',
     )
     second = generate_simulation_dataset(
         task=task,
@@ -1622,6 +1646,7 @@ def test_shuffled_split_policy_is_deterministic_for_same_seed(tmp_path):
         split_policy=SplitSamplingPolicy.SHUFFLED,
         split_seed=99,
         dataset_version='0.7.0',
+        backend='zarr',
     )
 
     store = ZarrSimulationDatasetStore(chunk_size=2)

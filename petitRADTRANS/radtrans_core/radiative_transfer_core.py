@@ -595,7 +595,14 @@ def _compute_feautrier_radiative_transfer_chunk(
     # ------------------------------------------------------------------
     # 2. Photon destruction probabilities — clamped
     # ------------------------------------------------------------------
-    pdp_gfl = jnp.maximum(photon_destruction_probabilities_in, 1e-10)
+    # Solution A: dtype-aware floor.  In float32 the old floor of 1e-10
+    # is below machine epsilon relative to 1.0 (eps32 ~ 1.2e-7), so
+    # 1 - (1 - 1e-10) collapses to zero, making the ALI denominator
+    # insensitive to the photon destruction probability in scattering-
+    # dominated cells.  Using 10*eps ensures the floor is always
+    # representable as a correction to 1.0 in whatever dtype is active.
+    _pdp_floor = jnp.finfo(JAX_DTYPE).eps * 10  # ~1.2e-6 float32, ~2.2e-15 float64
+    pdp_gfl = jnp.maximum(photon_destruction_probabilities_in, _pdp_floor)
 
     # ------------------------------------------------------------------
     # 3. Stellar attenuation  J_star_ini_gfl (g, f, l)
@@ -765,9 +772,13 @@ def _compute_feautrier_radiative_transfer_chunk(
     # ------------------------------------------------------------------
     one_minus_pdp_gfl = 1.0 - pdp_gfl  # (g,f,l)
     pdp_times_planck = pdp_gfl * planck_integral_fl[None, :, :]  # (g,f,l)
-    ali_inv_denom_gfl = 1.0 / jnp.maximum(
-        1.0 - one_minus_pdp_gfl * lambda_loc_gfl, TINIEST
-    )  # (g,f,l)
+    # Solution B: rewrite the ALI denominator to avoid catastrophic
+    # cancellation near 1.0.  The identity
+    #   1 - (1 - eps) * lambda  =  eps + (1 - eps) * (1 - lambda)
+    # keeps both addends positive and O(eps) or O(1-lambda), so neither
+    # term is lost to rounding regardless of the floating-point precision.
+    ali_denom_gfl = pdp_gfl + one_minus_pdp_gfl * (1.0 - lambda_loc_gfl)  # (g,f,l)
+    ali_inv_denom_gfl = 1.0 / jnp.maximum(ali_denom_gfl, TINIEST)  # (g,f,l)
 
     # ------------------------------------------------------------------
     # 12. Inner Feautrier solve

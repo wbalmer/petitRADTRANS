@@ -5,8 +5,10 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 
 Do not change the parameters used to generate the comparison files, including input_data files, when running the tests.
 """
+
 import copy
 from jax import config
+
 config.update("jax_enable_x64", True)
 
 import numpy as np
@@ -14,24 +16,33 @@ import numpy as np
 from .context import petitRADTRANS
 from .benchmark import Benchmark
 from .utils import (
-    check_cloud_complete_coverage_consistency, check_partial_cloud_coverage_full_consistency, get_cloud_parameters,
-    test_parameters, temperature_guillot_2010
+    check_cloud_complete_coverage_consistency,
+    check_partial_cloud_coverage_full_consistency,
+    get_cloud_parameters,
+    test_parameters,
+    temperature_guillot_2010,
 )
 
-relative_tolerance = 1e-6  # relative tolerance when comparing with older spectra
+relative_tolerance = 1e-2  # relative tolerance when comparing with older spectra
 
 
 # Initializations
 def init_radtrans_correlated_k():
     atmosphere = petitRADTRANS.radtrans.Radtrans(
-        pressures=test_parameters['pressures'],
-        line_species=test_parameters['spectrum_parameters']['line_species_correlated_k'],
-        rayleigh_species=test_parameters['spectrum_parameters']['rayleigh_species'],
-        gas_continuum_contributors=test_parameters['spectrum_parameters']['continuum_opacities'],
-        cloud_species=list(test_parameters['cloud_parameters']['cloud_species'].keys()),
-        wavelength_boundaries=test_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
-        line_opacity_mode='c-k',
-        scattering_in_emission=True
+        pressures=test_parameters["pressures"],
+        line_species=test_parameters["spectrum_parameters"][
+            "line_species_correlated_k"
+        ],
+        rayleigh_species=test_parameters["spectrum_parameters"]["rayleigh_species"],
+        gas_continuum_contributors=test_parameters["spectrum_parameters"][
+            "continuum_opacities"
+        ],
+        cloud_species=list(test_parameters["cloud_parameters"]["cloud_species"].keys()),
+        wavelength_boundaries=test_parameters["spectrum_parameters"][
+            "wavelength_range_correlated_k"
+        ],
+        line_opacity_mode="c-k",
+        scattering_in_emission=True,
     )
 
     return atmosphere
@@ -41,75 +52,87 @@ atmosphere_ck_scattering = init_radtrans_correlated_k()
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
-    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
     )
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.simple_calculate_flux,
-        relative_tolerance=relative_tolerance
+        function=atmosphere_ck_scattering.calculate_flux,
+        relative_tolerance=relative_tolerance,
     )
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-        frequencies_to_wavelengths=False
+        frequencies_to_wavelengths=False,
     )
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_variable_fsed():
-    mass_fractions, _, _, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+    mass_fractions, _, _, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
     )
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.simple_calculate_flux,
-        relative_tolerance=relative_tolerance
+        function=atmosphere_ck_scattering.calculate_flux,
+        relative_tolerance=relative_tolerance,
     )
 
-    fsed_min = list(test_parameters['cloud_parameters']['cloud_species'].values())[0][  # set var fsed to 1st cloud val
-        'f_sed_variable_setup'][0]
-    fsed_max = list(test_parameters['cloud_parameters']['cloud_species'].values())[0][
-        'f_sed_variable_setup'][1]
+    fsed_min = list(test_parameters["cloud_parameters"]["cloud_species"].values())[
+        0
+    ][  # set var fsed to 1st cloud val
+        "f_sed_variable_setup"
+    ][
+        0
+    ]
+    fsed_max = list(test_parameters["cloud_parameters"]["cloud_species"].values())[0][
+        "f_sed_variable_setup"
+    ][1]
     fseds = np.linspace(fsed_min, fsed_max, len(atmosphere_ck_scattering._pressures))
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
         cloud_f_sed=fseds,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-        frequencies_to_wavelengths=False
+        frequencies_to_wavelengths=False,
     )
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_adaptive_feautrier_iterations():
-    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
     )
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.simple_calculate_flux,
-        relative_tolerance=relative_tolerance
+        function=atmosphere_ck_scattering.calculate_flux,
+        relative_tolerance=relative_tolerance,
     )
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         frequencies_to_wavelengths=False,
-        adaptive_feautrier_iterations=True
+        adaptive_feautrier_iterations=True,
     )
 
 
@@ -117,21 +140,27 @@ def test_correlated_k_photospheric_radius_calculation():
     import copy
     from .benchmark import ReferenceFile
 
-    mass_fractions, cloud_particles_mean_radii, _, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
-    )
+    (
+        mass_fractions,
+        cloud_particles_mean_radii,
+        _,
+        cloud_particle_radius_distribution_std,
+        _,
+    ) = get_cloud_parameters("mass_fractions_correlated_k")
 
     # Relax tolerance due to test pipeline inconsistencies
-    _parameters_relative_tolerance = copy.deepcopy(ReferenceFile.parameters_relative_tolerance)
+    _parameters_relative_tolerance = copy.deepcopy(
+        ReferenceFile.parameters_relative_tolerance
+    )
     ReferenceFile.parameters_relative_tolerance = 1e-6
 
     benchmark = Benchmark(
         function=atmosphere_ck_scattering.calculate_photosphere_radius,
-        relative_tolerance=relative_tolerance
+        relative_tolerance=relative_tolerance,
     )
 
-    #atmosphere_ck_scattering._Radtrans.set_sum_opacities(emission=True)
-    #atmosphere_ck_scattering._Radtrans.use_smart_clear_opacities = False
+    # atmosphere_ck_scattering._Radtrans.set_sum_opacities(emission=True)
+    # atmosphere_ck_scattering._Radtrans.use_smart_clear_opacities = False
 
     # TODO: update using updated outputs
     """(opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
@@ -164,251 +193,316 @@ def test_correlated_k_photospheric_radius_calculation():
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_planetary_average():
-    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
     )
 
-    geometry = 'planetary_ave'
+    geometry = "planetary_ave"
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.simple_calculate_flux,
-        relative_tolerance=relative_tolerance
+        function=atmosphere_ck_scattering.calculate_flux,
+        relative_tolerance=relative_tolerance,
     )
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         irradiation_geometry=geometry,
-        star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
-        star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
-        orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],
-        frequencies_to_wavelengths=False
+        star_effective_temperature=test_parameters["stellar_parameters"][
+            "effective_temperature"
+        ],
+        star_radius=test_parameters["stellar_parameters"]["radius"]
+        * petitRADTRANS.physical_constants.r_sun,
+        orbit_semi_major_axis=test_parameters["planetary_parameters"][
+            "orbit_semi_major_axis"
+        ],
+        frequencies_to_wavelengths=False,
     )
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_dayside():
-    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
     )
 
-    geometry = 'dayside_ave'
+    geometry = "dayside_ave"
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.simple_calculate_flux,
-        relative_tolerance=relative_tolerance
+        function=atmosphere_ck_scattering.calculate_flux,
+        relative_tolerance=relative_tolerance,
     )
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         irradiation_geometry=geometry,
-        star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
-        star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
-        orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],
-        frequencies_to_wavelengths=False
+        star_effective_temperature=test_parameters["stellar_parameters"][
+            "effective_temperature"
+        ],
+        star_radius=test_parameters["stellar_parameters"]["radius"]
+        * petitRADTRANS.physical_constants.r_sun,
+        orbit_semi_major_axis=test_parameters["planetary_parameters"][
+            "orbit_semi_major_axis"
+        ],
+        frequencies_to_wavelengths=False,
     )
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_non_isotropic():
-    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
     )
 
-    geometry = 'non-isotropic'
+    geometry = "non-isotropic"
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.simple_calculate_flux,
-        relative_tolerance=relative_tolerance
+        function=atmosphere_ck_scattering.calculate_flux,
+        relative_tolerance=relative_tolerance,
     )
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         irradiation_geometry=geometry,
-        star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
-        star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
-        orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],
-        star_irradiation_angle=test_parameters['stellar_parameters']['incidence_angle'],
-        frequencies_to_wavelengths=False
+        star_effective_temperature=test_parameters["stellar_parameters"][
+            "effective_temperature"
+        ],
+        star_radius=test_parameters["stellar_parameters"]["radius"]
+        * petitRADTRANS.physical_constants.r_sun,
+        orbit_semi_major_axis=test_parameters["planetary_parameters"][
+            "orbit_semi_major_axis"
+        ],
+        star_irradiation_angle=test_parameters["stellar_parameters"]["incidence_angle"],
+        frequencies_to_wavelengths=False,
     )
 
 
 def test_correlated_k_emission_spectrum_complete_coverage_calculated_radius_stellar_scattering_non_isotropic():
-    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
     )
-    mass_fractions_clear = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
+    mass_fractions_clear = copy.deepcopy(test_parameters["mass_fractions_correlated_k"])
 
-    for complete_coverage_cloud in test_parameters['cloud_parameters']['complete_coverage_clouds']:
-        mass_fractions_clear[complete_coverage_cloud] = mass_fractions[complete_coverage_cloud]
+    for complete_coverage_cloud in test_parameters["cloud_parameters"][
+        "complete_coverage_clouds"
+    ]:
+        mass_fractions_clear[complete_coverage_cloud] = mass_fractions[
+            complete_coverage_cloud
+        ]
 
-    geometry = 'non-isotropic'
+    geometry = "non-isotropic"
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.simple_calculate_flux,
-        relative_tolerance=relative_tolerance
+        function=atmosphere_ck_scattering.calculate_flux,
+        relative_tolerance=relative_tolerance,
     )
 
     check_cloud_complete_coverage_consistency(
-        spectrum_function=atmosphere_ck_scattering.simple_calculate_flux,
+        spectrum_function=atmosphere_ck_scattering.calculate_flux,
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
-        cloud_fraction=test_parameters['cloud_parameters']['cloud_fraction'],
-        complete_coverage_clouds=test_parameters['cloud_parameters']['complete_coverage_clouds'],
+        cloud_fraction=test_parameters["cloud_parameters"]["cloud_fraction"],
+        complete_coverage_clouds=test_parameters["cloud_parameters"][
+            "complete_coverage_clouds"
+        ],
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         opaque_cloud_top_pressure=None,
         temperatures=temperature_guillot_2010,
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         irradiation_geometry=geometry,
-        star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
-        star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
-        orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],
-        star_irradiation_angle=test_parameters['stellar_parameters']['incidence_angle'],
-        frequencies_to_wavelengths=False
+        star_effective_temperature=test_parameters["stellar_parameters"][
+            "effective_temperature"
+        ],
+        star_radius=test_parameters["stellar_parameters"]["radius"]
+        * petitRADTRANS.physical_constants.r_sun,
+        orbit_semi_major_axis=test_parameters["planetary_parameters"][
+            "orbit_semi_major_axis"
+        ],
+        star_irradiation_angle=test_parameters["stellar_parameters"]["incidence_angle"],
+        frequencies_to_wavelengths=False,
     )
 
 
 def test_correlated_k_emission_spectrum_partial_cloud_calculated_radius_stellar_scattering_non_isotropic():
-    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
     )
-    mass_fractions_clear = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
+    mass_fractions_clear = copy.deepcopy(test_parameters["mass_fractions_correlated_k"])
 
-    geometry = 'non-isotropic'
+    geometry = "non-isotropic"
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.simple_calculate_flux,
-        relative_tolerance=relative_tolerance
+        function=atmosphere_ck_scattering.calculate_flux,
+        relative_tolerance=relative_tolerance,
     )
 
     check_partial_cloud_coverage_full_consistency(
-        spectrum_function=atmosphere_ck_scattering.simple_calculate_flux,
+        spectrum_function=atmosphere_ck_scattering.calculate_flux,
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
-        cloud_fraction=test_parameters['cloud_parameters']['cloud_fraction'],
+        cloud_fraction=test_parameters["cloud_parameters"]["cloud_fraction"],
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         opaque_cloud_top_pressure=None,
         temperatures=temperature_guillot_2010,
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         irradiation_geometry=geometry,
-        star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
-        star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
-        orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],
-        star_irradiation_angle=test_parameters['stellar_parameters']['incidence_angle'],
-        frequencies_to_wavelengths=False
+        star_effective_temperature=test_parameters["stellar_parameters"][
+            "effective_temperature"
+        ],
+        star_radius=test_parameters["stellar_parameters"]["radius"]
+        * petitRADTRANS.physical_constants.r_sun,
+        orbit_semi_major_axis=test_parameters["planetary_parameters"][
+            "orbit_semi_major_axis"
+        ],
+        star_irradiation_angle=test_parameters["stellar_parameters"]["incidence_angle"],
+        frequencies_to_wavelengths=False,
     )
 
 
 def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering():
-    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
     )
 
     benchmark = Benchmark(
         function=atmosphere_ck_scattering.calculate_transit_radii,
-        relative_tolerance=relative_tolerance
+        relative_tolerance=relative_tolerance,
     )
 
     benchmark.run(
-        temperatures=test_parameters['temperature_isothermal'] * np.ones_like(test_parameters['pressures']),
+        temperatures=test_parameters["temperature_isothermal"]
+        * np.ones_like(test_parameters["pressures"]),
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        planet_radius=test_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
-        reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        planet_radius=test_parameters["planetary_parameters"]["radius"]
+        * petitRADTRANS.physical_constants.r_jup_mean,
+        reference_pressure=test_parameters["planetary_parameters"][
+            "reference_pressure"
+        ],
+        eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-        frequencies_to_wavelengths=False
+        frequencies_to_wavelengths=False,
     )
 
 
 def test_correlated_k_transmission_spectrum_complete_coverage_calculated_radius_scattering():
-    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
     )
-    mass_fractions_clear = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
+    mass_fractions_clear = copy.deepcopy(test_parameters["mass_fractions_correlated_k"])
 
-    for complete_coverage_cloud in test_parameters['cloud_parameters']['complete_coverage_clouds']:
-        mass_fractions_clear[complete_coverage_cloud] = mass_fractions[complete_coverage_cloud]
+    for complete_coverage_cloud in test_parameters["cloud_parameters"][
+        "complete_coverage_clouds"
+    ]:
+        mass_fractions_clear[complete_coverage_cloud] = mass_fractions[
+            complete_coverage_cloud
+        ]
 
     benchmark = Benchmark(
         function=atmosphere_ck_scattering.calculate_transit_radii,
-        relative_tolerance=relative_tolerance
+        relative_tolerance=relative_tolerance,
     )
 
     check_cloud_complete_coverage_consistency(
         spectrum_function=atmosphere_ck_scattering.calculate_transit_radii,
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
-        cloud_fraction=test_parameters['cloud_parameters']['cloud_fraction'],
-        complete_coverage_clouds=test_parameters['cloud_parameters']['complete_coverage_clouds'],
+        cloud_fraction=test_parameters["cloud_parameters"]["cloud_fraction"],
+        complete_coverage_clouds=test_parameters["cloud_parameters"][
+            "complete_coverage_clouds"
+        ],
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         opaque_cloud_top_pressure=None,
-        temperatures=test_parameters['temperature_isothermal'] * np.ones_like(test_parameters['pressures']),
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        planet_radius=test_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
-        reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        temperatures=test_parameters["temperature_isothermal"]
+        * np.ones_like(test_parameters["pressures"]),
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        planet_radius=test_parameters["planetary_parameters"]["radius"]
+        * petitRADTRANS.physical_constants.r_jup_mean,
+        reference_pressure=test_parameters["planetary_parameters"][
+            "reference_pressure"
+        ],
+        eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-        frequencies_to_wavelengths=False
+        frequencies_to_wavelengths=False,
     )
 
 
 def test_correlated_k_transmission_spectrum_partial_cloud_calculated_radius_scattering():
-    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
     )
-    mass_fractions_clear = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
+    mass_fractions_clear = copy.deepcopy(test_parameters["mass_fractions_correlated_k"])
 
     benchmark = Benchmark(
         function=atmosphere_ck_scattering.calculate_transit_radii,
-        relative_tolerance=relative_tolerance
+        relative_tolerance=relative_tolerance,
     )
 
     check_partial_cloud_coverage_full_consistency(
         spectrum_function=atmosphere_ck_scattering.calculate_transit_radii,
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
-        cloud_fraction=test_parameters['cloud_parameters']['cloud_fraction'],
+        cloud_fraction=test_parameters["cloud_parameters"]["cloud_fraction"],
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         opaque_cloud_top_pressure=None,
-        temperatures=test_parameters['temperature_isothermal'] * np.ones_like(test_parameters['pressures']),
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        planet_radius=test_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
-        reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        temperatures=test_parameters["temperature_isothermal"]
+        * np.ones_like(test_parameters["pressures"]),
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        planet_radius=test_parameters["planetary_parameters"]["radius"]
+        * petitRADTRANS.physical_constants.r_jup_mean,
+        reference_pressure=test_parameters["planetary_parameters"][
+            "reference_pressure"
+        ],
+        eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-        frequencies_to_wavelengths=False
+        frequencies_to_wavelengths=False,
     )

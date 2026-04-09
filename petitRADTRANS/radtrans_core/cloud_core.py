@@ -407,8 +407,10 @@ def interpolate_cloud_opacities(
     cloud_anisotropic_extinctions = cloud_absorption_opacities_output + (
         cloud_scattering_opacities_output * cloud_scattering_reduction_factor_output
     )
+    # Isotropic extinction = absorption + total scattering (no asymmetry correction).
+    # Matches the Fortran formula: kappa_integ + kappa_scat_integ.
     cloud_isotropic_extinctions = (
-        cloud_anisotropic_extinctions + cloud_scattering_opacities_output
+        cloud_absorption_opacities_output + cloud_scattering_opacities_output
     )
 
     return (
