@@ -161,6 +161,14 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
 
     @staticmethod
     def _batch_embeddings(model: _PosteriorModel, observations: Any) -> jnp.ndarray:
+        from .observation import PreStackedObservations
+
+        # Pre-stacked arrays produced by the training loop (JIT-friendly path).
+        if isinstance(observations, PreStackedObservations):
+            return jnp.asarray(
+                model.encoder.encode_from_prestacked(observations), dtype=jnp.float32
+            )
+
         if isinstance(observations, (np.ndarray, jnp.ndarray)):
             return jnp.asarray(observations, dtype=jnp.float32)
 
@@ -448,6 +456,41 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             samples=np.nan_to_num(np.asarray(samples), nan=0.0, posinf=1e6, neginf=-1e6)
         )
 
+    def batch_sample_posterior(
+        self,
+        embeddings: Any,
+        n_samples: int,
+        base_seed: int = 0,
+    ) -> np.ndarray:
+        """Draw posterior samples for a batch of encoded observations.
+
+        Runs a single JIT-compiled vmapped call over all contexts rather than
+        looping ``sample_posterior`` once per observation, eliminating the
+        Python overhead of per-observation dispatch.
+
+        Parameters
+        ----------
+        embeddings:
+            Float32 array of shape ``(batch_size, embedding_dim)`` produced by
+            stacking :attr:`EncodedObservation.embedding` vectors.
+        n_samples:
+            Number of posterior draws per observation.
+        base_seed:
+            Base random seed. Each observation in the batch receives a unique
+            sub-key derived from this seed.
+
+        Returns
+        -------
+        np.ndarray
+            Array of shape ``(batch_size, n_samples, parameter_dim)`` with
+            non-finite values clamped to large finite values.
+        """
+        contexts = jnp.asarray(embeddings, dtype=jnp.float32)
+        n = contexts.shape[0]
+        keys = random.split(random.PRNGKey(base_seed), n)
+        samples = _jit_batch_sample(self.model.flow, contexts, n_samples, keys)
+        return np.nan_to_num(np.asarray(samples), nan=0.0, posinf=1e6, neginf=-1e6)
+
     def log_prob(self, observation: EncodedObservation, parameters: Any) -> Any:
         """Evaluate posterior log-density for one or many parameter vectors.
 
@@ -480,6 +523,35 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 self.model.flow.log_prob(value, context), nan=-1e6, neginf=-1e6
             )
         )(parameter_values)
+
+
+@eqx.filter_jit
+def _jit_batch_sample(
+    flow: Any,
+    contexts: Any,
+    n_samples: int,
+    keys: Any,
+) -> Any:
+    """JIT-compiled vmapped sampling over a batch of observation contexts.
+
+    Parameters
+    ----------
+    flow:
+        Trained conditional flow (e.g. :class:`ConditionalSplineFlow`).
+    contexts:
+        Float32 array of shape ``(batch_size, embedding_dim)``.
+    n_samples:
+        Number of posterior draws per observation. Treated as a compile-time
+        constant; retracing only occurs if this value changes.
+    keys:
+        Array of JAX PRNGKeys with shape ``(batch_size, 2)``.
+
+    Returns
+    -------
+    Any
+        Float32 array of shape ``(batch_size, n_samples, parameter_dim)``.
+    """
+    return vmap(lambda ctx, k: flow.sample(ctx, n_samples, k))(contexts, keys)
 
 
 class ConditionalSplineFlowPosterior(ConditionalFlowPosterior):

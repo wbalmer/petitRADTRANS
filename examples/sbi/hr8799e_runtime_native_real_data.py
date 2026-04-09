@@ -63,7 +63,7 @@ from petitRADTRANS.sbi import (  # noqa: E402
     SimulationConfig,
     SimulationBasedCalibrationReport,
     TaskPreprocessingMetadata,
-    ZarrSimulationDatasetStore,
+    HDF5SimulationDatasetStore,
     build_observation_block,
     generate_posterior_predictive_report,
     generate_sbc_report,
@@ -83,7 +83,7 @@ tfpd = tfp.distributions
 # N_SIMULATIONS is the most important parameter for scaling to more complex problems
 N_SIMULATIONS = 100_000  # 100_000 (minimum), probably closer to 1_000_000 for a serious retrieval.
 NUM_EPOCHS = 100  # 160
-BATCH_SIZE = 256   # 256, or 512 if hardware allows
+BATCH_SIZE = 1024   # 256, or 512 if hardware allows
 N_POSTERIOR_SAMPLES = 512  # 16_384
 # Maximum number of posterior draws forwarded through the pRT forward model per
 # posterior-predictive check.
@@ -408,7 +408,7 @@ def main() -> None:
 
     if RESUME_FROM_SAVED_POSTERIOR:
         print('Resuming: loading saved posterior and reopening existing dataset...')
-        store = ZarrSimulationDatasetStore(chunk_size=BATCH_SIZE)
+        store = HDF5SimulationDatasetStore(chunk_size=BATCH_SIZE)
         dataset = store.open(dataset_uri)
         posterior = ConditionalSplineFlowPosterior.load(posterior_dir.as_posix())
         preprocessing_metadata = TaskPreprocessingMetadata.from_payload(
@@ -445,7 +445,7 @@ def main() -> None:
         )
         print('Simulation dataset splits:', generated.manifest.splits)
 
-        store = ZarrSimulationDatasetStore(chunk_size=BATCH_SIZE)
+        store = HDF5SimulationDatasetStore(chunk_size=BATCH_SIZE)
         dataset = store.open(generated.manifest)
         assert generated.preprocessing_metadata is not None
         reader = NormalizedObservationDatasetReader(
@@ -459,12 +459,13 @@ def main() -> None:
             embedding_dim=128,  # 256
             num_coupling_layers=6,  # 12
             hidden_dim=128,  # 512
-            learning_rate=2e-4,  # 2e-4
+            learning_rate=4*2e-4,  # 2e-4
             batch_size=BATCH_SIZE,
             num_epochs=NUM_EPOCHS,
             parameter_space='unconstrained',
             checkpoint_directory=checkpoint_dir.as_posix(),
             checkpoint_backend='equinox',
+            resume_from_checkpoint=True,
             seed=123,
             task_metadata={'task_name': task.name},
         )

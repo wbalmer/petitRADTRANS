@@ -628,6 +628,55 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
         )
         return vmap(_encode_one)(*flat_stacked)  # (n_samples, embedding_dim)
 
+    def encode_from_prestacked(self, obs: Any) -> jnp.ndarray:
+        """Encode a batch of observations from pre-stacked arrays.
+
+        Accepts a :class:`~petitRADTRANS.sbi.observation.PreStackedObservations`
+        instance whose array fields have already been extracted from
+        ``ObservationBlock`` objects outside the JAX JIT boundary.  Only the
+        vmapped XLA computation runs here, enabling the training step to be
+        compiled once and reused across all batches.
+
+        Parameters
+        ----------
+        obs:
+            Pre-stacked observation container with ``stacked_blocks`` (one
+            ``(values, uncertainties, coordinates, mask)`` tuple per block,
+            each of shape ``(batch_size, n_wl)``) and ``modalities`` (static
+            tuple of modality value strings).
+
+        Returns
+        -------
+        jnp.ndarray
+            Float32 array of shape ``(batch_size, embedding_dim)``.
+        """
+        from .observation import ObservationModality
+
+        modality_enums = [ObservationModality(m) for m in obs.modalities]
+        encoder_self = self
+
+        def _encode_one(*flat_arrays: jnp.ndarray) -> jnp.ndarray:
+            block_embeddings = []
+            for j, modality in enumerate(modality_enums):
+                v = flat_arrays[4 * j]
+                u = flat_arrays[4 * j + 1]
+                c = flat_arrays[4 * j + 2]
+                m = flat_arrays[4 * j + 3]
+                if modality is ObservationModality.SPECTRUM:
+                    emb = encoder_self.spectrum_encoder._encode_block_raw(v, u, c, m)
+                elif modality is ObservationModality.PHOTOMETRY:
+                    emb = encoder_self.photometry_encoder._encode_block_raw(v, u, c, m)
+                else:
+                    emb = _resize_embedding(v, encoder_self.embedding_dim)
+                block_embeddings.append(
+                    _resize_embedding(emb, encoder_self.embedding_dim)
+                )
+            aggregated = encoder_self.aggregator.aggregate(block_embeddings)
+            return _resize_embedding(aggregated, encoder_self.embedding_dim)
+
+        flat_stacked = tuple(arr for block in obs.stacked_blocks for arr in block)
+        return vmap(_encode_one)(*flat_stacked)  # (batch_size, embedding_dim)
+
 
 __all__ = [
     "DatasetSetAggregator",

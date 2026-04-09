@@ -28,6 +28,7 @@ from .compatibility import TaskCompatibilityError
 
 # Dataset generation and access
 from .dataset import (
+    HDF5SimulationDatasetStore,
     SimulationDatasetStore,
     StoredSimulationDataset,
     ZarrSimulationDatasetStore,
@@ -109,6 +110,7 @@ __all__ = [
     # Errors
     "TaskCompatibilityError",
     # Datasets
+    "HDF5SimulationDatasetStore",
     "SimulationDatasetStore",
     "StoredSimulationDataset",
     "ZarrSimulationDatasetStore",

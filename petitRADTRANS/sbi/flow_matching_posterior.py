@@ -142,6 +142,14 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
 
     @staticmethod
     def _batch_embeddings(model: _FlowMatchingModel, observations: Any) -> jnp.ndarray:
+        from .observation import PreStackedObservations
+
+        # Pre-stacked arrays produced by the JIT-compiled training step.
+        if isinstance(observations, PreStackedObservations):
+            return jnp.asarray(
+                model.encoder.encode_from_prestacked(observations), dtype=jnp.float32
+            )
+
         if isinstance(observations, (np.ndarray, jnp.ndarray)):
             return jnp.asarray(observations, dtype=jnp.float32)
 
@@ -169,8 +177,14 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
             neginf=-1e6,
         )
         batch_indices = batch.metadata.get("batch_indices", [0])
-        batch_seed = int(sum(batch_indices)) % (2**31) if batch_indices else 0
-        base_key = random.PRNGKey(batch_seed)
+        del batch_indices  # superseded by JAX-traceable key derivation below
+        # Derive a JAX-traceable PRNG key from the parameter data so that each
+        # training batch receives unique noise even when PosteriorBatch is
+        # constructed inside a JIT-compiled step with empty metadata.
+        raw_seed = lax.bitcast_convert_type(
+            jnp.abs(parameters).mean().astype(jnp.float32), jnp.uint32
+        )
+        base_key = random.fold_in(random.PRNGKey(0), raw_seed)
         noise_key, time_key = random.split(base_key)
         base_noise = random.normal(noise_key, shape=parameters.shape, dtype=jnp.float32)
         interpolation_time = random.uniform(

@@ -355,6 +355,7 @@ def generate_sbc_report(
     base_seed = 0 if seed is None else int(seed)
     case_index = 0
     has_batch_encode = hasattr(posterior, "batch_encode_observation")
+    has_batch_sample = hasattr(posterior, "batch_sample_posterior")
 
     for batch in dataset_reader.iter_batches(
         split=split,
@@ -362,6 +363,9 @@ def generate_sbc_report(
         shuffle=False,
         parameter_space=resolved_parameter_space,
     ):
+        if max_cases is not None and case_index >= int(max_cases):
+            break
+
         # Encode all observations in the batch with one vmapped forward pass
         # when the posterior supports it; otherwise fall back to serial encoding.
         if has_batch_encode:
@@ -371,20 +375,35 @@ def generate_sbc_report(
                 posterior.encode_observation(obs) for obs in batch.observations
             ]
 
-        for sample_offset, encoded in enumerate(encoded_batch):
-            if max_cases is not None and case_index >= int(max_cases):
-                break
-            draws = posterior.sample_posterior(
-                encoded,
-                n_samples=n_posterior_samples,
-                seed=base_seed + case_index,
-            ).samples
-            posterior_draws.append(np.asarray(draws, dtype=float))
-            truths.append(np.asarray(batch.parameters[sample_offset], dtype=float))
-            case_index += 1
+        n_in_batch = len(encoded_batch)
+        if max_cases is not None:
+            n_in_batch = min(n_in_batch, int(max_cases) - case_index)
 
-        if max_cases is not None and case_index >= int(max_cases):
-            break
+        if has_batch_sample and n_in_batch > 0:
+            # One JIT dispatch for the entire batch instead of one per observation.
+            import jax.numpy as jnp
+            stacked_embeddings = jnp.stack(
+                [encoded_batch[i].embedding for i in range(n_in_batch)]
+            )
+            batch_draws = posterior.batch_sample_posterior(
+                stacked_embeddings,
+                n_samples=n_posterior_samples,
+                base_seed=base_seed + case_index,
+            )
+            for i in range(n_in_batch):
+                posterior_draws.append(np.asarray(batch_draws[i], dtype=float))
+                truths.append(np.asarray(batch.parameters[i], dtype=float))
+            case_index += n_in_batch
+        else:
+            for sample_offset, encoded in enumerate(encoded_batch[:n_in_batch]):
+                draws = posterior.sample_posterior(
+                    encoded,
+                    n_samples=n_posterior_samples,
+                    seed=base_seed + case_index,
+                ).samples
+                posterior_draws.append(np.asarray(draws, dtype=float))
+                truths.append(np.asarray(batch.parameters[sample_offset], dtype=float))
+                case_index += 1
 
     if not posterior_draws:
         raise ValueError(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import abc
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -12,6 +13,82 @@ import dill
 import equinox as eqx  # pyright: ignore[reportMissingImports]
 import numpy as np
 import optax  # pyright: ignore[reportMissingImports]
+
+
+def _prestack_observation_blocks(blocks_batch: Any) -> Any:
+    """Convert a list-of-ObservationBlock-lists to a JIT-compatible PreStackedObservations.
+
+    Extracts numpy arrays from Python ``ObservationBlock`` objects *outside*
+    the JAX JIT boundary so that the compiled training step sees only dense
+    numeric arrays whose shapes (not values) determine the XLA cache key.
+
+    Returns ``None`` when ``blocks_batch`` is not in list-of-lists format,
+    leaving the caller to pass observations through unchanged.
+    """
+    if (
+        not isinstance(blocks_batch, list)
+        or not blocks_batch
+        or not isinstance(blocks_batch[0], list)
+    ):
+        return None
+
+    from .observation import PreStackedObservations
+
+    def _resize(arr: Any, target: int, dtype: Any) -> np.ndarray:
+        """Flatten and resize an array to exactly `target` elements."""
+        flat = np.ravel(np.asarray(arr, dtype=dtype))
+        if flat.shape[0] == target:
+            return flat
+        if flat.shape[0] > target:
+            return flat[:target]
+        return np.concatenate([flat, np.zeros(target - flat.shape[0], dtype=dtype)])
+
+    first_blocks = blocks_batch[0]
+    modalities = tuple(block.modality.value for block in first_blocks)
+
+    stacked = []
+    for j in range(len(first_blocks)):
+        v_list, u_list, c_list, m_list = [], [], [], []
+        for sample_blocks in blocks_batch:
+            block = sample_blocks[j]
+            v = np.ravel(np.asarray(block.values, dtype=np.float32))
+            n_wl = v.shape[0]
+            v_list.append(v)
+            u_list.append(
+                _resize(block.uncertainties, n_wl, np.float32)
+                if block.uncertainties is not None
+                else np.zeros(n_wl, dtype=np.float32)
+            )
+            c_list.append(
+                _resize(block.coordinates, n_wl, np.float32)
+                if block.coordinates is not None
+                else np.zeros(n_wl, dtype=np.float32)
+            )
+            raw_m = (
+                np.ravel(np.asarray(block.mask, dtype=np.bool_))
+                if block.mask is not None
+                else np.array([], dtype=np.bool_)
+            )
+            # Resize to n_wl — mirrors _safe_mask in encoders.py.
+            # observation.mask from pRT may be a scalar or have a different
+            # length than the values array (e.g. stored as a per-spectrum flag
+            # rather than a per-wavelength boolean vector).
+            if raw_m.shape[0] != n_wl:
+                if raw_m.shape[0] > n_wl:
+                    raw_m = raw_m[:n_wl]
+                else:
+                    raw_m = np.concatenate(
+                        [raw_m, np.zeros(n_wl - raw_m.shape[0], dtype=np.bool_)]
+                    )
+            m_list.append(raw_m)
+        stacked.append((
+            np.stack(v_list),
+            np.stack(u_list),
+            np.stack(c_list),
+            np.stack(m_list),
+        ))
+
+    return PreStackedObservations(stacked_blocks=tuple(stacked), modalities=modalities)
 
 
 @dataclass(frozen=True)
@@ -353,7 +430,41 @@ class SBITrainer:
                     best_epoch = start_epoch - 1
                 best_metric = float(restored_metadata.get('best_metric', best_metric))
 
+        from .posterior_base import PosteriorBatch
+
+        # Build the JIT-compiled training step once.  ``loss_fn`` and
+        # ``optimizer`` are captured as constants in the closure; only the
+        # model weights, optimizer state, and batch arrays are traced.
+        @eqx.filter_jit
+        def _jit_step(
+            _model: Any,
+            _opt_state: Any,
+            _parameters: Any,
+            _observations: Any,
+        ) -> tuple:
+            _batch = PosteriorBatch(parameters=_parameters, observations=_observations)
+            _loss_val, _grads = eqx.filter_value_and_grad(loss_fn)(_model, _batch)
+            _updates, _new_opt_state = optimizer.update(
+                _grads,
+                _opt_state,
+                eqx.filter(_model, eqx.is_inexact_array),
+            )
+            return eqx.apply_updates(_model, _updates), _new_opt_state, _loss_val
+
+        # Separate JIT-compiled evaluation step: same compilation path as
+        # _jit_step but without gradients (cheaper and produces the same
+        # compiled kernel for loss-only evaluation).
+        @eqx.filter_jit
+        def _jit_eval_loss(
+            _model: Any,
+            _parameters: Any,
+            _observations: Any,
+        ) -> Any:
+            _batch = PosteriorBatch(parameters=_parameters, observations=_observations)
+            return loss_fn(_model, _batch)
+
         for epoch in range(start_epoch, self.config.num_epochs):
+            _epoch_start = time.monotonic()
             epoch_losses = []
             for batch in dataset.iter_batches(
                 split=DatasetSplit.TRAIN,
@@ -362,13 +473,14 @@ class SBITrainer:
                 seed=self.config.seed + epoch,
                 parameter_space=self.config.parameter_space,
             ):
-                loss_value, gradients = eqx.filter_value_and_grad(loss_fn)(model, batch)
-                updates, optimizer_state = optimizer.update(
-                    gradients,
+                prestacked = _prestack_observation_blocks(batch.observations)
+                _obs = prestacked if prestacked is not None else batch.observations
+                model, optimizer_state, loss_value = _jit_step(
+                    model,
                     optimizer_state,
-                    eqx.filter(model, eqx.is_inexact_array),
+                    batch.parameters,
+                    _obs,
                 )
-                model = eqx.apply_updates(model, updates)
                 epoch_losses.append(float(loss_value))
 
             train_metric = float(np.mean(epoch_losses)) if epoch_losses else float('nan')
@@ -386,12 +498,25 @@ class SBITrainer:
                     shuffle=False,
                     parameter_space=self.config.parameter_space,
                 ):
-                    validation_losses.append(float(loss_fn(model, batch)))
+                    prestacked_val = _prestack_observation_blocks(batch.observations)
+                    _val_obs = prestacked_val if prestacked_val is not None else batch.observations
+                    validation_losses.append(float(_jit_eval_loss(model, batch.parameters, _val_obs)))
                 validation_metric = float(np.mean(validation_losses)) if validation_losses else float('nan')
                 if epoch < len(validation_loss_history):
                     validation_loss_history[epoch] = validation_metric
                 else:
                     validation_loss_history.append(validation_metric)
+
+            _elapsed = time.monotonic() - _epoch_start
+            _val_str = (
+                f" | val_loss: {validation_metric:.6f}" if has_validation else ""
+            )
+            print(
+                f"Epoch {epoch + 1}/{self.config.num_epochs}"
+                f" | train_loss: {train_metric:.6f}{_val_str}"
+                f" | {_elapsed:.1f}s",
+                flush=True,
+            )
 
             monitor_metric = validation_metric if has_validation else train_metric
             improved = best_epoch < 0 or (

@@ -140,6 +140,80 @@ class StoredSimulationDataset:
     storage_uri: str
     root: Any
 
+    def iter_split_chunks(
+        self,
+        split: DatasetSplit = DatasetSplit.TRAIN,
+        chunk_size: int = 256,
+        indices: Any = None,
+        observation_fields: frozenset[str] | None = None,
+    ) -> "Iterator[dict[str, Any]]":
+        """Yield row-slices of one split without loading it all into RAM.
+
+        Parameters
+        ----------
+        split:
+            Dataset split to iterate.
+        chunk_size:
+            Number of rows per yielded chunk.
+        indices:
+            Optional integer array of row indices to read.  When supplied only
+            those rows are fetched in ascending order.  When ``None`` every row
+            in the split is visited sequentially.
+        observation_fields:
+            Optional set of observation field names to load.  When ``None``
+            every dataset field is loaded.  Pass
+            ``_OBSERVATION_TRAINING_FIELDS`` to skip large unused fields such
+            as ``covariance`` during training.
+
+        Yields
+        ------
+        dict[str, Any]
+            Same structure as :meth:`read_split` but covering only
+            ``chunk_size`` rows per iteration.
+        """
+        split_name = split.value
+        if split_name not in self.root:
+            raise KeyError(
+                f"Split '{split_name}' is not present in dataset '{self.storage_uri}'."
+            )
+        split_group = self.root[split_name]
+        n_total = int(split_group["parameters"].shape[0])
+        row_indices = np.arange(n_total) if indices is None else np.asarray(indices)
+        obs_names = list(split_group["observations"].keys()) if "observations" in split_group else []
+        obs_metadata: dict[str, Any] = {}
+        for obs_name in obs_names:
+            obs_group = split_group["observations"][obs_name]
+            if "metadata_json" in obs_group.attrs:
+                obs_metadata[obs_name] = json.loads(obs_group.attrs["metadata_json"])
+
+        for start in range(0, len(row_indices), chunk_size):
+            chunk_idx = np.sort(row_indices[start : start + chunk_size])
+            chunk: dict[str, Any] = {
+                "parameters": split_group["parameters"][chunk_idx],
+                "cube_parameters": (
+                    split_group["cube_parameters"][chunk_idx]
+                    if "cube_parameters" in split_group
+                    else None
+                ),
+                "unconstrained_parameters": (
+                    split_group["unconstrained_parameters"][chunk_idx]
+                    if "unconstrained_parameters" in split_group
+                    else None
+                ),
+                "observations": {},
+            }
+            for obs_name in obs_names:
+                obs_group = split_group["observations"][obs_name]
+                payload: dict[str, Any] = {
+                    field: obs_group[field][chunk_idx]
+                    for field in obs_group.array_keys()
+                    if observation_fields is None or field in observation_fields
+                }
+                if obs_name in obs_metadata:
+                    payload["metadata"] = obs_metadata[obs_name]
+                chunk["observations"][obs_name] = payload
+            yield chunk
+
     def read_split(self, split: DatasetSplit = DatasetSplit.TRAIN) -> dict[str, Any]:
         split_name = split.value
 
@@ -241,6 +315,21 @@ def _validate_preprocessing_metadata(
         )
 
 
+# Splits smaller than this threshold (in number of simulations) are cached in
+# RAM after the first read.  Larger splits are streamed directly from disk on
+# every epoch to avoid exhausting available memory.
+_STREAMING_THRESHOLD = 10_000
+
+# Observation fields consumed by build_observation_block_batch / the encoder.
+# Fields like 'covariance' (42 GB for 100k sims) and 'deterministic_values' are
+# stored in the dataset but never read during training.  Loading them per batch
+# would dominate the epoch time by 100x.  Any field not in this set is skipped
+# when iterating over training/validation/test splits for model fitting.
+_OBSERVATION_TRAINING_FIELDS: frozenset[str] = frozenset(
+    {"values", "uncertainties", "coordinates", "mask"}
+)
+
+
 @dataclass
 class NormalizedObservationDatasetReader:
     """Lightweight reader yielding normalized ObservationBlock batches for training."""
@@ -285,15 +374,42 @@ class NormalizedObservationDatasetReader:
 
         Notes
         -----
-        Observation blocks are always normalized with the stored preprocessing
-        metadata before they are exposed to training code.  The per-epoch
-        disk read and block normalization are cached after the first call for
-        each ``(split, parameter_space)`` pair, so subsequent epochs pay only
-        the cost of mini-batch slicing.
+        Splits with fewer than ``_STREAMING_THRESHOLD`` rows are cached in RAM
+        after the first read so that repeated epoch calls (e.g. validation) pay
+        only slicing cost.  Larger splits are streamed directly from disk one
+        batch at a time to avoid loading the full dataset into memory.
         """
+        n_split = int(self.dataset.manifest.splits.get(split.value, 0))
+        use_cache = n_split <= _STREAMING_THRESHOLD
+
+        if use_cache:
+            yield from self._iter_batches_cached(
+                split, batch_size, shuffle, seed, parameter_space, encoder
+            )
+        else:
+            yield from self._iter_batches_streaming(
+                split, batch_size, shuffle, seed, parameter_space, encoder
+            )
+
+    def _iter_batches_cached(
+        self,
+        split: DatasetSplit,
+        batch_size: int,
+        shuffle: bool,
+        seed: int | None,
+        parameter_space: str,
+        encoder: Any,
+    ) -> Iterator[PosteriorBatch]:
+        """Iterate using the full-split RAM cache (small splits)."""
         cache_key = (split, parameter_space)
         if cache_key not in self._split_cache:
+            # read_split loads all fields; filter to training fields after load
+            # to avoid keeping covariance (42 GB) in the RAM cache.
             split_data = self.dataset.read_split(split)
+            for obs_payload in split_data.get("observations", {}).values():
+                for field in list(obs_payload):
+                    if field not in _OBSERVATION_TRAINING_FIELDS and field != "metadata":
+                        del obs_payload[field]
             raw_blocks = build_observation_block_batch(
                 split_data["observations"],
                 self.dataset.manifest.observation_schema["modalities"],
@@ -302,48 +418,89 @@ class NormalizedObservationDatasetReader:
                 normalize_observation_blocks(blocks, self.preprocessing_metadata)
                 for blocks in raw_blocks
             ]
-
-            if parameter_space == "physical":
-                parameters = split_data["parameters"]
-            elif parameter_space == "cube":
-                parameters = split_data["cube_parameters"]
-            elif parameter_space == "unconstrained":
-                parameters = split_data["unconstrained_parameters"]
-            else:
-                raise ValueError(f"Unsupported parameter_space: {parameter_space!r}")
-
+            parameters = self._select_parameters(split_data, parameter_space)
             self._split_cache[cache_key] = (normalized_blocks, parameters)
 
         normalized_blocks, parameters = self._split_cache[cache_key]
-
         indices = np.arange(len(normalized_blocks))
         if shuffle:
-            rng = np.random.default_rng(seed)
-            rng.shuffle(indices)
+            np.random.default_rng(seed).shuffle(indices)
 
         for start in range(0, len(indices), batch_size):
-            batch_indices = indices[start : start + batch_size]
-            batch_observations = [normalized_blocks[index] for index in batch_indices]
-
+            batch_idx = indices[start : start + batch_size]
+            batch_obs = [normalized_blocks[i] for i in batch_idx]
             if encoder is not None:
-                batch_observations = np.asarray(
-                    encoder.encode_stacked_batch(batch_observations)
-                )
-
+                batch_obs = np.asarray(encoder.encode_stacked_batch(batch_obs))
             yield PosteriorBatch(
-                parameters=(
-                    None
-                    if parameters is None
-                    else np.asarray(parameters)[batch_indices]
-                ),
-                observations=batch_observations,
+                parameters=None if parameters is None else np.asarray(parameters)[batch_idx],
+                observations=batch_obs,
                 metadata={
                     "split": split.value,
                     "parameter_space": parameter_space,
-                    "batch_indices": batch_indices.tolist(),
+                    "batch_indices": batch_idx.tolist(),
                     "encoded": encoder is not None,
                 },
             )
+
+    def _iter_batches_streaming(
+        self,
+        split: DatasetSplit,
+        batch_size: int,
+        shuffle: bool,
+        seed: int | None,
+        parameter_space: str,
+        encoder: Any,
+    ) -> Iterator[PosteriorBatch]:
+        """Iterate by streaming rows directly from disk (large splits).
+
+        When ``shuffle=True`` a global index permutation is computed in RAM
+        (one integer per simulation row — negligible memory) and used to fetch
+        HDF5 rows in sorted sub-windows of ``batch_size``, satisfying h5py's
+        monotonic-index requirement while still presenting shuffled order to the
+        training loop.
+        """
+        n_split = int(self.dataset.manifest.splits.get(split.value, 0))
+        indices = np.arange(n_split)
+        if shuffle:
+            np.random.default_rng(seed).shuffle(indices)
+
+        modalities = self.dataset.manifest.observation_schema["modalities"]
+        batch_num = 0
+        for chunk in self.dataset.iter_split_chunks(
+            split, chunk_size=batch_size, indices=indices,
+            observation_fields=_OBSERVATION_TRAINING_FIELDS,
+        ):
+            raw_blocks = build_observation_block_batch(chunk["observations"], modalities)
+            normalized_blocks = [
+                normalize_observation_blocks(blocks, self.preprocessing_metadata)
+                for blocks in raw_blocks
+            ]
+            parameters = self._select_parameters(chunk, parameter_space)
+            batch_obs: Any = normalized_blocks
+            if encoder is not None:
+                batch_obs = np.asarray(encoder.encode_stacked_batch(normalized_blocks))
+            yield PosteriorBatch(
+                parameters=parameters,
+                observations=batch_obs,
+                metadata={
+                    "split": split.value,
+                    "parameter_space": parameter_space,
+                    "batch_indices": list(range(batch_num * batch_size, batch_num * batch_size + len(raw_blocks))),
+                    "encoded": encoder is not None,
+                },
+            )
+            batch_num += 1
+
+    @staticmethod
+    def _select_parameters(split_data: dict, parameter_space: str) -> Any:
+        """Return the parameter array for the requested coordinate space."""
+        if parameter_space == "physical":
+            return split_data["parameters"]
+        if parameter_space == "cube":
+            return split_data["cube_parameters"]
+        if parameter_space == "unconstrained":
+            return split_data["unconstrained_parameters"]
+        raise ValueError(f"Unsupported parameter_space: {parameter_space!r}")
 
 
 class ZarrSimulationDatasetWriter(SimulationDatasetWriter):
@@ -731,6 +888,88 @@ class HDF5StoredSimulationDataset:
     storage_uri: str
     _file_path: str
 
+    def iter_split_chunks(
+        self,
+        split: DatasetSplit = DatasetSplit.TRAIN,
+        chunk_size: int = 256,
+        indices: Any = None,
+        observation_fields: frozenset[str] | None = None,
+    ) -> "Iterator[dict[str, Any]]":
+        """Yield row-slices of one split without loading it all into RAM.
+
+        Parameters
+        ----------
+        split:
+            Dataset split to iterate.
+        chunk_size:
+            Number of rows per yielded chunk.
+        indices:
+            Optional integer array of row indices to read.  When supplied only
+            those rows are fetched in ascending order.  When ``None`` every row
+            in the split is visited sequentially.
+        observation_fields:
+            Optional set of observation field names to load.  When ``None``
+            every dataset field is loaded.  Pass
+            ``_OBSERVATION_TRAINING_FIELDS`` to skip large unused fields such
+            as ``covariance`` during training.
+
+        Yields
+        ------
+        dict[str, Any]
+            Same structure as :meth:`read_split` but covering only
+            ``chunk_size`` rows at a time.  The HDF5 file is opened once and
+            kept open for the duration of the iteration.
+        """
+        if h5py is None:
+            raise ImportError(
+                "h5py is required for HDF5SimulationDatasetStore operations."
+            )
+        split_name = split.value
+        with h5py.File(self._file_path, "r") as root:
+            if split_name not in root:
+                raise KeyError(
+                    f"Split '{split_name}' is not present in dataset '{self.storage_uri}'."
+                )
+            split_group = root[split_name]
+            n_total = int(split_group["parameters"].shape[0])
+            row_indices = np.arange(n_total) if indices is None else np.asarray(indices)
+            obs_names = list(split_group["observations"].keys()) if "observations" in split_group else []
+            obs_metadata: dict[str, Any] = {}
+            for obs_name in obs_names:
+                obs_group = split_group["observations"][obs_name]
+                metadata_json = obs_group.attrs.get("metadata_json")
+                if metadata_json is not None:
+                    obs_metadata[obs_name] = json.loads(metadata_json)
+
+            for start in range(0, len(row_indices), chunk_size):
+                chunk_idx = np.sort(row_indices[start : start + chunk_size])
+                chunk: dict[str, Any] = {
+                    "parameters": split_group["parameters"][chunk_idx],
+                    "cube_parameters": (
+                        split_group["cube_parameters"][chunk_idx]
+                        if "cube_parameters" in split_group
+                        else None
+                    ),
+                    "unconstrained_parameters": (
+                        split_group["unconstrained_parameters"][chunk_idx]
+                        if "unconstrained_parameters" in split_group
+                        else None
+                    ),
+                    "observations": {},
+                }
+                for obs_name in obs_names:
+                    obs_group = split_group["observations"][obs_name]
+                    payload: dict[str, Any] = {
+                        field: obs_group[field][chunk_idx]
+                        for field in obs_group.keys()
+                        if isinstance(obs_group[field], h5py.Dataset)
+                        and (observation_fields is None or field in observation_fields)
+                    }
+                    if obs_name in obs_metadata:
+                        payload["metadata"] = obs_metadata[obs_name]
+                    chunk["observations"][obs_name] = payload
+                yield chunk
+
     def read_split(self, split: DatasetSplit = DatasetSplit.TRAIN) -> dict[str, Any]:
         split_name = split.value
 
@@ -1075,13 +1314,18 @@ def generate_simulation_dataset(
     else:
         writer = dataset_store.create_writer(requested_manifest, mode="w")
 
+    n_new_simulations = n_simulations - existing_count
+
     simulation_backend = simulator
     if simulation_backend is None:
         from .simulator import RuntimeSimulator
 
         simulation_backend = RuntimeSimulator(task=task)
 
-    if resume and existing_count > 0:
+    # Only advance the simulator RNG when we will actually generate new samples.
+    # Skipping this when the dataset is already complete avoids re-running the
+    # full forward model n_existing times just to discard the output.
+    if n_new_simulations > 0 and resume and existing_count > 0:
         _advance_simulator(
             simulator=simulation_backend,
             skipped_assignments=split_assignments[:existing_count],
@@ -1099,25 +1343,41 @@ def generate_simulation_dataset(
 
     finalized_manifest = writer.finalize()
     finalized_dataset = dataset_store.open(finalized_manifest)
-    _validate_finite_split_observations(finalized_dataset)
 
+    # Only validate the dataset when new simulations were actually written.
+    # Revalidating a large existing dataset on every resume wastes hours of I/O.
+    if n_new_simulations > 0:
+        _validate_finite_split_observations(finalized_dataset)
+
+    # Preprocessing metadata: use a sidecar JSON cache so that re-runs with
+    # resume=True on a complete dataset avoid re-reading the full training split
+    # and rebuilding ~100k Python ObservationBlock objects.
+    preprocessing_sidecar = Path(storage_uri).with_suffix('.preprocessing.json')
     preprocessing_metadata = None
     if include_preprocessing_metadata:
-        training_split = finalized_dataset.read_split(DatasetSplit.TRAIN)
-        training_blocks = build_observation_block_batch(
-            training_split["observations"],
-            task.observation_schema.modalities,
-        )
-        preprocessing_metadata = fit_task_preprocessing(
-            training_blocks,
-            version=task.preprocessing_version,
-            metadata={
-                "task_name": task.name,
-                "task_fingerprint": task.task_fingerprint.digest,
-                "split_policy": resolved_split_policy.value,
-            },
-        )
-        _validate_preprocessing_metadata(preprocessing_metadata)
+        if n_new_simulations == 0 and preprocessing_sidecar.exists():
+            preprocessing_metadata = TaskPreprocessingMetadata.from_payload(
+                json.loads(preprocessing_sidecar.read_text())
+            )
+        else:
+            training_split = finalized_dataset.read_split(DatasetSplit.TRAIN)
+            training_blocks = build_observation_block_batch(
+                training_split["observations"],
+                task.observation_schema.modalities,
+            )
+            preprocessing_metadata = fit_task_preprocessing(
+                training_blocks,
+                version=task.preprocessing_version,
+                metadata={
+                    "task_name": task.name,
+                    "task_fingerprint": task.task_fingerprint.digest,
+                    "split_policy": resolved_split_policy.value,
+                },
+            )
+            _validate_preprocessing_metadata(preprocessing_metadata)
+            preprocessing_sidecar.write_text(
+                json.dumps(preprocessing_metadata.to_payload(), sort_keys=True, indent=2)
+            )
 
     artifact_metadata = ArtifactMetadata.from_task(
         task=task,

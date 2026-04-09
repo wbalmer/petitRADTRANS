@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping
 
+import jax
 import numpy as np
 
 
@@ -166,11 +167,61 @@ def build_observation_block_batch(
     ]
 
 
+@dataclass(frozen=True)
+class PreStackedObservations:
+    """Pre-stacked observation arrays ready to cross the JAX JIT boundary.
+
+    All per-sample ObservationBlock data has been extracted into dense numpy
+    arrays before this object is constructed, so JAX can trace through the
+    encoder without re-compiling per batch.
+
+    Attributes
+    ----------
+    stacked_blocks:
+        One ``(values, uncertainties, coordinates, mask)`` tuple per
+        observation block.  Each array has shape ``(batch_size, n_wl)``.
+    modalities:
+        Modality value string for each block, e.g. ``'spectrum'``.
+        Treated as static metadata by JAX (does not trigger retrace between
+        batches since it is constant for a given SBI task).
+    """
+
+    stacked_blocks: tuple  # tuple[(v, u, c, m), ...], one entry per block
+    modalities: tuple  # tuple[str, ...] – static pytree aux data
+
+
+def _prestacked_flatten(
+    obs: PreStackedObservations,
+) -> tuple[list, tuple]:
+    leaves = [arr for v, u, c, m in obs.stacked_blocks for arr in (v, u, c, m)]
+    return leaves, (obs.modalities, len(obs.stacked_blocks))
+
+
+def _prestacked_unflatten(
+    aux_data: tuple,
+    leaves: list,
+) -> PreStackedObservations:
+    modalities, n_blocks = aux_data
+    stacked_blocks = tuple(
+        (leaves[i * 4], leaves[i * 4 + 1], leaves[i * 4 + 2], leaves[i * 4 + 3])
+        for i in range(n_blocks)
+    )
+    return PreStackedObservations(stacked_blocks=stacked_blocks, modalities=modalities)
+
+
+jax.tree_util.register_pytree_node(
+    PreStackedObservations,
+    _prestacked_flatten,
+    _prestacked_unflatten,
+)
+
+
 __all__ = [
     "EncodedObservation",
     "ObservationBlock",
     "ObservationEncoder",
     "ObservationModality",
+    "PreStackedObservations",
     "build_observation_block",
     "build_observation_block_batch",
     "build_observation_blocks_from_sample",
