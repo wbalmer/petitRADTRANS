@@ -1222,11 +1222,17 @@ def _advance_simulator(
     skipped_assignments: list[DatasetSplit],
     batch_size: int,
 ) -> None:
+    # Prefer the cheap PRNG-only skip when the simulator supports it.
+    use_cheap_skip = hasattr(simulator, '_advance_rng_for_batch')
+
     for _split, run_count in _iter_assignment_runs(skipped_assignments):
         remaining = run_count
         while remaining > 0:
             consume = min(batch_size, remaining)
-            simulator.simulate_batch(consume)
+            if use_cheap_skip:
+                simulator._advance_rng_for_batch(consume)
+            else:
+                simulator.simulate_batch(consume)
             remaining -= consume
 
 
@@ -1244,6 +1250,7 @@ def generate_simulation_dataset(
     dataset_version: str = "0.1.0",
     resume: bool = False,
     backend: str = "hdf5",
+    data_parallel: bool | None = None,
 ) -> GeneratedSimulationDataset:
     """Generate and persist a simulation corpus in one call.
 
@@ -1254,6 +1261,12 @@ def generate_simulation_dataset(
         single ``.h5`` file, keeping the file count at 1 regardless of the
         number of simulations. ``'zarr'`` uses the Zarr directory store
         which produces one file per compressed chunk.
+    data_parallel:
+        When ``True`` (or ``None`` with multiple JAX devices), the vmapped RT
+        kernel is distributed across devices using ``jax.pmap``.  The
+        effective per-iteration batch size is automatically scaled by the
+        device count so each device processes the configured
+        ``simulation_config.batch_size`` samples.
     """
     resolved_split_policy = split_policy
     if isinstance(split_policy, str):
@@ -1320,7 +1333,24 @@ def generate_simulation_dataset(
     if simulation_backend is None:
         from .simulator import RuntimeSimulator
 
-        simulation_backend = RuntimeSimulator(task=task)
+        simulation_backend = RuntimeSimulator(task=task, data_parallel=data_parallel)
+
+    # Resolve the effective per-iteration batch size.  When data_parallel is
+    # active (multiple devices), scale the configured batch_size by the device
+    # count so that each device processes its full share.
+    import jax as _jax
+
+    _n_devices = len(_jax.devices())
+    _dp_active = (
+        simulation_backend._data_parallel
+        if hasattr(simulation_backend, '_data_parallel')
+        else False
+    )
+    _effective_batch_size = (
+        task.simulation_config.batch_size * _n_devices
+        if _dp_active and _n_devices > 1
+        else task.simulation_config.batch_size
+    )
 
     # Only advance the simulator RNG when we will actually generate new samples.
     # Skipping this when the dataset is already complete avoids re-running the
@@ -1329,13 +1359,13 @@ def generate_simulation_dataset(
         _advance_simulator(
             simulator=simulation_backend,
             skipped_assignments=split_assignments[:existing_count],
-            batch_size=task.simulation_config.batch_size,
+            batch_size=_effective_batch_size,
         )
 
     for split, split_size in _iter_assignment_runs(split_assignments[existing_count:]):
         remaining = int(split_size)
         while remaining > 0:
-            batch_size = min(task.simulation_config.batch_size, remaining)
+            batch_size = min(_effective_batch_size, remaining)
             batch = simulation_backend.simulate_batch(batch_size)
             writer.append(batch, split=split)
 

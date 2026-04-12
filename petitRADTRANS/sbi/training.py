@@ -11,8 +11,34 @@ from typing import Any, Callable
 
 import dill
 import equinox as eqx  # pyright: ignore[reportMissingImports]
+import jax
 import numpy as np
 import optax  # pyright: ignore[reportMissingImports]
+
+
+def _get_device_mesh() -> Any:
+    """Return a JAX device mesh for data-parallel training, or None if single-device."""
+    devices = jax.devices()
+    if len(devices) <= 1:
+        return None
+    return jax.sharding.Mesh(np.array(devices), axis_names=('batch',))
+
+
+def _shard_batch(array: Any, mesh: Any) -> Any:
+    """Shard an array along its first axis across the device mesh."""
+    from jax.sharding import NamedSharding, PartitionSpec as P
+    return jax.device_put(array, NamedSharding(mesh, P('batch')))
+
+
+def _pad_to_multiple(array: Any, multiple: int) -> Any:
+    """Pad array along axis 0 to a multiple of ``multiple`` by repeating the last row."""
+    n = array.shape[0]
+    remainder = n % multiple
+    if remainder == 0:
+        return array
+    pad_count = multiple - remainder
+    padding = np.repeat(array[-1:], pad_count, axis=0)
+    return np.concatenate([array, padding], axis=0)
 
 
 def _prestack_observation_blocks(blocks_batch: Any) -> Any:
@@ -113,6 +139,7 @@ class TrainingConfig:
     checkpoint_directory: str | None = None
     checkpoint_backend: str = 'auto'
     resume_from_checkpoint: bool = False
+    data_parallel: bool = False
 
 
 class CheckpointBackend(abc.ABC):
@@ -432,6 +459,17 @@ class SBITrainer:
 
         from .posterior_base import PosteriorBatch
 
+        # Multi-device setup: detect available devices and create a mesh
+        # when data-parallel training is enabled.
+        mesh = _get_device_mesh() if self.config.data_parallel else None
+        n_devices = len(jax.devices()) if mesh is not None else 1
+
+        # When data-parallel is active, ensure batch_size is a multiple of
+        # n_devices to avoid uneven splits and extra XLA recompilations.
+        effective_batch_size = self.config.batch_size
+        if mesh is not None and effective_batch_size % n_devices != 0:
+            effective_batch_size = ((effective_batch_size + n_devices - 1) // n_devices) * n_devices
+
         # Build the JIT-compiled training step once.  ``loss_fn`` and
         # ``optimizer`` are captured as constants in the closure; only the
         # model weights, optimizer state, and batch arrays are traced.
@@ -444,6 +482,11 @@ class SBITrainer:
         ) -> tuple:
             _batch = PosteriorBatch(parameters=_parameters, observations=_observations)
             _loss_val, _grads = eqx.filter_value_and_grad(loss_fn)(_model, _batch)
+            # When data-parallel is active the inputs are sharded via
+            # NamedSharding and JAX's GSPMD compiler automatically inserts
+            # the required all-reduce collectives; explicit pmean is not
+            # needed (and would fail because filter_jit does not provide
+            # a named axis context).
             _updates, _new_opt_state = optimizer.update(
                 _grads,
                 _opt_state,
@@ -463,25 +506,149 @@ class SBITrainer:
             _batch = PosteriorBatch(parameters=_parameters, observations=_observations)
             return loss_fn(_model, _batch)
 
-        for epoch in range(start_epoch, self.config.num_epochs):
-            _epoch_start = time.monotonic()
-            epoch_losses = []
+        def _maybe_pad_and_shard(params: Any, obs: Any) -> tuple:
+            """Pad batch to ``effective_batch_size`` and shard across devices.
+
+            Padding to the full batch size (instead of just a device multiple)
+            ensures that every training step sees exactly the same array shapes,
+            preventing costly XLA recompilations for trailing partial batches.
+            """
+            if mesh is None:
+                return params, obs
+            params = np.asarray(params)
+            params = _pad_to_multiple(params, effective_batch_size)
+            if hasattr(obs, 'stacked_blocks'):
+                from .observation import PreStackedObservations
+                padded_blocks = tuple(
+                    tuple(_pad_to_multiple(np.asarray(arr), effective_batch_size) for arr in block)
+                    for block in obs.stacked_blocks
+                )
+                obs = PreStackedObservations(
+                    stacked_blocks=padded_blocks, modalities=obs.modalities
+                )
+            params = _shard_batch(params, mesh)
+            if hasattr(obs, 'stacked_blocks'):
+                from .observation import PreStackedObservations
+                sharded_blocks = tuple(
+                    tuple(_shard_batch(arr, mesh) for arr in block)
+                    for block in obs.stacked_blocks
+                )
+                obs = PreStackedObservations(
+                    stacked_blocks=sharded_blocks, modalities=obs.modalities
+                )
+            else:
+                obs = _shard_batch(obs, mesh)
+            return params, obs
+
+        # --- Pre-load and pre-stack training and validation data --------
+        # Reading from HDF5 with shuffled (scattered) indices each epoch is
+        # extremely slow due to non-sequential I/O.  Instead, load every split
+        # once, normalize, and prestack into dense arrays.  Per-epoch shuffling
+        # is achieved by permuting a NumPy index array — no H5 re-reads.
+        def _preload_split(split: DatasetSplit) -> tuple[np.ndarray, Any] | None:
+            """Load and prestack one full split into RAM."""
+            from .observation import PreStackedObservations
+
+            n_split = int(dataset.dataset.manifest.splits.get(split.value, 0))
+            if n_split == 0:
+                return None
+            print(f"  Pre-loading {split.value} split ({n_split} samples)...", flush=True)
+            all_params = []
+            block_accumulators: list[list[list]] | None = None  # [block_j][field_k] -> list of arrays
+            modalities: tuple | None = None
             for batch in dataset.iter_batches(
-                split=DatasetSplit.TRAIN,
-                batch_size=self.config.batch_size,
-                shuffle=self.config.shuffle_train,
-                seed=self.config.seed + epoch,
+                split=split,
+                batch_size=min(n_split, max(effective_batch_size, 4096)),
+                shuffle=False,
                 parameter_space=self.config.parameter_space,
             ):
                 prestacked = _prestack_observation_blocks(batch.observations)
-                _obs = prestacked if prestacked is not None else batch.observations
-                model, optimizer_state, loss_value = _jit_step(
-                    model,
-                    optimizer_state,
-                    batch.parameters,
-                    _obs,
+                if prestacked is None:
+                    # Fallback: cannot prestack; return None to use streaming
+                    return None
+                all_params.append(np.asarray(batch.parameters))
+                if block_accumulators is None:
+                    block_accumulators = [
+                        [[] for _ in range(4)]  # v, u, c, m
+                        for _ in prestacked.stacked_blocks
+                    ]
+                    modalities = prestacked.modalities
+                for j, (v, u, c, m) in enumerate(prestacked.stacked_blocks):
+                    block_accumulators[j][0].append(np.asarray(v))
+                    block_accumulators[j][1].append(np.asarray(u))
+                    block_accumulators[j][2].append(np.asarray(c))
+                    block_accumulators[j][3].append(np.asarray(m))
+            if block_accumulators is None or modalities is None:
+                return None
+            params = np.concatenate(all_params, axis=0)
+            stacked_blocks = tuple(
+                (
+                    np.concatenate(acc[0], axis=0),
+                    np.concatenate(acc[1], axis=0),
+                    np.concatenate(acc[2], axis=0),
+                    np.concatenate(acc[3], axis=0),
                 )
-                epoch_losses.append(float(loss_value))
+                for acc in block_accumulators
+            )
+            obs = PreStackedObservations(stacked_blocks=stacked_blocks, modalities=modalities)
+            total_bytes = params.nbytes + sum(a.nbytes for blk in stacked_blocks for a in blk)
+            print(
+                f"  Pre-loaded {split.value}: {params.shape[0]} samples, "
+                f"{total_bytes / 1e6:.0f} MB",
+                flush=True,
+            )
+            return params, obs
+
+        preloaded_train = _preload_split(DatasetSplit.TRAIN)
+        preloaded_val = _preload_split(DatasetSplit.VALIDATION) if has_validation else None
+
+        for epoch in range(start_epoch, self.config.num_epochs):
+            _epoch_start = time.monotonic()
+            epoch_losses = []
+
+            if preloaded_train is not None:
+                # Fast path: slice pre-loaded arrays by shuffled index
+                _all_params, _all_obs = preloaded_train
+                n_train = _all_params.shape[0]
+                _perm = np.random.default_rng(self.config.seed + epoch).permutation(n_train) if self.config.shuffle_train else np.arange(n_train)
+                for _start in range(0, n_train, effective_batch_size):
+                    _idx = _perm[_start : _start + effective_batch_size]
+                    if len(_idx) < effective_batch_size:
+                        if mesh is not None:
+                            continue  # drop last incomplete batch
+                    _bp = _all_params[_idx]
+                    from .observation import PreStackedObservations
+                    _bo = PreStackedObservations(
+                        stacked_blocks=tuple(
+                            (v[_idx], u[_idx], c[_idx], m[_idx])
+                            for v, u, c, m in _all_obs.stacked_blocks
+                        ),
+                        modalities=_all_obs.modalities,
+                    )
+                    if mesh is not None:
+                        _bp, _bo = _maybe_pad_and_shard(_bp, _bo)
+                    model, optimizer_state, loss_value = _jit_step(model, optimizer_state, _bp, _bo)
+                    epoch_losses.append(float(loss_value))
+            else:
+                # Fallback: stream from disk (non-prestackable observations)
+                for batch in dataset.iter_batches(
+                    split=DatasetSplit.TRAIN,
+                    batch_size=effective_batch_size,
+                    shuffle=self.config.shuffle_train,
+                    seed=self.config.seed + epoch,
+                    parameter_space=self.config.parameter_space,
+                ):
+                    prestacked = _prestack_observation_blocks(batch.observations)
+                    _obs = prestacked if prestacked is not None else batch.observations
+                    if mesh is not None:
+                        batch_params = np.asarray(batch.parameters)
+                        if batch_params.shape[0] < effective_batch_size:
+                            continue
+                        batch_params, _obs = _maybe_pad_and_shard(batch_params, _obs)
+                    else:
+                        batch_params = batch.parameters
+                    model, optimizer_state, loss_value = _jit_step(model, optimizer_state, batch_params, _obs)
+                    epoch_losses.append(float(loss_value))
 
             train_metric = float(np.mean(epoch_losses)) if epoch_losses else float('nan')
             if epoch < len(train_loss_history):
@@ -492,15 +659,36 @@ class SBITrainer:
             validation_metric = float('nan')
             if has_validation:
                 validation_losses = []
-                for batch in dataset.iter_batches(
-                    split=DatasetSplit.VALIDATION,
-                    batch_size=self.config.batch_size,
-                    shuffle=False,
-                    parameter_space=self.config.parameter_space,
-                ):
-                    prestacked_val = _prestack_observation_blocks(batch.observations)
-                    _val_obs = prestacked_val if prestacked_val is not None else batch.observations
-                    validation_losses.append(float(_jit_eval_loss(model, batch.parameters, _val_obs)))
+                if preloaded_val is not None:
+                    _val_params, _val_all_obs = preloaded_val
+                    n_val = _val_params.shape[0]
+                    for _start in range(0, n_val, effective_batch_size):
+                        _idx = np.arange(_start, min(_start + effective_batch_size, n_val))
+                        _vp = _val_params[_idx]
+                        from .observation import PreStackedObservations
+                        _vo = PreStackedObservations(
+                            stacked_blocks=tuple(
+                                (v[_idx], u[_idx], c[_idx], m[_idx])
+                                for v, u, c, m in _val_all_obs.stacked_blocks
+                            ),
+                            modalities=_val_all_obs.modalities,
+                        )
+                        if mesh is not None:
+                            _vp, _vo = _maybe_pad_and_shard(_vp, _vo)
+                        validation_losses.append(float(_jit_eval_loss(model, _vp, _vo)))
+                else:
+                    for batch in dataset.iter_batches(
+                        split=DatasetSplit.VALIDATION,
+                        batch_size=effective_batch_size,
+                        shuffle=False,
+                        parameter_space=self.config.parameter_space,
+                    ):
+                        prestacked_val = _prestack_observation_blocks(batch.observations)
+                        _val_obs = prestacked_val if prestacked_val is not None else batch.observations
+                        val_params = batch.parameters
+                        if mesh is not None:
+                            val_params, _val_obs = _maybe_pad_and_shard(val_params, _val_obs)
+                        validation_losses.append(float(_jit_eval_loss(model, val_params, _val_obs)))
                 validation_metric = float(np.mean(validation_losses)) if validation_losses else float('nan')
                 if epoch < len(validation_loss_history):
                     validation_loss_history[epoch] = validation_metric

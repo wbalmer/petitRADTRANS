@@ -53,6 +53,7 @@ class CouplingConditioner(eqx.Module):
             width_size=hidden_dim,
             depth=2,
             key=key,
+            dtype=jnp.float32,
         )
 
     def __call__(self, masked_x: jnp.ndarray, context: jnp.ndarray) -> jnp.ndarray:
@@ -75,6 +76,7 @@ class _ScalarSplineConditioner(eqx.Module):
             width_size=hidden_dim,
             depth=2,
             key=key,
+            dtype=jnp.float32,
         )
 
     def __call__(self, context: jnp.ndarray) -> jnp.ndarray:
@@ -667,7 +669,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
         num_layers: int = 6,
         hidden_dim: int = 128,
         num_bins: int = 8,
-        bound: float = 5.0,
+        bound: float = 10.0,
         min_bin_width: float = 1e-3,
         min_bin_height: float = 1e-3,
         min_derivative: float = 1e-3,

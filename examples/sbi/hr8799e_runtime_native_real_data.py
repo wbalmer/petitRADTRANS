@@ -81,15 +81,16 @@ tfpd = tfp.distributions
 # Currently set to small values for demonstration.
 # Commented values are production recommendations.
 # N_SIMULATIONS is the most important parameter for scaling to more complex problems
-N_SIMULATIONS = 100_000  # 100_000 (minimum), probably closer to 1_000_000 for a serious retrieval.
-NUM_EPOCHS = 100  # 160
+N_SIMULATIONS = 200_000  # 100_000 (minimum), probably closer to 1_000_000 for a serious retrieval.
+NUM_EPOCHS = 300  # 160
 BATCH_SIZE = 1024   # 256, or 512 if hardware allows
 N_POSTERIOR_SAMPLES = 512  # 16_384
+EARLY_STOPPING_PATIENCE = 30
 # Maximum number of posterior draws forwarded through the pRT forward model per
 # posterior-predictive check.
 N_PREDICTIVE_FORWARD_MODEL_SAMPLES = 128  # None to use all N_POSTERIOR_SAMPLES
 # When True, skip simulation and training and load the previously saved posterior
-RESUME_FROM_SAVED_POSTERIOR = False
+RESUME_FROM_SAVED_POSTERIOR = True
 RUN_EXACT_RETRIEVAL = False
 OUTPUT_ROOT: Path | None = None
 GENERATE_PLOTS = True
@@ -126,7 +127,7 @@ def build_retrieval_config(example_data_file: Path) -> tuple[RetrievalConfig, jn
 
     pressures = jnp.logspace(-6.0, 2.0, 100)
     retrieval_config = RetrievalConfig(
-        retrieval_name='hr8799e_runtime_native_emission_jaxns_v2',
+        retrieval_name='hr8799e_sbi_v3',
         run_mode='retrieval',
         sampler_type='jaxns',
         adaptive_mesh_refinement=False,  # type: ignore[arg-type]
@@ -247,7 +248,7 @@ def build_sbi_task(retrieval_config: RetrievalConfig) -> SBITask:
     return SBITask.from_retrieval_config(
         retrieval_config,
         simulation_config=SimulationConfig(
-            batch_size=8,
+            batch_size=64,
             noise_model=NoiseModelConfig(mode='observational', seed=123),
         ),
     )
@@ -456,13 +457,15 @@ def main() -> None:
         print('Training conditional spline posterior...')
         posterior = ConditionalSplineFlowPosterior(
             parameter_dim=len(task.parameter_names),
-            embedding_dim=128,  # 256
-            num_coupling_layers=6,  # 12
-            hidden_dim=128,  # 512
-            learning_rate=4*2e-4,  # 2e-4
+            embedding_dim=256,
+            num_coupling_layers=10,
+            hidden_dim=256,
+            learning_rate=2e-4,
             batch_size=BATCH_SIZE,
             num_epochs=NUM_EPOCHS,
             parameter_space='unconstrained',
+            spline_bound=10.0,
+            early_stopping_patience=EARLY_STOPPING_PATIENCE,
             checkpoint_directory=checkpoint_dir.as_posix(),
             checkpoint_backend='equinox',
             resume_from_checkpoint=True,
@@ -492,6 +495,7 @@ def main() -> None:
         interval_level=0.9,
         seed=654,
         n_predictive_forward_model_samples=N_PREDICTIVE_FORWARD_MODEL_SAMPLES,
+        checkpoint_directory=(sbi_output_root / 'predictive_checkpoints').as_posix(),
     )
     print('SBC mean rank:', sbc_report.mean_rank)
     print('SBC normalized mean-rank error:', sbc_report.normalized_mean_rank_error)
@@ -550,6 +554,7 @@ def main() -> None:
                 'parameter_names': list(task.parameter_names),
                 'n_simulations': N_SIMULATIONS,
                 'num_epochs': NUM_EPOCHS,
+                'early_stopping_patience': EARLY_STOPPING_PATIENCE,
                 'n_posterior_samples': N_POSTERIOR_SAMPLES,
                 'run_exact_retrieval': RUN_EXACT_RETRIEVAL,
                 'generate_plots': GENERATE_PLOTS,

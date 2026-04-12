@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 import equinox as eqx
 from jax import Array, random, vmap
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -94,7 +95,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         parameter_space: str = "unconstrained",
         flow_family: str = "spline",
         num_spline_bins: int = 8,
-        spline_bound: float = 5.0,
+        spline_bound: float = 10.0,
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
         checkpoint_directory: str | None = None,
@@ -250,6 +251,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 checkpoint_directory=self.checkpoint_directory,
                 checkpoint_backend=self.checkpoint_backend,
                 resume_from_checkpoint=self.resume_from_checkpoint,
+                data_parallel=len(jax.devices()) > 1,
             )
         )
         self.model, history, validation_metrics, training_metadata = trainer.fit(
@@ -335,7 +337,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "effective_flow_family", metadata.get("flow_family", "affine")
             ),
             "num_spline_bins": metadata.get("num_spline_bins", 8),
-            "spline_bound": metadata.get("spline_bound", 5.0),
+            "spline_bound": metadata.get("spline_bound", 10.0),
             "early_stopping_patience": metadata.get("early_stopping_patience"),
             "early_stopping_min_delta": metadata.get("early_stopping_min_delta", 0.0),
             "checkpoint_directory": metadata.get("checkpoint_directory"),
@@ -367,7 +369,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             parameter_space=str(metadata["parameter_space"]),
             flow_family=str(estimator_config.get("flow_family", "affine")),
             num_spline_bins=int(estimator_config.get("num_spline_bins", 8)),
-            spline_bound=float(estimator_config.get("spline_bound", 5.0)),
+            spline_bound=float(estimator_config.get("spline_bound", 10.0)),
             early_stopping_patience=estimator_config.get("early_stopping_patience"),
             early_stopping_min_delta=float(
                 estimator_config.get("early_stopping_min_delta", 0.0)

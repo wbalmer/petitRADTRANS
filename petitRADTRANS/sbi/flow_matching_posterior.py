@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 import equinox as eqx
 from jax import lax, vmap, nn, random
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -42,6 +43,7 @@ class _FlowMatchingVelocityField(eqx.Module):
             depth=int(depth),
             activation=nn.gelu,
             key=key,
+            dtype=jnp.float32,
         )
 
     def __call__(
@@ -237,6 +239,7 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
                 checkpoint_directory=self.checkpoint_directory,
                 checkpoint_backend=self.checkpoint_backend,
                 resume_from_checkpoint=self.resume_from_checkpoint,
+                data_parallel=len(jax.devices()) > 1,
             )
         )
         self.model, history, validation_metrics, training_metadata = trainer.fit(

@@ -41,6 +41,7 @@ from .dataset import (
 from .encoders import (
     HierarchicalObservationEncoder,
     PhotometryPointEncoder,
+    SpectralConv1DEncoder,
     SpectralPatchEncoder,
 )
 
@@ -120,6 +121,7 @@ __all__ = [
     # Encoders
     "HierarchicalObservationEncoder",
     "PhotometryPointEncoder",
+    "SpectralConv1DEncoder",
     "SpectralPatchEncoder",
     # Posterior loading
     "load_posterior_estimator",
