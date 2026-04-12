@@ -2989,7 +2989,8 @@ class Radtrans:
         # --- Build additional outputs ---
         additional_outputs = {}
 
-        if cloud_particles_mean_radii is not None:
+        if (sanitized_inputs["cloud_particles_mean_radii"] is not None
+                or len(sanitized_inputs["cloud_f_sed"]) > 0):
             additional_outputs["cloud_particles_mean_radii"] = (
                 cloud_particles_mean_radii
             )
@@ -4375,7 +4376,8 @@ class Radtrans:
                 "particles_radii"
             ]
 
-        if cloud_particles_mean_radii is not None:
+        if (sanitized_inputs["cloud_particles_mean_radii"] is not None
+                or len(sanitized_inputs["cloud_f_sed"]) > 0):
             additional_outputs["cloud_particles_mean_radii"] = (
                 cloud_particles_mean_radii
             )

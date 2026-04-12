@@ -79,8 +79,9 @@ def compute_cia_opacities(
 ):
     """Wrapper to interpolate_cia, calculating each collision's combined mass fraction."""
     # Add mass fractions sharing the same basename
+    # Sort keys to match JAX JIT's alphabetical ordering of dict keys
     species_basenames = []
-    for species in mass_fractions.keys():
+    for species in sorted(mass_fractions.keys()):
         species_basenames.append(Opacity.get_species_base_name(species))
     species_basenames = tuple(species_basenames)
 

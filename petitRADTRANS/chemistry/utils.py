@@ -796,7 +796,7 @@ def get_base_species_mass_fractions(
     mass_fractions: dict, species_basenames: tuple
 ) -> dict:
     base_species_mass_fractions = {}
-    for i, species in enumerate(list(mass_fractions.keys())):
+    for i, species in enumerate(sorted(list(mass_fractions.keys()))):
         # Using Opacity.get_species_basename to get the base species name
         species_basename = species_basenames[i]
 
@@ -870,10 +870,11 @@ def mass_fractions2metallicity(
 
 def simplify_species_list(species_list: list) -> list:
     species_basenames = [
-        Opacity.get_species_base_name(species) for species in species_list
+        Opacity.get_species_base_name(species) for species in sorted(species_list)
     ]
     species_isotopologue_names = [
-        Opacity.get_species_isotopologue_name(species) for species in species_list
+        Opacity.get_species_isotopologue_name(species)
+        for species in sorted(species_list)
     ]
 
     for i, species in enumerate(species_isotopologue_names):
