@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 
 from .dataset import DatasetSplit, NormalizedObservationDatasetReader
@@ -314,6 +318,7 @@ def generate_sbc_report(
     levels: Sequence[float] = (0.5, 0.8, 0.95),
     max_cases: int | None = None,
     seed: int | None = None,
+    data_parallel: bool | None = None,
 ) -> SimulationBasedCalibrationReport:
     """Run SBC over a dataset reader using normalized observation batches.
 
@@ -350,6 +355,7 @@ def generate_sbc_report(
     resolved_parameter_space = parameter_space or getattr(
         posterior, "parameter_space", "physical"
     )
+    _data_parallel = len(jax.devices()) > 1 if data_parallel is None else data_parallel
     posterior_draws = []
     truths = []
     base_seed = 0 if seed is None else int(seed)
@@ -381,10 +387,25 @@ def generate_sbc_report(
 
         if has_batch_sample and n_in_batch > 0:
             # One JIT dispatch for the entire batch instead of one per observation.
-            import jax.numpy as jnp
             stacked_embeddings = jnp.stack(
                 [encoded_batch[i].embedding for i in range(n_in_batch)]
             )
+            # Optionally shard embeddings across devices for parallel sampling
+            if _data_parallel:
+                devices = jax.devices()
+                if len(devices) > 1:
+                    n_devices = len(devices)
+                    n_emb = stacked_embeddings.shape[0]
+                    remainder = n_emb % n_devices
+                    if remainder != 0:
+                        pad_count = n_devices - remainder
+                        padding = jnp.repeat(stacked_embeddings[-1:], pad_count, axis=0)
+                        stacked_embeddings = jnp.concatenate([stacked_embeddings, padding], axis=0)
+                    mesh = jax.sharding.Mesh(np.array(devices), axis_names=('batch',))
+                    from jax.sharding import NamedSharding, PartitionSpec as P
+                    stacked_embeddings = jax.device_put(
+                        stacked_embeddings, NamedSharding(mesh, P('batch'))
+                    )
             batch_draws = posterior.batch_sample_posterior(
                 stacked_embeddings,
                 n_samples=n_posterior_samples,
@@ -550,6 +571,8 @@ def generate_posterior_predictive_report(
     seed: int | None = None,
     simulator: RuntimeSimulator | None = None,
     n_predictive_forward_model_samples: int | None = None,
+    checkpoint_directory: str | Path | None = None,
+    data_parallel: bool | None = None,
 ) -> PosteriorPredictiveReport:
     """Generate posterior-predictive summaries for a held-out dataset split.
 
@@ -579,6 +602,11 @@ def generate_posterior_predictive_report(
         forwarded.  Subsampling here is the primary lever for keeping the
         total number of petitRADTRANS calls to a manageable level when
         evaluating many held-out cases.
+    checkpoint_directory:
+        Optional directory for per-case checkpoints.  When provided, each
+        completed case is written to disk as a compressed ``.npz`` file and
+        skipped on resume.  This makes the expensive forward-model loop
+        restartable after interruption.
 
     Returns
     -------
@@ -607,7 +635,8 @@ def generate_posterior_predictive_report(
         )
 
     resolved_parameter_space = getattr(posterior, "parameter_space", "physical")
-    simulator = simulator or RuntimeSimulator(task=task, seed=seed)
+    _dp = len(jax.devices()) > 1 if data_parallel is None else data_parallel
+    simulator = simulator or RuntimeSimulator(task=task, seed=seed, data_parallel=_dp)
     observed_values: dict[str, list[np.ndarray]] = {}
     predictive_mean: dict[str, list[np.ndarray]] = {}
     predictive_std: dict[str, list[np.ndarray]] = {}
@@ -620,6 +649,12 @@ def generate_posterior_predictive_report(
     rng = np.random.default_rng(seed)
     has_batch_encode = hasattr(posterior, "batch_encode_observation")
 
+    # Checkpoint directory setup
+    ckpt_dir: Path | None = None
+    if checkpoint_directory is not None:
+        ckpt_dir = Path(checkpoint_directory)
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+
     # Batch-encode all selected observations in one vmapped forward pass when
     # the posterior supports it; otherwise encode case-by-case.
     if has_batch_encode:
@@ -629,6 +664,41 @@ def generate_posterior_predictive_report(
         encoded_all = None
 
     for case_offset, sample_index in enumerate(selected_indices):
+        # --- Checkpoint resume: skip cases already completed ---
+        ckpt_file: Path | None = None
+        if ckpt_dir is not None:
+            ckpt_file = ckpt_dir / f"case_{case_offset:06d}.npz"
+            if ckpt_file.exists():
+                print(
+                    f"Posterior-predictive case {case_offset + 1}/{n_cases} "
+                    f"[restored from checkpoint]",
+                    flush=True,
+                )
+                restored = np.load(ckpt_file, allow_pickle=False)
+                restored_obs_names = str(
+                    restored["_observation_names_joined"].item()
+                ).split(",")
+                for obs_name in restored_obs_names:
+                    observed_values.setdefault(obs_name, []).append(
+                        restored[f"{obs_name}_observed"]
+                    )
+                    predictive_mean.setdefault(obs_name, []).append(
+                        restored[f"{obs_name}_pred_mean"]
+                    )
+                    predictive_std.setdefault(obs_name, []).append(
+                        restored[f"{obs_name}_pred_std"]
+                    )
+                    interval_lower.setdefault(obs_name, []).append(
+                        restored[f"{obs_name}_lower"]
+                    )
+                    interval_upper.setdefault(obs_name, []).append(
+                        restored[f"{obs_name}_upper"]
+                    )
+                    interval_hits.setdefault(obs_name, []).append(
+                        restored[f"{obs_name}_hits"]
+                    )
+                continue
+
         print(f"Posterior-predictive case {case_offset + 1}/{n_cases} ...", flush=True)
         if encoded_all is not None:
             encoded = encoded_all[case_offset]
@@ -654,6 +724,10 @@ def generate_posterior_predictive_report(
             physical_parameters = physical_parameters[indices]
         predictive_batch = simulator.simulate_from_parameters(physical_parameters)
 
+        # Collect per-observation results for this case
+        case_save_arrays: dict[str, np.ndarray] = {}
+        case_observation_names: list[str] = []
+
         for observation_name, payload in predictive_batch.observations.items():
             predictive_values = np.asarray(payload["values"], dtype=float)
             lower, upper = central_credible_interval(
@@ -663,19 +737,31 @@ def generate_posterior_predictive_report(
                 raw_split["observations"][observation_name]["values"][sample_index],
                 dtype=float,
             )
+            pred_mean = np.mean(predictive_values, axis=0)
+            pred_std = np.std(predictive_values, axis=0)
+            hits = (observed_value >= lower) & (observed_value <= upper)
 
             observed_values.setdefault(observation_name, []).append(observed_value)
-            predictive_mean.setdefault(observation_name, []).append(
-                np.mean(predictive_values, axis=0)
-            )
-            predictive_std.setdefault(observation_name, []).append(
-                np.std(predictive_values, axis=0)
-            )
+            predictive_mean.setdefault(observation_name, []).append(pred_mean)
+            predictive_std.setdefault(observation_name, []).append(pred_std)
             interval_lower.setdefault(observation_name, []).append(lower)
             interval_upper.setdefault(observation_name, []).append(upper)
-            interval_hits.setdefault(observation_name, []).append(
-                (observed_value >= lower) & (observed_value <= upper)
+            interval_hits.setdefault(observation_name, []).append(hits)
+
+            case_observation_names.append(observation_name)
+            case_save_arrays[f"{observation_name}_observed"] = observed_value
+            case_save_arrays[f"{observation_name}_pred_mean"] = pred_mean
+            case_save_arrays[f"{observation_name}_pred_std"] = pred_std
+            case_save_arrays[f"{observation_name}_lower"] = lower
+            case_save_arrays[f"{observation_name}_upper"] = upper
+            case_save_arrays[f"{observation_name}_hits"] = hits
+
+        # --- Checkpoint save: persist this case ---
+        if ckpt_file is not None:
+            case_save_arrays["_observation_names_joined"] = np.array(
+                [",".join(case_observation_names)]
             )
+            np.savez_compressed(ckpt_file, **case_save_arrays)
 
     observed_arrays = {
         name: np.asarray(values, dtype=float)

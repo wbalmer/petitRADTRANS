@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import equinox as eqx
+import jax
 from jax import Array, vmap, random
 import jax.numpy as jnp
 
@@ -121,9 +122,9 @@ class SpectralPatchEncoder(eqx.Module):
         mlp_key, projection_key = random.split(key)
         self.embedding_dim = int(embedding_dim)
         self.patch_size = int(patch_size)
-        self.patch_mlp = eqx.nn.MLP(18, self.embedding_dim, hidden_dim, 2, key=mlp_key)
+        self.patch_mlp = eqx.nn.MLP(18, self.embedding_dim, hidden_dim, 2, key=mlp_key, dtype=jnp.float32)
         self.output_projection = eqx.nn.Linear(
-            self.embedding_dim, self.embedding_dim, key=projection_key
+            self.embedding_dim, self.embedding_dim, key=projection_key, dtype=jnp.float32
         )
 
     def encode_block(self, block: ObservationBlock) -> jnp.ndarray:
@@ -273,6 +274,181 @@ class SpectralPatchEncoder(eqx.Module):
         return self.output_projection(pooled)
 
 
+class SpectralConv1DEncoder(eqx.Module):
+    """Learned spectral encoder using 1D convolutions to retain positional information.
+
+    Parameters
+    ----------
+    embedding_dim:
+        Size of the spectral embedding returned for one observation block.
+    n_wavelengths:
+        Fixed number of spectral points per observation block. Must match the
+        observation schema of the SBI task.
+    hidden_channels:
+        Tuple of intermediate channel widths for conv layers.
+    key:
+        Optional JAX random key used for weight initialization.
+    """
+
+    conv1: eqx.nn.Conv1d
+    conv2: eqx.nn.Conv1d
+    conv3: eqx.nn.Conv1d
+    output_projection: eqx.nn.Linear
+    embedding_dim: int = eqx.field(static=True)
+    n_wavelengths: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        embedding_dim: int = 64,
+        n_wavelengths: int = 233,
+        hidden_channels: tuple[int, int] = (32, 64),
+        key: Array | None = None,
+    ):
+        if key is None:
+            key = random.PRNGKey(0)
+
+        k1, k2, k3, k_proj = random.split(key, 4)
+        self.embedding_dim = int(embedding_dim)
+        self.n_wavelengths = int(n_wavelengths)
+        ch1, ch2 = hidden_channels
+
+        # 3 input channels: values, uncertainties, coordinates
+        # Explicitly use float32 so weights are not promoted to float64
+        # when jax_enable_x64 is active.
+        self.conv1 = eqx.nn.Conv1d(3, ch1, kernel_size=7, padding=3, key=k1, dtype=jnp.float32)
+        self.conv2 = eqx.nn.Conv1d(ch1, ch2, kernel_size=5, padding=2, key=k2, dtype=jnp.float32)
+        self.conv3 = eqx.nn.Conv1d(ch2, self.embedding_dim, kernel_size=3, padding=1, key=k3, dtype=jnp.float32)
+        self.output_projection = eqx.nn.Linear(self.embedding_dim, self.embedding_dim, key=k_proj, dtype=jnp.float32)
+
+    def _forward_conv(
+        self,
+        values: jnp.ndarray,
+        uncertainties: jnp.ndarray,
+        coordinates: jnp.ndarray,
+        mask: jnp.ndarray,
+    ) -> jnp.ndarray:
+        """Run 1D conv stack on pre-processed arrays.
+
+        Parameters
+        ----------
+        values, uncertainties, coordinates:
+            Float32 1-D arrays of length ``n_wavelengths``.
+        mask:
+            Boolean 1-D mask (True = invalid).
+
+        Returns
+        -------
+        jnp.ndarray
+            Embedding of shape ``(embedding_dim,)``.
+        """
+        # Zero out masked wavelength bins
+        valid = (~mask).astype(jnp.float32)
+        values = values * valid
+        uncertainties = uncertainties * valid
+        coordinates = coordinates * valid
+
+        # Stack into (3, n_wavelengths) for Conv1d
+        x = jnp.stack([values, uncertainties, coordinates], axis=0)
+
+        x = jax.nn.gelu(self.conv1(x))   # (ch1, n_wavelengths)
+        x = jax.nn.gelu(self.conv2(x))   # (ch2, n_wavelengths)
+        x = jax.nn.gelu(self.conv3(x))   # (embedding_dim, n_wavelengths)
+
+        # Global average pooling over spatial dimension (masked)
+        valid_expanded = valid[None, :]  # (1, n_wavelengths)
+        x = x * valid_expanded
+        pooled = jnp.sum(x, axis=-1) / jnp.maximum(jnp.sum(valid), 1.0)
+
+        return self.output_projection(pooled)
+
+    def _pad_to_fixed(self, arr: jnp.ndarray) -> jnp.ndarray:
+        """Pad or truncate a 1-D array to ``n_wavelengths``."""
+        n = arr.shape[0]
+        if n == self.n_wavelengths:
+            return arr
+        if n > self.n_wavelengths:
+            return arr[: self.n_wavelengths]
+        return jnp.concatenate(
+            [arr, jnp.zeros(self.n_wavelengths - n, dtype=arr.dtype)]
+        )
+
+    def encode_block(self, block: ObservationBlock) -> jnp.ndarray:
+        """Encode one spectral observation block.
+
+        Parameters
+        ----------
+        block:
+            Spectrum-like observation block.
+
+        Returns
+        -------
+        jnp.ndarray
+            Dense embedding of shape ``(embedding_dim,)``.
+        """
+        values = _as_vector(block.values)
+        uncertainties = _as_vector(block.uncertainties)
+        coordinates = _as_vector(block.coordinates)
+        n = values.shape[0]
+        mask = _safe_mask(block.mask, n)
+
+        if n == 0:
+            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
+
+        # Pad/truncate everything to n_wavelengths
+        values = self._pad_to_fixed(values)
+        if uncertainties.shape[0] == 0:
+            uncertainties = jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
+        else:
+            uncertainties = self._pad_to_fixed(uncertainties)
+        if coordinates.shape[0] == 0:
+            coordinates = jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
+        else:
+            coordinates = self._pad_to_fixed(coordinates)
+
+        # Extend mask to cover padding
+        pad_mask = jnp.arange(self.n_wavelengths) >= n
+        mask = self._pad_to_fixed(mask.astype(jnp.float32)).astype(bool) | pad_mask
+
+        return self._forward_conv(values, uncertainties, coordinates, mask)
+
+    def _encode_block_raw(
+        self,
+        values: jnp.ndarray,
+        uncertainties: jnp.ndarray,
+        coordinates: jnp.ndarray,
+        mask: jnp.ndarray,
+    ) -> jnp.ndarray:
+        """Encode pre-processed block arrays (vmappable — no ObservationBlock input).
+
+        Parameters
+        ----------
+        values, uncertainties, coordinates:
+            Float32 1-D arrays already produced by ``_as_vector``.
+        mask:
+            Boolean 1-D array already produced by ``_safe_mask``.
+
+        Returns
+        -------
+        jnp.ndarray
+            Dense spectral embedding of shape ``(embedding_dim,)``.
+        """
+        if values.shape[0] == 0:
+            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
+
+        values = self._pad_to_fixed(values)
+        if uncertainties.shape[0] == 0:
+            uncertainties = jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
+        else:
+            uncertainties = self._pad_to_fixed(uncertainties)
+        if coordinates.shape[0] == 0:
+            coordinates = jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
+        else:
+            coordinates = self._pad_to_fixed(coordinates)
+
+        mask = self._pad_to_fixed(mask.astype(jnp.float32)).astype(bool)
+        return self._forward_conv(values, uncertainties, coordinates, mask)
+
+
 class PhotometryPointEncoder(eqx.Module):
     """Learned photometry encoder using per-point MLP features and pooling.
 
@@ -303,9 +479,9 @@ class PhotometryPointEncoder(eqx.Module):
 
         mlp_key, projection_key = random.split(key)
         self.embedding_dim = int(embedding_dim)
-        self.point_mlp = eqx.nn.MLP(4, self.embedding_dim, hidden_dim, 2, key=mlp_key)
+        self.point_mlp = eqx.nn.MLP(4, self.embedding_dim, hidden_dim, 2, key=mlp_key, dtype=jnp.float32)
         self.output_projection = eqx.nn.Linear(
-            self.embedding_dim, self.embedding_dim, key=projection_key
+            self.embedding_dim, self.embedding_dim, key=projection_key, dtype=jnp.float32
         )
 
     def encode_block(self, block: ObservationBlock) -> jnp.ndarray:
@@ -417,10 +593,10 @@ class DatasetSetAggregator(eqx.Module):
         mlp_key, projection_key = random.split(key)
         self.embedding_dim = int(embedding_dim)
         self.block_projection = eqx.nn.MLP(
-            self.embedding_dim, self.embedding_dim, hidden_dim, 2, key=mlp_key
+            self.embedding_dim, self.embedding_dim, hidden_dim, 2, key=mlp_key, dtype=jnp.float32
         )
         self.output_projection = eqx.nn.Linear(
-            self.embedding_dim * 3, self.embedding_dim, key=projection_key
+            self.embedding_dim * 3, self.embedding_dim, key=projection_key, dtype=jnp.float32
         )
 
     def aggregate(self, block_embeddings: list[jnp.ndarray]) -> jnp.ndarray:
@@ -477,7 +653,7 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
     currently fall back to resized raw-value vectors.
     """
 
-    spectrum_encoder: SpectralPatchEncoder
+    spectrum_encoder: SpectralPatchEncoder | SpectralConv1DEncoder
     photometry_encoder: PhotometryPointEncoder
     aggregator: DatasetSetAggregator
     embedding_dim: int = eqx.field(static=True)
@@ -489,6 +665,8 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
         photometry_embedding_dim: int = 64,
         patch_size: int = 32,
         hidden_dim: int = 128,
+        spectrum_encoder_type: str = "conv1d",
+        n_wavelengths: int = 233,
         key: Array | None = None,
     ):
         if key is None:
@@ -496,9 +674,14 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
 
         spectrum_key, photometry_key, aggregator_key = random.split(key, 3)
         self.embedding_dim = int(embedding_dim)
-        self.spectrum_encoder = SpectralPatchEncoder(
-            spectrum_embedding_dim, patch_size, hidden_dim, spectrum_key
-        )
+        if spectrum_encoder_type == "conv1d":
+            self.spectrum_encoder = SpectralConv1DEncoder(
+                spectrum_embedding_dim, n_wavelengths, key=spectrum_key
+            )
+        else:
+            self.spectrum_encoder = SpectralPatchEncoder(
+                spectrum_embedding_dim, patch_size, hidden_dim, spectrum_key
+            )
         self.photometry_encoder = PhotometryPointEncoder(
             photometry_embedding_dim, hidden_dim, photometry_key
         )
@@ -682,5 +865,6 @@ __all__ = [
     "DatasetSetAggregator",
     "HierarchicalObservationEncoder",
     "PhotometryPointEncoder",
+    "SpectralConv1DEncoder",
     "SpectralPatchEncoder",
 ]

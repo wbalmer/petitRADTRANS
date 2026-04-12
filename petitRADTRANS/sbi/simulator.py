@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any, Mapping
 
+import jax
 from jax import Array, random, vmap
 import jax.numpy as jnp
 import numpy as np
@@ -177,9 +178,227 @@ class SimulationRuntime(RetrievalRuntime):
 
         return simulated_observations
 
+    def _run_batched_rt_kernel(
+        self,
+        parameter_matrix: Any,
+    ) -> tuple[Any, list[tuple[Any, Any]]]:
+        """Run the expensive vmapped RT kernel and return raw results.
+
+        Returns
+        -------
+        tuple[batched_physical_params, list[(group, batched_model_result)]]
+            The batched physical parameters and per-group raw model outputs
+            before observation projection.
+        """
+        batched_physical_params = vmap(
+            self.parameter_layout.physical_params_from_free_values
+        )(parameter_matrix)
+
+        group_batched_results = [
+            (
+                group,
+                vmap(group.model_generating_function, in_axes=(None, 0))(
+                    group.model_context, batched_physical_params
+                ),
+            )
+            for group in self.model_groups
+        ]
+        return batched_physical_params, group_batched_results
+
+    def _run_batched_rt_kernel_multi_device(
+        self,
+        parameter_matrix: Any,
+    ) -> tuple[Any, list[tuple[Any, Any]]]:
+        """Multi-device version of :meth:`_run_batched_rt_kernel`.
+
+        Distributes the batch across all available JAX devices by placing
+        each chunk on a separate device with ``jax.device_put`` and then
+        calling the single-device ``_run_batched_rt_kernel`` per chunk.
+        JAX's asynchronous GPU dispatch allows the per-device computations
+        to overlap.  Results are gathered and concatenated before return.
+
+        The parameter matrix **must** have its leading dimension equal to a
+        multiple of the device count (caller is responsible for padding).
+        """
+        devices = jax.devices()
+        n_devices = len(devices)
+        n_total = int(parameter_matrix.shape[0])
+        per_device = n_total // n_devices
+
+        # Dispatch each chunk to a different device; the vmap inside
+        # _run_batched_rt_kernel follows the data placement.
+        device_results: list[tuple[Any, list[tuple[Any, Any]]]] = []
+        for i in range(n_devices):
+            chunk = parameter_matrix[i * per_device : (i + 1) * per_device]
+            chunk = jax.device_put(chunk, devices[i])
+            device_results.append(self._run_batched_rt_kernel(chunk))
+
+        # Move all results to device 0 so that concatenation doesn't mix
+        # arrays residing on different GPUs (which JAX forbids).
+        gather_device = devices[0]
+        device_results = [
+            (
+                jax.device_put(pp, gather_device),
+                [(g, jax.device_put(r, gather_device)) for g, r in gr],
+            )
+            for pp, gr in device_results
+        ]
+
+        # Concatenate physical params from all devices.
+        flat_pp = jax.tree_util.tree_map(
+            lambda *xs: jnp.concatenate(xs, axis=0),
+            *(dr[0] for dr in device_results),
+        )
+
+        # Concatenate per-group model results.
+        groups = [g for g, _ in device_results[0][1]]
+        flat_group_results = [
+            (
+                group,
+                jax.tree_util.tree_map(
+                    lambda *xs: jnp.concatenate(xs, axis=0),
+                    *(device_results[d][1][g_idx][1] for d in range(n_devices)),
+                ),
+            )
+            for g_idx, group in enumerate(groups)
+        ]
+        return flat_pp, flat_group_results
+
+    def _project_batched_rt_results(
+        self,
+        batched_physical_params: Any,
+        group_batched_results: list[tuple[Any, Any]],
+        n_samples: int,
+    ) -> dict[str, dict[str, Any]]:
+        """Project raw RT kernel outputs into observation space.
+
+        This is the cheap projection step (interpolation, scaling, binning).
+        When possible the projection and flux-transform functions are
+        vectorized with ``jax.vmap`` so that the Python-level loop over
+        samples is replaced by a single traced call.
+        """
+        simulated_observations: dict[str, dict[str, Any]] = {}
+
+        for group, batched_result in group_batched_results:
+            for obs_name in group.observation_names:
+                observation = self.observations[obs_name]
+
+                # --- Vectorize projection + flux scaling + offset ----------
+                def _project_and_scale(pp, wl, sp):
+                    proj = self._project_dataset_observation(obs_name, pp, wl, sp)
+                    proj = _apply_flux_scaling(proj, observation, pp)
+                    proj = _offset_flux(proj, observation, pp)
+                    return proj
+
+                projected_batch = jnp.asarray(
+                    vmap(_project_and_scale)(
+                        batched_physical_params,
+                        batched_result.wavelengths,
+                        batched_result.spectrum,
+                    ),
+                    dtype=JAX_DTYPE,
+                )
+
+                # --- Uncertainties -----------------------------------------
+                # When ``scale_uncertainties`` is active, the error-bar
+                # parameters vary per sample so we must evaluate per row.
+                # Otherwise the result is observation-static and we broadcast.
+                first_pp = PhysicalParams(
+                    ordered_names=batched_physical_params.ordered_names,
+                    dynamic_names=batched_physical_params.dynamic_names,
+                    dynamic_values=tuple(
+                        v[0] for v in batched_physical_params.dynamic_values
+                    ),
+                    static_items=batched_physical_params.static_items,
+                )
+                base_unc, base_cov = _scale_and_inflate_uncertainties(
+                    observation, first_pp
+                )
+
+                if observation.scale_uncertainties or observation.fit_covariance:
+                    unc_list = [base_unc]
+                    cov_list = [base_cov]
+                    for i in range(1, n_samples):
+                        pp_i = PhysicalParams(
+                            ordered_names=batched_physical_params.ordered_names,
+                            dynamic_names=batched_physical_params.dynamic_names,
+                            dynamic_values=tuple(
+                                v[i]
+                                for v in batched_physical_params.dynamic_values
+                            ),
+                            static_items=batched_physical_params.static_items,
+                        )
+                        u, c = _scale_and_inflate_uncertainties(observation, pp_i)
+                        unc_list.append(u)
+                        cov_list.append(c)
+                    stacked_unc = (
+                        jnp.stack(
+                            [jnp.asarray(u, dtype=JAX_DTYPE) for u in unc_list]
+                        )
+                        if base_unc is not None
+                        else None
+                    )
+                    stacked_cov = (
+                        jnp.stack(
+                            [jnp.asarray(c, dtype=JAX_DTYPE) for c in cov_list]
+                        )
+                        if base_cov is not None
+                        else None
+                    )
+                else:
+                    if base_unc is not None:
+                        stacked_unc = jnp.broadcast_to(
+                            jnp.asarray(base_unc, dtype=JAX_DTYPE)[jnp.newaxis, :],
+                            (n_samples,) + jnp.asarray(base_unc).shape,
+                        )
+                    else:
+                        stacked_unc = None
+                    if base_cov is not None:
+                        stacked_cov = jnp.broadcast_to(
+                            jnp.asarray(base_cov, dtype=JAX_DTYPE)[jnp.newaxis, :, :],
+                            (n_samples,) + jnp.asarray(base_cov).shape,
+                        )
+                    else:
+                        stacked_cov = None
+
+                # --- Per-observation metadata (static, replicated) ---------
+                metadata_entry = {
+                    "photometry": observation.photometry,
+                    "source_name": group.source_name,
+                    "line_opacity_mode": observation.line_opacity_mode,
+                    "scale_flux": observation.scale_flux,
+                    "scale_uncertainties": observation.scale_uncertainties,
+                    "fit_flux_offset": observation.fit_flux_offset,
+                }
+
+                _mask_arr = np.asarray(observation.mask) if observation.mask is not None else None
+                _coord_arr = jnp.asarray(observation.wavelengths, dtype=JAX_DTYPE)
+
+                simulated_observations[obs_name] = {
+                    "values": projected_batch,
+                    "uncertainties": stacked_unc,
+                    "covariance": stacked_cov,
+                    "mask": (
+                        np.broadcast_to(
+                            _mask_arr[np.newaxis],
+                            (n_samples,) + _mask_arr.shape,
+                        )
+                        if _mask_arr is not None
+                        else None
+                    ),
+                    "coordinates": jnp.broadcast_to(
+                        _coord_arr[jnp.newaxis],
+                        (n_samples,) + _coord_arr.shape,
+                    ),
+                    "metadata": [metadata_entry] * n_samples,
+                }
+
+        return simulated_observations
+
     def simulate_observations_batched(
         self,
         parameter_matrix: Any,
+        multi_device: bool = False,
     ) -> dict[str, dict[str, Any]]:
         """Return deterministic batched observation outputs for a parameter matrix.
 
@@ -191,6 +410,9 @@ class SimulationRuntime(RetrievalRuntime):
 
         Args:
             parameter_matrix: Shape ``(n_samples, n_free_params)``.
+            multi_device: When ``True`` and more than one JAX device is
+                available, distribute the vmapped RT kernel across devices
+                using ``jax.pmap``.
 
         Returns:
             Mapping from observation name to a payload dict where ``"values"``
@@ -227,74 +449,19 @@ class SimulationRuntime(RetrievalRuntime):
                 for name in obs_names
             }
 
-        # Build batched PhysicalParams: each leaf has shape (n_samples, ...).
-        batched_physical_params = vmap(
-            self.parameter_layout.physical_params_from_free_values
-        )(parameter_matrix)
-
-        # Vmap the RT kernel once per model group — the expensive step.
-        group_batched_results = [
-            (
-                group,
-                vmap(group.model_generating_function, in_axes=(None, 0))(
-                    group.model_context, batched_physical_params
-                ),
+        use_multi_device = (
+            multi_device
+            and len(jax.devices()) > 1
+            and n_samples >= len(jax.devices())
+        )
+        if use_multi_device:
+            batched_pp, group_results = self._run_batched_rt_kernel_multi_device(
+                parameter_matrix
             )
-            for group in self.model_groups
-        ]
+        else:
+            batched_pp, group_results = self._run_batched_rt_kernel(parameter_matrix)
 
-        # Python loop over samples for cheap projection (interpolation, scaling).
-        obs_payloads: dict[str, list[dict]] = {name: [] for name in self.observations}
-
-        for i in range(n_samples):
-            # Extract scalar PhysicalParams for sample i.
-            physical_params_i = PhysicalParams(
-                ordered_names=batched_physical_params.ordered_names,
-                dynamic_names=batched_physical_params.dynamic_names,
-                dynamic_values=tuple(
-                    v[i] for v in batched_physical_params.dynamic_values
-                ),
-                static_items=batched_physical_params.static_items,
-            )
-
-            for group, batched_result in group_batched_results:
-                wavelengths_i = batched_result.wavelengths[i]
-                spectrum_i = batched_result.spectrum[i]
-
-                for obs_name in group.observation_names:
-                    observation = self.observations[obs_name]
-                    projected = self._project_dataset_observation(
-                        obs_name, physical_params_i, wavelengths_i, spectrum_i
-                    )
-                    projected = _apply_flux_scaling(
-                        projected, observation, physical_params_i
-                    )
-                    projected = _offset_flux(projected, observation, physical_params_i)
-                    projected_uncertainties, projected_covariance = (
-                        _scale_and_inflate_uncertainties(observation, physical_params_i)
-                    )
-                    obs_payloads[obs_name].append(
-                        {
-                            "values": projected,
-                            "uncertainties": projected_uncertainties,
-                            "covariance": projected_covariance,
-                            "mask": observation.mask,
-                            "coordinates": observation.wavelengths,
-                            "metadata": {
-                                "photometry": observation.photometry,
-                                "source_name": group.source_name,
-                                "line_opacity_mode": observation.line_opacity_mode,
-                                "scale_flux": observation.scale_flux,
-                                "scale_uncertainties": observation.scale_uncertainties,
-                                "fit_flux_offset": observation.fit_flux_offset,
-                            },
-                        }
-                    )
-
-        return {
-            name: _stack_simulation_output_payloads(payloads)
-            for name, payloads in obs_payloads.items()
-        }
+        return self._project_batched_rt_results(batched_pp, group_results, n_samples)
 
 
 class ProposalSampler(abc.ABC):
@@ -365,7 +532,11 @@ class RuntimeSimulator(BatchedSimulator):
     """
 
     def __init__(
-        self, task: SBITask, runtime: Any | None = None, seed: int | None = None
+        self,
+        task: SBITask,
+        runtime: Any | None = None,
+        seed: int | None = None,
+        data_parallel: bool | None = None,
     ):
         if runtime is None:
             runtime = SimulationRuntime.from_configuration(
@@ -390,6 +561,10 @@ class RuntimeSimulator(BatchedSimulator):
             initial_seed = 0
 
         self._rng_key = random.PRNGKey(int(initial_seed))
+        if data_parallel is None:
+            self._data_parallel = len(jax.devices()) > 1
+        else:
+            self._data_parallel = data_parallel
         self._validate_task_support()
 
     def _validate_task_support(self) -> None:
@@ -437,6 +612,38 @@ class RuntimeSimulator(BatchedSimulator):
             return proposal.sample(n_samples=n_samples, task=self.task)
 
         return self._sample_prior_parameter_batch(n_samples)["parameters"]
+
+    def _advance_rng_for_batch(self, n_samples: int) -> None:
+        """Advance the PRNG state as if ``simulate_batch(n_samples)`` were called.
+
+        This performs only cheap key-splitting – no forward-model evaluation –
+        making it suitable for fast dataset-resume skipping.
+
+        The number of ``_next_key`` calls matches the pattern inside
+        ``simulate_batch`` → ``_sample_prior_parameter_batch`` (1 key) and
+        ``_simulate_parameter_matrix`` (1 key per observation that adds noise).
+        """
+        # _sample_prior_parameter_batch always consumes one key.
+        self._next_key()
+
+        noise_mode = self.task.simulation_config.noise_model.mode
+        if noise_mode in {"none", "no_noise"}:
+            return
+
+        if self.task.simulation_config.use_vectorized_runtime:
+            # Batched noise path: 1 key per observation regardless of batch size.
+            for obs in self.runtime.observations.values():
+                if obs.covariance is not None or obs.uncertainties is not None:
+                    self._next_key()
+        else:
+            # Scalar fallback: 1 key per observation *per sample*.
+            n_noise_obs = sum(
+                1
+                for obs in self.runtime.observations.values()
+                if obs.covariance is not None or obs.uncertainties is not None
+            )
+            for _ in range(n_samples * n_noise_obs):
+                self._next_key()
 
     def _apply_noise(
         self,
@@ -554,6 +761,7 @@ class RuntimeSimulator(BatchedSimulator):
         parameter_matrix: Any,
         cube_parameters: Any = None,
         unconstrained_parameters: Any = None,
+        data_parallel: bool = False,
     ) -> SimulationBatch:
         parameter_matrix = jnp.asarray(parameter_matrix, dtype=JAX_DTYPE)
 
@@ -566,9 +774,61 @@ class RuntimeSimulator(BatchedSimulator):
                 f"got {parameter_matrix.shape[-1]}"
             )
 
+        n_samples = int(parameter_matrix.shape[0])
+
+        # When data_parallel is requested we pad the batch to a multiple of
+        # the device count so that pmap can split it evenly.  The extra
+        # samples are trimmed from the results after simulation.
+        multi_device = (
+            data_parallel
+            and self.task.simulation_config.use_vectorized_runtime
+            and len(jax.devices()) > 1
+            and n_samples >= len(jax.devices())
+        )
+        n_devices = len(jax.devices()) if multi_device else 1
+        padded_n = n_samples
+        if multi_device:
+            remainder = n_samples % n_devices
+            if remainder != 0:
+                pad_count = n_devices - remainder
+                parameter_matrix = jnp.concatenate(
+                    [parameter_matrix, jnp.repeat(parameter_matrix[-1:], pad_count, axis=0)],
+                    axis=0,
+                )
+                if cube_parameters is not None:
+                    cube_parameters = jnp.concatenate(
+                        [jnp.asarray(cube_parameters, dtype=JAX_DTYPE),
+                         jnp.repeat(jnp.asarray(cube_parameters, dtype=JAX_DTYPE)[-1:], pad_count, axis=0)],
+                        axis=0,
+                    )
+                if unconstrained_parameters is not None:
+                    unconstrained_parameters = jnp.concatenate(
+                        [jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE),
+                         jnp.repeat(jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE)[-1:], pad_count, axis=0)],
+                        axis=0,
+                    )
+                padded_n = int(parameter_matrix.shape[0])
+
         # --- Batched path (vmap the RT kernel) ---
         if self.task.simulation_config.use_vectorized_runtime:
-            det_obs = self.runtime.simulate_observations_batched(parameter_matrix)
+            det_obs = self.runtime.simulate_observations_batched(
+                parameter_matrix, multi_device=multi_device
+            )
+
+            # Trim padding introduced for even device splitting.
+            if padded_n > n_samples:
+                parameter_matrix = parameter_matrix[:n_samples]
+                if cube_parameters is not None:
+                    cube_parameters = jnp.asarray(cube_parameters, dtype=JAX_DTYPE)[:n_samples]
+                if unconstrained_parameters is not None:
+                    unconstrained_parameters = jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE)[:n_samples]
+                for obs_name in det_obs:
+                    payload = det_obs[obs_name]
+                    for key in ("values", "uncertainties", "covariance", "coordinates"):
+                        if payload.get(key) is not None and hasattr(payload[key], '__getitem__'):
+                            arr = payload[key]
+                            if hasattr(arr, 'shape') and arr.ndim >= 1 and arr.shape[0] == padded_n:
+                                payload[key] = arr[:n_samples]
 
             stacked_observations_batched: dict[str, Any] = {}
             for obs_name, payload in det_obs.items():
@@ -689,7 +949,9 @@ class RuntimeSimulator(BatchedSimulator):
         )
 
     def simulate_from_parameters(self, parameters: Any) -> SimulationBatch:
-        return self._simulate_parameter_matrix(parameters)
+        return self._simulate_parameter_matrix(
+            parameters, data_parallel=self._data_parallel
+        )
 
     def simulate_batch(
         self, n_samples: int, proposal: ProposalSampler | None = None
@@ -705,4 +967,5 @@ class RuntimeSimulator(BatchedSimulator):
             parameter_batch["parameters"],
             cube_parameters=parameter_batch["cube_parameters"],
             unconstrained_parameters=parameter_batch["unconstrained_parameters"],
+            data_parallel=self._data_parallel,
         )
