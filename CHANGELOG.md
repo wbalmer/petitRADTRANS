@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a20] - 2026-04-08
+## [4.0.0a21] - 2026-04-13
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -53,6 +53,8 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
 
 ### Changed
+- a21: Parallelised SBI
+- a21: Fixed bug with sorting of dictionary keys with JIT that led to incorrect rayleigh opacities.
 - a19 Vectorised likelihood in retrieval module and training set generation in SBI module.
 - a17 `emission_geometry` is now `irradiation_geometry` throughout, renamed other args in `Opacity`.
 - a16: Shard_map parallelisation for MCMC samplers
