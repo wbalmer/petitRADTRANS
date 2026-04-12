@@ -485,7 +485,12 @@ def _initialize_cloud_species_inputs(
     )
     cloud_particles_density = jnp.zeros(n_clouds, dtype=JAX_DTYPE)
 
-    for i_spec, cloud_name in enumerate(cloud_species_mass_fractions):
+    # Iterate in explicit cloud_species order to keep i_spec aligned with
+    # clouds_loaded_opacities tables. Dict iteration order may differ under JAX tracing.
+    for i_spec, cloud_name in enumerate(cloud_species):
+        if cloud_name not in cloud_species_mass_fractions:
+            continue
+
         cloud_opacity = CloudOpacity([cloud_name], natural_abundance=False)
         species_full_name = cloud_opacity.species_full_name
         cloud_short_name = species_full_name.split("_")[0]
