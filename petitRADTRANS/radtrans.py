@@ -1636,19 +1636,15 @@ class Radtrans:
                 + cloudy_cloud_continuum_opacities_scattering
             )
         else:
-            # Non-scattering emission path: treat cloud total extinction as pure
-            # absorption (gray-absorber approximation).  This ensures that
-            # high-albedo clouds (e.g. silicates with ω ≈ 0.99) still affect the
-            # spectrum even when the Feautrier scattering solver is disabled.
-            # The Rayleigh scattering term (continuum_opacities_scattering) is NOT
-            # added here; it has no effect in the non-scattering case and is kept
-            # separate so that the returned array can be used for transmission.
+            # Match legacy behavior in non-scattering emission mode: keep cloud
+            # scattering in the scattering channel instead of folding it into absorption.
             cloudy_continuum_opacities = (
-                continuum_opacities
-                + cloudy_cloud_continuum_opacities
+                continuum_opacities + cloudy_cloud_continuum_opacities
+            )
+            cloudy_continuum_opacities_scattering = (
+                continuum_opacities_scattering
                 + cloudy_cloud_continuum_opacities_scattering
             )
-            cloudy_continuum_opacities_scattering = continuum_opacities_scattering
 
         # Combine line opacities with continuum opacities, combined opacities are stored in the 1st species slot
         opacities = continuum.compute_combined_opacities(
@@ -1679,13 +1675,13 @@ class Radtrans:
                     + clear_cloud_continuum_opacities_scattering
                 )
             else:
-                # Non-scattering emission: treat clear-sky cloud total extinction as absorption.
                 clear_continuum_opacities = (
-                    continuum_opacities
-                    + clear_cloud_continuum_opacities
+                    continuum_opacities + clear_cloud_continuum_opacities
+                )
+                clear_continuum_opacities_scattering = (
+                    continuum_opacities_scattering
                     + clear_cloud_continuum_opacities_scattering
                 )
-                clear_continuum_opacities_scattering = continuum_opacities_scattering
             clear_opacities = continuum.compute_combined_opacities(
                 opacities=_line_opacities,
                 continuum_opacities=clear_continuum_opacities,
