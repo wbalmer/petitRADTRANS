@@ -751,6 +751,7 @@ def get_abundances(
             mass_fractions, mean_molar_mass
         )
         metallicity = jnp.mean(jnp.array(metallicity))
+        # TODO: verify that C and O are both
         co_ratio = jnp.mean(elemental_ratios[6]["local"] / elemental_ratios[8]["local"])
 
     p_bases = {}

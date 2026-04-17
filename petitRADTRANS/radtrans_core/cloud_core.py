@@ -16,7 +16,7 @@ def compute_turbulent_settling_speed(
     x,
     reference_gravity,
     rho,
-    clouds_particles_densities,
+    clouds_particle_densities,
     temperatures,
     mean_molar_masses,
 ):
@@ -27,7 +27,7 @@ def compute_turbulent_settling_speed(
         x: Particle radius (cm).
         reference_gravity: Reference surface gravity (cm.s-2).
         rho: Atmospheric density at the particle's location (g.cm-3).
-        clouds_particles_densities: Density of the cloud particle material (g.cm-3).
+        clouds_particle_densities: Density of the cloud particle material (g.cm-3).
         temperatures: Atmospheric temperature at the particle's location (K).
         mean_molar_masses: Mean molar mass of the atmosphere at the particle's location (g/mol).
                            Note: In Fortran, this was likely in amu, converted by cst_amu.
@@ -64,7 +64,7 @@ def compute_turbulent_settling_speed(
         * rho
         * reference_gravity
         * x**3.0
-        * (clouds_particles_densities - rho)
+        * (clouds_particle_densities - rho)
         / (3.0 * eta**2.0)
     )
 
@@ -88,7 +88,7 @@ def compute_turbulent_settling_speed(
     v_settling_visc = (
         2.0
         * x**2.0
-        * (clouds_particles_densities - rho)
+        * (clouds_particle_densities - rho)
         * psi
         * reference_gravity
         / (9.0 * eta)
@@ -99,7 +99,7 @@ def compute_turbulent_settling_speed(
         8.0
         * reference_gravity
         * x
-        * (clouds_particles_densities - rho)
+        * (clouds_particle_densities - rho)
         / (3.0 * Cd * rho)
     )
 
@@ -117,10 +117,10 @@ def compute_turbulent_settling_speed(
 
 
 @jit
-def compute_cloud_particles_mean_radius(
+def compute_cloud_particle_mean_radius(
     reference_gravity,
     atmospheric_densities,
-    clouds_particles_densities,
+    clouds_particle_densities,
     temperatures,
     mean_molar_masses,
     f_seds,
@@ -129,12 +129,12 @@ def compute_cloud_particles_mean_radius(
 ):
     """
     Calculates the mean radius of cloud particles for each layer and species.
-    Translated from Fortran compute_cloud_particles_mean_radius.
+    Translated from Fortran compute_cloud_particle_mean_radius.
 
     Args:
         reference_gravity: Reference surface gravity (scalar float).
         atmospheric_densities: Atmospheric density (n_layers, float).
-        clouds_particles_densities: Density of cloud particle material (n_clouds, float).
+        clouds_particle_densities: Density of cloud particle material (n_clouds, float).
         temperatures: Atmospheric temperature (n_layers, float).
         mean_molar_masses: Mean molar mass of atmosphere (n_layers, float).
         f_seds: Sedimentation efficiency parameter (n_layers, n_clouds, float).
@@ -145,11 +145,11 @@ def compute_cloud_particles_mean_radius(
         Mean particle radius (n_layers, n_clouds, float).
     """
     n_layers = atmospheric_densities.shape[0]
-    n_clouds = clouds_particles_densities.shape[0]
+    n_clouds = clouds_particle_densities.shape[0]
 
     # Prepare flattened inputs for vmap
     rho_flat = jnp.repeat(atmospheric_densities, n_clouds)
-    cloud_dens_flat = jnp.tile(clouds_particles_densities, n_layers)
+    cloud_dens_flat = jnp.tile(clouds_particle_densities, n_layers)
     temp_flat = jnp.repeat(temperatures, n_clouds)
     mean_molar_mass_flat = jnp.repeat(mean_molar_masses, n_clouds)
 
@@ -171,16 +171,16 @@ def compute_cloud_particles_mean_radius(
     )
 
     # Reshape the result back to (n_layers, n_clouds)
-    cloud_particles_mean_radii = mean_radius_flat.reshape((n_layers, n_clouds))
+    cloud_particle_mean_radii = mean_radius_flat.reshape((n_layers, n_clouds))
 
-    return cloud_particles_mean_radii
+    return cloud_particle_mean_radii
 
 
 @jit
-def compute_cloud_particles_mean_radius_hansen(
+def compute_cloud_particle_mean_radius_hansen(
     reference_gravity,
     rho,
-    clouds_particles_densities,
+    clouds_particle_densities,
     temperatures,
     mean_molar_masses,
     f_seds,
@@ -189,12 +189,12 @@ def compute_cloud_particles_mean_radius_hansen(
 ):
     """
     Calculates the 'a' parameter for the Hansen distribution for cloud particles.
-    Translated from Fortran compute_cloud_particles_mean_radius_hansen.
+    Translated from Fortran compute_cloud_particle_mean_radius_hansen.
 
     Args:
         reference_gravity: Reference surface gravity (scalar float).
         rho: Atmospheric density (n_layers, float).
-        clouds_particles_densities: Density of cloud particle material (n_clouds, float).
+        clouds_particle_densities: Density of cloud particle material (n_clouds, float).
         temperatures: Atmospheric temperature (n_layers, float).
         mean_molar_masses: Mean molar mass of atmosphere (n_layers, float).
         f_seds: Sedimentation efficiency parameter (n_layers, n_clouds, float).
@@ -205,11 +205,11 @@ def compute_cloud_particles_mean_radius_hansen(
         'a' parameter for the Hansen distribution (n_layers, n_clouds, float).
     """
     n_layers = rho.shape[0]
-    n_clouds = clouds_particles_densities.shape[0]
+    n_clouds = clouds_particle_densities.shape[0]
 
     # Prepare flattened inputs for vmap
     rho_flat = jnp.repeat(rho, n_clouds)
-    cloud_dens_flat = jnp.tile(clouds_particles_densities, n_layers)
+    cloud_dens_flat = jnp.tile(clouds_particle_densities, n_layers)
     temp_flat = jnp.repeat(temperatures, n_clouds)
     mean_molar_mass_flat = jnp.repeat(mean_molar_masses, n_clouds)
     f_sed_flat = f_seds.flatten()
@@ -237,17 +237,17 @@ def compute_cloud_particles_mean_radius_hansen(
 
 
 @jit
-def compute_cloud_log_normal_particles_distribution_opacities(
+def compute_cloud_log_normal_particle_distribution_opacities(
     atmosphere_densities,
-    clouds_particles_densities,
+    clouds_particle_densities,
     clouds_mass_fractions,
-    cloud_particles_mean_radii,
-    cloud_particles_distribution_std,
-    cloud_particles_radii_bins,
-    cloud_particles_radii,
+    cloud_particle_mean_radii,
+    cloud_particle_distribution_std,
+    cloud_particle_radii_bins,
+    cloud_particle_radii,
     clouds_absorption_opacities,
     clouds_scattering_opacities,
-    clouds_particles_asymmetry_parameters,
+    clouds_particle_asymmetry_parameters,
 ):
     r"""This function reimplements calc_cloud_opas from fortran_radiative_transfer_core.f90.
     This function integrates the cloud opacity through the different layers of the atmosphere to get the total
@@ -259,33 +259,33 @@ def compute_cloud_log_normal_particles_distribution_opacities(
     Args:
         atmosphere_densities:
             Density of the atmosphere at each of its layer
-        clouds_particles_densities:
+        clouds_particle_densities:
             Density of each cloud particles
         clouds_mass_fractions:
             Mass fractions of each cloud at each atmospheric layer
-        cloud_particles_mean_radii:
+        cloud_particle_mean_radii:
             Mean radius of each cloud particles at each atmospheric layer
-        cloud_particles_distribution_std:
+        cloud_particle_distribution_std:
             Standard deviation of the log-normal cloud particles distribution
-        cloud_particles_radii_bins:
+        cloud_particle_radii_bins:
             Bins of the particles cloud radii grid
-        cloud_particles_radii:
+        cloud_particle_radii:
             Particles cloud radii grid
         clouds_absorption_opacities:
             Cloud absorption opacities (radius grid, wavelength grid, clouds)
         clouds_scattering_opacities:
             Cloud scattering opacities (radius grid, wavelength grid, clouds)
-        clouds_particles_asymmetry_parameters:
+        clouds_particle_asymmetry_parameters:
             Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
 
     Returns:
 
     """
-    radii_tiny = jnp.finfo(cloud_particles_mean_radii.dtype).tiny
-    log_std_floor = jnp.sqrt(jnp.finfo(cloud_particles_mean_radii.dtype).eps)
-    safe_mean_radii = jnp.maximum(cloud_particles_mean_radii, radii_tiny)
+    radii_tiny = jnp.finfo(cloud_particle_mean_radii.dtype).tiny
+    log_std_floor = jnp.sqrt(jnp.finfo(cloud_particle_mean_radii.dtype).eps)
+    safe_mean_radii = jnp.maximum(cloud_particle_mean_radii, radii_tiny)
     safe_log_std = jnp.maximum(
-        jnp.log(jnp.maximum(cloud_particles_distribution_std, 1.0 + log_std_floor)),
+        jnp.log(jnp.maximum(cloud_particle_distribution_std, 1.0 + log_std_floor)),
         log_std_floor,
     )
 
@@ -293,21 +293,21 @@ def compute_cloud_log_normal_particles_distribution_opacities(
         3.0
         * clouds_mass_fractions
         * atmosphere_densities[:, None]
-        / (4.0 * jnp.pi * clouds_particles_densities * (safe_mean_radii**3))
+        / (4.0 * jnp.pi * clouds_particle_densities * (safe_mean_radii**3))
         * jnp.exp(-4.5 * safe_log_std**2)
     )
 
-    diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(safe_mean_radii)
+    diff = jnp.log(cloud_particle_radii[:, None, None]) - jnp.log(safe_mean_radii)
     dn_dr = (  # (n_radii, n_layers, n_clouds)
         n
-        / (cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi) * safe_log_std)
+        / (cloud_particle_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi) * safe_log_std)
         * jnp.exp(-(diff**2) / (2.0 * safe_log_std**2))
     )
 
     integrand_scale = (  # (n_radii, n_layers, n_clouds)
         (4.0 * jnp.pi / 3.0)
-        * cloud_particles_radii[:, None, None] ** 3
-        * clouds_particles_densities
+        * cloud_particle_radii[:, None, None] ** 3
+        * clouds_particle_densities
         * dn_dr
     )
 
@@ -318,10 +318,10 @@ def compute_cloud_log_normal_particles_distribution_opacities(
         integrand_scale[:, None] * clouds_scattering_opacities[:, :, None]
     )
     integrand_anisotropy = integrand_scattering * (
-        1.0 - clouds_particles_asymmetry_parameters[:, :, None]
+        1.0 - clouds_particle_asymmetry_parameters[:, :, None]
     )
 
-    widths = jnp.diff(cloud_particles_radii_bins)[
+    widths = jnp.diff(cloud_particle_radii_bins)[
         :, None, None, None
     ]  # (n_radii, 1, 1, 1)
 
@@ -651,7 +651,7 @@ def particle_radius(
     x2,
     reference_gravity,
     rho,
-    clouds_particles_densities,
+    clouds_particle_densities,
     temperatures,
     mean_molar_masses,
     w_star,
@@ -665,7 +665,7 @@ def particle_radius(
         x2: Upper bound for particle radius search (cm).
         reference_gravity: Reference surface gravity (cm.s-2).
         rho: Atmospheric density (g.cm-3).
-        clouds_particles_densities: Density of cloud particle material (g.cm-3).
+        clouds_particle_densities: Density of cloud particle material (g.cm-3).
         temperatures: Atmospheric temperature (K).
         mean_molar_masses: Mean molar mass of atmosphere (g/mol).
         w_star: Target settling speed (cm.s-1).
@@ -683,7 +683,7 @@ def particle_radius(
         a,
         reference_gravity,
         rho,
-        clouds_particles_densities,
+        clouds_particle_densities,
         temperatures,
         mean_molar_masses,
     )
@@ -693,7 +693,7 @@ def particle_radius(
         b,
         reference_gravity,
         rho,
-        clouds_particles_densities,
+        clouds_particle_densities,
         temperatures,
         mean_molar_masses,
     )
@@ -704,7 +704,7 @@ def particle_radius(
     particle_params = (
         reference_gravity,
         rho,
-        clouds_particles_densities,
+        clouds_particle_densities,
         temperatures,
         mean_molar_masses,
     )
@@ -762,7 +762,7 @@ def particle_radius_bisection_iteration(val):
     (
         reference_gravity,
         rho,
-        clouds_particles_densities,
+        clouds_particle_densities,
         temperatures,
         mean_molar_masses,
     ) = particle_params
@@ -773,7 +773,7 @@ def particle_radius_bisection_iteration(val):
         c,
         reference_gravity,
         rho,
-        clouds_particles_densities,
+        clouds_particle_densities,
         temperatures,
         mean_molar_masses,
     )
@@ -809,7 +809,7 @@ def _compute_mean_radius_single(
     eddy_diff_i,
 ):
     """
-    Core function for compute_cloud_particles_mean_radius, operating on single
+    Core function for compute_cloud_particle_mean_radius, operating on single
     layer and species values.
     """
     N_fit = 100
@@ -885,7 +885,7 @@ def _compute_mean_radius_single(
 
     # else (r_w <= 1d-16)
     def handle_invalid_radius():
-        # cloud_particles_mean_radii(i_str,i_spec) = 1d-17
+        # cloud_particle_mean_radii(i_str,i_spec) = 1d-17
         # alpha(i_str,i_spec) = 1d0 # alpha is not returned, but set in Fortran
         return 1e-17
 
@@ -909,7 +909,7 @@ def _compute_mean_radius_hansen_single(
     eddy_diff_i,
 ):
     """
-    Core function for compute_cloud_particles_mean_radius_hansen, operating on single
+    Core function for compute_cloud_particle_mean_radius_hansen, operating on single
     layer and species values.
     """
     # Constants needed here (re-defined for clarity in vmapped function)
@@ -1151,12 +1151,12 @@ def _compute_cloud_scattering_reduction_factor(
 def _integrate_cloud_opacities_from_dn_dr(
     dn_dr,
     atmosphere_densities,
-    clouds_particles_densities,
-    cloud_particles_radii_bins,
-    cloud_particles_radii,
+    clouds_particle_densities,
+    cloud_particle_radii_bins,
+    cloud_particle_radii,
     clouds_absorption_opacities,
     clouds_scattering_opacities,
-    clouds_particles_asymmetry_parameters,
+    clouds_particle_asymmetry_parameters,
     pressures,
     target_particle_radii,
     target_pressure,
@@ -1169,8 +1169,8 @@ def _integrate_cloud_opacities_from_dn_dr(
     # Scale factor
     integrand_scale = (
         (4.0 * np.pi / 3.0)
-        * cloud_particles_radii[:, None, None] ** 3
-        * clouds_particles_densities
+        * cloud_particle_radii[:, None, None] ** 3
+        * clouds_particle_densities
         * dn_dr
     )
 
@@ -1182,7 +1182,7 @@ def _integrate_cloud_opacities_from_dn_dr(
         integrand_scale[:, None] * clouds_scattering_opacities[:, :, None]
     )
     integrand_anisotropy = integrand_scattering * (
-        1.0 - clouds_particles_asymmetry_parameters[:, :, None]
+        1.0 - clouds_particle_asymmetry_parameters[:, :, None]
     )
 
     # Selectively disable bins
@@ -1191,7 +1191,7 @@ def _integrate_cloud_opacities_from_dn_dr(
         target_pressure = [tp * 1e6 for tp in target_pressure]  # bar→cgs
         target_particle_radii = [tr * 1e-4 for tr in target_particle_radii]  # micron→cm
 
-        disabled_bins = {(jnp.abs(cloud_particles_radii_bins - tr)).argmin()
+        disabled_bins = {(jnp.abs(cloud_particle_radii_bins - tr)).argmin()
                             for tr in target_particle_radii}
         in_layer = {(jnp.abs(pressures - tp)).argmin()
                     for tp in target_pressure}
@@ -1207,7 +1207,7 @@ def _integrate_cloud_opacities_from_dn_dr(
         integrand_anisotropy *= block[:, None]"""
 
     # Integrate over radius
-    widths = jnp.diff(cloud_particles_radii_bins)[:, None, None, None]
+    widths = jnp.diff(cloud_particle_radii_bins)[:, None, None, None]
 
     _cloud_absorption_opacities = jnp.sum(
         integrand_absorption * widths, axis=(0, 3)
@@ -1236,17 +1236,17 @@ def _integrate_cloud_opacities_from_dn_dr(
     )
 
 
-def compute_cloud_log_normal_particles_distribution_opacities_grid(
+def compute_cloud_log_normal_particle_distribution_opacities_grid(
     atmosphere_densities,
-    clouds_particles_densities,
+    clouds_particle_densities,
     clouds_mass_fractions,
-    cloud_particles_mean_radii,
-    cloud_particles_distribution_std,
-    cloud_particles_radii_bins,
-    cloud_particles_radii,
+    cloud_particle_mean_radii,
+    cloud_particle_distribution_std,
+    cloud_particle_radii_bins,
+    cloud_particle_radii,
     clouds_absorption_opacities,
     clouds_scattering_opacities,
-    clouds_particles_asymmetry_parameters,
+    clouds_particle_asymmetry_parameters,
     pressures,
     target_particle_radii,
     target_pressure,
@@ -1260,33 +1260,33 @@ def compute_cloud_log_normal_particles_distribution_opacities_grid(
     Args:
         atmosphere_densities:
             Density of the atmosphere at each of its layer
-        clouds_particles_densities:
+        clouds_particle_densities:
             Density of each cloud particles
         clouds_mass_fractions:
             Mass fractions of each cloud at each atmospheric layer
-        cloud_particles_mean_radii:
+        cloud_particle_mean_radii:
             Mean radius of each cloud particles at each atmospheric layer
-        cloud_particles_distribution_std:
+        cloud_particle_distribution_std:
             Standard deviation of the log-normal cloud particles distribution
-        cloud_particles_radii_bins:
+        cloud_particle_radii_bins:
             Bins of the particles cloud radii grid
-        cloud_particles_radii:
+        cloud_particle_radii:
             Particles cloud radii grid
         clouds_absorption_opacities:
             Cloud absorption opacities (radius grid, wavelength grid, clouds)
         clouds_scattering_opacities:
             Cloud scattering opacities (radius grid, wavelength grid, clouds)
-        clouds_particles_asymmetry_parameters:
+        clouds_particle_asymmetry_parameters:
             Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
 
     Returns:
 
     """
-    radii_tiny = jnp.finfo(cloud_particles_mean_radii.dtype).tiny
-    log_std_floor = jnp.sqrt(jnp.finfo(cloud_particles_mean_radii.dtype).eps)
-    safe_mean_radii = jnp.maximum(cloud_particles_mean_radii, radii_tiny)
+    radii_tiny = jnp.finfo(cloud_particle_mean_radii.dtype).tiny
+    log_std_floor = jnp.sqrt(jnp.finfo(cloud_particle_mean_radii.dtype).eps)
+    safe_mean_radii = jnp.maximum(cloud_particle_mean_radii, radii_tiny)
     safe_log_std = jnp.maximum(
-        jnp.log(jnp.maximum(cloud_particles_distribution_std, 1.0 + log_std_floor)),
+        jnp.log(jnp.maximum(cloud_particle_distribution_std, 1.0 + log_std_floor)),
         log_std_floor,
     )
 
@@ -1295,15 +1295,15 @@ def compute_cloud_log_normal_particles_distribution_opacities_grid(
         3.0
         * clouds_mass_fractions
         * atmosphere_densities[:, None]
-        / (4.0 * jnp.pi * clouds_particles_densities * (safe_mean_radii**3))
+        / (4.0 * jnp.pi * clouds_particle_densities * (safe_mean_radii**3))
         * jnp.exp(-4.5 * safe_log_std**2)
     )
 
-    diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(safe_mean_radii)
+    diff = jnp.log(cloud_particle_radii[:, None, None]) - jnp.log(safe_mean_radii)
 
     dn_dr = (  # (n_radii, n_layers, n_clouds)
         n
-        / (cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi) * safe_log_std)
+        / (cloud_particle_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi) * safe_log_std)
         * jnp.exp(-(diff**2) / (2.0 * safe_log_std**2))
     )
 
@@ -1312,12 +1312,12 @@ def compute_cloud_log_normal_particles_distribution_opacities_grid(
         _integrate_cloud_opacities_from_dn_dr(
             dn_dr,
             atmosphere_densities,
-            clouds_particles_densities,
-            cloud_particles_radii_bins,
-            cloud_particles_radii,
+            clouds_particle_densities,
+            cloud_particle_radii_bins,
+            cloud_particle_radii,
             clouds_absorption_opacities,
             clouds_scattering_opacities,
-            clouds_particles_asymmetry_parameters,
+            clouds_particle_asymmetry_parameters,
             pressures,
             target_particle_radii,
             target_pressure,
@@ -1331,12 +1331,12 @@ def _compute_cloud_opacities_using_particle_size_grid(
     atmosphere_densities,
     clouds_mass_fractions,
     cloud_particle_number_density_grid,
-    clouds_particles_densities,
-    cloud_particles_radii_bins,
-    cloud_particles_radii,
+    clouds_particle_densities,
+    cloud_particle_radii_bins,
+    cloud_particle_radii,
     clouds_absorption_opacities,
     clouds_scattering_opacities,
-    clouds_particles_asymmetry_parameters,
+    clouds_particle_asymmetry_parameters,
     pressures,
     target_particle_radii,
     target_pressure,
@@ -1350,17 +1350,17 @@ def _compute_cloud_opacities_using_particle_size_grid(
             Mass fractions of each cloud at each atmospheric layer
         cloud_particle_number_density_grid:
             Output from cloud lognormal EXPERIMENTAL
-        clouds_particles_densities:
+        clouds_particle_densities:
             Density of each cloud particles
-        cloud_particles_radii_bins:
+        cloud_particle_radii_bins:
             Bins of the particles cloud radii grid
-        cloud_particles_radii:
+        cloud_particle_radii:
             Particles cloud radii grid
         clouds_absorption_opacities:
             Cloud absorption opacities (radius grid, wavelength grid, clouds)
         clouds_scattering_opacities:
             Cloud scattering opacities (radius grid, wavelength grid, clouds)
-        clouds_particles_asymmetry_parameters:
+        clouds_particle_asymmetry_parameters:
             Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
         pressures:
             Pressure array
@@ -1386,12 +1386,12 @@ def _compute_cloud_opacities_using_particle_size_grid(
         _integrate_cloud_opacities_from_dn_dr(
             dn_dr,
             atmosphere_densities,
-            clouds_particles_densities,
-            cloud_particles_radii_bins,
-            cloud_particles_radii,
+            clouds_particle_densities,
+            cloud_particle_radii_bins,
+            cloud_particle_radii,
             clouds_absorption_opacities,
             clouds_scattering_opacities,
-            clouds_particles_asymmetry_parameters,
+            clouds_particle_asymmetry_parameters,
             pressures,
             target_particle_radii,
             target_pressure,

@@ -2,22 +2,29 @@ import os
 import sys
 
 import jax
+
 jax.config.update("jax_enable_x64", True)
-os.environ["DYLD_LIBRARY_PATH"] = "/Users/nasedkin/software/MultiNest/lib/:$DYLD_LIBRARY_PATH"
-os.environ["LD_LIBRARY_PATH"] = "/Users/nasedkin/software/MultiNest/lib/:$LD_LIBRARY_PATH"
+os.environ["DYLD_LIBRARY_PATH"] = (
+    "/Users/nasedkin/software/MultiNest/lib/:$DYLD_LIBRARY_PATH"
+)
+os.environ["LD_LIBRARY_PATH"] = (
+    "/Users/nasedkin/software/MultiNest/lib/:$LD_LIBRARY_PATH"
+)
 
 # Ensure that we are testing the package installed (*not* the development) files
 del sys.path[0]  # remove current directory from searching path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))  # add the package directory at the end
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+)  # add the package directory at the end
 
 import petitRADTRANS
 
 # Fortran extensions
-#import petitRADTRANS.fortran_chemistry
-#import petitRADTRANS.fortran_rebin
-#import petitRADTRANS.fortran_inputs
-#import petitRADTRANS.fortran_radtrans_core
-#import petitRADTRANS.fortran_rebin
+# import petitRADTRANS.fortran_chemistry
+# import petitRADTRANS.fortran_rebin
+# import petitRADTRANS.fortran_inputs
+# import petitRADTRANS.fortran_radtrans_core
+# import petitRADTRANS.fortran_rebin
 
 # Python modules
 import petitRADTRANS.ccf
@@ -33,12 +40,8 @@ import petitRADTRANS.chemistry.pre_calculated_chemistry
 import petitRADTRANS.chemistry.utils
 import petitRADTRANS.radtrans
 import petitRADTRANS.radtrans_core
-import petitRADTRANS.profiles
+import petitRADTRANS.temperature_profiles
 import petitRADTRANS.retrieval
 import petitRADTRANS.retrieval.preparing
 import petitRADTRANS.utils
 import petitRADTRANS.math
-
-
-
-

@@ -215,6 +215,7 @@ class Retrieval:
 
         self.samples = {}  #: The samples produced by pymultinest.
         self.param_dictionary = {}
+        # TODO reference_data_name should be in retrieval not in plotter
         self.plotter = RetrievalPlotter(self, reference_data_name=reference_data_name)
 
         # Set up pretty plotting

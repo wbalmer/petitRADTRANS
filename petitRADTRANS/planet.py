@@ -2147,6 +2147,7 @@ class Planet:
         Returns:
             (cm.s-2) the reference gravity of the planet, and its upper and lower error
         """
+        # TODO: JAXIFY
         if radius <= 0:
             warnings.warn(
                 f"unknown or invalid radius ({radius}), reference gravity not calculated"

@@ -643,7 +643,7 @@ class ModelInputs:
     reference_pressure: Any = 0.1  # bar
     opaque_cloud_top_pressure: Any = None
     sigma_lnorm: Any = None
-    cloud_particles_mean_radii: Any = None
+    cloud_particle_mean_radii: Any = None
     cloud_f_sed: Any = None
     eddy_diffusion_coefficients: Any = None
     haze_factor: Any = 1.0
@@ -652,7 +652,7 @@ class ModelInputs:
     cloud_hansen_b: Any = None
     cloud_fraction: Any = 1.0
     complete_coverage_clouds: tuple[str, ...] = ()
-    cloud_particles_radius_distribution: str | None = None
+    cloud_particle_radius_distribution: str | None = None
     distance_to_system: Any = None
     stellar_radius: Any = None
     disk_blackbody_temperature: Any = None
@@ -689,7 +689,7 @@ class ModelInputs:
             self.reference_pressure,
             self.opaque_cloud_top_pressure,
             self.sigma_lnorm,
-            self.cloud_particles_mean_radii,
+            self.cloud_particle_mean_radii,
             self.cloud_f_sed,
             self.eddy_diffusion_coefficients,
             self.haze_factor,
@@ -706,7 +706,7 @@ class ModelInputs:
         )
         aux_data = {
             "complete_coverage_clouds": self.complete_coverage_clouds,
-            "cloud_particles_radius_distribution": self.cloud_particles_radius_distribution,
+            "cloud_particle_radius_distribution": self.cloud_particle_radius_distribution,
             "additional_inputs": self.additional_inputs,
         }
         return children, aux_data
@@ -724,7 +724,7 @@ class ModelInputs:
             reference_pressure=children[6],
             opaque_cloud_top_pressure=children[7],
             sigma_lnorm=children[8],
-            cloud_particles_mean_radii=children[9],
+            cloud_particle_mean_radii=children[9],
             cloud_f_sed=children[10],
             eddy_diffusion_coefficients=children[11],
             haze_factor=children[12],
@@ -739,8 +739,8 @@ class ModelInputs:
             v_band_extinction=children[21],
             v_band_reddening=children[22],
             complete_coverage_clouds=aux_data["complete_coverage_clouds"],
-            cloud_particles_radius_distribution=aux_data[
-                "cloud_particles_radius_distribution"
+            cloud_particle_radius_distribution=aux_data[
+                "cloud_particle_radius_distribution"
             ],
             additional_inputs=aux_data["additional_inputs"],
         )

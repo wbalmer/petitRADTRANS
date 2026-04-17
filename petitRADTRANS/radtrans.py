@@ -139,8 +139,8 @@ class Radtrans:
         cloud_species: list[str] | tuple[str] = None,
         line_opacity_mode: str = "c-k",
         line_by_line_opacity_sampling: int = 1,  # TODO: Replace with generic spectral resolution parameter.
-        scattering_in_emission: bool = False,  # TODO: Default to True
-        emission_angle_grid: ArrayLike = None,  # NOTE: Probably doesn't need to be a main parameter
+        scattering_in_emission: bool = True,  # TODO; double check if clouds are present
+        emission_angle_grid: ArrayLike = None,
         anisotropic_cloud_scattering: bool = "auto",  # NOTE: Probably doesn't need to be a main parameter
         path_input_data: str = None,
     ):
@@ -162,16 +162,6 @@ class Radtrans:
         self._gas_continuum_contributors = tuple_init(gas_continuum_contributors)
         self._rayleigh_species = tuple_init(rayleigh_species)
         self._cloud_species = tuple_init(cloud_species)
-
-        # Storing basenames at initialization to avoid recomputing them (hard to JIT compile)
-        # TODO: is basename correct? What about isotopes? Enforce consistent naming.
-        # self._species_basenames = {}
-        # for species in self._line_species:
-        #    self._species_basenames[species.split('.R')[0]] = (Opacity.get_species_base_name(species))
-        # for species in self._rayleigh_species:
-        #    self._species_basenames[species] = (Opacity.get_species_base_name(species))
-        # for species in self._cloud_species:
-        #    self._species_basenames[species] = (Opacity.get_species_base_name(species))
 
         self._line_opacity_mode = line_opacity_mode
         self._line_by_line_opacity_sampling = line_by_line_opacity_sampling
@@ -245,9 +235,9 @@ class Radtrans:
         # TODO: revert to default to None
         empty_wavelength_shape = 3
         empty_n_clouds_shape = 1
-        empty_n_particles_radii = 3
+        empty_n_particle_radii = 3
         empty_3d = jnp.zeros(
-            (empty_n_particles_radii, empty_wavelength_shape, empty_n_clouds_shape),
+            (empty_n_particle_radii, empty_wavelength_shape, empty_n_clouds_shape),
             dtype=JAX_DTYPE,
         )
         self._clouds_loaded_opacities = LockedDict.build_and_lock(
@@ -255,12 +245,12 @@ class Radtrans:
                 "wavelengths": jnp.zeros(empty_wavelength_shape, dtype=JAX_DTYPE),
                 "absorption_opacities": empty_3d,
                 "scattering_opacities": empty_3d,
-                "particles_radii": jnp.zeros(empty_n_particles_radii, dtype=JAX_DTYPE),
-                "particles_radii_bins": jnp.zeros(
-                    empty_n_particles_radii + 1, dtype=JAX_DTYPE
+                "particle_radii": jnp.zeros(empty_n_particle_radii, dtype=JAX_DTYPE),
+                "particle_radii_bins": jnp.zeros(
+                    empty_n_particle_radii + 1, dtype=JAX_DTYPE
                 ),
-                "particles_densities": jnp.zeros(empty_n_clouds_shape, dtype=JAX_DTYPE),
-                "particles_asymmetry_parameters": empty_3d,
+                "particle_densities": jnp.zeros(empty_n_clouds_shape, dtype=JAX_DTYPE),
+                "particle_asymmetry_parameters": empty_3d,
             }
         )
 
@@ -776,10 +766,10 @@ class Radtrans:
     def _sanitize_flux_opacity_inputs(
         self,
         complete_coverage_clouds,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_hansen_a,
         cloud_hansen_b,
-        clouds_particles_porosity_factor,
+        clouds_particle_porosity_factor,
         cloud_f_sed,
         eddy_diffusion_coefficients,
         opaque_cloud_top_pressure,
@@ -807,12 +797,12 @@ class Radtrans:
                 for species in self._cloud_species
             }
 
-        clouds_particles_porosity_factor_norm = {
+        clouds_particle_porosity_factor_norm = {
             species: _MISSING_NEG_INF for species in self._cloud_species
         }
-        if clouds_particles_porosity_factor is not None:
-            for key, value in list(clouds_particles_porosity_factor.items()):
-                clouds_particles_porosity_factor_norm[key] = jnp.array(
+        if clouds_particle_porosity_factor is not None:
+            for key, value in list(clouds_particle_porosity_factor.items()):
+                clouds_particle_porosity_factor_norm[key] = jnp.array(
                     value, dtype=JAX_DTYPE
                 )
 
@@ -834,12 +824,12 @@ class Radtrans:
                 if complete_coverage_clouds is None
                 else tuple(complete_coverage_clouds)
             ),
-            "cloud_particles_mean_radii": self._normalize_optional_mapping(
-                cloud_particles_mean_radii
+            "cloud_particle_mean_radii": self._normalize_optional_mapping(
+                cloud_particle_mean_radii
             ),
             "cloud_hansen_a": self._normalize_optional_mapping(cloud_hansen_a),
             "cloud_hansen_b": self._normalize_optional_mapping(cloud_hansen_b),
-            "clouds_particles_porosity_factor": clouds_particles_porosity_factor_norm,
+            "clouds_particle_porosity_factor": clouds_particle_porosity_factor_norm,
             "cloud_f_sed": cloud_f_sed_norm,
             "eddy_diffusion_coefficients": eddy_diffusion_coefficients_norm,
             "opaque_cloud_top_pressure": self._normalize_optional_scalar(
@@ -1310,7 +1300,7 @@ class Radtrans:
     @jit(
         static_argnames=[
             "self",
-            "cloud_particles_radius_distribution",
+            "cloud_particle_radius_distribution",
             "complete_coverage_clouds",
             "additional_absorption_opacities_function",
             "additional_scattering_opacities_function",
@@ -1325,13 +1315,13 @@ class Radtrans:
         mean_molar_masses,
         reference_gravity,
         opaque_cloud_top_pressure=None,
-        cloud_particles_mean_radii=None,
+        cloud_particle_mean_radii=None,
         cloud_particle_radius_distribution_std=None,
-        cloud_particles_radius_distribution="lognormal",
+        cloud_particle_radius_distribution="lognormal",
         cloud_particle_number_density_grid=None,
         cloud_hansen_a=None,
         cloud_hansen_b=None,
-        clouds_particles_porosity_factor=None,
+        clouds_particle_porosity_factor=None,
         cloud_f_sed=None,
         eddy_diffusion_coefficients=None,
         haze_factor=1.0,
@@ -1368,11 +1358,11 @@ class Radtrans:
                 Reference gravity in cgs units.
             opaque_cloud_top_pressure:
                 Optional pressure in bar where an opaque cloud deck is imposed.
-            cloud_particles_mean_radii:
+            cloud_particle_mean_radii:
                 Optional cloud particle mean radii keyed by cloud species.
             cloud_particle_radius_distribution_std:
                 Width of the log-normal particle size distribution.
-            cloud_particles_radius_distribution:
+            cloud_particle_radius_distribution:
                 Cloud particle size distribution model, typically
                 ``"lognormal"`` or ``"hansen"``.
             cloud_particle_number_density_grid:
@@ -1381,7 +1371,7 @@ class Radtrans:
                 Optional Hansen ``a`` parameter profiles keyed by cloud species.
             cloud_hansen_b:
                 Optional Hansen ``b`` parameter profiles keyed by cloud species.
-            clouds_particles_porosity_factor:
+            clouds_particle_porosity_factor:
                 Optional porosity factors keyed by cloud species.
             cloud_f_sed:
                 Cloud settling parameter, either scalar or per-species mapping.
@@ -1519,7 +1509,7 @@ class Radtrans:
             cloud_scattering_opacities,
             cloud_absorption_opacities,
             cloud_opacities,
-            _cloud_particles_mean_radii,
+            _cloud_particle_mean_radii,
             clear_cloud_continuum_opacities,
             clear_cloud_continuum_opacities_scattering,
             clear_cloud_scattering_opacities,
@@ -1539,15 +1529,15 @@ class Radtrans:
             power_law_opacity_350nm=power_law_opacity_350nm,
             power_law_opacity_coefficient=power_law_opacity_coefficient,
             cloud_species=self._cloud_species,
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             clouds_loaded_opacities=self._clouds_loaded_opacities,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_particle_number_density_grid=cloud_particle_number_density_grid,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
@@ -1717,7 +1707,7 @@ class Radtrans:
             cloud_scattering_opacities,
             cloud_absorption_opacities,
             cloud_opacities,
-            _cloud_particles_mean_radii,
+            _cloud_particle_mean_radii,
             cloud_scattering_in_transmission,
             clear_opacities,
             clear_continuum_opacities_scattering,
@@ -2443,13 +2433,13 @@ class Radtrans:
         reference_gravity: float,
         planet_radius: float = None,
         opaque_cloud_top_pressure: float = None,
-        cloud_particles_mean_radii: dict[str, ArrayLike] = None,
+        cloud_particle_mean_radii: dict[str, ArrayLike] = None,
         cloud_particle_radius_distribution_std: float = None,
-        cloud_particles_radius_distribution: str = "lognormal",
+        cloud_particle_radius_distribution: str = "lognormal",
         cloud_hansen_a: dict[str, ArrayLike] = None,
         cloud_hansen_b: dict[str, ArrayLike] = None,
         cloud_particle_number_density_grid: dict[str, ArrayLike] = None,
-        clouds_particles_porosity_factor: dict[str, float] = None,
+        clouds_particle_porosity_factor: dict[str, float] = None,
         cloud_f_sed: float = None,
         eddy_diffusion_coefficients: ArrayLike = None,
         haze_factor: float = 1.0,
@@ -2481,8 +2471,8 @@ class Radtrans:
         return_cloud_contribution: bool = False,
         return_opacities: bool = False,
         return_abundances: bool = False,
-        return_particles_radii_bins: bool = False,
-        return_particles_radii: bool = False,
+        return_particle_radii_bins: bool = False,
+        return_particle_radii: bool = False,
         target_particle_radii: ArrayLike = None,
         target_pressure: ArrayLike = None,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
@@ -2504,18 +2494,18 @@ class Radtrans:
                 Photospheric radius as function of wavelength, if return_photosphere_radius is True.
             opaque_cloud_top_pressure (Optional[float]):
                 Pressure, in bar, where opaque cloud deck is added to the absorption opacity.
-            cloud_particles_mean_radii (Optional):
+            cloud_particle_mean_radii (Optional):
                 Dictionary of mean particle radii for all cloud species.
                 Dictionary keys are the cloud species names. Every radius array has same length as pressure array.
             cloud_particle_radius_distribution_std (Optional[float]):
                 Width of the log-normal cloud particle size distribution
-            cloud_particles_radius_distribution (Optional[string]):
+            cloud_particle_radius_distribution (Optional[string]):
                 The cloud particle size distribution to use.
                 Can be either 'lognormal' (default) or 'hansen'.
                 If hansen, the cloud_hansen_b parameters must be used.
             cloud_hansen_a (Optional[dict]):
                 A dictionary of the 'a' parameter values for each included cloud species and for each atmospheric
-                layer, formatted as the kzz argument. Equivalent to cloud_particles_mean_radii.
+                layer, formatted as the kzz argument. Equivalent to cloud_particle_mean_radii.
                 If cloud_hansen_a is not included and dist is "hansen", then it will be computed using Kzz and fsed
                 (recommended).
             cloud_hansen_b (Optional[dict]):
@@ -2524,7 +2514,7 @@ class Radtrans:
                 the particle area (1/cloud_hansen_a^2)
             cloud_particle_number_density_grid (Optional[dict]):
                 EXPERIMENTAL
-            clouds_particles_porosity_factor (Optional[dict]):
+            clouds_particle_porosity_factor (Optional[dict]):
                 A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
                 are calculated using the Distribution of Hollow Spheres (DHS) method.
             cloud_f_sed (Optional[float]):
@@ -2616,9 +2606,9 @@ class Radtrans:
                 as optical depths
             return_abundances (Optional[bool]):
                 If True, return the mass fractions.
-            return_particles_radii_bins (Optional[bool]):
+            return_particle_radii_bins (Optional[bool]):
                 If True, return the particle radii bins.
-            return_particles_radii (Optional[bool]):
+            return_particle_radii (Optional[bool]):
                 If True, return the particle radii.
             target_particle_radii (Optional[ArrayLike]):
                 Optional particle radii grid used when evaluating cloud
@@ -2657,13 +2647,13 @@ class Radtrans:
             reference_gravity=reference_gravity,
             planet_radius=planet_radius,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
             cloud_particle_number_density_grid=cloud_particle_number_density_grid,
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             haze_factor=haze_factor,
@@ -2694,8 +2684,8 @@ class Radtrans:
             return_cloud_contribution=return_cloud_contribution,
             return_opacities=return_opacities,
             return_abundances=return_abundances,
-            return_particles_radii_bins=return_particles_radii_bins,
-            return_particles_radii=return_particles_radii,
+            return_particle_radii_bins=return_particle_radii_bins,
+            return_particle_radii=return_particle_radii,
             target_particle_radii=target_particle_radii,
             target_pressure=target_pressure,
             sum_opacities=sum_opacities,
@@ -2705,7 +2695,7 @@ class Radtrans:
     @jit(
         static_argnames=[
             "self",
-            "cloud_particles_radius_distribution",
+            "cloud_particle_radius_distribution",
             "adaptive_feautrier_iterations",
             "irradiation_geometry",
             "chunk_feautrier",
@@ -2720,8 +2710,8 @@ class Radtrans:
             "return_cloud_contribution",
             "return_opacities",
             "return_abundances",
-            "return_particles_radii_bins",
-            "return_particles_radii",
+            "return_particle_radii_bins",
+            "return_particle_radii",
         ]
     )
     def _calculate_flux_full_kernel(
@@ -2732,13 +2722,13 @@ class Radtrans:
         reference_gravity,
         planet_radius=None,
         opaque_cloud_top_pressure=None,
-        cloud_particles_mean_radii=None,
+        cloud_particle_mean_radii=None,
         cloud_particle_radius_distribution_std=None,
-        cloud_particles_radius_distribution="lognormal",
+        cloud_particle_radius_distribution="lognormal",
         cloud_hansen_a=None,
         cloud_hansen_b=None,
         cloud_particle_number_density_grid=None,
-        clouds_particles_porosity_factor=None,
+        clouds_particle_porosity_factor=None,
         cloud_f_sed=None,
         eddy_diffusion_coefficients=None,
         haze_factor=1.0,
@@ -2769,8 +2759,8 @@ class Radtrans:
         return_cloud_contribution=False,
         return_opacities=False,
         return_abundances=False,
-        return_particles_radii_bins=False,
-        return_particles_radii=False,
+        return_particle_radii_bins=False,
+        return_particle_radii=False,
         target_particle_radii=None,
         target_pressure=None,
         sum_opacities=None,
@@ -2794,10 +2784,10 @@ class Radtrans:
         )
         sanitized_inputs = self._sanitize_flux_opacity_inputs(
             complete_coverage_clouds=complete_coverage_clouds,
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
@@ -2833,7 +2823,7 @@ class Radtrans:
             cloud_anisotropic_scattering_opacities,
             cloud_absorption_opacities,
             cloud_opacities,
-            cloud_particles_mean_radii,
+            cloud_particle_mean_radii,
             cloud_scattering_in_transmission,
             clear_opacities,
             clear_continuum_opacities_scattering,
@@ -2845,18 +2835,18 @@ class Radtrans:
             mean_molar_masses=mean_molar_masses,
             reference_gravity=reference_gravity,
             opaque_cloud_top_pressure=sanitized_inputs["opaque_cloud_top_pressure"],
-            cloud_particles_mean_radii=sanitized_inputs["cloud_particles_mean_radii"],
+            cloud_particle_mean_radii=sanitized_inputs["cloud_particle_mean_radii"],
             cloud_particle_radius_distribution_std=sanitized_inputs[
                 "cloud_particle_radius_distribution_std"
             ],
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=sanitized_inputs["cloud_hansen_a"],
             cloud_hansen_b=sanitized_inputs["cloud_hansen_b"],
             cloud_particle_number_density_grid=sanitized_inputs[
                 "cloud_particle_number_density_grid"
             ],
-            clouds_particles_porosity_factor=sanitized_inputs[
-                "clouds_particles_porosity_factor"
+            clouds_particle_porosity_factor=sanitized_inputs[
+                "clouds_particle_porosity_factor"
             ],
             cloud_f_sed=sanitized_inputs["cloud_f_sed"],
             eddy_diffusion_coefficients=sanitized_inputs["eddy_diffusion_coefficients"],
@@ -2985,20 +2975,20 @@ class Radtrans:
         # --- Build additional outputs ---
         additional_outputs = {}
 
-        if (sanitized_inputs["cloud_particles_mean_radii"] is not None
-                or len(sanitized_inputs["cloud_f_sed"]) > 0):
-            additional_outputs["cloud_particles_mean_radii"] = (
-                cloud_particles_mean_radii
-            )
+        if (
+            sanitized_inputs["cloud_particle_mean_radii"] is not None
+            or len(sanitized_inputs["cloud_f_sed"]) > 0
+        ):
+            additional_outputs["cloud_particle_mean_radii"] = cloud_particle_mean_radii
 
-        if return_particles_radii_bins:
-            additional_outputs["particles_radii_bins"] = self._clouds_loaded_opacities[
-                "particles_radii_bins"
+        if return_particle_radii_bins:
+            additional_outputs["particle_radii_bins"] = self._clouds_loaded_opacities[
+                "particle_radii_bins"
             ]
 
-        if return_particles_radii:
-            additional_outputs["particles_radii"] = self._clouds_loaded_opacities[
-                "particles_radii"
+        if return_particle_radii:
+            additional_outputs["particle_radii"] = self._clouds_loaded_opacities[
+                "particle_radii"
             ]
 
         additional_outputs["stellar_intensities"] = emission_inputs[
@@ -3086,12 +3076,12 @@ class Radtrans:
         reference_gravity: float,
         planet_radius: float = None,
         opaque_cloud_top_pressure: float = None,
-        cloud_particles_mean_radii: dict[str, ArrayLike] = None,
+        cloud_particle_mean_radii: dict[str, ArrayLike] = None,
         cloud_particle_radius_distribution_std: float = None,
-        cloud_particles_radius_distribution: str = "lognormal",
+        cloud_particle_radius_distribution: str = "lognormal",
         cloud_hansen_a: dict[str, ArrayLike] = None,
         cloud_hansen_b: dict[str, ArrayLike] = None,
-        clouds_particles_porosity_factor: dict[str, float] = None,
+        clouds_particle_porosity_factor: dict[str, float] = None,
         cloud_f_sed: float = None,
         eddy_diffusion_coefficients: ArrayLike = None,
         haze_factor: float = 1.0,
@@ -3130,12 +3120,12 @@ class Radtrans:
             reference_gravity=reference_gravity,
             planet_radius=planet_radius,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             haze_factor=haze_factor,
@@ -3219,12 +3209,12 @@ class Radtrans:
         allowed_cloud_parameters = {
             "planet_radius",
             "opaque_cloud_top_pressure",
-            "cloud_particles_mean_radii",
+            "cloud_particle_mean_radii",
             "cloud_particle_radius_distribution_std",
-            "cloud_particles_radius_distribution",
+            "cloud_particle_radius_distribution",
             "cloud_hansen_a",
             "cloud_hansen_b",
-            "clouds_particles_porosity_factor",
+            "clouds_particle_porosity_factor",
             "cloud_f_sed",
             "eddy_diffusion_coefficients",
             "haze_factor",
@@ -3269,7 +3259,7 @@ class Radtrans:
     @jit(
         static_argnames=[
             "self",
-            "cloud_particles_radius_distribution",
+            "cloud_particle_radius_distribution",
             "adaptive_feautrier_iterations",
             "irradiation_geometry",
             "chunk_feautrier",
@@ -3288,12 +3278,12 @@ class Radtrans:
         reference_gravity: float,
         planet_radius: float = None,
         opaque_cloud_top_pressure: float = None,
-        cloud_particles_mean_radii: dict[str, ArrayLike] = None,
+        cloud_particle_mean_radii: dict[str, ArrayLike] = None,
         cloud_particle_radius_distribution_std: float = None,
-        cloud_particles_radius_distribution: str = "lognormal",
+        cloud_particle_radius_distribution: str = "lognormal",
         cloud_hansen_a: dict[str, ArrayLike] = None,
         cloud_hansen_b: dict[str, ArrayLike] = None,
-        clouds_particles_porosity_factor: dict[str, float] = None,
+        clouds_particle_porosity_factor: dict[str, float] = None,
         cloud_f_sed: float = None,
         eddy_diffusion_coefficients: ArrayLike = None,
         haze_factor: float = 1.0,
@@ -3339,25 +3329,25 @@ class Radtrans:
                 Photospheric radius as function of wavelength, if return_photosphere_radius is True.
             opaque_cloud_top_pressure (Optional[float]):
                 Pressure, in bar, where opaque cloud deck is added to the absorption opacity.
-            cloud_particles_mean_radii (Optional):
+            cloud_particle_mean_radii (Optional):
                 Dictionary of mean particle radii for all cloud species.
                 Dictionary keys are the cloud species names. Every radius array has same length as pressure array.
             cloud_particle_radius_distribution_std (Optional[float]):
                 Width of the log-normal cloud particle size distribution
-            cloud_particles_radius_distribution (Optional[string]):
+            cloud_particle_radius_distribution (Optional[string]):
                 The cloud particle size distribution to use.
                 Can be either 'lognormal' (default) or 'hansen'.
                 If hansen, the cloud_hansen_b parameters must be used.
             cloud_hansen_a (Optional[dict]):
                 A dictionary of the 'a' parameter values for each included cloud species and for each atmospheric
-                layer, formatted as the kzz argument. Equivalent to cloud_particles_mean_radii.
+                layer, formatted as the kzz argument. Equivalent to cloud_particle_mean_radii.
                 If cloud_hansen_a is not included and dist is "hansen", then it will be computed using Kzz and fsed
                 (recommended).
             cloud_hansen_b (Optional[dict]):
                 A dictionary of the 'b' parameter values for each included cloud species and for each atmospheric
                 layer, formatted as the kzz argument. This is the width of the hansen distribution normalized by
                 the particle area (1/cloud_hansen_a^2)
-            clouds_particles_porosity_factor (Optional[dict]):
+            clouds_particle_porosity_factor (Optional[dict]):
                 A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
                 are calculated using the Distribution of Hollow Spheres (DHS) method.
             cloud_f_sed (Optional[float]):
@@ -3465,10 +3455,10 @@ class Radtrans:
         )
         sanitized_inputs = self._sanitize_flux_opacity_inputs(
             complete_coverage_clouds=complete_coverage_clouds,
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
@@ -3497,7 +3487,7 @@ class Radtrans:
             cloud_anisotropic_scattering_opacities,
             cloud_absorption_opacities,
             cloud_opacities,
-            cloud_particles_mean_radii,
+            cloud_particle_mean_radii,
             cloud_scattering_in_transmission,
             clear_opacities,
             clear_continuum_opacities_scattering,
@@ -3509,18 +3499,18 @@ class Radtrans:
             mean_molar_masses=mean_molar_masses,
             reference_gravity=reference_gravity,
             opaque_cloud_top_pressure=sanitized_inputs["opaque_cloud_top_pressure"],
-            cloud_particles_mean_radii=sanitized_inputs["cloud_particles_mean_radii"],
+            cloud_particle_mean_radii=sanitized_inputs["cloud_particle_mean_radii"],
             cloud_particle_radius_distribution_std=sanitized_inputs[
                 "cloud_particle_radius_distribution_std"
             ],
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=sanitized_inputs["cloud_hansen_a"],
             cloud_hansen_b=sanitized_inputs["cloud_hansen_b"],
             cloud_particle_number_density_grid=sanitized_inputs[
                 "cloud_particle_number_density_grid"
             ],
-            clouds_particles_porosity_factor=sanitized_inputs[
-                "clouds_particles_porosity_factor"
+            clouds_particle_porosity_factor=sanitized_inputs[
+                "clouds_particle_porosity_factor"
             ],
             cloud_f_sed=sanitized_inputs["cloud_f_sed"],
             eddy_diffusion_coefficients=sanitized_inputs["eddy_diffusion_coefficients"],
@@ -3607,7 +3597,6 @@ class Radtrans:
                 flux,
             )
 
-        # TODO: properly deal with additional outputs
         output = lax.cond(
             frequencies_to_wavelengths,
             lambda f: (
@@ -3716,12 +3705,12 @@ class Radtrans:
         mean_molar_masses: npt.NDArray[float],
         reference_gravity: float,
         opaque_cloud_top_pressure: float = None,
-        cloud_particles_mean_radii: dict[str, ArrayLike] = None,
+        cloud_particle_mean_radii: dict[str, ArrayLike] = None,
         cloud_particle_radius_distribution_std: float = None,
-        cloud_particles_radius_distribution: str = "lognormal",
+        cloud_particle_radius_distribution: str = "lognormal",
         cloud_hansen_a: float = None,
         cloud_hansen_b: float = None,
-        clouds_particles_porosity_factor: dict[str, float] = None,
+        clouds_particle_porosity_factor: dict[str, float] = None,
         cloud_f_sed: float = None,
         eddy_diffusion_coefficients: float = None,
         haze_factor: float = 1.0,
@@ -3750,13 +3739,13 @@ class Radtrans:
             opaque_cloud_top_pressure (Optional[float]):
                 Pressure, in bar, where opaque cloud deck is added to the
                 absorption opacity.
-            cloud_particles_mean_radii (Optional):
+            cloud_particle_mean_radii (Optional):
                 dictionary of mean particle radii for all cloud species.
                 Dictionary keys are the cloud species names.
                 Every radius array has same length as pressure array.
             cloud_particle_radius_distribution_std (Optional[float]):
                 width of the log-normal cloud particle size distribution
-            cloud_particles_radius_distribution (Optional[string]):
+            cloud_particle_radius_distribution (Optional[string]):
                 The cloud particle size distribution to use.
                 Can be either 'lognormal' (default) or 'hansen'.
                 If hansen, the cloud_hansen_b parameters must be used.
@@ -3771,7 +3760,7 @@ class Radtrans:
                 included cloud species and for each atmospheric layer,
                 formatted as the kzz argument. This is the width of the hansen
                 distribution normalized by the particle area (1/cloud_hansen_a^2)
-            clouds_particles_porosity_factor (Optional[dict]):
+            clouds_particle_porosity_factor (Optional[dict]):
                 A dictionary containing the particle porosity factor for each cloud species.
             cloud_f_sed (Optional[float]):
                 cloud settling parameter
@@ -3812,10 +3801,10 @@ class Radtrans:
 
         sanitized_inputs = self._sanitize_flux_opacity_inputs(
             complete_coverage_clouds=(),
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
@@ -3838,7 +3827,7 @@ class Radtrans:
             _,
             _,
             _,
-            cloud_particles_mean_radii,
+            cloud_particle_mean_radii,
             cloud_scattering_in_transmission,
             _,
             _,
@@ -3850,18 +3839,18 @@ class Radtrans:
             mean_molar_masses=mean_molar_masses,
             reference_gravity=reference_gravity,
             opaque_cloud_top_pressure=sanitized_inputs["opaque_cloud_top_pressure"],
-            cloud_particles_mean_radii=sanitized_inputs["cloud_particles_mean_radii"],
+            cloud_particle_mean_radii=sanitized_inputs["cloud_particle_mean_radii"],
             cloud_particle_radius_distribution_std=sanitized_inputs[
                 "cloud_particle_radius_distribution_std"
             ],
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=sanitized_inputs["cloud_hansen_a"],
             cloud_hansen_b=sanitized_inputs["cloud_hansen_b"],
             cloud_particle_number_density_grid=sanitized_inputs[
                 "cloud_particle_number_density_grid"
             ],
-            clouds_particles_porosity_factor=sanitized_inputs[
-                "clouds_particles_porosity_factor"
+            clouds_particle_porosity_factor=sanitized_inputs[
+                "clouds_particle_porosity_factor"
             ],
             cloud_f_sed=sanitized_inputs["cloud_f_sed"],
             eddy_diffusion_coefficients=sanitized_inputs["eddy_diffusion_coefficients"],
@@ -3910,7 +3899,7 @@ class Radtrans:
             continuum_opacities_scattering,
         )
 
-        return opacities_rosseland, opacities_planck, cloud_particles_mean_radii
+        return opacities_rosseland, opacities_planck, cloud_particle_mean_radii
 
     def calculate_transit_radii(
         self,
@@ -3922,13 +3911,13 @@ class Radtrans:
         planet_radius: float,
         variable_gravity: bool = True,
         opaque_cloud_top_pressure: float = None,
-        cloud_particles_mean_radii: dict[str, ArrayLike] = None,
+        cloud_particle_mean_radii: dict[str, ArrayLike] = None,
         cloud_particle_radius_distribution_std: float = None,
-        cloud_particles_radius_distribution: str = "lognormal",
+        cloud_particle_radius_distribution: str = "lognormal",
         cloud_hansen_a: float = None,
         cloud_hansen_b: float = None,
         cloud_particle_number_density_grid: dict[str, ArrayLike] = None,
-        clouds_particles_porosity_factor: dict[str, float] = None,
+        clouds_particle_porosity_factor: dict[str, float] = None,
         cloud_f_sed: float = None,
         eddy_diffusion_coefficients: float = None,
         haze_factor: float = 1.0,
@@ -3946,9 +3935,9 @@ class Radtrans:
         return_radius_hydrostatic_equilibrium: bool = False,
         return_opacities: bool = False,
         return_abundances: bool = False,
-        return_particles_radii_bins: bool = False,
-        return_particles_radii: bool = False,
-        return_particles_densities: bool = False,
+        return_particle_radii_bins: bool = False,
+        return_particle_radii: bool = False,
+        return_particle_densities: bool = False,
         target_particle_radii: ArrayLike = None,
         target_pressure: ArrayLike = None,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
@@ -3984,13 +3973,13 @@ class Radtrans:
                 opaque_cloud_top_pressure (Optional[float]):
                     Pressure, in bar, where opaque cloud deck is added to the
                     absorption opacity.
-                cloud_particles_mean_radii (Optional):
+                cloud_particle_mean_radii (Optional):
                     dictionary of mean particle radii for all cloud species.
                     Dictionary keys are the cloud species names.
                     Every radius array has same length as pressure array.
                 cloud_particle_radius_distribution_std (Optional[float]):
                     width of the log-normal cloud particle size distribution
-                cloud_particles_radius_distribution (Optional[string]):
+                cloud_particle_radius_distribution (Optional[string]):
                     The cloud particle size distribution to use.
                     Can be either 'lognormal' (default) or 'hansen'.
                     If hansen, the cloud_hansen_b parameters must be used.
@@ -4007,7 +3996,7 @@ class Radtrans:
                     distribution normalized by the particle area (1/cloud_hansen_a^2)
                 cloud_particle_number_density_grid (Optional[dict]):
                     EXPERIMENTAL
-                clouds_particles_porosity_factor (Optional[dict]):
+                clouds_particle_porosity_factor (Optional[dict]):
                     A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
                     are calculated using the Distribution of Hollow Spheres (DHS) method.
                 cloud_f_sed (Optional[float]):
@@ -4066,11 +4055,11 @@ class Radtrans:
                     If True, return the absorption opacities and scattering opacities.
                 return_abundances (Optional[bool]):
                     If True, return the mass fractions.
-                return_particles_radii_bins (Optional[bool]):
+                return_particle_radii_bins (Optional[bool]):
                     If True, return the particles radii bins.
-                return_particles_radii (Optional[bool]):
+                return_particle_radii (Optional[bool]):
                     If True, return the particles radii.
-                return_particles_densities (Optional[bool]):
+                return_particle_densities (Optional[bool]):
                     If True, return the particles densities.
                 target_particle_radii (Optional[ArrayLike]):
                     Optional particle radii grid used when evaluating cloud
@@ -4103,13 +4092,13 @@ class Radtrans:
             planet_radius=planet_radius,
             variable_gravity=variable_gravity,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
             cloud_particle_number_density_grid=cloud_particle_number_density_grid,
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             haze_factor=haze_factor,
@@ -4127,9 +4116,9 @@ class Radtrans:
             return_cloud_contribution=return_cloud_contribution,
             return_opacities=return_opacities,
             return_abundances=return_abundances,
-            return_particles_radii_bins=return_particles_radii_bins,
-            return_particles_radii=return_particles_radii,
-            return_particles_densities=return_particles_densities,
+            return_particle_radii_bins=return_particle_radii_bins,
+            return_particle_radii=return_particle_radii,
+            return_particle_densities=return_particle_densities,
             target_particle_radii=target_particle_radii,
             target_pressure=target_pressure,
             sum_opacities=sum_opacities,
@@ -4139,7 +4128,7 @@ class Radtrans:
     @jit(
         static_argnames=[
             "self",
-            "cloud_particles_radius_distribution",
+            "cloud_particle_radius_distribution",
             "variable_gravity",
             "frequencies_to_wavelengths",
             "complete_coverage_clouds",
@@ -4151,9 +4140,9 @@ class Radtrans:
             "return_cloud_contribution",
             "return_opacities",
             "return_abundances",
-            "return_particles_radii_bins",
-            "return_particles_radii",
-            "return_particles_densities",
+            "return_particle_radii_bins",
+            "return_particle_radii",
+            "return_particle_densities",
         ]
     )
     def _calculate_transit_radii_full_kernel(
@@ -4166,13 +4155,13 @@ class Radtrans:
         planet_radius,
         variable_gravity=True,
         opaque_cloud_top_pressure=None,
-        cloud_particles_mean_radii=None,
+        cloud_particle_mean_radii=None,
         cloud_particle_radius_distribution_std=None,
-        cloud_particles_radius_distribution="lognormal",
+        cloud_particle_radius_distribution="lognormal",
         cloud_hansen_a=None,
         cloud_hansen_b=None,
         cloud_particle_number_density_grid=None,
-        clouds_particles_porosity_factor=None,
+        clouds_particle_porosity_factor=None,
         cloud_f_sed=None,
         eddy_diffusion_coefficients=None,
         haze_factor=1.0,
@@ -4191,9 +4180,9 @@ class Radtrans:
         return_cloud_contribution=False,
         return_opacities=False,
         return_abundances=False,
-        return_particles_radii_bins=False,
-        return_particles_radii=False,
-        return_particles_densities=False,
+        return_particle_radii_bins=False,
+        return_particle_radii=False,
+        return_particle_densities=False,
         target_particle_radii=None,
         target_pressure=None,
         sum_opacities=None,
@@ -4204,10 +4193,10 @@ class Radtrans:
 
         sanitized_inputs = self._sanitize_flux_opacity_inputs(
             complete_coverage_clouds=complete_coverage_clouds,
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
@@ -4241,7 +4230,7 @@ class Radtrans:
             cloud_anisotropic_scattering_opacities,
             cloud_absorption_opacities,
             cloud_opacities,
-            cloud_particles_mean_radii,
+            cloud_particle_mean_radii,
             cloud_scattering_in_transmission,
             clear_opacities,
             clear_continuum_opacities_scattering,
@@ -4253,18 +4242,18 @@ class Radtrans:
             mean_molar_masses=mean_molar_masses,
             reference_gravity=reference_gravity,
             opaque_cloud_top_pressure=sanitized_inputs["opaque_cloud_top_pressure"],
-            cloud_particles_mean_radii=sanitized_inputs["cloud_particles_mean_radii"],
+            cloud_particle_mean_radii=sanitized_inputs["cloud_particle_mean_radii"],
             cloud_particle_radius_distribution_std=sanitized_inputs[
                 "cloud_particle_radius_distribution_std"
             ],
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=sanitized_inputs["cloud_hansen_a"],
             cloud_hansen_b=sanitized_inputs["cloud_hansen_b"],
             cloud_particle_number_density_grid=sanitized_inputs[
                 "cloud_particle_number_density_grid"
             ],
-            clouds_particles_porosity_factor=sanitized_inputs[
-                "clouds_particles_porosity_factor"
+            clouds_particle_porosity_factor=sanitized_inputs[
+                "clouds_particle_porosity_factor"
             ],
             cloud_f_sed=sanitized_inputs["cloud_f_sed"],
             eddy_diffusion_coefficients=sanitized_inputs["eddy_diffusion_coefficients"],
@@ -4362,25 +4351,25 @@ class Radtrans:
         # --- Build additional outputs ---
         additional_outputs = {}
 
-        if return_particles_radii_bins:
-            additional_outputs["particles_radii_bins"] = self._clouds_loaded_opacities[
-                "particles_radii_bins"
+        if return_particle_radii_bins:
+            additional_outputs["particle_radii_bins"] = self._clouds_loaded_opacities[
+                "particle_radii_bins"
             ]
 
-        if return_particles_radii:
-            additional_outputs["particles_radii"] = self._clouds_loaded_opacities[
-                "particles_radii"
+        if return_particle_radii:
+            additional_outputs["particle_radii"] = self._clouds_loaded_opacities[
+                "particle_radii"
             ]
 
-        if (sanitized_inputs["cloud_particles_mean_radii"] is not None
-                or len(sanitized_inputs["cloud_f_sed"]) > 0):
-            additional_outputs["cloud_particles_mean_radii"] = (
-                cloud_particles_mean_radii
-            )
+        if (
+            sanitized_inputs["cloud_particle_mean_radii"] is not None
+            or len(sanitized_inputs["cloud_f_sed"]) > 0
+        ):
+            additional_outputs["cloud_particle_mean_radii"] = cloud_particle_mean_radii
 
-        if return_particles_densities:
-            additional_outputs["particles_densities"] = self._clouds_loaded_opacities[
-                "particles_densities"
+        if return_particle_densities:
+            additional_outputs["particle_densities"] = self._clouds_loaded_opacities[
+                "particle_densities"
             ]
 
         if return_contribution:
@@ -4480,13 +4469,13 @@ class Radtrans:
         """
         allowed_cloud_parameters = {
             "opaque_cloud_top_pressure",
-            "cloud_particles_mean_radii",
+            "cloud_particle_mean_radii",
             "cloud_particle_radius_distribution_std",
-            "cloud_particles_radius_distribution",
+            "cloud_particle_radius_distribution",
             "cloud_hansen_a",
             "cloud_hansen_b",
             "cloud_particle_number_density_grid",
-            "clouds_particles_porosity_factor",
+            "clouds_particle_porosity_factor",
             "cloud_f_sed",
             "eddy_diffusion_coefficients",
             "haze_factor",
@@ -4593,13 +4582,13 @@ class Radtrans:
 
             hdf5_files.append(hdf5_file)
 
-        clouds_particles_densities = jnp.zeros(len(hdf5_files), dtype=JAX_DTYPE)
+        clouds_particle_densities = jnp.zeros(len(hdf5_files), dtype=JAX_DTYPE)
         clouds_absorption_opacities = None
         clouds_scattering_opacities = None
         clouds_asymmetry_parameters = None
         cloud_wavelengths = None
-        clouds_particles_radii_bins = None
-        clouds_particles_radii = None
+        clouds_particle_radii_bins = None
+        clouds_particle_radii = None
 
         for i, hdf5_file in enumerate(hdf5_files):
             print(
@@ -4610,9 +4599,9 @@ class Radtrans:
 
             (
                 _cloud_wavelengths,
-                _cloud_particles_radii_bins,
-                _cloud_particles_radii,
-                _cloud_particles_densities,
+                _cloud_particle_radii_bins,
+                _cloud_particle_radii,
+                _cloud_particle_densities,
                 _cloud_absorption_opacities,
                 _cloud_scattering_opacities,
                 _cloud_asymmetry_parameters,
@@ -4621,12 +4610,12 @@ class Radtrans:
             if i == 0:
                 # Initialize cloud arrays
                 cloud_wavelengths = _cloud_wavelengths
-                clouds_particles_radii_bins = _cloud_particles_radii_bins
-                clouds_particles_radii = _cloud_particles_radii
+                clouds_particle_radii_bins = _cloud_particle_radii_bins
+                clouds_particle_radii = _cloud_particle_radii
 
                 clouds_absorption_opacities = jnp.zeros(
                     (
-                        clouds_particles_radii.size,
+                        clouds_particle_radii.size,
                         cloud_wavelengths.size,
                         len(hdf5_files),
                     ),
@@ -4634,7 +4623,7 @@ class Radtrans:
                 )
                 clouds_scattering_opacities = jnp.zeros(
                     (
-                        clouds_particles_radii.size,
+                        clouds_particle_radii.size,
                         cloud_wavelengths.size,
                         len(hdf5_files),
                     ),
@@ -4642,15 +4631,15 @@ class Radtrans:
                 )
                 clouds_asymmetry_parameters = jnp.zeros(
                     (
-                        clouds_particles_radii.size,
+                        clouds_particle_radii.size,
                         cloud_wavelengths.size,
                         len(hdf5_files),
                     ),
                     dtype=JAX_DTYPE,
                 )
 
-            clouds_particles_densities = clouds_particles_densities.at[i].set(
-                _cloud_particles_densities
+            clouds_particle_densities = clouds_particle_densities.at[i].set(
+                _cloud_particle_densities
             )
             clouds_absorption_opacities = clouds_absorption_opacities.at[:, :, i].set(
                 _cloud_absorption_opacities
@@ -4676,8 +4665,8 @@ class Radtrans:
             clouds_scattering_opacities < 0.0
         ].set(0.0)
 
-        self._clouds_loaded_opacities["particles_densities"] = jnp.array(
-            clouds_particles_densities, dtype=JAX_DTYPE
+        self._clouds_loaded_opacities["particle_densities"] = jnp.array(
+            clouds_particle_densities, dtype=JAX_DTYPE
         )
         self._clouds_loaded_opacities["absorption_opacities"] = jnp.array(
             clouds_absorption_opacities, dtype=JAX_DTYPE
@@ -4685,17 +4674,17 @@ class Radtrans:
         self._clouds_loaded_opacities["scattering_opacities"] = jnp.array(
             clouds_scattering_opacities, dtype=JAX_DTYPE
         )
-        self._clouds_loaded_opacities["particles_asymmetry_parameters"] = jnp.array(
+        self._clouds_loaded_opacities["particle_asymmetry_parameters"] = jnp.array(
             clouds_asymmetry_parameters, dtype=JAX_DTYPE
         )
         self._clouds_loaded_opacities["wavelengths"] = jnp.array(
             cloud_wavelengths, dtype=JAX_DTYPE
         )
-        self._clouds_loaded_opacities["particles_radii_bins"] = jnp.array(
-            clouds_particles_radii_bins, dtype=JAX_DTYPE
+        self._clouds_loaded_opacities["particle_radii_bins"] = jnp.array(
+            clouds_particle_radii_bins, dtype=JAX_DTYPE
         )
-        self._clouds_loaded_opacities["particles_radii"] = jnp.array(
-            clouds_particles_radii, dtype=JAX_DTYPE
+        self._clouds_loaded_opacities["particle_radii"] = jnp.array(
+            clouds_particle_radii, dtype=JAX_DTYPE
         )
 
         print(" Successfully loaded all clouds opacities")

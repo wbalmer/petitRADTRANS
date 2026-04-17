@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a21] - 2026-04-13
+## [4.0.0a22] - 2026-04-17
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -17,7 +17,6 @@ Ready for beta testing with version 4.0.0.a16.
 - Feature completion: Implement hansen cloud opacities in `cloud_core`.
 - Feature completion: Finish reimplementing contribution functions.
 - Feature completion: Implement adaptive mesh refinement with constant size pressure array.
-- Feature completion: Figure out how to implement `additional_outputs` in jax compatible way.
 - Feature completion: New cloud opacities to be compatible with new condensation curves.
 - Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
 - Feature completion: Re-implement non-vertically-constant abundance profiles.
@@ -51,8 +50,11 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: Times series retrieval plotting
 - Future goals: Implement additional radiative transfer methods.
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
+- Future goals: correlated-k binning.
 
 ### Changed
+- a22: all cloud particle arguement names standardized to cloud_particle instead of cloud_particles
+- a22: temperature profile names now standardized to author_temperature_profile
 - a21: Parallelised SBI
 - a21: Fixed bug with sorting of dictionary keys with JIT that led to incorrect rayleigh opacities.
 - a19 Vectorised likelihood in retrieval module and training set generation in SBI module.

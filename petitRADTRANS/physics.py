@@ -6,7 +6,7 @@ from jax.typing import ArrayLike
 from jax import custom_gradient, config, Array
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.math import running_mean
-from petitRADTRANS.profiles.guillot import temperature_profile_function_guillot_modif
+from petitRADTRANS.temperature_profiles.guillot import guillot_modif_temperature_profile
 
 
 def calculate_distance_from_luminosity(t_irr, dist, t_star, r_star, mode, mode_what):
@@ -298,7 +298,7 @@ def make_press_temp(rad_trans_params):
     """Function to make temp"""
     # TODO: delete, not used
     press_many = jnp.logspace(-8, 5, 260)
-    t_no_ave = temperature_profile_function_guillot_modif(
+    t_no_ave = guillot_modif_temperature_profile(
         press_many,
         1e1 ** rad_trans_params["log_delta"],
         1e1 ** rad_trans_params["log_gamma"],

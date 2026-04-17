@@ -35,15 +35,15 @@ import jax.numpy as jnp
 from petitRADTRANS.chemistry import clouds
 from petitRADTRANS.chemistry.core import get_abundances, get_abundances_from_legacy_dict
 from petitRADTRANS.physics import flux2irradiance, planck_function_cm, apply_ism_ext
-from petitRADTRANS.profiles import (
+from petitRADTRANS.temperature_profiles import (
     cubic_spline_temperature_profile,
     linear_spline_temperature_profile,
-    dtdp_temperature_profile,
+    zhang_2023_temperature_profile,
     madhusudhan_seager_temperature_profile,
     power_law_temperature_profile,
-    temperature_profile_function_guillot_global,
-    temperature_profile_function_isothermal,
-    spline_eddington_adiabatic_temperature_profile,
+    guillot_global_temperature_profile,
+    isothermal_temperature_profile,
+    molliere_2020_temperature_profile,
 )
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.retrieval.runtime import (
@@ -182,16 +182,18 @@ def legacy_spline_eddington_adiabatic_emission(
     elif "C" in parameters.keys():
         carbon_to_oxygen = parameters["C"].value / parameters["O"].value
 
-    temperatures = spline_eddington_adiabatic_temperature_profile(  # TODO weird way of calling the function
-        (
-            temp_arr,
-            delta,
-            parameters["alpha"].value,
-            parameters["T_int"].value,
-            p_use,
-            parameters["Fe/H"].value,
-            carbon_to_oxygen,
-            True,  # conv
+    temperatures = (
+        molliere_2020_temperature_profile(  # TODO weird way of calling the function
+            (
+                temp_arr,
+                delta,
+                parameters["alpha"].value,
+                parameters["T_int"].value,
+                p_use,
+                parameters["Fe/H"].value,
+                carbon_to_oxygen,
+                True,  # conv
+            )
         )
     )
 
@@ -233,7 +235,7 @@ def legacy_spline_eddington_adiabatic_emission(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -249,7 +251,7 @@ def legacy_spline_eddington_adiabatic_emission(
         mean_molar_masses=mmw,
         planet_radius=planet_radius,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
@@ -358,16 +360,18 @@ def legacy_emission_model_diseq_patchy_clouds(
     ) ** (-parameters["alpha_clear"].value)
     gravity, planet_radius = _compute_gravity(parameters)
 
-    temperatures = spline_eddington_adiabatic_temperature_profile(  # TODO weird way of calling the function
-        (
-            temp_arr,
-            delta,
-            parameters["alpha"].value,
-            parameters["T_int"].value,
-            p_use,
-            parameters["Fe/H"].value,
-            parameters["C/O"].value,
-            True,  # conv
+    temperatures = (
+        molliere_2020_temperature_profile(  # TODO weird way of calling the function
+            (
+                temp_arr,
+                delta,
+                parameters["alpha"].value,
+                parameters["T_int"].value,
+                p_use,
+                parameters["Fe/H"].value,
+                parameters["C/O"].value,
+                True,  # conv
+            )
         )
     )
 
@@ -381,7 +385,7 @@ def legacy_emission_model_diseq_patchy_clouds(
         adaptive_mesh_refinement=adaptive_mesh_refinement,
     )
 
-    t_clear = spline_eddington_adiabatic_temperature_profile(
+    t_clear = molliere_2020_temperature_profile(
         (  # TODO weird way of calling the function
             temps_clear,
             delta_clear,
@@ -426,7 +430,7 @@ def legacy_emission_model_diseq_patchy_clouds(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -441,8 +445,8 @@ def legacy_emission_model_diseq_patchy_clouds(
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_particle_radius_distribution_std=sigma_lnorm,
         cloud_hansen_b=cloud_hansen_b,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
-        cloud_particles_radius_distribution=distribution,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
+        cloud_particle_radius_distribution=distribution,
     )
 
     # Getting the model into correct units
@@ -551,7 +555,7 @@ def legacy_guillot_emission(
 
     gravity, planet_radius = _compute_gravity(parameters)
 
-    temperatures = temperature_profile_function_guillot_global(
+    temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** parameters["log_kappa_IR"].value,
         parameters["gamma"].value,
@@ -591,7 +595,7 @@ def legacy_guillot_emission(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -607,7 +611,7 @@ def legacy_guillot_emission(
         mean_molar_masses=mmw,
         planet_radius=planet_radius,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
@@ -683,7 +687,7 @@ def legacy_guillot_emission_add_gaussian_temperature(
 
     gravity, planet_radius = _compute_gravity(parameters)
 
-    temperatures = temperature_profile_function_guillot_global(
+    temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** parameters["log_kappa_IR"].value,
         parameters["gamma"].value,
@@ -736,7 +740,7 @@ def legacy_guillot_emission_add_gaussian_temperature(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -752,7 +756,7 @@ def legacy_guillot_emission_add_gaussian_temperature(
         mean_molar_masses=mmw,
         planet_radius=planet_radius,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
@@ -882,7 +886,7 @@ def legacy_interpolated_profile_emission(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -898,7 +902,7 @@ def legacy_interpolated_profile_emission(
         mean_molar_masses=mmw,
         planet_radius=planet_radius,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
@@ -988,7 +992,7 @@ def legacy_gradient_profile_emission(
         top_of_atmosphere_presure = parameters["top_of_atmosphere_pressure"].value
     if "bottom_of_atmosphere_pressure" in parameters.keys():
         bottom_of_atmosphere_presure = parameters["bottom_of_atmosphere_pressure"].value
-    temperatures = dtdp_temperature_profile(
+    temperatures = zhang_2023_temperature_profile(
         p_use,
         num_layer,
         layer_pt_slopes,
@@ -1029,7 +1033,7 @@ def legacy_gradient_profile_emission(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -1045,7 +1049,7 @@ def legacy_gradient_profile_emission(
         mean_molar_masses=mmw,
         planet_radius=planet_radius,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
@@ -1162,7 +1166,7 @@ def legacy_power_law_profile_emission(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -1178,7 +1182,7 @@ def legacy_power_law_profile_emission(
         mean_molar_masses=mmw,
         planet_radius=planet_radius,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
@@ -1262,7 +1266,7 @@ def legacy_guillot_transmission(
     # Calculate the spectrum
     gravity, planet_radius = _compute_gravity(parameters)
 
-    temperatures = temperature_profile_function_guillot_global(
+    temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** parameters["log_kappa_IR"].value,
         parameters["gamma"].value,
@@ -1306,7 +1310,7 @@ def legacy_guillot_transmission(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -1323,7 +1327,7 @@ def legacy_guillot_transmission(
         reference_pressure=reference_pressure,
         opaque_cloud_top_pressure=pcloud,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         haze_factor=haze_factor,
@@ -1478,7 +1482,7 @@ def legacy_madhushudhan_seager_emission(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -1493,7 +1497,7 @@ def legacy_madhushudhan_seager_emission(
         mean_molar_masses=mmw,
         planet_radius=planet_radius,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
@@ -1641,7 +1645,7 @@ def legacy_madhushudhan_seager_transmission(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -1658,7 +1662,7 @@ def legacy_madhushudhan_seager_transmission(
         reference_pressure=reference_pressure,
         opaque_cloud_top_pressure=pcloud,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         haze_factor=haze_factor,
@@ -1751,7 +1755,7 @@ def legacy_isothermal_transmission(
         reference_pressure = parameters["reference_pressure"].value
 
     # Make the P-T profile
-    temperatures = temperature_profile_function_isothermal(
+    temperatures = isothermal_temperature_profile(
         p_use, parameters["temperature"].value
     )
     gravity, planet_radius = _compute_gravity(parameters)
@@ -1790,7 +1794,7 @@ def legacy_isothermal_transmission(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -1807,7 +1811,7 @@ def legacy_isothermal_transmission(
         reference_pressure=reference_pressure,
         opaque_cloud_top_pressure=pcloud,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         haze_factor=haze_factor,
@@ -1926,7 +1930,7 @@ def legacy_power_law_profile_transmission(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -1943,7 +1947,7 @@ def legacy_power_law_profile_transmission(
         reference_pressure=reference_pressure,
         opaque_cloud_top_pressure=pcloud,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         haze_factor=haze_factor,
@@ -2465,7 +2469,7 @@ def _build_runtime_emission_model_inputs(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -2479,13 +2483,13 @@ def _build_runtime_emission_model_inputs(
         gravity=gravity,
         planet_radius=planet_radius,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        cloud_particles_radius_distribution=distribution,
+        cloud_particle_radius_distribution=distribution,
         distance_to_system=physical_params["distance_to_system"],
         disk_blackbody_temperature=(
             physical_params["T_disk_blackbody"]
@@ -2528,7 +2532,7 @@ def _build_runtime_transmission_model_inputs(
         cloud_f_sed,
         eddy_diffusion_coefficients,
         cloud_hansen_b,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_fraction,
         complete_coverage_clouds,
         distribution,
@@ -2544,7 +2548,7 @@ def _build_runtime_transmission_model_inputs(
         reference_pressure=reference_pressure,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         haze_factor=haze_factor,
@@ -2553,7 +2557,7 @@ def _build_runtime_transmission_model_inputs(
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        cloud_particles_radius_distribution=distribution,
+        cloud_particle_radius_distribution=distribution,
         stellar_radius=physical_params["stellar_radius"],
     )
 
@@ -2584,7 +2588,7 @@ def spline_eddington_adiabatic_emission(
     elif "C" in physical_params.keys():
         carbon_to_oxygen = physical_params["C"] / physical_params["O"]
 
-    temperatures = spline_eddington_adiabatic_temperature_profile(
+    temperatures = molliere_2020_temperature_profile(
         (
             temp_arr,
             delta,
@@ -2663,7 +2667,7 @@ def emission_model_diseq_patchy_clouds(
     ) ** (-physical_params["alpha_clear"])
     gravity, planet_radius = _compute_gravity(physical_params)
 
-    temperatures = spline_eddington_adiabatic_temperature_profile(
+    temperatures = molliere_2020_temperature_profile(
         (
             temp_arr,
             delta,
@@ -2687,7 +2691,7 @@ def emission_model_diseq_patchy_clouds(
     if result is not None:
         return result
 
-    t_clear = spline_eddington_adiabatic_temperature_profile(
+    t_clear = molliere_2020_temperature_profile(
         (
             temps_clear,
             delta_clear,
@@ -2785,7 +2789,7 @@ def guillot_emission(
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(physical_params)
 
-    temperatures = temperature_profile_function_guillot_global(
+    temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** physical_params["log_kappa_IR"],
         physical_params["gamma"],
@@ -2829,7 +2833,7 @@ def guillot_emission_add_gaussian_temperature(
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(physical_params)
 
-    temperatures = temperature_profile_function_guillot_global(
+    temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** physical_params["log_kappa_IR"],
         physical_params["gamma"],
@@ -2965,7 +2969,7 @@ def gradient_profile_emission(
     if "bottom_of_atmosphere_pressure" in physical_params.keys():
         bottom_of_atmosphere_pressure = physical_params["bottom_of_atmosphere_pressure"]
 
-    temperatures = dtdp_temperature_profile(
+    temperatures = zhang_2023_temperature_profile(
         p_use,
         num_layer,
         layer_pt_slopes,
@@ -3150,7 +3154,7 @@ def time_series_gradient_emission(
                 snapshot[f"PTslope_{num_layer - k}"]
             )
 
-        temperatures = dtdp_temperature_profile(
+        temperatures = zhang_2023_temperature_profile(
             p_use,
             num_layer,
             layer_pt_slopes,
@@ -3277,7 +3281,7 @@ def guillot_transmission(
         reference_pressure = physical_params["reference_pressure"]
 
     gravity, planet_radius = _compute_gravity(physical_params)
-    temperatures = temperature_profile_function_guillot_global(
+    temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** physical_params["log_kappa_IR"],
         physical_params["gamma"],
@@ -3487,9 +3491,7 @@ def isothermal_transmission(
     if "reference_pressure" in physical_params.keys():
         reference_pressure = physical_params["reference_pressure"]
 
-    temperatures = temperature_profile_function_isothermal(
-        p_use, physical_params["temperature"]
-    )
+    temperatures = isothermal_temperature_profile(p_use, physical_params["temperature"])
     gravity, planet_radius = _compute_gravity(physical_params)
 
     result, abundance_state = _resolve_runtime_abundance_state(
@@ -3592,10 +3594,10 @@ def calculate_emission_spectrum_runtime(
         eddy_diffusion_coefficients=model_inputs.eddy_diffusion_coefficients,
         cloud_particle_radius_distribution_std=model_inputs.sigma_lnorm,
         cloud_hansen_b=model_inputs.cloud_hansen_b,
-        cloud_particles_mean_radii=model_inputs.cloud_particles_mean_radii,
+        cloud_particle_mean_radii=model_inputs.cloud_particle_mean_radii,
         cloud_fraction=model_inputs.cloud_fraction,
         complete_coverage_clouds=model_inputs.complete_coverage_clouds,
-        cloud_particles_radius_distribution=model_inputs.cloud_particles_radius_distribution,
+        cloud_particle_radius_distribution=model_inputs.cloud_particle_radius_distribution,
     )
 
     wavelengths_model, flux, additional_outputs = results
@@ -3690,7 +3692,7 @@ def calculate_transmission_spectrum_runtime(
         reference_pressure=model_inputs.reference_pressure,
         opaque_cloud_top_pressure=model_inputs.opaque_cloud_top_pressure,
         cloud_particle_radius_distribution_std=model_inputs.sigma_lnorm,
-        cloud_particles_mean_radii=model_inputs.cloud_particles_mean_radii,
+        cloud_particle_mean_radii=model_inputs.cloud_particle_mean_radii,
         cloud_f_sed=model_inputs.cloud_f_sed,
         eddy_diffusion_coefficients=model_inputs.eddy_diffusion_coefficients,
         haze_factor=model_inputs.haze_factor,
@@ -3699,7 +3701,7 @@ def calculate_transmission_spectrum_runtime(
         cloud_hansen_b=model_inputs.cloud_hansen_b,
         cloud_fraction=model_inputs.cloud_fraction,
         complete_coverage_clouds=model_inputs.complete_coverage_clouds,
-        cloud_particles_radius_distribution=model_inputs.cloud_particles_radius_distribution,
+        cloud_particle_radius_distribution=model_inputs.cloud_particle_radius_distribution,
         return_contribution=model_context.return_contribution,
         return_cloud_contribution=model_context.return_cloud_contribution,
         return_radius_hydrostatic_equilibrium=model_context.return_radius_hydrostatic_equilibrium,
@@ -3734,7 +3736,7 @@ def calculate_emission_spectrum(
     mean_molar_masses,
     planet_radius,
     sigma_lnorm,
-    cloud_particles_mean_radii,
+    cloud_particle_mean_radii,
     cloud_f_sed,
     eddy_diffusion_coefficients,
     cloud_hansen_b,
@@ -3759,7 +3761,7 @@ def calculate_emission_spectrum(
         mean_molar_masses (ArrayLike): Mean molecular mass at each pressure level
         planet_radius (float): Planet radius in cm
         sigma_lnorm (float): Width of the cloud particle size distribution (log-normal)
-        cloud_particles_mean_radii (ArrayLike): Mean particle radius
+        cloud_particle_mean_radii (ArrayLike): Mean particle radius
         cloud_f_sed (ArrayLike): Sedimentation fraction
         eddy_diffusion_coefficients (ArrayLike): Vertical mixing strength (Kzz)
         cloud_hansen_b (ArrayLike): Cloud particle distribution width, hansen distsribution
@@ -3781,13 +3783,13 @@ def calculate_emission_spectrum(
         gravity=gravity,
         planet_radius=planet_radius,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        cloud_particles_radius_distribution=distribution,
+        cloud_particle_radius_distribution=distribution,
         distance_to_system=parameters["distance_to_system"].value,
         disk_blackbody_temperature=(
             parameters["T_disk_blackbody"].value
@@ -3827,7 +3829,7 @@ def calculate_transmission_spectrum(
     reference_pressure,
     opaque_cloud_top_pressure,
     sigma_lnorm,
-    cloud_particles_mean_radii,
+    cloud_particle_mean_radii,
     cloud_f_sed,
     eddy_diffusion_coefficients,
     haze_factor,
@@ -3851,7 +3853,7 @@ def calculate_transmission_spectrum(
         reference_pressure (float): Pressure at which the planet radius is defined
         opaque_cloud_top_pressure (float): Pressure where an opaque grey cloud deck is placed
         sigma_lnorm (float): Width of the cloud particle size distribution (log-normal)
-        cloud_particles_mean_radii (ArrayLike): Mean particle radius
+        cloud_particle_mean_radii (ArrayLike): Mean particle radius
         cloud_f_sed (ArrayLike): Sedimentation fraction
         eddy_diffusion_coefficients (ArrayLike): Vertical mixing strength (Kzz)
         haze_factor (float): Multiplicative factor on the strength of a power law haze slope
@@ -3880,7 +3882,7 @@ def calculate_transmission_spectrum(
         reference_pressure=reference_pressure,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure,
         sigma_lnorm=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         haze_factor=haze_factor,
@@ -3889,7 +3891,7 @@ def calculate_transmission_spectrum(
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        cloud_particles_radius_distribution=distribution,
+        cloud_particle_radius_distribution=distribution,
         stellar_radius=parameters["stellar_radius"].value,
     )
 

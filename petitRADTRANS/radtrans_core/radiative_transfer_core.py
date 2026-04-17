@@ -189,7 +189,9 @@ def combine_ck_opacities(
 
     if n_species > 1:
         # C2: Vectorized threshold matching Fortran structure.
-        threshold = jnp.max(weighted_all[:, :, -1], axis=1) * 1e-2  # (n_fl,)
+        # Fortran uses g=1 (first/weakest g-point) to compute the threshold,
+        # then checks g=n_g (last/strongest) against it.
+        threshold = jnp.max(weighted_all[:, :, 0], axis=1) * 1e-2  # (n_fl,)
         active_mask = weighted_all[:, :, -1] >= threshold[:, None]  # (n_fl, n_species)
 
         # Batched species loop — no vmap, single sort kernel per species.
@@ -783,6 +785,12 @@ def _compute_feautrier_radiative_transfer_chunk(
     # ------------------------------------------------------------------
     # 12. Inner Feautrier solve
     # ------------------------------------------------------------------
+    # Pre-factor the tridiagonal LHS once (CPU only; returns None on GPU).
+    # Subsequent solves inside the scan loop skip the LHS forward elimination.
+    thomas_factors = linalg.factor_feautrier(
+        a_flat, b_flat, c_flat, n_g, n_freq_bins, n_angles, n_layers
+    )
+
     def _feautrier_solve(
         source_gfl: ArrayLike,
         I_plus_surface_gfa: ArrayLike,
@@ -795,7 +803,8 @@ def _compute_feautrier_radiative_transfer_chunk(
             I_plus_surface_gfa + I_minus_boundary_gf[:, :, None]
         )  # (g, f, a)
 
-        I_H_top, x_last_gfa, x_nm2_gfa, J_bol_gfl = linalg.solve_feautrier_tridiagonal(
+        I_H_top, x_last_gfa, x_nm2_gfa, J_bol_gfl = linalg.solve_feautrier_prefactored(
+            thomas_factors,
             a_flat,
             b_flat,
             c_flat,
