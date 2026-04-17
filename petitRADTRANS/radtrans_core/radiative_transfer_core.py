@@ -858,6 +858,7 @@ def _compute_feautrier_radiative_transfer_chunk(
                 current_I_plus_surface_gfa,
                 current_flux_gf_prev,
                 current_I_minus_gf,
+                I_H_top,
                 current_ng_history,
                 current_converged_gf,
             ) = state
@@ -929,6 +930,7 @@ def _compute_feautrier_radiative_transfer_chunk(
                 next_I_plus_surface_gfa,
                 next_flux_gf_prev,
                 next_I_minus_gf,
+                I_H_top,
                 current_ng_history,
                 next_converged_gf,
             )
@@ -946,6 +948,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         jnp.zeros((n_g, n_freq_bins, n_angles)),
         jnp.zeros((n_g, n_freq_bins)),
         jnp.zeros((n_g, n_freq_bins)),
+        jnp.zeros((n_g, n_freq_bins, n_angles)),
         jnp.zeros((4, n_g, n_freq_bins, n_layers)),
         jnp.zeros((n_g, n_freq_bins), dtype=jnp.bool_),
     )
@@ -956,12 +959,15 @@ def _compute_feautrier_radiative_transfer_chunk(
         jnp.arange(iter_scat_max + 1, dtype=jnp.int32),
     )
 
-    (final_source_gfl, _, flux_gf_final, I_minus_gf_final, _, _) = final_carry
+    (final_source_gfl, _, flux_gf_final, I_minus_gf_final, I_H_top, _, _) = final_carry
 
     # ------------------------------------------------------------------
     # 14. Flux  (n_freq_bins,)
     # ------------------------------------------------------------------
     flux_f = pi_4 * jnp.einsum("gf,g->f", flux_gf_final, weights_gauss)
+    angle_dependent_intensities = 2.0 * jnp.einsum(
+        "gfa,g->fa", I_H_top, weights_gauss
+    )  # (f, a)
 
     # ------------------------------------------------------------------
     # 15. Contribution function (optional)
@@ -1016,7 +1022,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         lambda: emission_contribution_lf,
     )
 
-    return flux_f, emission_contribution_lf
+    return flux_f, emission_contribution_lf, angle_dependent_intensities
 
 
 @jit(
@@ -1099,6 +1105,7 @@ def compute_feautrier_radiative_transfer(
         contribution array with shape ``(n_layers, n_freq_bins)``.
     """
     n_g, n_freq_bins, n_layers = photon_destruction_probabilities_in.shape
+    n_angles = emission_cos_angles.shape[0]
 
     if (not chunk_feautrier) or feautrier_chunk_size >= n_freq_bins:
         return _compute_feautrier_radiative_transfer_chunk(
@@ -1189,7 +1196,7 @@ def compute_feautrier_radiative_transfer(
             chunk_emissivities,
         ) = chunk_inputs
 
-        chunk_flux, chunk_emission_contribution = (
+        chunk_flux, chunk_emission_contribution, chunk_angle_dependent_intensities = (
             _compute_feautrier_radiative_transfer_chunk(
                 frequencies_bin_edges=chunk_frequency_bin_edges,
                 temperatures=temperatures,
@@ -1210,9 +1217,17 @@ def compute_feautrier_radiative_transfer(
             )
         )
 
-        return None, (chunk_flux, chunk_emission_contribution)
+        return None, (
+            chunk_flux,
+            chunk_emission_contribution,
+            chunk_angle_dependent_intensities,
+        )
 
-    _, (flux_chunks, emission_contribution_chunks) = lax.scan(
+    _, (
+        flux_chunks,
+        emission_contribution_chunks,
+        angle_dependent_intensities_chunks,
+    ) = lax.scan(
         _chunk_body,
         None,
         (
@@ -1229,8 +1244,11 @@ def compute_feautrier_radiative_transfer(
     emission_contribution_lf = jnp.transpose(
         emission_contribution_chunks, (1, 0, 2)
     ).reshape(n_layers, padded_n_freq_bins,)[:, :n_freq_bins]
+    angle_dependent_intensities = jnp.transpose(
+        angle_dependent_intensities_chunks, (1, 0, 2)
+    ).reshape(n_angles, padded_n_freq_bins,)[:, :n_freq_bins]
 
-    return flux_f, emission_contribution_lf
+    return flux_f, emission_contribution_lf, angle_dependent_intensities
 
 
 @jit

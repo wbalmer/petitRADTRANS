@@ -807,7 +807,7 @@ class RetrievalPlotter:
                 for i_sample in range(length_samples):
                     press, t = self.calculate_temperature_profile(
                         samples_use[:-1, i_sample]
-                    )
+                    )  # TODO: correctly get pressures and temperatures
                     if t is None:
                         continue
                     temps.append(t)

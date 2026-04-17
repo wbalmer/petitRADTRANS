@@ -1126,12 +1126,14 @@ class Radtrans:
             cloud_absorption_opacities=cloud_absorption_opacities,
             photospheric_cloud_optical_depths=photospheric_cloud_optical_depths,
         )
-        # TODO jit to cond
+        angle_dependent_intensities = jnp.zeros(
+            (self._emission_angle_grid["cos_angles"].shape[0], flux.shape[0])
+        )
         if self._scattering_in_emission:
             # TODO investigate bug with scattering and low VMR near surface
             # Only use 0 index for species because for lbl or test_ck_shuffle_comp = True
             # everything has been moved into the 0th index
-            flux, emission_contribution = (
+            flux, emission_contribution, angle_dependent_intensities = (
                 radiative_transfer_core.compute_feautrier_radiative_transfer(
                     frequencies_bin_edges=self._frequency_bins_edges,
                     temperatures=temperatures,
@@ -1170,6 +1172,7 @@ class Radtrans:
         return (
             flux,
             emission_contribution,
+            angle_dependent_intensities,
             optical_depths,
             relative_cloud_scaling_factor,
         )
@@ -2875,30 +2878,32 @@ class Radtrans:
             target_pressure=sanitized_inputs["target_pressure"],
         )
 
-        flux, emission_contribution, optical_depths, relative_cloud_scaling_factor = (
-            self._calculate_flux(
-                temperatures=temperatures,
-                reference_gravity=reference_gravity,
-                opacities=opacities,
-                continuum_opacities_scattering=continuum_opacities_scattering,
-                irradiation_geometry=irradiation_geometry,
-                star_irradiation_cos_angle=emission_inputs[
-                    "star_irradiation_cos_angle"
-                ],
-                stellar_intensity=emission_inputs["stellar_intensities"],
-                reflectances=emission_inputs["reflectances"],
-                emissivities=emission_inputs["emissivities"],
-                return_contribution=return_contribution,
-                cloud_f_sed=cloud_f_sed,
-                photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
-                cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
-                cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
-                cloud_absorption_opacities=cloud_absorption_opacities,
-                adaptive_feautrier_iterations=adaptive_feautrier_iterations,
-                sum_opacities=sum_opacities,
-                chunk_feautrier=chunk_feautrier,
-                feautrier_chunk_size=feautrier_chunk_size,
-            )
+        (
+            flux,
+            emission_contribution,
+            angle_dependent_intensities,
+            optical_depths,
+            relative_cloud_scaling_factor,
+        ) = self._calculate_flux(
+            temperatures=temperatures,
+            reference_gravity=reference_gravity,
+            opacities=opacities,
+            continuum_opacities_scattering=continuum_opacities_scattering,
+            irradiation_geometry=irradiation_geometry,
+            star_irradiation_cos_angle=emission_inputs["star_irradiation_cos_angle"],
+            stellar_intensity=emission_inputs["stellar_intensities"],
+            reflectances=emission_inputs["reflectances"],
+            emissivities=emission_inputs["emissivities"],
+            return_contribution=return_contribution,
+            cloud_f_sed=cloud_f_sed,
+            photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
+            cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
+            cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
+            cloud_absorption_opacities=cloud_absorption_opacities,
+            adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+            sum_opacities=sum_opacities,
+            chunk_feautrier=chunk_feautrier,
+            feautrier_chunk_size=feautrier_chunk_size,
         )
 
         # --- Cloud blending for partial coverage ---
@@ -2906,7 +2911,7 @@ class Radtrans:
         if len(partial_coverage_cloud_species) > 0:
             if return_clear_spectrum:
                 # Always compute clear flux when the caller requested it.
-                flux_clear, _, _, _ = self._calculate_flux(
+                flux_clear, _, _, _, _ = self._calculate_flux(
                     temperatures=temperatures,
                     reference_gravity=reference_gravity,
                     opacities=clear_opacities,
@@ -2938,7 +2943,7 @@ class Radtrans:
             else:
                 # Only compute clear flux and blend when cloud_fraction < 1.
                 def _blend_partial_cloud_flux(cloudy_flux):
-                    clear_flux, _, _, _ = self._calculate_flux(
+                    clear_flux, _, _, _, _ = self._calculate_flux(
                         temperatures=temperatures,
                         reference_gravity=reference_gravity,
                         opacities=clear_opacities,
@@ -3037,7 +3042,7 @@ class Radtrans:
                     cloud_opacities=cloud_opacities,
                 )
             )
-
+        additional_outputs["angle_dependent_intensities"] = angle_dependent_intensities
         if return_opacities:
             additional_outputs["opacities"] = opacities
             additional_outputs["continuum_opacities_scattering"] = (
