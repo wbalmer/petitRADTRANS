@@ -2,6 +2,7 @@
 
 import copy
 import os
+import time
 from typing import Any, Callable
 
 import jax.numpy as jnp
@@ -1133,9 +1134,7 @@ class Radtrans:
             )
         )
         if self._scattering_in_emission:
-            # TODO investigate bug with scattering and low VMR near surface
-            # Only use 0 index for species because for lbl or test_ck_shuffle_comp = True
-            # everything has been moved into the 0th index
+            start = time.time()
             flux, emission_contribution, angle_dependent_intensities = (
                 radiative_transfer_core.compute_feautrier_radiative_transfer(
                     frequencies_bin_edges=self._frequency_bins_edges,
@@ -1156,6 +1155,9 @@ class Radtrans:
                     feautrier_chunk_size=feautrier_chunk_size,
                 )
             )
+            flux = flux.block_until_ready()
+            end = time.time()
+            print(f"Feautrier solver took {end - start:.6f} seconds")
         else:
             # TODO jit to cond
             if self._line_opacity_mode == "lbl" and len(self._line_species) > 1:
@@ -1303,7 +1305,7 @@ class Radtrans:
 
         return photosphere_radius
 
-    @jit(
+    """@jit(
         static_argnames=[
             "self",
             "cloud_particle_radius_distribution",
@@ -1314,7 +1316,8 @@ class Radtrans:
             "anisotropic_cloud_scattering",
             "compute_clear_opacities",
         ]
-    )
+    )"""
+
     def _calculate_opacities(
         self,
         temperatures,
@@ -1644,6 +1647,7 @@ class Radtrans:
             )
 
         # Combine line opacities with continuum opacities, combined opacities are stored in the 1st species slot
+        start = time.time()
         opacities = continuum.compute_combined_opacities(
             opacities=line_opacities,
             continuum_opacities=cloudy_continuum_opacities,
@@ -1661,8 +1665,13 @@ class Radtrans:
             ],
             input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
         )
-
+        opacities = opacities.block_until_ready()
+        end = time.time()
+        print(f"Combined opacities calculated in {end - start:.6f} seconds")
+        print(compute_clear_opacities)
+        print(complete_coverage_clouds, self._cloud_species)
         if compute_clear_opacities:
+            print("Computing clear-column opacities for partial cloud coverage...")
             if self._scattering_in_emission:
                 clear_continuum_opacities = (
                     continuum_opacities + clear_cloud_continuum_opacities
@@ -1679,6 +1688,7 @@ class Radtrans:
                     continuum_opacities_scattering
                     + clear_cloud_continuum_opacities_scattering
                 )
+            start = time.time()
             clear_opacities = continuum.compute_combined_opacities(
                 opacities=line_opacities,
                 continuum_opacities=clear_continuum_opacities,
@@ -1696,6 +1706,9 @@ class Radtrans:
                 ],
                 input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
             )
+            opacities = opacities.block_until_ready()
+            end = time.time()
+            print(f"Clear combined opacities calculated in {end - start:.6f}")
         else:
             clear_opacities = jnp.zeros_like(opacities)
             clear_continuum_opacities_scattering = jnp.zeros_like(
@@ -2425,7 +2438,6 @@ class Radtrans:
 
         return opacity_contributions
 
-    # TODO: JIT here, or leave to user?
     def calculate_flux(
         self,
         temperatures: ArrayLike,
@@ -2693,7 +2705,7 @@ class Radtrans:
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
         )
 
-    @jit(
+    """@jit(
         static_argnames=[
             "self",
             "cloud_particle_radius_distribution",
@@ -2714,7 +2726,8 @@ class Radtrans:
             "return_particle_radii_bins",
             "return_particle_radii",
         ]
-    )
+    )"""
+
     def _calculate_flux_full_kernel(
         self,
         temperatures,
@@ -3259,7 +3272,7 @@ class Radtrans:
             **cloud_parameters,
         )
 
-    @jit(
+    """@jit(
         static_argnames=[
             "self",
             "cloud_particle_radius_distribution",
@@ -3272,7 +3285,8 @@ class Radtrans:
             "sum_opacities",
             "anisotropic_cloud_scattering",
         ]
-    )
+    )"""
+
     def _simple_calculate_flux_kernel(
         self,
         temperatures: ArrayLike,
