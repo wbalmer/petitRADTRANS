@@ -1127,7 +1127,10 @@ class Radtrans:
             photospheric_cloud_optical_depths=photospheric_cloud_optical_depths,
         )
         angle_dependent_intensities = jnp.zeros(
-            (self._emission_angle_grid["cos_angles"].shape[0], flux.shape[0])
+            (
+                self._emission_angle_grid["cos_angles"].shape[0],
+                self._frequencies.shape[0],
+            )
         )
         if self._scattering_in_emission:
             # TODO investigate bug with scattering and low VMR near surface
@@ -1309,6 +1312,7 @@ class Radtrans:
             "additional_scattering_opacities_function",
             "sum_opacities",
             "anisotropic_cloud_scattering",
+            "compute_clear_opacities",
         ]
     )
     def _calculate_opacities(
@@ -1658,7 +1662,7 @@ class Radtrans:
             input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
         )
 
-        def _build_clear_branch(_line_opacities):
+        if compute_clear_opacities:
             if self._scattering_in_emission:
                 clear_continuum_opacities = (
                     continuum_opacities + clear_cloud_continuum_opacities
@@ -1676,7 +1680,7 @@ class Radtrans:
                     + clear_cloud_continuum_opacities_scattering
                 )
             clear_opacities = continuum.compute_combined_opacities(
-                opacities=_line_opacities,
+                opacities=line_opacities,
                 continuum_opacities=clear_continuum_opacities,
                 line_species=self._line_species,
                 line_species_mass_fractions=line_species_mass_fractions,
@@ -1692,17 +1696,11 @@ class Radtrans:
                 ],
                 input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
             )
-            return clear_opacities, clear_continuum_opacities_scattering
-
-        clear_opacities, clear_continuum_opacities_scattering = lax.cond(
-            compute_clear_opacities,
-            _build_clear_branch,
-            lambda _line_opacities: (
-                jnp.zeros_like(opacities),
-                jnp.zeros_like(continuum_opacities_scattering),
-            ),
-            line_opacities,
-        )
+        else:
+            clear_opacities = jnp.zeros_like(opacities)
+            clear_continuum_opacities_scattering = jnp.zeros_like(
+                continuum_opacities_scattering
+            )
 
         return (
             opacities,
@@ -2811,12 +2809,12 @@ class Radtrans:
 
         # Determine whether clear opacities are needed.
         # len(partial_coverage_cloud_species) and return_clear_spectrum are static;
-        # cloud_fraction is traced.
+        # cloud_fraction is traced.  compute_clear_opacities must be a static
+        # Python bool so that the clear branch is never compiled when unneeded.
+        # When partial-coverage species exist, we always compile the clear
+        # branch; the actual blending is gated by lax.cond on cloud_fraction.
         if len(partial_coverage_cloud_species) > 0:
-            if return_clear_spectrum:
-                should_compute_clear_opacities = True
-            else:
-                should_compute_clear_opacities = jnp.less(cloud_fraction, 1)
+            should_compute_clear_opacities = True
         else:
             should_compute_clear_opacities = False
 
@@ -3481,10 +3479,9 @@ class Radtrans:
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["complete_coverage_clouds"]
         )
-        should_compute_clear_opacities = jnp.logical_and(
-            len(partial_coverage_cloud_species) > 0,
-            jnp.less(cloud_fraction, 1),
-        )
+        # compute_clear_opacities must be a static Python bool so that the
+        # clear branch is never compiled when unneeded.
+        should_compute_clear_opacities = len(partial_coverage_cloud_species) > 0
 
         (
             opacities,
@@ -3544,7 +3541,7 @@ class Radtrans:
             target_pressure=sanitized_inputs["target_pressure"],
         )
 
-        flux, _, _, _ = self._calculate_flux(
+        flux, _, _, _, _ = self._calculate_flux(
             temperatures=temperatures,
             reference_gravity=reference_gravity,
             opacities=opacities,
@@ -3569,7 +3566,7 @@ class Radtrans:
         if len(partial_coverage_cloud_species) > 0:
 
             def _blend_partial_cloud_flux(cloudy_flux):
-                clear_flux, _, _, _ = self._calculate_flux(
+                clear_flux, _, _, _, _ = self._calculate_flux(
                     temperatures=temperatures,
                     reference_gravity=reference_gravity,
                     opacities=clear_opacities,
@@ -4221,11 +4218,10 @@ class Radtrans:
         )
 
         # Determine whether clear opacities are needed.
+        # compute_clear_opacities must be a static Python bool so that the
+        # clear branch is never compiled when unneeded.
         if len(partial_coverage_cloud_species) > 0:
-            if return_clear_spectrum:
-                should_compute_clear_opacities = True
-            else:
-                should_compute_clear_opacities = jnp.less(cloud_fraction, 1)
+            should_compute_clear_opacities = True
         else:
             should_compute_clear_opacities = False
 

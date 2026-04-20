@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a22] - 2026-04-17
+## [4.0.0a23] - 2026-04-20
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -53,6 +53,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: correlated-k binning.
 
 ### Changed
+- a23: Dedicated merge sort for correlated-k on CPU.
 - a22: all cloud particle arguement names standardized to cloud_particle instead of cloud_particles
 - a22: temperature profile names now standardized to author_temperature_profile
 - a21: Parallelised SBI
@@ -92,6 +93,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Minimum supported Python version is 3.12.
 
 ### Added
+- a23: feautrier now also outputs angle dependent intensities
 - a16: Time-variable model function parameterisation
 - a15 Added RetrievalPlotter class, replacing plotting functions and `plot_kwargs` from the Retrieval class.
 - a15 Added automatic calculation of BIC, AIC and BPICS following retrievals.

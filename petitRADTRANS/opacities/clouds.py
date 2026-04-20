@@ -168,7 +168,7 @@ def _init_cloud_background_continuum(
         )
     )
 
-    def _build_clear_branch(_):
+    if compute_clear_opacities:
         clear_continuum_opacities, clear_continuum_opacities_scattering, _, _, _, _ = (
             _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
         )
@@ -185,17 +185,13 @@ def _init_cloud_background_continuum(
             power_law_opacity_350nm=power_law_opacity_350nm,
             power_law_opacity_coefficient=power_law_opacity_coefficient,
         )
-        return clear_continuum_opacities, clear_continuum_opacities_scattering
-
-    clear_continuum_opacities, clear_continuum_opacities_scattering = lax.cond(
-        compute_clear_opacities,
-        _build_clear_branch,
-        lambda _: (
-            jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE),
-            jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE),
-        ),
-        operand=None,
-    )
+    else:
+        clear_continuum_opacities = jnp.zeros(
+            (frequencies.size, pressures.size), dtype=JAX_DTYPE
+        )
+        clear_continuum_opacities_scattering = jnp.zeros(
+            (frequencies.size, pressures.size), dtype=JAX_DTYPE
+        )
 
     _validate_power_law_inputs(power_law_opacity_350nm, power_law_opacity_coefficient)
 
@@ -896,6 +892,7 @@ def init_clouds_particle_porosity_factor(
         "cloud_species",
         "cloud_particle_radius_distribution",
         "complete_coverage_clouds",
+        "compute_clear_opacities",
     ]
 )
 def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
@@ -1058,9 +1055,6 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
     cloudy_clouds_have_effect = _selected_clouds_have_effect(
         mass_fractions=mass_fractions, selected_cloud_species=cloud_species
     )
-    clear_clouds_have_effect = _selected_clouds_have_effect(
-        mass_fractions=mass_fractions, selected_cloud_species=complete_coverage_clouds
-    )
 
     (
         cloudy_continuum_opacities,
@@ -1105,15 +1099,20 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
         scattering_in_transmission, cloudy_branch_has_effect
     )
 
-    def _compute_clear_branch(_):
+    if compute_clear_opacities:
+        clear_clouds_have_effect = _selected_clouds_have_effect(
+            mass_fractions=mass_fractions,
+            selected_cloud_species=complete_coverage_clouds,
+        )
+
         (
-            _clear_continuum_opacities,
-            _clear_continuum_opacities_scattering,
-            _clear_cloud_scattering_opacities,
-            _clear_cloud_absorption_opacities,
-            _clear_cloud_opacities,
+            clear_continuum_opacities,
+            clear_continuum_opacities_scattering,
+            clear_cloud_scattering_opacities,
+            clear_cloud_absorption_opacities,
             _,
-            _clear_branch_has_effect,
+            _,
+            clear_branch_has_effect,
         ) = _maybe_compute_cloud_branch(
             selected_cloud_species=complete_coverage_clouds,
             selected_clouds_have_effect=clear_clouds_have_effect,
@@ -1145,42 +1144,9 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
             target_particle_radii=target_particle_radii,
             target_pressure=target_pressure,
         )
-
-        return (
-            _clear_continuum_opacities,
-            _clear_continuum_opacities_scattering,
-            _clear_cloud_scattering_opacities,
-            _clear_cloud_absorption_opacities,
-            _clear_cloud_opacities,
-            _cloud_particle_mean_radii,
-            _clear_branch_has_effect,
+        scattering_in_transmission = jnp.logical_or(
+            scattering_in_transmission, clear_branch_has_effect
         )
-
-    (
-        clear_continuum_opacities,
-        clear_continuum_opacities_scattering,
-        clear_cloud_scattering_opacities,
-        clear_cloud_absorption_opacities,
-        _,
-        _,
-        clear_branch_has_effect,
-    ) = lax.cond(
-        compute_clear_opacities,
-        _compute_clear_branch,
-        lambda _: (
-            clear_continuum_opacities,
-            clear_continuum_opacities_scattering,
-            clear_cloud_scattering_opacities,
-            clear_cloud_absorption_opacities,
-            cloud_opacities,
-            _cloud_particle_mean_radii,
-            False,
-        ),
-        operand=None,
-    )
-    scattering_in_transmission = jnp.logical_or(
-        scattering_in_transmission, clear_branch_has_effect
-    )
 
     return (
         cloudy_continuum_opacities,

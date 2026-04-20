@@ -32,17 +32,15 @@ from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import Parameter
 from petitRADTRANS.retrieval.plotting import RetrievalPlotter
 from petitRADTRANS.retrieval.models import (
-    MODEL_CONTRACT_RUNTIME_LEGACY_ADAPTER,
-    MODEL_CONTRACT_RUNTIME_NATIVE,
+    MODEL_CONTRACT_LEGACY_ADAPTER,
+    MODEL_CONTRACT_DIFFERENTIABLE,
     calculate_emission_spectrum,
-    calculate_emission_spectrum_runtime,
     calculate_transmission_spectrum,
-    calculate_transmission_spectrum_runtime,
     coerce_model_generating_function,
-    mark_model_function_runtime_native,
+    mark_legacy_model_function,
     run_legacy_model_adapter,
     run_runtime_model_adapter,
-    emission_model_diseq_patchy_clouds,
+    molliere_2020_two_column,
     gradient_profile_emission,
     guillot_emission,
     guillot_emission_add_gaussian_temperature,
@@ -56,7 +54,7 @@ from petitRADTRANS.retrieval.models import (
     madhu_seager_patchy_transmission,
     power_law_profile_emission,
     power_law_profile_transmission,
-    spline_eddington_adiabatic_emission,
+    molliere_2020_emission,
 )
 from petitRADTRANS.retrieval.runtime import ParameterLayout, RetrievalRuntime
 from petitRADTRANS.retrieval.runtime import (
@@ -217,7 +215,7 @@ class _JAXNSLikeResults:
         self.log_Z_uncert = 0.2
 
 
-def _build_runtime_native_runtime(
+def _build_runtime(
     configuration, model_function, source_name="simple", observation_names=None
 ):
     if observation_names is None:
@@ -229,7 +227,7 @@ def _build_runtime_native_runtime(
     likelihoods = {}
     for name in observation_names:
         data = configuration.data[name]
-        observations[name] = data.to_observation_state(model_contract="runtime_native")
+        observations[name] = data.to_observation_state(model_contract="differentiable")
         likelihoods[name] = data.to_likelihood_state(
             n_free_parameters=parameter_layout.n_free_parameters
         )
@@ -243,7 +241,7 @@ def _build_runtime_native_runtime(
             ModelGroupState(
                 source_name=source_name,
                 observation_names=tuple(observation_names),
-                model_contract="runtime_native",
+                model_contract="differentiable",
                 model_generating_function=model_function,
                 radtrans_object=source_data.radtrans_object,
                 metadata={
@@ -384,11 +382,11 @@ def test_data_materializes_observation_and_likelihood_state():
         fit_flux_offset=True,
     )
 
-    observation_state = data.to_observation_state(model_contract="runtime_native")
+    observation_state = data.to_observation_state(model_contract="differentiable")
     likelihood_state = data.to_likelihood_state(n_free_parameters=3)
 
     assert observation_state.name == "test_dataset"
-    assert observation_state.model_contract == "runtime_native"
+    assert observation_state.model_contract == "differentiable"
     assert observation_state.model_generating_function is data.model_generating_function
     assert observation_state.scale_flux is True
     np.testing.assert_array_equal(observation_state.mask, jnp.array([False, True]))
@@ -554,9 +552,8 @@ def test_retrieval_runtime_initializes_missing_radtrans_objects(monkeypatch):
     assert runtime.model_groups[0].radtrans_object is source_data.radtrans_object
 
 
-def test_runtime_construction_auto_detects_runtime_native_model_functions():
-    @mark_model_function_runtime_native
-    def runtime_native_model(context, params, pt_plot_mode=False):
+def test_runtime_construction_auto_detects_model_functions():
+    def model_generating_function(context, params, pt_plot_mode=False):
         del context, pt_plot_mode
         amplitude = params.get("amplitude")
         return ModelResult(
@@ -572,7 +569,7 @@ def test_runtime_construction_auto_detects_runtime_native_model_functions():
         data={
             "simple": Data(
                 name="simple",
-                model_generating_function=runtime_native_model,
+                model_generating_function=model_generating_function,
                 radtrans_object=SimpleNamespace(),
                 wavelengths=jnp.array([1.0, 2.0]),
                 spectrum=jnp.array([2.0, 3.0]),
@@ -584,11 +581,13 @@ def test_runtime_construction_auto_detects_runtime_native_model_functions():
 
     runtime = RetrievalRuntime.from_configuration(config)
 
-    assert runtime.model_groups[0].model_contract == MODEL_CONTRACT_RUNTIME_NATIVE
-    assert runtime.model_groups[0].model_generating_function is runtime_native_model
+    assert runtime.model_groups[0].model_contract == MODEL_CONTRACT_DIFFERENTIABLE
+    assert (
+        runtime.model_groups[0].model_generating_function is model_generating_function
+    )
 
 
-def test_calculate_forward_model_accepts_runtime_native_model_functions():
+def test_calculate_forward_model_accepts_model_functions():
     retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
 
     parameter = Parameter(
@@ -598,8 +597,7 @@ def test_calculate_forward_model_accepts_runtime_native_model_functions():
         transform_prior_cube_coordinate=lambda x: 4.0 * x,
     )
 
-    @mark_model_function_runtime_native
-    def runtime_native_model(context, params, pt_plot_mode=False):
+    def model_generating_function(context, params, pt_plot_mode=False):
         del context, pt_plot_mode
         amplitude = params.get("amplitude")
         return ModelResult(
@@ -613,7 +611,7 @@ def test_calculate_forward_model_accepts_runtime_native_model_functions():
         data={
             "simple": Data(
                 name="simple",
-                model_generating_function=runtime_native_model,
+                model_generating_function=model_generating_function,
                 radtrans_object=SimpleNamespace(),
                 wavelengths=jnp.array([1.0, 2.0]),
                 spectrum=jnp.array([2.0, 3.0]),
@@ -679,7 +677,7 @@ def test_run_runtime_model_adapter_accepts_model_result():
     np.testing.assert_array_equal(result.spectrum, jnp.array([2.0]))
 
 
-def test_calculate_emission_spectrum_runtime_returns_model_result():
+def test_calculate_emission_spectrum_returns_model_result():
     model_context = ModelContext(
         name="emission",
         mode="emission",
@@ -696,14 +694,14 @@ def test_calculate_emission_spectrum_runtime_returns_model_result():
         distance_to_system=jnp.array(4.0),
     )
 
-    result = calculate_emission_spectrum_runtime(model_context, model_inputs)
+    result = calculate_emission_spectrum(model_context, model_inputs)
 
     assert result.kind == "spectrum"
     np.testing.assert_allclose(result.wavelengths, jnp.array([1.0, 2.0]))
     assert result.auxiliary_outputs["source"] == "emission"
 
 
-def test_calculate_transmission_spectrum_runtime_returns_model_result():
+def test_calculate_transmission_spectrum_returns_model_result():
     model_context = ModelContext(
         name="transmission",
         mode="transmission",
@@ -721,7 +719,7 @@ def test_calculate_transmission_spectrum_runtime_returns_model_result():
         stellar_radius=jnp.array(2.0),
     )
 
-    result = calculate_transmission_spectrum_runtime(model_context, model_inputs)
+    result = calculate_transmission_spectrum(model_context, model_inputs)
 
     assert result.kind == "spectrum"
     np.testing.assert_allclose(result.wavelengths, jnp.array([1.0, 2.0]))
@@ -1086,7 +1084,7 @@ def test_parameter_layout_free_parameter_ordering_matches_all_sampler_interfaces
 
     retrieval.configuration = configuration
     retrieval.parameter_layout = ParameterLayout.from_parameters(parameters)
-    retrieval.runtime = _build_runtime_native_runtime(
+    retrieval.runtime = _build_runtime(
         configuration,
         model_function=data.model_generating_function,
     )
@@ -1209,7 +1207,7 @@ def test_run_legacy_model_adapter_reproduces_builtin_transmission_model_output()
     )
 
 
-def test_runtime_native_builtin_models_expose_stable_model_result_fields():
+def test_builtin_models_expose_stable_model_result_fields():
     emission_context = ModelContext(
         name="emission",
         mode="emission",
@@ -1241,10 +1239,8 @@ def test_runtime_native_builtin_models_expose_stable_model_result_fields():
         stellar_radius=jnp.array(2.0),
     )
 
-    emission_result = calculate_emission_spectrum_runtime(
-        emission_context, emission_inputs
-    )
-    transmission_result = calculate_transmission_spectrum_runtime(
+    emission_result = calculate_emission_spectrum(emission_context, emission_inputs)
+    transmission_result = calculate_transmission_spectrum(
         transmission_context, transmission_inputs
     )
 
@@ -1263,8 +1259,8 @@ def test_runtime_native_builtin_models_expose_stable_model_result_fields():
 
 def test_builtin_model_exports_are_detected_as_native():
     unified_models = {
-        "spline_eddington_adiabatic_emission": spline_eddington_adiabatic_emission,
-        "emission_model_diseq_patchy_clouds": emission_model_diseq_patchy_clouds,
+        "molliere_2020_emission": molliere_2020_emission,
+        "molliere_2020_two_column": molliere_2020_two_column,
         "guillot_emission": guillot_emission,
         "guillot_emission_add_gaussian_temperature": guillot_emission_add_gaussian_temperature,
         "guillot_patchy_emission": guillot_patchy_emission,
@@ -1284,7 +1280,7 @@ def test_builtin_model_exports_are_detected_as_native():
         resolved_contract, coerced_model = coerce_model_generating_function(model)
 
         assert model.__name__ == name
-        assert resolved_contract == MODEL_CONTRACT_RUNTIME_NATIVE
+        assert resolved_contract == MODEL_CONTRACT_DIFFERENTIABLE
         assert coerced_model is model
 
 
@@ -1626,7 +1622,7 @@ def test_build_jaxns_sampler_interface_routes_through_runtime_jax_likelihood():
     retrieval.parameter_layout = ParameterLayout.from_parameters(
         retrieval.configuration.parameters
     )
-    retrieval.runtime = _build_runtime_native_runtime(
+    retrieval.runtime = _build_runtime(
         retrieval.configuration,
         model_function=lambda context, params, pt_plot_mode=False: ModelResult(
             kind="spectrum",
@@ -1688,7 +1684,7 @@ def test_build_jaxns_sampler_interface_rejects_non_distribution_priors():
     retrieval.parameter_layout = ParameterLayout.from_parameters(
         retrieval.configuration.parameters
     )
-    retrieval.runtime = _build_runtime_native_runtime(
+    retrieval.runtime = _build_runtime(
         retrieval.configuration,
         model_function=data.model_generating_function,
     )
@@ -1743,7 +1739,7 @@ def test_jax_sampler_interfaces_fail_clearly_on_legacy_only_models():
         retrieval._build_jaxns_sampler_interface()
 
 
-def test_run_ultranest_vectorized_mode_stays_enabled_for_runtime_native_retrieval(
+def test_run_ultranest_vectorized_mode_stays_enabled_for_retrieval(
     monkeypatch,
 ):
     retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
@@ -1755,7 +1751,7 @@ def test_run_ultranest_vectorized_mode_stays_enabled_for_runtime_native_retrieva
         transform_prior_cube_coordinate=lambda x: 4.0 * x,
     )
 
-    def runtime_native_model(context, params, pt_plot_mode=False):
+    def model_generating_function(context, params, pt_plot_mode=False):
         del context, pt_plot_mode
         amplitude = params.get("amplitude")
         return ModelResult(
@@ -1766,7 +1762,7 @@ def test_run_ultranest_vectorized_mode_stays_enabled_for_runtime_native_retrieva
 
     data = Data(
         name="simple",
-        model_generating_function=runtime_native_model,
+        model_generating_function=model_generating_function,
         radtrans_object=SimpleNamespace(),
         wavelengths=jnp.array([1.0, 2.0]),
         spectrum=jnp.array([2.0, 3.0]),
@@ -1777,14 +1773,14 @@ def test_run_ultranest_vectorized_mode_stays_enabled_for_runtime_native_retrieva
         data={"simple": data},
         adaptive_mesh_refinement=False,
         sampler_type="ultranest",
-        retrieval_name="ultranest_runtime_native",
+        retrieval_name="ultranest",
         run_mode="retrieval",
     )
     retrieval.parameter_layout = ParameterLayout.from_parameters(
         retrieval.configuration.parameters
     )
-    retrieval.runtime = _build_runtime_native_runtime(
-        retrieval.configuration, runtime_native_model
+    retrieval.runtime = _build_runtime(
+        retrieval.configuration, model_generating_function
     )
     retrieval._free_parameter_names_cache = list(
         retrieval.parameter_layout.free_parameter_names
@@ -1906,7 +1902,7 @@ def test_ultranest_vectorized_mode_is_disabled_for_unsupported_runtime_groups(
                             [params.get("amplitude"), params.get("amplitude") + 1.0]
                         ),
                     ),
-                    model_contract="runtime_native",
+                    model_contract="differentiable",
                 ),
             },
             likelihoods={"simple": LikelihoodState(n_free_parameters=1)},
@@ -1914,7 +1910,7 @@ def test_ultranest_vectorized_mode_is_disabled_for_unsupported_runtime_groups(
                 ModelGroupState(
                     source_name="simple",
                     observation_names=("simple",),
-                    model_contract="runtime_native",
+                    model_contract="differentiable",
                     model_generating_function=lambda context, params, pt_plot_mode=False: ModelResult(
                         kind="spectrum",
                         wavelengths=jnp.array([1.0, 2.0]),

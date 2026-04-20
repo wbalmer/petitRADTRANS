@@ -239,11 +239,11 @@ class SamplerContext:
 
 
 def _check_runtime_native_support(context: SamplerContext, sampler_label: str) -> None:
-    """Raise if the retrieval has only legacy (non-runtime-native) model groups."""
+    """Raise if the retrieval has only legacy (non-differentiable) model groups."""
     runtime = context.runtime
-    if all(group.model_contract != "runtime_native" for group in runtime.model_groups):
+    if all(group.model_contract != "differentiable" for group in runtime.model_groups):
         raise ValueError(
-            f"{sampler_label} requires at least one runtime-native model group; "
+            f"{sampler_label} requires at least one differentiable model group; "
             "legacy-only retrievals are not supported."
         )
 
@@ -1603,7 +1603,7 @@ class UltranestSampler(Sampler):
             return False
         runtime = context.runtime
         if any(
-            group.model_contract != "runtime_native" for group in runtime.model_groups
+            group.model_contract != "differentiable" for group in runtime.model_groups
         ):
             warnings.warn(
                 "UltraNest vectorized mode disabled because the retrieval contains legacy model groups.",

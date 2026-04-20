@@ -763,11 +763,13 @@ def solve_tridiagonal_pcr_batched_feautrier_fused(
 
     # Build the full RHS (batch, n_layers) by broadcasting d_inner over
     # angles and placing d_surf at the surface layer.
-    d_inner_broadcast = jnp.broadcast_to(
-        d_inner[:, :, :, None],  # (g, f, l-1, 1)
-        (n_g, n_freq_bins, n_layers - 1, n_angles),
-    ).reshape(
-        batch, n_layers - 1
+    d_inner_broadcast = (
+        jnp.broadcast_to(
+            d_inner[:, :, :, None],  # (g, f, l-1, 1)
+            (n_g, n_freq_bins, n_layers - 1, n_angles),
+        )
+        .transpose(0, 1, 3, 2)
+        .reshape(batch, n_layers - 1)
     )  # (batch, l-1)
     d_surf_flat = d_surf.reshape(batch, 1)  # (batch, 1)
     d_full = jnp.concatenate([d_inner_broadcast, d_surf_flat], axis=1)  # (batch, n)

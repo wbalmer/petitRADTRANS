@@ -72,8 +72,8 @@ def load_cloud_opacity(file_path_hdf5, return_radtrans_opacities=True):
             return (
                 f["wavenumbers"][:],
                 f["particle_radius_bins"][:],
-                f["particle_radii"][:],
-                f["particle_density"][()],
+                f["particles_radii"][:],
+                f["particles_density"][()],
                 f["absorption_opacities"][:],
                 f["scattering_opacities"][:],
                 f["asymmetry_parameters"][:],
@@ -85,8 +85,8 @@ def load_cloud_opacity(file_path_hdf5, return_radtrans_opacities=True):
         return (
             cloud_wavelengths,
             f["particle_radius_bins"][:],
-            f["particle_radii"][:],
-            f["particle_density"][()],
+            f["particles_radii"][:],
+            f["particles_density"][()],
             f["absorption_opacities"][:],
             f["scattering_opacities"][:],
             f["asymmetry_parameters"][:],

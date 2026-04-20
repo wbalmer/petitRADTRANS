@@ -45,7 +45,10 @@ from petitRADTRANS.temperature_profiles import (
     isothermal_temperature_profile,
     molliere_2020_temperature_profile,
 )
-from petitRADTRANS.planet import Planet
+from petitRADTRANS.planet import (
+    mass2reference_gravity_jax,
+    reference_gravity2radius_jax,
+)
 from petitRADTRANS.retrieval.runtime import (
     ModelContext,
     ModelInputs,
@@ -62,8 +65,8 @@ from petitRADTRANS.retrieval.utils import (
 # PGLOBAL = jnp.logspace(-6, 3, 1000)
 
 MODEL_CONTRACT_LEGACY = "legacy"
-MODEL_CONTRACT_RUNTIME_NATIVE = "runtime_native"
-MODEL_CONTRACT_RUNTIME_LEGACY_ADAPTER = "runtime_legacy_adapter"
+MODEL_CONTRACT_DIFFERENTIABLE = "differentiable"
+MODEL_CONTRACT_LEGACY_ADAPTER = "runtime_legacy_adapter"
 _MODEL_CONTRACT_ATTRIBUTE = "_prt_model_contract"
 _WRAPPED_LEGACY_MODEL_ATTRIBUTE = "_prt_wrapped_legacy_model"
 
@@ -75,7 +78,7 @@ _SINUSOIDAL_SUFFIXES = ("_amplitude", "_period", "_phase", "_offset")
 def _compute_gravity(physical_params):
     if "log_g" in physical_params.keys() and "mass" in physical_params.keys():
         gravity = 10 ** _get_parameter_value(physical_params, "log_g")
-        planet_radius, _, _ = Planet.reference_gravity2radius(
+        planet_radius, _, _ = reference_gravity2radius_jax(
             reference_gravity=gravity,
             mass=_get_parameter_value(physical_params, "mass"),
         )
@@ -84,7 +87,7 @@ def _compute_gravity(physical_params):
         planet_radius = _get_parameter_value(physical_params, "planet_radius")
     elif "mass" in physical_params.keys() or "planet_mass" in physical_params.keys():
         planet_radius = _get_parameter_value(physical_params, "planet_radius")
-        gravity, _, _ = Planet.mass2reference_gravity(
+        gravity, _, _ = mass2reference_gravity_jax(
             mass=_get_parameter_value(physical_params, "mass"), radius=planet_radius
         )
     else:
@@ -93,7 +96,1027 @@ def _compute_gravity(physical_params):
     return gravity, planet_radius
 
 
-def legacy_spline_eddington_adiabatic_emission(
+def molliere_2020_emission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+
+    t3 = ((3.0 / 4.0 * physical_params["T_int"] ** 4.0 * (0.1 + 2.0 / 3.0)) ** 0.25) * (
+        1.0 - physical_params["T3"]
+    )
+    t2 = t3 * (1.0 - physical_params["T2"])
+    t1 = t2 * (1.0 - physical_params["T1"])
+    delta = ((10.0 ** (-3.0 + 5.0 * physical_params["log_delta"])) * 1e6) ** (
+        -physical_params["alpha"]
+    )
+    gravity, planet_radius = _compute_gravity(physical_params)
+
+    temp_arr = jnp.array([t1, t2, t3])
+    carbon_to_oxygen = 0
+
+    if "C/O" in physical_params.keys():
+        carbon_to_oxygen = physical_params["C/O"]
+    elif "C" in physical_params.keys():
+        carbon_to_oxygen = physical_params["C"] / physical_params["O"]
+
+    temperatures = molliere_2020_temperature_profile(
+        (
+            temp_arr,
+            delta,
+            physical_params["alpha"],
+            physical_params["T_int"],
+            p_use,
+            physical_params["Fe/H"],
+            carbon_to_oxygen,
+            True,
+        )
+    )
+
+    if "use_easychem" in physical_params.keys():
+        temperatures = jnp.clip(temperatures, 40, 40000)
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    if (
+        abundance_state["pressures"].shape[0]
+        != model_context.radtrans.pressures.shape[0]
+    ):
+        return ModelResult.make_nan_result(
+            _radtrans_wavelength_grid(model_context.radtrans)
+        )
+
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_emission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        cloud_properties,
+    )
+    return calculate_emission_spectrum_runtime(model_context, model_inputs)
+
+
+def molliere_2020_two_column(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+
+    t3 = ((3.0 / 4.0 * physical_params["T_int"] ** 4.0 * (0.1 + 2.0 / 3.0)) ** 0.25) * (
+        1.0 - physical_params["T3"]
+    )
+    t2 = t3 * (1.0 - physical_params["T2"])
+    t1 = t2 * (1.0 - physical_params["T1"])
+    delta = ((10.0 ** (-3.0 + 5.0 * physical_params["log_delta"])) * 1e6) ** (
+        -physical_params["alpha"]
+    )
+    temp_arr = jnp.array([t1, t2, t3])
+
+    t3_clear = (
+        (3.0 / 4.0 * physical_params["T_int"] ** 4.0 * (0.1 + 2.0 / 3.0)) ** 0.25
+    ) * (1.0 - physical_params["T3_clear"])
+    t2_clear = t3_clear * (1.0 - physical_params["T2_clear"])
+    t1_clear = t2_clear * (1.0 - physical_params["T1_clear"])
+    temps_clear = jnp.array([t1_clear, t2_clear, t3_clear])
+    delta_clear = (
+        (10.0 ** (-3.0 + 5.0 * physical_params["log_delta_clear"])) * 1e6
+    ) ** (-physical_params["alpha_clear"])
+    gravity, planet_radius = _compute_gravity(physical_params)
+
+    temperatures = molliere_2020_temperature_profile(
+        (
+            temp_arr,
+            delta,
+            physical_params["alpha"],
+            physical_params["T_int"],
+            p_use,
+            physical_params["Fe/H"],
+            physical_params["C/O"],
+            True,
+        )
+    )
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    t_clear = molliere_2020_temperature_profile(
+        (
+            temps_clear,
+            delta_clear,
+            physical_params["alpha_clear"],
+            physical_params["T_int"],
+            p_global[abundance_state["small_index"]],
+            physical_params["Fe/H"],
+            physical_params["C/O"],
+            True,
+        )
+    )
+    abundances_clear, mean_molar_masses_clear, _small_index_clear, _p_bases_clear = (
+        get_abundances(
+            pressures=p_global[abundance_state["small_index"]],
+            temperatures=t_clear,
+            parameters=physical_params,
+            line_species=model_context.radtrans.line_species,
+            cloud_species=model_context.radtrans.cloud_species,
+            adaptive_mesh_refinement=False,
+        )
+    )
+
+    if abundances_clear is None:
+        return ModelResult.make_nan_result(
+            _radtrans_wavelength_grid(model_context.radtrans)
+        )
+
+    if (
+        abundance_state["pressures"].shape[0]
+        != model_context.radtrans.pressures.shape[0]
+    ):
+        return ModelResult.make_nan_result(
+            _radtrans_wavelength_grid(model_context.radtrans)
+        )
+
+    cloudy_cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    cloudy_inputs = _build_runtime_emission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        cloudy_cloud_properties,
+    )
+    cloudy_result = calculate_emission_spectrum_runtime(model_context, cloudy_inputs)
+    if not cloudy_result.spectrum_is_valid():
+        return cloudy_result
+
+    clear_abundances = dict(abundances_clear)
+    for cloud in model_context.radtrans.cloud_species:
+        cname = cloud.split("_")[0]
+        clear_abundances[cname] = jnp.zeros_like(t_clear)
+
+    clear_state = {
+        "pressures": p_global[abundance_state["small_index"]],
+        "temperatures": t_clear,
+        "abundances": clear_abundances,
+        "mean_molar_masses": mean_molar_masses_clear,
+    }
+    clear_inputs = ModelInputs(
+        pressures=clear_state["pressures"],
+        temperatures=clear_state["temperatures"],
+        abundances=clear_state["abundances"],
+        mean_molar_masses=clear_state["mean_molar_masses"],
+        gravity=gravity,
+        planet_radius=planet_radius,
+        distance_to_system=physical_params["distance_to_system"],
+    )
+    clear_result = calculate_emission_spectrum_runtime(model_context, clear_inputs)
+    if not clear_result.spectrum_is_valid():
+        return clear_result
+
+    patchiness = physical_params["patchiness"]
+    spectrum_model = (patchiness * cloudy_result.spectrum) + (
+        (1.0 - patchiness) * clear_result.spectrum
+    )
+
+    return ModelResult(
+        kind="spectrum",
+        wavelengths=cloudy_result.wavelengths,
+        spectrum=spectrum_model,
+        auxiliary_outputs=dict(clear_result.auxiliary_outputs),
+    )
+
+
+def guillot_emission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    gravity, planet_radius = _compute_gravity(physical_params)
+
+    temperatures = guillot_global_temperature_profile(
+        p_use,
+        10 ** physical_params["log_kappa_IR"],
+        physical_params["gamma"],
+        gravity,
+        physical_params["T_int"],
+        physical_params["T_equ"],
+    )
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_emission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        cloud_properties,
+    )
+    return calculate_emission_spectrum_runtime(model_context, model_inputs)
+
+
+def guillot_emission_add_gaussian_temperature(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    gravity, planet_radius = _compute_gravity(physical_params)
+
+    temperatures = guillot_global_temperature_profile(
+        p_use,
+        10 ** physical_params["log_kappa_IR"],
+        physical_params["gamma"],
+        gravity,
+        physical_params["T_int"],
+        physical_params["T_equ"],
+    )
+
+    def gaussian(x, scale, mu, sig):
+        return scale * jnp.exp(-jnp.power((x - mu) / sig, 2.0) / 2)
+
+    temperature_addition = gaussian(
+        jnp.log10(p_use),
+        physical_params["temperature_peak"],
+        physical_params["temperature_location_log_pressure"],
+        physical_params["temperature_width_log_pressure"],
+    )
+    temperatures += temperature_addition
+    safe_inds = jnp.where(temperatures < 1.0)
+    temperatures = temperatures.at[safe_inds].set(1.0)
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_emission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        cloud_properties,
+    )
+    return calculate_emission_spectrum_runtime(model_context, model_inputs)
+
+
+def guillot_patchy_emission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    return guillot_emission(model_context, physical_params, pt_plot_mode=pt_plot_mode)
+
+
+def interpolated_profile_emission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    gravity, planet_radius = _compute_gravity(physical_params)
+
+    temp_arr = jnp.array(
+        [physical_params[f"T{i}"] for i in range(int(physical_params["nnodes"]) + 2)]
+    )
+    if "linear" in physical_params.keys():
+        temperatures, log_prior_weight = linear_spline_temperature_profile(
+            p_use,
+            temp_arr,
+            physical_params["gamma"],
+            int(physical_params["nnodes"]),
+        )
+    else:
+        temperatures, log_prior_weight = cubic_spline_temperature_profile(
+            p_use,
+            temp_arr,
+            physical_params["gamma"],
+            int(physical_params["nnodes"]),
+        )
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_emission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        cloud_properties,
+    )
+    model_result = calculate_emission_spectrum_runtime(model_context, model_inputs)
+
+    merged_auxiliary_outputs = dict(model_result.auxiliary_outputs)
+
+    merged_auxiliary_outputs["log_prior_weight"] = log_prior_weight
+    return ModelResult(
+        kind=model_result.kind,
+        wavelengths=model_result.wavelengths,
+        spectrum=model_result.spectrum,
+        pressures=model_result.pressures,
+        temperatures=model_result.temperatures,
+        additional_log_likelihood=model_result.additional_log_likelihood,
+        auxiliary_outputs=merged_auxiliary_outputs,
+        atmospheric_column_fluxes=model_result.atmospheric_column_fluxes,
+    )
+
+
+def gradient_profile_emission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    gravity, planet_radius = _compute_gravity(physical_params)
+
+    num_layer = int(physical_params["N_layers"])
+    layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
+    for index in range(num_layer):
+        layer_pt_slopes = layer_pt_slopes.at[index].set(
+            physical_params[f"PTslope_{num_layer - index}"]
+        )
+
+    top_of_atmosphere_pressure = -3
+    bottom_of_atmosphere_pressure = 3
+    if "top_of_atmosphere_pressure" in physical_params.keys():
+        top_of_atmosphere_pressure = physical_params["top_of_atmosphere_pressure"]
+    if "bottom_of_atmosphere_pressure" in physical_params.keys():
+        bottom_of_atmosphere_pressure = physical_params["bottom_of_atmosphere_pressure"]
+
+    temperatures = zhang_2023_temperature_profile(
+        p_use,
+        num_layer,
+        layer_pt_slopes,
+        physical_params["T_bottom"],
+        top_of_atmosphere_pressure=top_of_atmosphere_pressure,
+        bottom_of_atmosphere_pressure=bottom_of_atmosphere_pressure,
+    )
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_emission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        cloud_properties,
+    )
+    return calculate_emission_spectrum_runtime(model_context, model_inputs)
+
+
+def _build_timestep_params(physical_params, t_idx, t_value):
+    """Build a :class:`PhysicalParams` snapshot for a single model timestep.
+
+    Auto-detects time-varying parameters by scanning parameter names:
+
+    - **Per-timestep keys** matching ``{P}_t_{int}``: the value at index
+      *t_idx* is stored under the base name ``P``.
+    - **Sinusoidal quartets** ``{P}_amplitude``, ``{P}_period``,
+      ``{P}_phase``, ``{P}_offset``: the base name ``P`` is evaluated as
+      ``offset + amplitude * sin(2π * t_value / period + phase)``.
+
+    All detected meta-keys are stripped from the snapshot; only the resolved
+    base name is included.  Parameters matching neither pattern are copied
+    unchanged.  This allows *any* parameter to vary with time simply by
+    following the naming convention—no pre-declaration is required.
+    """
+    # --- Detect per-timestep parameters: {base}_t_{int} ---
+    time_varying_bases = set()
+    tv_keys = set()
+    for key in physical_params.keys():
+        m = _TIME_INDEXED_PATTERN.match(key)
+        if m:
+            time_varying_bases.add(m.group(1))
+            tv_keys.add(key)
+
+    # --- Detect sinusoidal quartets ---
+    all_keys = set(physical_params.keys())
+    sinusoidal_bases = set()
+    sin_keys = set()
+    candidate_bases = set()
+    for key in all_keys:
+        for suf in _SINUSOIDAL_SUFFIXES:
+            if key.endswith(suf):
+                candidate_bases.add(key[: -len(suf)])
+    for base in candidate_bases:
+        if base in time_varying_bases:
+            continue  # per-timestep keys take precedence
+        if all(f"{base}{suf}" in all_keys for suf in _SINUSOIDAL_SUFFIXES):
+            sinusoidal_bases.add(base)
+            for suf in _SINUSOIDAL_SUFFIXES:
+                sin_keys.add(f"{base}{suf}")
+
+    skip_keys = tv_keys | sin_keys
+
+    # --- Build snapshot ---
+    base_dict = {}
+    for key in physical_params.keys():
+        if key in skip_keys:
+            continue
+        base_dict[key] = physical_params[key]
+
+    # Resolve per-timestep values
+    for base in time_varying_bases:
+        base_dict[base] = physical_params[f"{base}_t_{t_idx}"]
+
+    # Evaluate sinusoidal values
+    for base in sinusoidal_bases:
+        amp = physical_params[f"{base}_amplitude"]
+        period = physical_params[f"{base}_period"]
+        phase = physical_params[f"{base}_phase"]
+        offset = physical_params[f"{base}_offset"]
+        base_dict[base] = offset + amp * jnp.sin(
+            2.0 * jnp.pi * t_value / period + phase
+        )
+
+    return PhysicalParams.from_mapping(base_dict)
+
+
+def time_series_gradient_emission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    """Time-variable gradient-profile emission model.
+
+    Computes ``N_time`` emission spectra at regularly spaced model timesteps
+    spanning the range of the observation times.  Spectra at intermediate
+    observation times are obtained by linear interpolation along the time axis.
+
+    Time-varying parameters are **auto-detected** from the naming convention
+    by :func:`_build_timestep_params` — no explicit declaration is needed.
+    Any parameter can vary with time simply by following one of the two
+    supported patterns:
+
+    Per-timestep keys
+    -----------------
+    Supply ``{P}_t_0`` … ``{P}_t_{N_time-1}`` as free parameters.  At each
+    model timestep *i* the snapshot will contain ``P`` set to the value of
+    ``{P}_t_i``.
+
+    Sinusoidal parameterisation
+    ---------------------------
+    Supply ``{P}_amplitude``, ``{P}_period`` (seconds), ``{P}_phase``
+    (radians), and ``{P}_offset``.  The value at time *t* is
+
+    .. math::
+
+        P(t) = \\text{offset} + A \\sin\\!\\left(\\frac{2\\pi t}{\\text{period}} + \\phi\\right)
+
+    Parameters that do not match either pattern are treated as constant
+    across all timesteps (e.g. ``distance_to_system``, ``mass``,
+    ``planet_radius``, ``N_layers``).
+
+    Returns
+    -------
+    ModelResult
+        When ``pt_plot_mode=False``: ``spectrum`` has shape
+        ``(N_obs, N_wavelength)`` aligned with ``observation_times``.
+        When ``pt_plot_mode=True``: ``temperatures`` has shape
+        ``(N_time, N_pressure)`` and ``auxiliary_outputs['model_times']``
+        gives the corresponding model time grid.
+    """
+    metadata = model_context.model_metadata
+    observation_times = metadata["observation_times"]
+    n_time = int(physical_params["N_time"])
+
+    # Build a regular model time grid spanning the observation window
+    t_min = jnp.min(observation_times)
+    t_max = jnp.max(observation_times)
+    model_times = jnp.linspace(t_min, t_max, n_time)
+
+    # Pressure grid and gravity are constant across timesteps
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    gravity, planet_radius = _compute_gravity(physical_params)
+    num_layer = int(physical_params["N_layers"])
+
+    top_of_atmosphere_pressure = -3
+    bottom_of_atmosphere_pressure = 3
+    if "top_of_atmosphere_pressure" in physical_params.keys():
+        top_of_atmosphere_pressure = physical_params["top_of_atmosphere_pressure"]
+    if "bottom_of_atmosphere_pressure" in physical_params.keys():
+        bottom_of_atmosphere_pressure = physical_params["bottom_of_atmosphere_pressure"]
+
+    model_spectra = []
+    model_temperatures = []
+
+    for t_idx in range(n_time):
+        t_val = model_times[t_idx]
+
+        # Resolve parameter values at this timestep
+        snapshot = _build_timestep_params(physical_params, t_idx, t_val)
+
+        # Build the gradient temperature profile
+        layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
+        for k in range(num_layer):
+            layer_pt_slopes = layer_pt_slopes.at[k].set(
+                snapshot[f"PTslope_{num_layer - k}"]
+            )
+
+        temperatures = zhang_2023_temperature_profile(
+            p_use,
+            num_layer,
+            layer_pt_slopes,
+            snapshot["T_bottom"],
+            top_of_atmosphere_pressure=top_of_atmosphere_pressure,
+            bottom_of_atmosphere_pressure=bottom_of_atmosphere_pressure,
+        )
+
+        if pt_plot_mode:
+            model_temperatures.append(temperatures)
+            continue
+
+        # Resolve chemistry
+        result, abundance_state = _resolve_runtime_abundance_state(
+            model_context,
+            snapshot,
+            p_use,
+            p_global,
+            temperatures,
+            pt_plot_mode=False,
+        )
+        if result is not None:
+            return result
+
+        # Clouds
+        cloud_properties = clouds.setup_clouds(
+            abundance_state["pressures"],
+            snapshot,
+            model_context.radtrans.cloud_species,
+        )
+
+        # Build model inputs and compute emission spectrum
+        model_inputs = _build_runtime_emission_model_inputs(
+            snapshot,
+            abundance_state,
+            gravity,
+            planet_radius,
+            cloud_properties,
+        )
+        step_result = calculate_emission_spectrum_runtime(model_context, model_inputs)
+        model_spectra.append(step_result.spectrum)
+
+    if pt_plot_mode:
+        return ModelResult(
+            kind="pt_profile",
+            pressures=p_use,
+            temperatures=jnp.stack(model_temperatures),
+            auxiliary_outputs={"model_times": model_times},
+        )
+
+    # Stack model spectra: (N_time, N_wavelength)
+    model_spectra_2d = jnp.stack(model_spectra)
+    wavelengths = step_result.wavelengths
+
+    # Interpolate along the time axis for each wavelength bin to produce
+    # spectra at the actual observation times: (N_obs, N_wavelength)
+    observed_spectra = vmap(
+        lambda wl_col: jnp.interp(observation_times, model_times, wl_col),
+        in_axes=1,
+        out_axes=1,
+    )(model_spectra_2d)
+
+    return ModelResult(
+        kind="spectrum",
+        wavelengths=wavelengths,
+        spectrum=observed_spectra,
+        auxiliary_outputs={
+            "model_times": model_times,
+            "model_spectra": model_spectra_2d,
+        },
+    )
+
+
+def power_law_profile_emission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    gravity, planet_radius = _compute_gravity(physical_params)
+
+    temperatures = power_law_temperature_profile(
+        p_use,
+        physical_params["alpha"],
+        physical_params["T_0"],
+    )
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_emission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        cloud_properties,
+    )
+    return calculate_emission_spectrum_runtime(model_context, model_inputs)
+
+
+def guillot_transmission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    reference_pressure = 100.0
+    if "reference_pressure" in physical_params.keys():
+        reference_pressure = physical_params["reference_pressure"]
+
+    gravity, planet_radius = _compute_gravity(physical_params)
+    temperatures = guillot_global_temperature_profile(
+        p_use,
+        10 ** physical_params["log_kappa_IR"],
+        physical_params["gamma"],
+        gravity,
+        physical_params["T_int"],
+        physical_params["T_equ"],
+    )
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm = (
+        clouds.setup_simple_clouds_hazes(physical_params)
+    )
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_transmission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        reference_pressure=reference_pressure,
+        opaque_cloud_top_pressure=pcloud,
+        haze_factor=haze_factor,
+        power_law_opacity_coefficient=power_law_opacity_coefficient,
+        power_law_opacity_350nm=power_law_opacity_350nm,
+        cloud_properties=cloud_properties,
+    )
+    return calculate_transmission_spectrum_runtime(model_context, model_inputs)
+
+
+def guillot_patchy_transmission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    return guillot_transmission(
+        model_context, physical_params, pt_plot_mode=pt_plot_mode
+    )
+
+
+def madhushudhan_seager_emission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    gravity, planet_radius = _compute_gravity(physical_params)
+
+    offset = jnp.log10(p_use[0])
+    log_p3 = physical_params["log_P3"] - offset
+    log_p2 = log_p3 * (1.0 - physical_params["P2"])
+    log_p1 = log_p2 * (1.0 - physical_params["P1"])
+    pressure_points = [
+        p_use[0],
+        (log_p1 + offset),
+        (log_p2 + offset),
+        (log_p3 + offset),
+        physical_params["log_P_set"],
+    ]
+
+    alpha_points = [physical_params["alpha_0"], physical_params["alpha_1"]]
+    beta_points = [0.5, 0.5]
+    if "beta" in physical_params.keys():
+        beta_points = [physical_params["beta"], physical_params["beta"]]
+
+    temperatures = madhusudhan_seager_temperature_profile(
+        p_use,
+        pressure_points,
+        physical_params["T_set"],
+        alpha_points,
+        beta_points,
+    )
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_emission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        cloud_properties,
+    )
+    return calculate_emission_spectrum_runtime(model_context, model_inputs)
+
+
+def madhushudhan_seager_transmission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    reference_pressure = 100.0
+    if "reference_pressure" in physical_params.keys():
+        reference_pressure = physical_params["reference_pressure"]
+
+    gravity, planet_radius = _compute_gravity(physical_params)
+    offset = jnp.log10(p_use[0])
+    log_p3 = physical_params["log_P3"] - offset
+    log_p2 = log_p3 * (1.0 - physical_params["P2"])
+    log_p1 = log_p2 * (1.0 - physical_params["P1"])
+    pressure_points = [
+        p_use[0],
+        (log_p1 + offset),
+        (log_p2 + offset),
+        (log_p3 + offset),
+        physical_params["log_P_set"],
+    ]
+
+    alpha_points = [physical_params["alpha_0"], physical_params["alpha_1"]]
+    beta_points = [0.5, 0.5]
+    if "beta" in physical_params.keys():
+        beta_points = [physical_params["beta"], physical_params["beta"]]
+
+    temperatures = madhusudhan_seager_temperature_profile(
+        p_use,
+        pressure_points,
+        physical_params["T_set"],
+        alpha_points,
+        beta_points,
+    )
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm = (
+        clouds.setup_simple_clouds_hazes(physical_params)
+    )
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_transmission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        reference_pressure=reference_pressure,
+        opaque_cloud_top_pressure=pcloud,
+        haze_factor=haze_factor,
+        power_law_opacity_coefficient=power_law_opacity_coefficient,
+        power_law_opacity_350nm=power_law_opacity_350nm,
+        cloud_properties=cloud_properties,
+    )
+    return calculate_transmission_spectrum_runtime(model_context, model_inputs)
+
+
+def madhu_seager_patchy_transmission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    return madhushudhan_seager_transmission(
+        model_context,
+        physical_params,
+        pt_plot_mode=pt_plot_mode,
+    )
+
+
+def isothermal_transmission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+
+    reference_pressure = 100.0
+    if "reference_pressure" in physical_params.keys():
+        reference_pressure = physical_params["reference_pressure"]
+
+    temperatures = isothermal_temperature_profile(p_use, physical_params["temperature"])
+    gravity, planet_radius = _compute_gravity(physical_params)
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm = (
+        clouds.setup_simple_clouds_hazes(physical_params)
+    )
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_transmission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        reference_pressure=reference_pressure,
+        opaque_cloud_top_pressure=pcloud,
+        haze_factor=haze_factor,
+        power_law_opacity_coefficient=power_law_opacity_coefficient,
+        power_law_opacity_350nm=power_law_opacity_350nm,
+        cloud_properties=cloud_properties,
+    )
+    return calculate_transmission_spectrum_runtime(model_context, model_inputs)
+
+
+def power_law_profile_transmission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    gravity, planet_radius = _compute_gravity(physical_params)
+
+    reference_pressure = 100.0
+    if "reference_pressure" in physical_params.keys():
+        reference_pressure = physical_params["reference_pressure"]
+
+    temperatures = power_law_temperature_profile(
+        p_use,
+        physical_params["alpha"],
+        physical_params["T_0"],
+    )
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm = (
+        clouds.setup_simple_clouds_hazes(physical_params)
+    )
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_transmission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        reference_pressure=reference_pressure,
+        opaque_cloud_top_pressure=pcloud,
+        haze_factor=haze_factor,
+        power_law_opacity_coefficient=power_law_opacity_coefficient,
+        power_law_opacity_350nm=power_law_opacity_350nm,
+        cloud_properties=cloud_properties,
+    )
+    return calculate_transmission_spectrum_runtime(model_context, model_inputs)
+
+
+def mark_legacy_model_function(model_function):
+    setattr(model_function, _MODEL_CONTRACT_ATTRIBUTE, MODEL_CONTRACT_LEGACY)
+    return model_function
+
+
+@mark_legacy_model_function
+def legacy_molliere_2020_emission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=True
 ):
     """
@@ -261,7 +1284,8 @@ def legacy_spline_eddington_adiabatic_emission(
     )
 
 
-def legacy_emission_model_diseq_patchy_clouds(
+@mark_legacy_model_function
+def legacy_molliere_2020_two_column(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=True
 ):
     """
@@ -489,6 +1513,7 @@ def legacy_emission_model_diseq_patchy_clouds(
     return wlen_model, spectrum_model
 
 
+@mark_legacy_model_function
 def legacy_guillot_emission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -621,6 +1646,7 @@ def legacy_guillot_emission(
     )
 
 
+@mark_legacy_model_function
 def legacy_guillot_emission_add_gaussian_temperature(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -766,6 +1792,7 @@ def legacy_guillot_emission_add_gaussian_temperature(
     )
 
 
+@mark_legacy_model_function
 def legacy_guillot_patchy_emission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -777,6 +1804,7 @@ def legacy_guillot_patchy_emission(
     )
 
 
+@mark_legacy_model_function
 def legacy_interpolated_profile_emission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -912,6 +1940,7 @@ def legacy_interpolated_profile_emission(
     )
 
 
+@mark_legacy_model_function
 def legacy_gradient_profile_emission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -1059,6 +2088,7 @@ def legacy_gradient_profile_emission(
     )
 
 
+@mark_legacy_model_function
 def legacy_power_law_profile_emission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -1192,6 +2222,7 @@ def legacy_power_law_profile_emission(
     )
 
 
+@mark_legacy_model_function
 def legacy_guillot_transmission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -1340,6 +2371,7 @@ def legacy_guillot_transmission(
     )
 
 
+@mark_legacy_model_function
 def legacy_guillot_patchy_transmission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -1351,6 +2383,7 @@ def legacy_guillot_patchy_transmission(
     )
 
 
+@mark_legacy_model_function
 def legacy_madhushudhan_seager_emission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -1507,6 +2540,7 @@ def legacy_madhushudhan_seager_emission(
     )
 
 
+@mark_legacy_model_function
 def legacy_madhushudhan_seager_transmission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -1675,6 +2709,7 @@ def legacy_madhushudhan_seager_transmission(
     )
 
 
+@mark_legacy_model_function
 def legacy_madhu_seager_patchy_transmission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -1686,6 +2721,7 @@ def legacy_madhu_seager_patchy_transmission(
     )
 
 
+@mark_legacy_model_function
 def legacy_isothermal_transmission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -1824,6 +2860,7 @@ def legacy_isothermal_transmission(
     )
 
 
+@mark_legacy_model_function
 def legacy_power_law_profile_transmission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
@@ -2045,7 +3082,7 @@ def initialize_pressure_from_legacy_dict(press, parameters, adaptive_mesh_refine
     return initialize_pressure(press, plain_parameters, adaptive_mesh_refinement)
 
 
-def _as_runtime_auxiliary_outputs(outputs):
+def _as_auxiliary_outputs(outputs):
     if outputs is None:
         return {}
 
@@ -2095,13 +3132,6 @@ def _build_model_context_from_parameters(
         return_cloud_contribution=return_cloud_contribution,
         return_abundances=return_abundances,
     )
-
-
-def _minimal_legacy_parameter_dict(physical_params: PhysicalParams):
-    return {
-        name: SimpleNamespace(value=value)
-        for name, value in physical_params.ordered_items()
-    }
 
 
 def _normalize_model_output(model_output, pt_plot_mode=False):
@@ -2196,7 +3226,10 @@ def run_legacy_model_adapter(
     *,
     pt_plot_mode: bool = False,
 ) -> ModelResult:
-    legacy_parameters = _minimal_legacy_parameter_dict(physical_params)
+    legacy_parameters = {
+        name: SimpleNamespace(value=value)
+        for name, value in physical_params.ordered_items()
+    }
 
     # The Radtrans object may carry rebinned species names (e.g. R120)
     # while the parameter dict still uses the original config names (e.g.
@@ -2230,16 +3263,11 @@ def run_legacy_model_adapter(
     return _normalize_model_output(model_output, pt_plot_mode=pt_plot_mode)
 
 
-def mark_model_function_runtime_native(model_function):
-    setattr(model_function, _MODEL_CONTRACT_ATTRIBUTE, MODEL_CONTRACT_RUNTIME_NATIVE)
-    return model_function
-
-
 def _infer_model_function_contract(model_function, declared_contract: str) -> str:
     """Resolve the model contract using explicit registration only.
 
     Contract detection follows strict precedence:
-    1. Explicit ``_prt_model_contract`` attribute (set by :func:`mark_model_function_runtime_native`).
+    1. Explicit ``_prt_model_contract`` attribute (set by :func:`mark_legacy_model_function`).
     2. The caller-supplied *declared_contract*.
     3. Fallback to :data:`MODEL_CONTRACT_LEGACY`.
 
@@ -2254,10 +3282,10 @@ def _infer_model_function_contract(model_function, declared_contract: str) -> st
     if explicit_contract is not None:
         return explicit_contract
 
-    if declared_contract != MODEL_CONTRACT_LEGACY:
+    if declared_contract == MODEL_CONTRACT_LEGACY:
         return declared_contract
 
-    return MODEL_CONTRACT_LEGACY
+    return MODEL_CONTRACT_DIFFERENTIABLE
 
 
 def coerce_model_generating_function(
@@ -2277,7 +3305,7 @@ def coerce_model_generating_function(
         model_function, _WRAPPED_LEGACY_MODEL_ATTRIBUTE, None
     )
     if wrapped_model_function is not None:
-        return MODEL_CONTRACT_RUNTIME_LEGACY_ADAPTER, wrapped_model_function
+        return MODEL_CONTRACT_LEGACY_ADAPTER, wrapped_model_function
 
     @wraps(model_function)
     def runtime_ready_model_function(
@@ -2293,13 +3321,13 @@ def coerce_model_generating_function(
     setattr(
         runtime_ready_model_function,
         _MODEL_CONTRACT_ATTRIBUTE,
-        MODEL_CONTRACT_RUNTIME_LEGACY_ADAPTER,
+        MODEL_CONTRACT_LEGACY_ADAPTER,
     )
     setattr(
         model_function, _WRAPPED_LEGACY_MODEL_ATTRIBUTE, runtime_ready_model_function
     )
 
-    return MODEL_CONTRACT_RUNTIME_LEGACY_ADAPTER, runtime_ready_model_function
+    return MODEL_CONTRACT_LEGACY_ADAPTER, runtime_ready_model_function
 
 
 def run_runtime_model_adapter(
@@ -2327,25 +3355,11 @@ def make_unified_model(fn, legacy_fn=None):
     *legacy_fn* is supplied and the first argument is not a
     :class:`ModelContext`, a :class:`TypeError` is raised.
 
-    The dispatcher carries ``_prt_model_contract == MODEL_CONTRACT_RUNTIME_NATIVE``
+    The dispatcher carries ``_prt_model_contract == MODEL_CONTRACT_DIFFERENTIABLE``
     so that :func:`coerce_model_generating_function` and the retrieval runtime
     treat it as a first-class runtime-native function.  The constituent
     functions remain accessible as ``.___`` and ``.__legacy__``
     attributes.
-
-    JAX safety
-    ----------
-    The dispatch is a pure Python ``isinstance`` check executed **before** JAX
-    observes any arguments.  Consequences:
-
-    * ``jax.jit`` — JAX traces only the selected code path; XLA sees no
-      dead branch and compiles no extra code.
-    * ``jax.grad`` / ``jax.vjp`` — gradients are computed through the
-      dispatched path only; the other path is never traced.
-    * ``jax.vmap`` — behaves identically; ``isinstance`` is static w.r.t.
-      vmapped axes.
-    * No ``jax.lax.cond``-style runtime branching is introduced; the dispatch
-      cost is a single O(1) Python call incurred once per JIT compilation.
     """
 
     @wraps(fn)
@@ -2372,7 +3386,7 @@ def make_unified_model(fn, legacy_fn=None):
             **kwargs,
         )
 
-    setattr(dispatcher, _MODEL_CONTRACT_ATTRIBUTE, MODEL_CONTRACT_RUNTIME_NATIVE)
+    setattr(dispatcher, _MODEL_CONTRACT_ATTRIBUTE, MODEL_CONTRACT_DIFFERENTIABLE)
     dispatcher.___ = fn
     dispatcher.__legacy__ = legacy_fn
     return dispatcher
@@ -2434,27 +3448,6 @@ def _resolve_runtime_abundance_state(
         "mean_molar_masses": mean_molar_masses,
         "small_index": small_index,
     }
-
-
-def _merge_runtime_auxiliary_outputs(
-    model_result: ModelResult, **extra_outputs
-) -> ModelResult:
-    merged_auxiliary_outputs = dict(model_result.auxiliary_outputs)
-
-    for name, value in extra_outputs.items():
-        if value is not None:
-            merged_auxiliary_outputs[name] = value
-
-    return ModelResult(
-        kind=model_result.kind,
-        wavelengths=model_result.wavelengths,
-        spectrum=model_result.spectrum,
-        pressures=model_result.pressures,
-        temperatures=model_result.temperatures,
-        additional_log_likelihood=model_result.additional_log_likelihood,
-        auxiliary_outputs=merged_auxiliary_outputs,
-        atmospheric_column_fluxes=model_result.atmospheric_column_fluxes,
-    )
 
 
 def _build_runtime_emission_model_inputs(
@@ -2562,1025 +3555,6 @@ def _build_runtime_transmission_model_inputs(
     )
 
 
-@mark_model_function_runtime_native
-def spline_eddington_adiabatic_emission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-
-    t3 = ((3.0 / 4.0 * physical_params["T_int"] ** 4.0 * (0.1 + 2.0 / 3.0)) ** 0.25) * (
-        1.0 - physical_params["T3"]
-    )
-    t2 = t3 * (1.0 - physical_params["T2"])
-    t1 = t2 * (1.0 - physical_params["T1"])
-    delta = ((10.0 ** (-3.0 + 5.0 * physical_params["log_delta"])) * 1e6) ** (
-        -physical_params["alpha"]
-    )
-    gravity, planet_radius = _compute_gravity(physical_params)
-
-    temp_arr = jnp.array([t1, t2, t3])
-    carbon_to_oxygen = 0
-
-    if "C/O" in physical_params.keys():
-        carbon_to_oxygen = physical_params["C/O"]
-    elif "C" in physical_params.keys():
-        carbon_to_oxygen = physical_params["C"] / physical_params["O"]
-
-    temperatures = molliere_2020_temperature_profile(
-        (
-            temp_arr,
-            delta,
-            physical_params["alpha"],
-            physical_params["T_int"],
-            p_use,
-            physical_params["Fe/H"],
-            carbon_to_oxygen,
-            True,
-        )
-    )
-
-    if "use_easychem" in physical_params.keys():
-        temperatures = jnp.clip(temperatures, 40, 40000)
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    if (
-        abundance_state["pressures"].shape[0]
-        != model_context.radtrans.pressures.shape[0]
-    ):
-        return ModelResult.make_nan_result(
-            _radtrans_wavelength_grid(model_context.radtrans)
-        )
-
-    cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    model_inputs = _build_runtime_emission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        cloud_properties,
-    )
-    return calculate_emission_spectrum_runtime(model_context, model_inputs)
-
-
-@mark_model_function_runtime_native
-def emission_model_diseq_patchy_clouds(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-
-    t3 = ((3.0 / 4.0 * physical_params["T_int"] ** 4.0 * (0.1 + 2.0 / 3.0)) ** 0.25) * (
-        1.0 - physical_params["T3"]
-    )
-    t2 = t3 * (1.0 - physical_params["T2"])
-    t1 = t2 * (1.0 - physical_params["T1"])
-    delta = ((10.0 ** (-3.0 + 5.0 * physical_params["log_delta"])) * 1e6) ** (
-        -physical_params["alpha"]
-    )
-    temp_arr = jnp.array([t1, t2, t3])
-
-    t3_clear = (
-        (3.0 / 4.0 * physical_params["T_int"] ** 4.0 * (0.1 + 2.0 / 3.0)) ** 0.25
-    ) * (1.0 - physical_params["T3_clear"])
-    t2_clear = t3_clear * (1.0 - physical_params["T2_clear"])
-    t1_clear = t2_clear * (1.0 - physical_params["T1_clear"])
-    temps_clear = jnp.array([t1_clear, t2_clear, t3_clear])
-    delta_clear = (
-        (10.0 ** (-3.0 + 5.0 * physical_params["log_delta_clear"])) * 1e6
-    ) ** (-physical_params["alpha_clear"])
-    gravity, planet_radius = _compute_gravity(physical_params)
-
-    temperatures = molliere_2020_temperature_profile(
-        (
-            temp_arr,
-            delta,
-            physical_params["alpha"],
-            physical_params["T_int"],
-            p_use,
-            physical_params["Fe/H"],
-            physical_params["C/O"],
-            True,
-        )
-    )
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    t_clear = molliere_2020_temperature_profile(
-        (
-            temps_clear,
-            delta_clear,
-            physical_params["alpha_clear"],
-            physical_params["T_int"],
-            p_global[abundance_state["small_index"]],
-            physical_params["Fe/H"],
-            physical_params["C/O"],
-            True,
-        )
-    )
-    abundances_clear, mean_molar_masses_clear, _small_index_clear, _p_bases_clear = (
-        get_abundances(
-            pressures=p_global[abundance_state["small_index"]],
-            temperatures=t_clear,
-            parameters=physical_params,
-            line_species=model_context.radtrans.line_species,
-            cloud_species=model_context.radtrans.cloud_species,
-            adaptive_mesh_refinement=False,
-        )
-    )
-
-    if abundances_clear is None:
-        return ModelResult.make_nan_result(
-            _radtrans_wavelength_grid(model_context.radtrans)
-        )
-
-    if (
-        abundance_state["pressures"].shape[0]
-        != model_context.radtrans.pressures.shape[0]
-    ):
-        return ModelResult.make_nan_result(
-            _radtrans_wavelength_grid(model_context.radtrans)
-        )
-
-    cloudy_cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    cloudy_inputs = _build_runtime_emission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        cloudy_cloud_properties,
-    )
-    cloudy_result = calculate_emission_spectrum_runtime(model_context, cloudy_inputs)
-    if not cloudy_result.spectrum_is_valid():
-        return cloudy_result
-
-    clear_abundances = dict(abundances_clear)
-    for cloud in model_context.radtrans.cloud_species:
-        cname = cloud.split("_")[0]
-        clear_abundances[cname] = jnp.zeros_like(t_clear)
-
-    clear_state = {
-        "pressures": p_global[abundance_state["small_index"]],
-        "temperatures": t_clear,
-        "abundances": clear_abundances,
-        "mean_molar_masses": mean_molar_masses_clear,
-    }
-    clear_inputs = ModelInputs(
-        pressures=clear_state["pressures"],
-        temperatures=clear_state["temperatures"],
-        abundances=clear_state["abundances"],
-        mean_molar_masses=clear_state["mean_molar_masses"],
-        gravity=gravity,
-        planet_radius=planet_radius,
-        distance_to_system=physical_params["distance_to_system"],
-    )
-    clear_result = calculate_emission_spectrum_runtime(model_context, clear_inputs)
-    if not clear_result.spectrum_is_valid():
-        return clear_result
-
-    patchiness = physical_params["patchiness"]
-    spectrum_model = (patchiness * cloudy_result.spectrum) + (
-        (1.0 - patchiness) * clear_result.spectrum
-    )
-
-    return ModelResult(
-        kind="spectrum",
-        wavelengths=cloudy_result.wavelengths,
-        spectrum=spectrum_model,
-        auxiliary_outputs=dict(clear_result.auxiliary_outputs),
-    )
-
-
-@mark_model_function_runtime_native
-def guillot_emission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
-
-    temperatures = guillot_global_temperature_profile(
-        p_use,
-        10 ** physical_params["log_kappa_IR"],
-        physical_params["gamma"],
-        gravity,
-        physical_params["T_int"],
-        physical_params["T_equ"],
-    )
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    model_inputs = _build_runtime_emission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        cloud_properties,
-    )
-    return calculate_emission_spectrum_runtime(model_context, model_inputs)
-
-
-@mark_model_function_runtime_native
-def guillot_emission_add_gaussian_temperature(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
-
-    temperatures = guillot_global_temperature_profile(
-        p_use,
-        10 ** physical_params["log_kappa_IR"],
-        physical_params["gamma"],
-        gravity,
-        physical_params["T_int"],
-        physical_params["T_equ"],
-    )
-
-    def gaussian(x, scale, mu, sig):
-        return scale * jnp.exp(-jnp.power((x - mu) / sig, 2.0) / 2)
-
-    temperature_addition = gaussian(
-        jnp.log10(p_use),
-        physical_params["temperature_peak"],
-        physical_params["temperature_location_log_pressure"],
-        physical_params["temperature_width_log_pressure"],
-    )
-    temperatures += temperature_addition
-    safe_inds = jnp.where(temperatures < 1.0)
-    temperatures = temperatures.at[safe_inds].set(1.0)
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    model_inputs = _build_runtime_emission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        cloud_properties,
-    )
-    return calculate_emission_spectrum_runtime(model_context, model_inputs)
-
-
-@mark_model_function_runtime_native
-def guillot_patchy_emission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    return guillot_emission(model_context, physical_params, pt_plot_mode=pt_plot_mode)
-
-
-@mark_model_function_runtime_native
-def interpolated_profile_emission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
-
-    temp_arr = jnp.array(
-        [physical_params[f"T{i}"] for i in range(int(physical_params["nnodes"]) + 2)]
-    )
-    if "linear" in physical_params.keys():
-        temperatures, log_prior_weight = linear_spline_temperature_profile(
-            p_use,
-            temp_arr,
-            physical_params["gamma"],
-            int(physical_params["nnodes"]),
-        )
-    else:
-        temperatures, log_prior_weight = cubic_spline_temperature_profile(
-            p_use,
-            temp_arr,
-            physical_params["gamma"],
-            int(physical_params["nnodes"]),
-        )
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    model_inputs = _build_runtime_emission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        cloud_properties,
-    )
-    return _merge_runtime_auxiliary_outputs(
-        calculate_emission_spectrum_runtime(model_context, model_inputs),
-        log_prior_weight=log_prior_weight,
-    )
-
-
-@mark_model_function_runtime_native
-def gradient_profile_emission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
-
-    num_layer = int(physical_params["N_layers"])
-    layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
-    for index in range(num_layer):
-        layer_pt_slopes = layer_pt_slopes.at[index].set(
-            physical_params[f"PTslope_{num_layer - index}"]
-        )
-
-    top_of_atmosphere_pressure = -3
-    bottom_of_atmosphere_pressure = 3
-    if "top_of_atmosphere_pressure" in physical_params.keys():
-        top_of_atmosphere_pressure = physical_params["top_of_atmosphere_pressure"]
-    if "bottom_of_atmosphere_pressure" in physical_params.keys():
-        bottom_of_atmosphere_pressure = physical_params["bottom_of_atmosphere_pressure"]
-
-    temperatures = zhang_2023_temperature_profile(
-        p_use,
-        num_layer,
-        layer_pt_slopes,
-        physical_params["T_bottom"],
-        top_of_atmosphere_pressure=top_of_atmosphere_pressure,
-        bottom_of_atmosphere_pressure=bottom_of_atmosphere_pressure,
-    )
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    model_inputs = _build_runtime_emission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        cloud_properties,
-    )
-    return calculate_emission_spectrum_runtime(model_context, model_inputs)
-
-
-def _build_timestep_params(physical_params, t_idx, t_value):
-    """Build a :class:`PhysicalParams` snapshot for a single model timestep.
-
-    Auto-detects time-varying parameters by scanning parameter names:
-
-    - **Per-timestep keys** matching ``{P}_t_{int}``: the value at index
-      *t_idx* is stored under the base name ``P``.
-    - **Sinusoidal quartets** ``{P}_amplitude``, ``{P}_period``,
-      ``{P}_phase``, ``{P}_offset``: the base name ``P`` is evaluated as
-      ``offset + amplitude * sin(2π * t_value / period + phase)``.
-
-    All detected meta-keys are stripped from the snapshot; only the resolved
-    base name is included.  Parameters matching neither pattern are copied
-    unchanged.  This allows *any* parameter to vary with time simply by
-    following the naming convention—no pre-declaration is required.
-    """
-    # --- Detect per-timestep parameters: {base}_t_{int} ---
-    time_varying_bases = set()
-    tv_keys = set()
-    for key in physical_params.keys():
-        m = _TIME_INDEXED_PATTERN.match(key)
-        if m:
-            time_varying_bases.add(m.group(1))
-            tv_keys.add(key)
-
-    # --- Detect sinusoidal quartets ---
-    all_keys = set(physical_params.keys())
-    sinusoidal_bases = set()
-    sin_keys = set()
-    candidate_bases = set()
-    for key in all_keys:
-        for suf in _SINUSOIDAL_SUFFIXES:
-            if key.endswith(suf):
-                candidate_bases.add(key[: -len(suf)])
-    for base in candidate_bases:
-        if base in time_varying_bases:
-            continue  # per-timestep keys take precedence
-        if all(f"{base}{suf}" in all_keys for suf in _SINUSOIDAL_SUFFIXES):
-            sinusoidal_bases.add(base)
-            for suf in _SINUSOIDAL_SUFFIXES:
-                sin_keys.add(f"{base}{suf}")
-
-    skip_keys = tv_keys | sin_keys
-
-    # --- Build snapshot ---
-    base_dict = {}
-    for key in physical_params.keys():
-        if key in skip_keys:
-            continue
-        base_dict[key] = physical_params[key]
-
-    # Resolve per-timestep values
-    for base in time_varying_bases:
-        base_dict[base] = physical_params[f"{base}_t_{t_idx}"]
-
-    # Evaluate sinusoidal values
-    for base in sinusoidal_bases:
-        amp = physical_params[f"{base}_amplitude"]
-        period = physical_params[f"{base}_period"]
-        phase = physical_params[f"{base}_phase"]
-        offset = physical_params[f"{base}_offset"]
-        base_dict[base] = offset + amp * jnp.sin(
-            2.0 * jnp.pi * t_value / period + phase
-        )
-
-    return PhysicalParams.from_mapping(base_dict)
-
-
-@mark_model_function_runtime_native
-def time_series_gradient_emission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    """Time-variable gradient-profile emission model.
-
-    Computes ``N_time`` emission spectra at regularly spaced model timesteps
-    spanning the range of the observation times.  Spectra at intermediate
-    observation times are obtained by linear interpolation along the time axis.
-
-    Time-varying parameters are **auto-detected** from the naming convention
-    by :func:`_build_timestep_params` — no explicit declaration is needed.
-    Any parameter can vary with time simply by following one of the two
-    supported patterns:
-
-    Per-timestep keys
-    -----------------
-    Supply ``{P}_t_0`` … ``{P}_t_{N_time-1}`` as free parameters.  At each
-    model timestep *i* the snapshot will contain ``P`` set to the value of
-    ``{P}_t_i``.
-
-    Sinusoidal parameterisation
-    ---------------------------
-    Supply ``{P}_amplitude``, ``{P}_period`` (seconds), ``{P}_phase``
-    (radians), and ``{P}_offset``.  The value at time *t* is
-
-    .. math::
-
-        P(t) = \\text{offset} + A \\sin\\!\\left(\\frac{2\\pi t}{\\text{period}} + \\phi\\right)
-
-    Parameters that do not match either pattern are treated as constant
-    across all timesteps (e.g. ``distance_to_system``, ``mass``,
-    ``planet_radius``, ``N_layers``).
-
-    Returns
-    -------
-    ModelResult
-        When ``pt_plot_mode=False``: ``spectrum`` has shape
-        ``(N_obs, N_wavelength)`` aligned with ``observation_times``.
-        When ``pt_plot_mode=True``: ``temperatures`` has shape
-        ``(N_time, N_pressure)`` and ``auxiliary_outputs['model_times']``
-        gives the corresponding model time grid.
-    """
-    metadata = model_context.model_metadata
-    observation_times = metadata["observation_times"]
-    n_time = int(physical_params["N_time"])
-
-    # Build a regular model time grid spanning the observation window
-    t_min = jnp.min(observation_times)
-    t_max = jnp.max(observation_times)
-    model_times = jnp.linspace(t_min, t_max, n_time)
-
-    # Pressure grid and gravity are constant across timesteps
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
-    num_layer = int(physical_params["N_layers"])
-
-    top_of_atmosphere_pressure = -3
-    bottom_of_atmosphere_pressure = 3
-    if "top_of_atmosphere_pressure" in physical_params.keys():
-        top_of_atmosphere_pressure = physical_params["top_of_atmosphere_pressure"]
-    if "bottom_of_atmosphere_pressure" in physical_params.keys():
-        bottom_of_atmosphere_pressure = physical_params["bottom_of_atmosphere_pressure"]
-
-    model_spectra = []
-    model_temperatures = []
-
-    for t_idx in range(n_time):
-        t_val = model_times[t_idx]
-
-        # Resolve parameter values at this timestep
-        snapshot = _build_timestep_params(physical_params, t_idx, t_val)
-
-        # Build the gradient temperature profile
-        layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
-        for k in range(num_layer):
-            layer_pt_slopes = layer_pt_slopes.at[k].set(
-                snapshot[f"PTslope_{num_layer - k}"]
-            )
-
-        temperatures = zhang_2023_temperature_profile(
-            p_use,
-            num_layer,
-            layer_pt_slopes,
-            snapshot["T_bottom"],
-            top_of_atmosphere_pressure=top_of_atmosphere_pressure,
-            bottom_of_atmosphere_pressure=bottom_of_atmosphere_pressure,
-        )
-
-        if pt_plot_mode:
-            model_temperatures.append(temperatures)
-            continue
-
-        # Resolve chemistry
-        result, abundance_state = _resolve_runtime_abundance_state(
-            model_context,
-            snapshot,
-            p_use,
-            p_global,
-            temperatures,
-            pt_plot_mode=False,
-        )
-        if result is not None:
-            return result
-
-        # Clouds
-        cloud_properties = clouds.setup_clouds(
-            abundance_state["pressures"],
-            snapshot,
-            model_context.radtrans.cloud_species,
-        )
-
-        # Build model inputs and compute emission spectrum
-        model_inputs = _build_runtime_emission_model_inputs(
-            snapshot,
-            abundance_state,
-            gravity,
-            planet_radius,
-            cloud_properties,
-        )
-        step_result = calculate_emission_spectrum_runtime(model_context, model_inputs)
-        model_spectra.append(step_result.spectrum)
-
-    if pt_plot_mode:
-        return ModelResult(
-            kind="pt_profile",
-            pressures=p_use,
-            temperatures=jnp.stack(model_temperatures),
-            auxiliary_outputs={"model_times": model_times},
-        )
-
-    # Stack model spectra: (N_time, N_wavelength)
-    model_spectra_2d = jnp.stack(model_spectra)
-    wavelengths = step_result.wavelengths
-
-    # Interpolate along the time axis for each wavelength bin to produce
-    # spectra at the actual observation times: (N_obs, N_wavelength)
-    observed_spectra = vmap(
-        lambda wl_col: jnp.interp(observation_times, model_times, wl_col),
-        in_axes=1,
-        out_axes=1,
-    )(model_spectra_2d)
-
-    return ModelResult(
-        kind="spectrum",
-        wavelengths=wavelengths,
-        spectrum=observed_spectra,
-        auxiliary_outputs={
-            "model_times": model_times,
-            "model_spectra": model_spectra_2d,
-        },
-    )
-
-
-@mark_model_function_runtime_native
-def power_law_profile_emission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
-
-    temperatures = power_law_temperature_profile(
-        p_use,
-        physical_params["alpha"],
-        physical_params["T_0"],
-    )
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    model_inputs = _build_runtime_emission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        cloud_properties,
-    )
-    return calculate_emission_spectrum_runtime(model_context, model_inputs)
-
-
-@mark_model_function_runtime_native
-def guillot_transmission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    reference_pressure = 100.0
-    if "reference_pressure" in physical_params.keys():
-        reference_pressure = physical_params["reference_pressure"]
-
-    gravity, planet_radius = _compute_gravity(physical_params)
-    temperatures = guillot_global_temperature_profile(
-        p_use,
-        10 ** physical_params["log_kappa_IR"],
-        physical_params["gamma"],
-        gravity,
-        physical_params["T_int"],
-        physical_params["T_equ"],
-    )
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm = (
-        clouds.setup_simple_clouds_hazes(physical_params)
-    )
-    cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    model_inputs = _build_runtime_transmission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        reference_pressure=reference_pressure,
-        opaque_cloud_top_pressure=pcloud,
-        haze_factor=haze_factor,
-        power_law_opacity_coefficient=power_law_opacity_coefficient,
-        power_law_opacity_350nm=power_law_opacity_350nm,
-        cloud_properties=cloud_properties,
-    )
-    return calculate_transmission_spectrum_runtime(model_context, model_inputs)
-
-
-@mark_model_function_runtime_native
-def guillot_patchy_transmission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    return guillot_transmission(
-        model_context, physical_params, pt_plot_mode=pt_plot_mode
-    )
-
-
-@mark_model_function_runtime_native
-def madhushudhan_seager_emission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
-
-    offset = jnp.log10(p_use[0])
-    log_p3 = physical_params["log_P3"] - offset
-    log_p2 = log_p3 * (1.0 - physical_params["P2"])
-    log_p1 = log_p2 * (1.0 - physical_params["P1"])
-    pressure_points = [
-        p_use[0],
-        (log_p1 + offset),
-        (log_p2 + offset),
-        (log_p3 + offset),
-        physical_params["log_P_set"],
-    ]
-
-    alpha_points = [physical_params["alpha_0"], physical_params["alpha_1"]]
-    beta_points = [0.5, 0.5]
-    if "beta" in physical_params.keys():
-        beta_points = [physical_params["beta"], physical_params["beta"]]
-
-    temperatures = madhusudhan_seager_temperature_profile(
-        p_use,
-        pressure_points,
-        physical_params["T_set"],
-        alpha_points,
-        beta_points,
-    )
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    model_inputs = _build_runtime_emission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        cloud_properties,
-    )
-    return calculate_emission_spectrum_runtime(model_context, model_inputs)
-
-
-@mark_model_function_runtime_native
-def madhushudhan_seager_transmission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    reference_pressure = 100.0
-    if "reference_pressure" in physical_params.keys():
-        reference_pressure = physical_params["reference_pressure"]
-
-    gravity, planet_radius = _compute_gravity(physical_params)
-    offset = jnp.log10(p_use[0])
-    log_p3 = physical_params["log_P3"] - offset
-    log_p2 = log_p3 * (1.0 - physical_params["P2"])
-    log_p1 = log_p2 * (1.0 - physical_params["P1"])
-    pressure_points = [
-        p_use[0],
-        (log_p1 + offset),
-        (log_p2 + offset),
-        (log_p3 + offset),
-        physical_params["log_P_set"],
-    ]
-
-    alpha_points = [physical_params["alpha_0"], physical_params["alpha_1"]]
-    beta_points = [0.5, 0.5]
-    if "beta" in physical_params.keys():
-        beta_points = [physical_params["beta"], physical_params["beta"]]
-
-    temperatures = madhusudhan_seager_temperature_profile(
-        p_use,
-        pressure_points,
-        physical_params["T_set"],
-        alpha_points,
-        beta_points,
-    )
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm = (
-        clouds.setup_simple_clouds_hazes(physical_params)
-    )
-    cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    model_inputs = _build_runtime_transmission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        reference_pressure=reference_pressure,
-        opaque_cloud_top_pressure=pcloud,
-        haze_factor=haze_factor,
-        power_law_opacity_coefficient=power_law_opacity_coefficient,
-        power_law_opacity_350nm=power_law_opacity_350nm,
-        cloud_properties=cloud_properties,
-    )
-    return calculate_transmission_spectrum_runtime(model_context, model_inputs)
-
-
-@mark_model_function_runtime_native
-def madhu_seager_patchy_transmission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    return madhushudhan_seager_transmission(
-        model_context,
-        physical_params,
-        pt_plot_mode=pt_plot_mode,
-    )
-
-
-@mark_model_function_runtime_native
-def isothermal_transmission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-
-    reference_pressure = 100.0
-    if "reference_pressure" in physical_params.keys():
-        reference_pressure = physical_params["reference_pressure"]
-
-    temperatures = isothermal_temperature_profile(p_use, physical_params["temperature"])
-    gravity, planet_radius = _compute_gravity(physical_params)
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm = (
-        clouds.setup_simple_clouds_hazes(physical_params)
-    )
-    cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    model_inputs = _build_runtime_transmission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        reference_pressure=reference_pressure,
-        opaque_cloud_top_pressure=pcloud,
-        haze_factor=haze_factor,
-        power_law_opacity_coefficient=power_law_opacity_coefficient,
-        power_law_opacity_350nm=power_law_opacity_350nm,
-        cloud_properties=cloud_properties,
-    )
-    return calculate_transmission_spectrum_runtime(model_context, model_inputs)
-
-
-@mark_model_function_runtime_native
-def power_law_profile_transmission(
-    model_context: ModelContext,
-    physical_params: PhysicalParams,
-    pt_plot_mode: bool = False,
-) -> ModelResult:
-    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
-
-    reference_pressure = 100.0
-    if "reference_pressure" in physical_params.keys():
-        reference_pressure = physical_params["reference_pressure"]
-
-    temperatures = power_law_temperature_profile(
-        p_use,
-        physical_params["alpha"],
-        physical_params["T_0"],
-    )
-
-    result, abundance_state = _resolve_runtime_abundance_state(
-        model_context,
-        physical_params,
-        p_use,
-        p_global,
-        temperatures,
-        pt_plot_mode=pt_plot_mode,
-    )
-    if result is not None:
-        return result
-
-    pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm = (
-        clouds.setup_simple_clouds_hazes(physical_params)
-    )
-    cloud_properties = clouds.setup_clouds(
-        abundance_state["pressures"],
-        physical_params,
-        model_context.radtrans.cloud_species,
-    )
-    model_inputs = _build_runtime_transmission_model_inputs(
-        physical_params,
-        abundance_state,
-        gravity,
-        planet_radius,
-        reference_pressure=reference_pressure,
-        opaque_cloud_top_pressure=pcloud,
-        haze_factor=haze_factor,
-        power_law_opacity_coefficient=power_law_opacity_coefficient,
-        power_law_opacity_350nm=power_law_opacity_350nm,
-        cloud_properties=cloud_properties,
-    )
-    return calculate_transmission_spectrum_runtime(model_context, model_inputs)
-
-
 def calculate_emission_spectrum_runtime(
     model_context: ModelContext,
     model_inputs: ModelInputs,
@@ -3646,7 +3620,7 @@ def calculate_emission_spectrum_runtime(
         kind="spectrum",
         wavelengths=wavelengths_model,
         spectrum=spectrum_model,
-        auxiliary_outputs=_as_runtime_auxiliary_outputs(additional_outputs),
+        auxiliary_outputs=_as_auxiliary_outputs(additional_outputs),
     )
 
 
@@ -3723,7 +3697,7 @@ def calculate_transmission_spectrum_runtime(
         kind="spectrum",
         wavelengths=wavelengths_model,
         spectrum=spectrum_model,
-        auxiliary_outputs=_as_runtime_auxiliary_outputs(additional_outputs),
+        auxiliary_outputs=_as_auxiliary_outputs(additional_outputs),
     )
 
 
@@ -3934,13 +3908,13 @@ def pglobal_check(press, shape, scaling):
 # The ``legacy_*`` prefixed names are preserved for callers that need the old API.
 # ---------------------------------------------------------------------------
 
-spline_eddington_adiabatic_emission = make_unified_model(
-    spline_eddington_adiabatic_emission,
-    legacy_spline_eddington_adiabatic_emission,
+molliere_2020_emission = make_unified_model(
+    molliere_2020_emission,
+    legacy_molliere_2020_emission,
 )
-emission_model_diseq_patchy_clouds = make_unified_model(
-    emission_model_diseq_patchy_clouds,
-    legacy_emission_model_diseq_patchy_clouds,
+molliere_2020_two_column = make_unified_model(
+    molliere_2020_two_column,
+    legacy_molliere_2020_two_column,
 )
 guillot_emission = make_unified_model(
     guillot_emission,

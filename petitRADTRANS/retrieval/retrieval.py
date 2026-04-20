@@ -3210,7 +3210,7 @@ class Retrieval:
     def _has_only_legacy_model_groups(self) -> bool:
         runtime = self._get_runtime()
         return bool(runtime.model_groups) and all(
-            group.model_contract != "runtime_native" for group in runtime.model_groups
+            group.model_contract != "differentiable" for group in runtime.model_groups
         )
 
     def _ensure_jax_sampler_model_support(self, sampler_name: str) -> None:
@@ -3223,7 +3223,7 @@ class Retrieval:
         runtime = self._get_runtime()
 
         if any(
-            group.model_contract != "runtime_native" for group in runtime.model_groups
+            group.model_contract != "differentiable" for group in runtime.model_groups
         ):
             return "the retrieval contains legacy model groups"
 

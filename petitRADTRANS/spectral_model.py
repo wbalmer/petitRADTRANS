@@ -45,7 +45,6 @@ from petitRADTRANS.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import RetrievalParameter
-from petitRADTRANS.retrieval.models import mark_model_function_runtime_native
 from petitRADTRANS.retrieval.preparing import polyfit
 from petitRADTRANS.retrieval.retrieval import Retrieval
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig

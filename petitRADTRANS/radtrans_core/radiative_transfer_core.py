@@ -5,18 +5,20 @@ JAX implementation of fortran_core.core
 
 from typing import Any, Optional
 import jax.numpy as jnp
-from jax import Array, jit, vmap, lax, debug
+from jax import jit, vmap, lax, default_backend
 from jax.typing import ArrayLike
 import petitRADTRANS.physical_constants as cst
 import petitRADTRANS.radtrans_core.physics_core as physics_core
 import petitRADTRANS.radtrans_core.linalg as linalg
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 CST_PI = jnp.pi  # Or the specific precision from Fortran
-from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 TINIEST = jnp.finfo(JAX_DTYPE).tiny
 HUGE_SQRT = jnp.sqrt(jnp.finfo(JAX_DTYPE).max)
+
+_USE_GPU_CK_COMBINATION = default_backend() != "cpu"
 
 
 _UNROLL_SPECIES_LIMIT = 8
@@ -48,8 +50,54 @@ def build_ck_combination_state(weights_gauss: ArrayLike) -> tuple[ArrayLike, Arr
     return g_combination_weights, g_combination_weights_sum
 
 
+def _prepare_ck_opacity_inputs(
+    opacities_fortran_order: ArrayLike,
+    line_species_mass_fractions: ArrayLike,
+    continuum_opacities: ArrayLike,
+    input_layout: str,
+) -> tuple[ArrayLike, ArrayLike, int, int, int, int]:
+    """Prepare flattened c-k inputs shared by the CPU and GPU implementations."""
+    if input_layout == "fl_s_ng":
+        opacities_flat = opacities_fortran_order
+        n_fl, n_species, n_g = opacities_flat.shape
+        n_frequencies, n_layers = continuum_opacities.shape
+    else:
+        n_g, n_frequencies, n_species, n_layers = opacities_fortran_order.shape
+        n_fl = n_frequencies * n_layers
+
+        # Permute (n_g, f, s, l) -> (f, l, s, n_g) then flatten to (f*l, s, n_g).
+        # The non-trivial permutation makes the view non-contiguous, so the
+        # subsequent reshape forces a copy. Unavoidable with this input layout.
+        opacities_flat = jnp.transpose(opacities_fortran_order, (1, 3, 2, 0)).reshape(
+            n_fl, n_species, n_g
+        )
+
+    abundance_weights_flat = jnp.broadcast_to(
+        line_species_mass_fractions[None, :, :],
+        (n_frequencies, n_layers, n_species),
+    ).reshape(n_fl, n_species)
+    continuum_flat = continuum_opacities.reshape(n_fl)
+
+    weighted_all = opacities_flat * abundance_weights_flat[:, :, None]
+
+    return weighted_all, continuum_flat, n_frequencies, n_layers, n_species, n_g
+
+
+def _finalize_ck_opacity_shape(
+    current: ArrayLike,
+    n_frequencies: int,
+    n_layers: int,
+    n_g: int,
+) -> ArrayLike:
+    """Reshape flattened c-k output back to Fortran-compatible layout."""
+    return jnp.transpose(
+        current.reshape(n_frequencies, n_layers, n_g),
+        (2, 0, 1),
+    )
+
+
 @jit(static_argnames=("input_layout",))
-def combine_ck_opacities(
+def _combine_ck_opacities_gpu(
     opacities_fortran_order: ArrayLike,
     g_gauss: ArrayLike,
     weights_gauss: Optional[ArrayLike] = None,
@@ -97,26 +145,14 @@ def combine_ck_opacities(
             "line_species_mass_fractions and continuum_opacities are required"
         )
 
-    if input_layout == "fl_s_ng":
-        opacities_flat = opacities_fortran_order
-        n_fl, n_species, n_g = opacities_flat.shape
-        n_frequencies, n_layers = continuum_opacities.shape
-    else:
-        n_g, n_frequencies, n_species, n_layers = opacities_fortran_order.shape
-        n_fl = n_frequencies * n_layers
-
-        # Permute (n_g, f, s, l) -> (f, l, s, n_g) then flatten to (f*l, s, n_g).
-        # The non-trivial permutation makes the view non-contiguous, so the
-        # subsequent reshape forces a copy. Unavoidable with this input layout.
-        opacities_flat = jnp.transpose(opacities_fortran_order, (1, 3, 2, 0)).reshape(
-            n_fl, n_species, n_g
+    weighted_all, continuum_flat, n_frequencies, n_layers, n_species, n_g = (
+        _prepare_ck_opacity_inputs(
+            opacities_fortran_order,
+            line_species_mass_fractions,
+            continuum_opacities,
+            input_layout,
         )
-
-    abundance_weights_flat = jnp.broadcast_to(
-        line_species_mass_fractions[None, :, :],
-        (n_frequencies, n_layers, n_species),
-    ).reshape(n_fl, n_species)
-    continuum_flat = continuum_opacities.reshape(n_fl)
+    )
 
     # ------------------------------------------------------------------
     # Precompute constants shared across all (f*l, species) calls.
@@ -181,9 +217,6 @@ def combine_ck_opacities(
     # C2 + C3: Vectorized threshold & species loop.
     # ------------------------------------------------------------------
 
-    # Weight all species by abundance  (n_fl, n_species, n_g)
-    weighted_all = opacities_flat * abundance_weights_flat[:, :, None]
-
     # Initialize with first species + continuum  (n_fl, n_g)
     current = weighted_all[:, 0, :] + continuum_flat[:, None]
 
@@ -200,10 +233,185 @@ def combine_ck_opacities(
             combined = _perform_combination_batched(current, spec_s)  # (n_fl, n_g)
             current = jnp.where(active_mask[:, s : s + 1], combined, current)
 
-    # Reshape and transpose back to (n_g, f, l).
-    return jnp.transpose(
-        current.reshape(n_frequencies, n_layers, n_g),
-        (2, 0, 1),
+    return _finalize_ck_opacity_shape(
+        current,
+        n_frequencies,
+        n_layers,
+        n_g,
+    )
+
+
+def _combine_ck_opacity_pair_cpu(
+    current: ArrayLike,
+    spec_s: ArrayLike,
+    g_gauss: ArrayLike,
+    g_combination_weights: ArrayLike,
+) -> ArrayLike:
+    """Combine two 1D c-k opacity distributions with CPU-friendly working-set size."""
+    n_g = current.shape[0]
+    n_sample = n_g * n_g
+
+    if n_g == 16:
+        pair_weight_matrix = g_combination_weights.reshape(n_g, n_g)
+
+        row_ptr = jnp.zeros((n_g,), dtype=jnp.int32)
+        head_values = current + spec_s[0]
+        head_weights = pair_weight_matrix[:, 0]
+
+        def _merge_step(
+            i_sample: int,
+            carry: tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike, ArrayLike],
+        ) -> tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike, ArrayLike]:
+            row_ptr, head_values, head_weights, k_sorted, weights_sorted = carry
+
+            row_index = jnp.argmin(head_values)
+            next_ptr = row_ptr[row_index] + 1
+            next_valid = next_ptr < n_g
+
+            k_sorted = k_sorted.at[i_sample].set(head_values[row_index])
+            weights_sorted = weights_sorted.at[i_sample].set(head_weights[row_index])
+
+            row_ptr = row_ptr.at[row_index].set(next_ptr)
+            head_values = head_values.at[row_index].set(
+                jnp.where(next_valid, current[row_index] + spec_s[next_ptr], jnp.inf)
+            )
+            head_weights = head_weights.at[row_index].set(
+                jnp.where(next_valid, pair_weight_matrix[row_index, next_ptr], 0.0)
+            )
+
+            return row_ptr, head_values, head_weights, k_sorted, weights_sorted
+
+        k_sorted0 = jnp.zeros((n_sample,), dtype=current.dtype)
+        weights_sorted0 = jnp.zeros((n_sample,), dtype=current.dtype)
+        _, _, _, k_sorted, weights_sorted = lax.fori_loop(
+            0,
+            n_sample,
+            _merge_step,
+            (row_ptr, head_values, head_weights, k_sorted0, weights_sorted0),
+        )
+    else:
+        k_combined = (current[:, None] + spec_s[None, :]).reshape(n_sample)
+        k_sorted, weights_sorted = lax.sort_key_val(k_combined, g_combination_weights)
+
+    right_edges = jnp.cumsum(weights_sorted)
+    g_x_vals = right_edges - weights_sorted * 0.5
+
+    k_sorted = k_sorted.at[0].set(current[0] + spec_s[0])
+    k_sorted = k_sorted.at[n_sample - 1].set(current[-1] + spec_s[-1])
+
+    idx = jnp.searchsorted(g_x_vals, g_gauss, side="left")
+    idx = jnp.clip(idx, 1, n_sample - 1)
+    idx_lo = idx - 1
+
+    x0 = g_x_vals[idx_lo]
+    x1 = g_x_vals[idx]
+    y0 = k_sorted[idx_lo]
+    y1 = k_sorted[idx]
+    t = jnp.clip((g_gauss - x0) / jnp.maximum(x1 - x0, TINIEST), 0.0, 1.0)
+
+    return y0 + t * (y1 - y0)
+
+
+@jit(static_argnames=("input_layout",))
+def _combine_ck_opacities_cpu(
+    opacities_fortran_order: ArrayLike,
+    g_gauss: ArrayLike,
+    weights_gauss: Optional[ArrayLike] = None,
+    line_species_mass_fractions: Optional[ArrayLike] = None,
+    continuum_opacities: Optional[ArrayLike] = None,
+    g_combination_weights: Optional[ArrayLike] = None,
+    g_combination_weights_sum: Optional[ArrayLike] = None,
+    input_layout: str = "ng_f_s_l",
+) -> ArrayLike:
+    """CPU-oriented correlated-k mixer that trades global batching for locality."""
+
+    if g_combination_weights is None or g_combination_weights_sum is None:
+        if weights_gauss is None:
+            raise ValueError(
+                "weights_gauss must be provided when precomputed c-k state is unavailable"
+            )
+        g_combination_weights, g_combination_weights_sum = build_ck_combination_state(
+            weights_gauss
+        )
+
+    if line_species_mass_fractions is None or continuum_opacities is None:
+        raise ValueError(
+            "line_species_mass_fractions and continuum_opacities are required"
+        )
+
+    weighted_all, continuum_flat, n_frequencies, n_layers, n_species, n_g = (
+        _prepare_ck_opacity_inputs(
+            opacities_fortran_order,
+            line_species_mass_fractions,
+            continuum_opacities,
+            input_layout,
+        )
+    )
+
+    if n_species == 1:
+        current = weighted_all[:, 0, :] + continuum_flat[:, None]
+        return _finalize_ck_opacity_shape(
+            current,
+            n_frequencies,
+            n_layers,
+            n_g,
+        )
+
+    threshold = jnp.max(weighted_all[:, :, 0], axis=1) * 1e-2
+
+    def _combine_single_cell(cell_inputs: tuple[ArrayLike, ArrayLike, ArrayLike]):
+        weighted_species, continuum_cell, threshold_cell = cell_inputs
+        current = weighted_species[0] + continuum_cell
+
+        def _species_step(current_state: ArrayLike, species_index: ArrayLike):
+            spec_s = weighted_species[species_index]
+            combined = _combine_ck_opacity_pair_cpu(
+                current_state,
+                spec_s,
+                g_gauss,
+                g_combination_weights,
+            )
+            use_species = weighted_species[species_index, -1] >= threshold_cell
+            current_state = jnp.where(use_species, combined, current_state)
+            return current_state, None
+
+        current, _ = lax.scan(_species_step, current, jnp.arange(1, n_species))
+        return current
+
+    current = vmap(_combine_single_cell)((weighted_all, continuum_flat, threshold))
+
+    return _finalize_ck_opacity_shape(
+        current,
+        n_frequencies,
+        n_layers,
+        n_g,
+    )
+
+
+def combine_ck_opacities(
+    opacities_fortran_order: ArrayLike,
+    g_gauss: ArrayLike,
+    weights_gauss: Optional[ArrayLike] = None,
+    line_species_mass_fractions: Optional[ArrayLike] = None,
+    continuum_opacities: Optional[ArrayLike] = None,
+    g_combination_weights: Optional[ArrayLike] = None,
+    g_combination_weights_sum: Optional[ArrayLike] = None,
+    input_layout: str = "ng_f_s_l",
+) -> ArrayLike:
+    """Dispatch correlated-k mixing to the implementation that matches the active backend."""
+    implementation = _combine_ck_opacities_gpu
+    if not _USE_GPU_CK_COMBINATION:
+        implementation = _combine_ck_opacities_cpu
+
+    return implementation(
+        opacities_fortran_order,
+        g_gauss,
+        weights_gauss=weights_gauss,
+        line_species_mass_fractions=line_species_mass_fractions,
+        continuum_opacities=continuum_opacities,
+        g_combination_weights=g_combination_weights,
+        g_combination_weights_sum=g_combination_weights_sum,
+        input_layout=input_layout,
     )
 
 
@@ -844,6 +1052,7 @@ def _compute_feautrier_radiative_transfer_chunk(
             I_plus_surface_gfa,
             flux_gf_prev,
             I_minus_gf,
+            I_H_top,
             ng_history,
             converged_gf,
         ) = carry
@@ -858,7 +1067,7 @@ def _compute_feautrier_radiative_transfer_chunk(
                 current_I_plus_surface_gfa,
                 current_flux_gf_prev,
                 current_I_minus_gf,
-                I_H_top,
+                current_I_H_top,
                 current_ng_history,
                 current_converged_gf,
             ) = state
