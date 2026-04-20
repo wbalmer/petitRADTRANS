@@ -3,9 +3,12 @@ JAX implementation of fortran_core.core
 - rayleigh scattering moved to jax_rayleigh_scattering
 """
 
+from functools import partial
 from typing import Any, Optional
+
+import jax
 import jax.numpy as jnp
-from jax import jit, lax
+from jax import custom_vjp, jit, lax, pure_callback, vmap
 from jax.typing import ArrayLike
 import petitRADTRANS.physical_constants as cst
 import petitRADTRANS.radtrans_core.physics_core as physics_core
@@ -94,7 +97,7 @@ def _finalize_ck_opacity_shape(
 
 
 @jit(static_argnames=("input_layout",))
-def _combine_ck_opacities(
+def _combine_ck_opacities_jax(
     opacities_fortran_order: ArrayLike,
     g_gauss: ArrayLike,
     weights_gauss: Optional[ArrayLike] = None,
@@ -238,6 +241,131 @@ def _combine_ck_opacities(
     )
 
 
+# ---------------------------------------------------------------------------
+# Fortran callback + custom VJP wrapper
+# ---------------------------------------------------------------------------
+
+
+def _prepare_fortran_ck_input(
+    opacities_fortran_order: ArrayLike,
+    line_species_mass_fractions: ArrayLike,
+    continuum_opacities: ArrayLike,
+    input_layout: str,
+) -> ArrayLike:
+    """Build mass-fraction-weighted opacities with continuum in (n_g, n_f, n_s, n_l) layout."""
+    if input_layout == "fl_s_ng":
+        n_f, n_l = continuum_opacities.shape
+        _, n_s, n_g = opacities_fortran_order.shape
+        opas = jnp.transpose(
+            opacities_fortran_order.reshape(n_f, n_l, n_s, n_g),
+            (3, 0, 2, 1),
+        )
+    else:
+        opas = opacities_fortran_order
+
+    # Apply mass-fraction weights: (n_l, n_s).T -> (n_s, n_l) -> broadcast to (n_g, n_f, n_s, n_l)
+    modified = opas * line_species_mass_fractions.T[None, None, :, :]
+    # Add continuum uniformly across g-points for species 0
+    modified = modified.at[:, :, 0, :].set(
+        modified[:, :, 0, :] + continuum_opacities[None, :, :]
+    )
+    return modified
+
+
+def _run_fortran_ck(modified_opas, g_gauss_arr, weights_gauss_arr):
+    """pure_callback target: invoke Fortran combine_ck_opacities on concrete arrays."""
+    import numpy as np
+    from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
+
+    m = np.asarray(modified_opas)
+    g = np.asarray(g_gauss_arr)
+    w = np.asarray(weights_gauss_arr)
+    n_g, n_f, n_s, n_l = m.shape
+    result = fcore.combine_ck_opacities(m, g, w, n_g, n_f, n_s, n_l)
+    return np.ascontiguousarray(result)
+
+
+@partial(custom_vjp, nondiff_argnums=(7,))
+def _combine_ck_opacities_fortran(
+    opacities_fortran_order: ArrayLike,
+    g_gauss: ArrayLike,
+    weights_gauss: ArrayLike,
+    line_species_mass_fractions: ArrayLike,
+    continuum_opacities: ArrayLike,
+    g_combination_weights: ArrayLike,
+    g_combination_weights_sum: ArrayLike,
+    input_layout: str,
+) -> ArrayLike:
+    """Correlated-k mixing: Fortran forward, JAX backward."""
+    modified = _prepare_fortran_ck_input(
+        opacities_fortran_order,
+        line_species_mass_fractions,
+        continuum_opacities,
+        input_layout,
+    )
+    n_g, n_f, _, n_l = modified.shape
+    return pure_callback(
+        _run_fortran_ck,
+        jax.ShapeDtypeStruct((n_g, n_f, n_l), modified.dtype),
+        modified,
+        g_gauss,
+        weights_gauss,
+    )
+
+
+def _combine_ck_fortran_fwd(
+    opacities_fortran_order,
+    g_gauss,
+    weights_gauss,
+    line_species_mass_fractions,
+    continuum_opacities,
+    g_combination_weights,
+    g_combination_weights_sum,
+    input_layout,
+):
+    result = _combine_ck_opacities_fortran(
+        opacities_fortran_order,
+        g_gauss,
+        weights_gauss,
+        line_species_mass_fractions,
+        continuum_opacities,
+        g_combination_weights,
+        g_combination_weights_sum,
+        input_layout,
+    )
+    residuals = (
+        opacities_fortran_order,
+        g_gauss,
+        weights_gauss,
+        line_species_mass_fractions,
+        continuum_opacities,
+        g_combination_weights,
+        g_combination_weights_sum,
+    )
+    return result, residuals
+
+
+def _combine_ck_fortran_bwd(input_layout, residuals, g):
+    _, vjp_fn = jax.vjp(
+        partial(_combine_ck_opacities_jax, input_layout=input_layout),
+        *residuals,
+    )
+    return vjp_fn(g)
+
+
+_combine_ck_opacities_fortran.defvjp(_combine_ck_fortran_fwd, _combine_ck_fortran_bwd)
+
+
+def _use_fortran_ck_callback() -> bool:
+    """Use the Fortran callback only on CPU backends."""
+    return jax.default_backend() == "cpu"
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
 def combine_ck_opacities(
     opacities_fortran_order: ArrayLike,
     g_gauss: ArrayLike,
@@ -248,9 +376,46 @@ def combine_ck_opacities(
     g_combination_weights_sum: Optional[ArrayLike] = None,
     input_layout: str = "ng_f_s_l",
 ) -> ArrayLike:
-    """Combine correlated-k opacities across species."""
-    return _combine_ck_opacities
-(
+    """Combine correlated-k opacities across species.
+
+    Uses the Fortran implementation on CPU for the forward pass (via
+    ``pure_callback``) and the JAX implementation for reverse-mode
+    differentiation. Non-CPU backends use the pure JAX implementation for both
+    forward and backward execution.
+    """
+    if g_combination_weights is None or g_combination_weights_sum is None:
+        if weights_gauss is None:
+            raise ValueError(
+                "weights_gauss must be provided when precomputed c-k state is unavailable"
+            )
+        g_combination_weights, g_combination_weights_sum = build_ck_combination_state(
+            weights_gauss
+        )
+
+    if weights_gauss is None:
+        raise ValueError("weights_gauss is required for the Fortran callback")
+
+    if line_species_mass_fractions is None or continuum_opacities is None:
+        raise ValueError(
+            "line_species_mass_fractions and continuum_opacities are required"
+        )
+
+    if _use_fortran_ck_callback():
+        if weights_gauss is None:
+            raise ValueError("weights_gauss is required for the Fortran callback")
+
+        return _combine_ck_opacities_fortran(
+            opacities_fortran_order,
+            g_gauss,
+            weights_gauss,
+            line_species_mass_fractions,
+            continuum_opacities,
+            g_combination_weights,
+            g_combination_weights_sum,
+            input_layout,
+        )
+
+    return _combine_ck_opacities_jax(
         opacities_fortran_order,
         g_gauss,
         weights_gauss=weights_gauss,
