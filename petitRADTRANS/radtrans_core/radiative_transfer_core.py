@@ -247,7 +247,12 @@ def _combine_ck_opacity_pair_cpu(
     g_gauss: ArrayLike,
     g_combination_weights: ArrayLike,
 ) -> ArrayLike:
-    """Combine two 1D c-k opacity distributions with CPU-friendly working-set size."""
+    """
+    Combine two 1D c-k opacity distributions with CPU-friendly working-set size.
+    Uses a dedicated merge sort, and assumes current and spec_s are already sorted.
+    n_g MUST = 16.
+
+    """
     n_g = current.shape[0]
     n_sample = n_g * n_g
 
