@@ -86,7 +86,7 @@ class _DummyDistribution:
 
 
 class _DummyRadtrans:
-    def simple_calculate_flux(self, **kwargs):
+    def calculate_flux(self, **kwargs):
         return (
             jnp.array([1.0e-4, 2.0e-4]),
             jnp.array([2.0, 4.0]),

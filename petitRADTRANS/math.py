@@ -84,25 +84,6 @@ def box_car_conv(array: ArrayLike, points: ArrayLike) -> ArrayLike:
     return res
 
 
-def calculate_chi2(
-    data: [float, ArrayLike],
-    model: [float, ArrayLike],
-    uncertainties: [float, ArrayLike],
-) -> float:
-    return float(jnp.sum(((data - model) / uncertainties) ** 2))
-
-
-def calculate_reduced_chi2(
-    data: [float, ArrayLike],
-    model: [float, ArrayLike],
-    uncertainties: [float, ArrayLike],
-    degrees_of_freedom: int = 0,
-) -> [float, ArrayLike]:
-    return calculate_chi2(data, model, uncertainties) / (
-        jnp.size(data) - degrees_of_freedom
-    )
-
-
 def calculate_uncertainty(
     derivatives: ArrayLike,
     uncertainties: ArrayLike,

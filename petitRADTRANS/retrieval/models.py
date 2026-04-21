@@ -3559,7 +3559,7 @@ def calculate_emission_spectrum_runtime(
     model_context: ModelContext,
     model_inputs: ModelInputs,
 ) -> ModelResult:
-    results = model_context.radtrans.simple_calculate_flux(
+    results = model_context.radtrans.calculate_flux(
         temperatures=model_inputs.temperatures,
         mass_fractions=model_inputs.abundances,
         reference_gravity=model_inputs.gravity,

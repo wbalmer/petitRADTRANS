@@ -31,7 +31,6 @@ Ready for beta testing with version 4.0.0.a16.
 - Testing: Optimise Feautrier chunk size hyper parameters for GPU.
 - Testing: write 32 bit test suite.
 - Testing: Further testing on AMD GPUs, possibly TPUs.
-- Architecture: Verify all chi2 calculations use LogLikelihood class.
 - Architecture: Set stricter dependency version limits.
 - Architecture: Optional: include ability to use FORTRAN backend, or fully deprecate legacy code.
 - Documentation: Add docstrings to all new JAX functions.
@@ -53,7 +52,6 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: correlated-k binning.
 
 ### Changed
-- a23: Dedicated merge sort for correlated-k on CPU.
 - a22: all cloud particle arguement names standardized to cloud_particle instead of cloud_particles
 - a22: temperature profile names now standardized to author_temperature_profile
 - a21: Parallelised SBI

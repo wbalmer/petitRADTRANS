@@ -69,7 +69,7 @@ def _build_simple_flux_objective(atmosphere):
     flux_inputs = _build_flux_inputs()
 
     def objective(temperatures):
-        _, flux, _ = atmosphere.simple_calculate_flux(
+        _, flux, _ = atmosphere.calculate_flux(
             temperatures=temperatures,
             mass_fractions=flux_inputs["mass_fractions"],
             mean_molar_masses=flux_inputs["mean_molar_masses"],
@@ -82,7 +82,7 @@ def _build_simple_flux_objective(atmosphere):
     return objective, jnp.array(temperature_guillot_2010)
 
 
-def test_simple_calculate_flux_grad_correlated_k():
+def test_calculate_flux_grad_correlated_k():
     objective, base_temperatures = _build_simple_flux_objective(atmosphere_ck)
 
     gradients = jax.grad(objective)(base_temperatures)
@@ -91,7 +91,7 @@ def test_simple_calculate_flux_grad_correlated_k():
     assert np.isfinite(np.asarray(gradients)).all()
 
 
-def test_simple_calculate_flux_grad_correlated_k_scattering():
+def test_calculate_flux_grad_correlated_k_scattering():
     objective, base_temperatures = _build_simple_flux_objective(
         atmosphere_ck_scattering
     )
@@ -102,11 +102,32 @@ def test_simple_calculate_flux_grad_correlated_k_scattering():
     assert np.isfinite(np.asarray(gradients)).all()
 
 
-def test_calculate_flux_autodiff_matches_simple_calculate_flux_scattering():
+def test_calculate_flux_jit_correlated_k_scattering():
     flux_inputs = _build_flux_inputs()
     base_temperatures = jnp.array(temperature_guillot_2010)
 
-    simple_frequencies, simple_flux, _ = atmosphere_ck_scattering.simple_calculate_flux(
+    compiled_flux = jax.jit(
+        lambda temperatures: atmosphere_ck_scattering.calculate_flux(
+            temperatures=temperatures,
+            mass_fractions=flux_inputs["mass_fractions"],
+            mean_molar_masses=flux_inputs["mean_molar_masses"],
+            reference_gravity=flux_inputs["reference_gravity"],
+            **flux_inputs["cloud_parameters"],
+            frequencies_to_wavelengths=False,
+        )[1]
+    )
+
+    flux = compiled_flux(base_temperatures)
+
+    assert flux.shape[0] > 0
+    assert np.isfinite(np.asarray(flux)).all()
+
+
+def test_calculate_flux_autodiff_matches_calculate_flux_scattering():
+    flux_inputs = _build_flux_inputs()
+    base_temperatures = jnp.array(temperature_guillot_2010)
+
+    simple_frequencies, simple_flux, _ = atmosphere_ck_scattering.calculate_flux(
         temperatures=base_temperatures,
         mass_fractions=flux_inputs["mass_fractions"],
         mean_molar_masses=flux_inputs["mean_molar_masses"],

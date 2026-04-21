@@ -3,7 +3,7 @@ This module provides sanity checks on inputs for the Radtrans class.
 """
 
 import os
-from typing import Union, Optional
+from typing import Callable, Optional, Union
 
 import jax.numpy as jnp
 import numpy as np
@@ -12,6 +12,8 @@ from jax import lax, debug
 from jax.typing import ArrayLike
 
 import petitRADTRANS.physical_constants as cst
+from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.stellar_spectra.phoenix import compute_star_spectrum
 
 
 def _check_anisotropic_cloud_scattering(mode: Union[str, bool]):
@@ -145,6 +147,223 @@ def _check_wavelength_boundaries(boundaries: ArrayLike):
             f"wavelengths boundaries must be an array of 2 floats in increasing order, "
             f"but was {boundaries}"
         )
+
+
+def _sanitize_frequency_surface_input(
+    values, frequencies, default_value, quantity_name
+):
+    if values is None:
+        return jnp.full_like(frequencies, default_value, dtype=JAX_DTYPE)
+
+    values = jnp.array(values, dtype=JAX_DTYPE)
+
+    if jnp.ndim(values) == 0:
+        return values * jnp.ones_like(frequencies, dtype=JAX_DTYPE)
+
+    def _check_input_size(_values, _frequencies):
+        if jnp.size(_values) != _frequencies.size:
+            raise ValueError(
+                f"{quantity_name} must be a scalar or of the same size than frequencies "
+                f"({_frequencies.size}), but is of size {jnp.size(_values)}"
+            )
+
+    debug.callback(_check_input_size, values, frequencies)
+
+    return values
+
+
+def _sanitize_emission_surface_inputs(
+    frequencies,
+    scattering_in_emission,
+    star_irradiation_angle,
+    stellar_intensities,
+    star_effective_temperature,
+    star_radius,
+    orbit_semi_major_axis,
+    reflectances,
+    emissivities,
+):
+    star_irradiation_cos_angle = jnp.cos(jnp.deg2rad(star_irradiation_angle))
+    star_irradiation_cos_angle = jnp.where(
+        star_irradiation_cos_angle <= 0.0, 1e-8, star_irradiation_cos_angle
+    )
+
+    if stellar_intensities is None:
+        stellar_intensities = jnp.zeros_like(frequencies, dtype=JAX_DTYPE)
+
+        if (
+            scattering_in_emission
+            and star_effective_temperature is not None
+            and orbit_semi_major_axis is not None
+        ):
+            stellar_intensities = compute_star_spectrum(
+                star_effective_temperature=star_effective_temperature,
+                orbit_semi_major_axis=orbit_semi_major_axis,
+                frequencies=frequencies,
+                star_radius=star_radius,
+            )
+    else:
+        stellar_intensities = jnp.array(stellar_intensities, dtype=JAX_DTYPE)
+
+    reflectances = _sanitize_frequency_surface_input(
+        values=reflectances,
+        frequencies=frequencies,
+        default_value=0.0,
+        quantity_name="reflectance",
+    )
+    emissivities = _sanitize_frequency_surface_input(
+        values=emissivities,
+        frequencies=frequencies,
+        default_value=1.0,
+        quantity_name="emissivity",
+    )
+
+    return {
+        "star_irradiation_cos_angle": star_irradiation_cos_angle,
+        "stellar_intensities": stellar_intensities,
+        "reflectances": reflectances,
+        "emissivities": emissivities,
+    }
+
+
+def _normalize_optional_mapping(mapping):
+    if mapping is None or isinstance(mapping, (int, float)):
+        return mapping
+
+    if isinstance(mapping, (np.ndarray, jnp.ndarray)):
+        return jnp.array(mapping, dtype=JAX_DTYPE)
+
+    normalized_mapping = {}
+
+    for key, value in list(mapping.items()):
+        normalized_mapping[key] = jnp.array(value, dtype=JAX_DTYPE)
+
+    return normalized_mapping
+
+
+def _normalize_optional_scalar(value, missing_value):
+    if value is None:
+        return missing_value
+
+    return jnp.array(value, dtype=JAX_DTYPE)
+
+
+def _sanitize_flux_opacity_inputs(
+    complete_coverage_clouds,
+    cloud_particle_mean_radii,
+    cloud_hansen_a,
+    cloud_hansen_b,
+    clouds_particle_porosity_factor,
+    cloud_f_sed,
+    eddy_diffusion_coefficients,
+    opaque_cloud_top_pressure,
+    cloud_particle_radius_distribution_std,
+    power_law_opacity_350nm,
+    power_law_opacity_coefficient,
+    gray_opacity,
+    cloud_photosphere_median_optical_depth,
+    cloud_particle_number_density_grid,
+    additional_absorption_opacities_function,
+    additional_scattering_opacities_function,
+    target_particle_radii,
+    target_pressure,
+    cloud_species,
+    missing_float,
+    missing_neg_inf,
+    noop_opacity_fn: Callable,
+):
+    if cloud_f_sed is None:
+        cloud_f_sed_norm = {}
+    elif isinstance(cloud_f_sed, dict):
+        cloud_f_sed_norm = {
+            key: jnp.array(value, dtype=JAX_DTYPE) for key, value in cloud_f_sed.items()
+        }
+    else:
+        cloud_f_sed_norm = {
+            species: jnp.array(cloud_f_sed, dtype=JAX_DTYPE)
+            for species in cloud_species
+        }
+
+    clouds_particle_porosity_factor_norm = {
+        species: missing_neg_inf for species in cloud_species
+    }
+    if clouds_particle_porosity_factor is not None:
+        for key, value in list(clouds_particle_porosity_factor.items()):
+            clouds_particle_porosity_factor_norm[key] = jnp.array(
+                value, dtype=JAX_DTYPE
+            )
+
+    if eddy_diffusion_coefficients is None:
+        eddy_diffusion_coefficients_norm = None
+    elif isinstance(eddy_diffusion_coefficients, dict):
+        eddy_diffusion_coefficients_norm = {
+            key: jnp.array(value, dtype=JAX_DTYPE)
+            for key, value in eddy_diffusion_coefficients.items()
+        }
+    else:
+        eddy_diffusion_coefficients_norm = jnp.array(
+            eddy_diffusion_coefficients, dtype=JAX_DTYPE
+        )
+
+    return {
+        "complete_coverage_clouds": (
+            () if complete_coverage_clouds is None else tuple(complete_coverage_clouds)
+        ),
+        "cloud_particle_mean_radii": _normalize_optional_mapping(
+            cloud_particle_mean_radii
+        ),
+        "cloud_hansen_a": _normalize_optional_mapping(cloud_hansen_a),
+        "cloud_hansen_b": _normalize_optional_mapping(cloud_hansen_b),
+        "clouds_particle_porosity_factor": clouds_particle_porosity_factor_norm,
+        "cloud_f_sed": cloud_f_sed_norm,
+        "eddy_diffusion_coefficients": eddy_diffusion_coefficients_norm,
+        "opaque_cloud_top_pressure": _normalize_optional_scalar(
+            opaque_cloud_top_pressure, missing_float
+        ),
+        "cloud_particle_radius_distribution_std": _normalize_optional_scalar(
+            cloud_particle_radius_distribution_std,
+            missing_float,
+        ),
+        "power_law_opacity_350nm": _normalize_optional_scalar(
+            power_law_opacity_350nm, missing_float
+        ),
+        "power_law_opacity_coefficient": _normalize_optional_scalar(
+            power_law_opacity_coefficient,
+            missing_float,
+        ),
+        "gray_opacity": (
+            jnp.array(0.0, dtype=JAX_DTYPE)
+            if gray_opacity is None
+            else jnp.array(gray_opacity, dtype=JAX_DTYPE)
+        ),
+        "cloud_photosphere_median_optical_depth": _normalize_optional_scalar(
+            cloud_photosphere_median_optical_depth,
+            missing_float,
+        ),
+        "cloud_particle_number_density_grid": _normalize_optional_mapping(
+            cloud_particle_number_density_grid
+        ),
+        "additional_absorption_opacities_function": (
+            additional_absorption_opacities_function
+            if additional_absorption_opacities_function is not None
+            else noop_opacity_fn
+        ),
+        "additional_scattering_opacities_function": (
+            additional_scattering_opacities_function
+            if additional_scattering_opacities_function is not None
+            else noop_opacity_fn
+        ),
+        "target_particle_radii": (
+            None
+            if target_particle_radii is None
+            else jnp.array(target_particle_radii, dtype=JAX_DTYPE)
+        ),
+        "target_pressure": (
+            None
+            if target_pressure is None
+            else jnp.array(target_pressure, dtype=JAX_DTYPE)
+        ),
+    }
 
 
 def _handle_grid_misalignment(

@@ -293,7 +293,7 @@ class SBITask:
         )
 
     def build_observation_states(
-        self, model_contract: str = "runtime_native"
+        self, model_contract: str = "differentiable"
     ) -> dict[str, ObservationState]:
         """Materialize immutable runtime observations for the task datasets.
 

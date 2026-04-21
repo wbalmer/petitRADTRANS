@@ -1633,40 +1633,7 @@ class Retrieval:
                 An array of samples and likelihoods taken from a post_equal_weights file.
         """
         log_l, best_fit_index = self.get_best_fit_likelihood(samples)
-        params = []
-
-        for key, val in self.configuration.parameters.items():
-            if val.is_free_parameter:
-                params.append(key)
-
-        self.build_param_dict(samples[:-1, best_fit_index], params)
-        norm = 0.0
-
-        for name, data in self.configuration.data.items():
-            sf = 1.0
-
-            if data.scale_uncertainties:
-                sf = self.best_fit_parameters[f"{name}_scale_factor"].value
-
-            if data.covariance is not None:
-                _, log_det = np.linalg.slogdet(2 * np.pi * data.covariance * sf**2)
-                add = 0.5 * log_det
-            else:
-                f_err = data.uncertainties
-
-                if data.scale_uncertainties:
-                    f_err = f_err * sf
-
-                if f"{name}_b" in self.configuration.parameters.keys():
-                    f_err = np.sqrt(
-                        f_err**2 + 10 ** self.best_fit_parameters[f"{name}_b"].value
-                    )
-
-                add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err**2.0))
-
-            norm = norm + add
-
-        return (-log_l - norm) * 2
+        return self.get_chi2_from_sample(samples[:, best_fit_index])
 
     @staticmethod
     def get_best_fit_likelihood(
