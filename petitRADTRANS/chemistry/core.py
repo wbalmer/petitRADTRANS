@@ -14,6 +14,7 @@ from petitRADTRANS.chemistry.pre_calculated_chemistry import (
     pre_calculated_equilibrium_chemistry_table,
 )
 from petitRADTRANS.chemistry.utils import (
+    build_abundance_profile,
     compute_mean_molar_masses,
     fixed_length_adaptive_mesh_refinement,
     linear_spline_profile,
@@ -21,6 +22,7 @@ from petitRADTRANS.chemistry.utils import (
     cubic_spline_profile,
     define_pressure_node_list,
     define_abundance_node_list,
+    get_parameter_value,
     simplify_species_list,
     fill_atmosphere,
     mass_fractions2metallicity,
@@ -30,6 +32,33 @@ from petitRADTRANS.chemistry import clouds as fc
 from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 INVALID_VALUE = jnp.array(jnp.inf, JAX_DTYPE)
+
+
+def _get_active_abundance_profile_mode(species_name, parameters):
+    for profile_mode in ("stepped", "linear", "cubic"):
+        profile_key = f"{species_name}_{profile_mode}_abundance_profile"
+
+        if profile_key in parameters and bool(get_parameter_value(parameters[profile_key])):
+            return profile_mode
+
+    return None
+
+
+def _build_pressure_varying_mass_fraction_profile(
+    pressures,
+    species_name,
+    parameters,
+    profile_mode,
+):
+    pressure_nodes = define_pressure_node_list(pressures, species_name, parameters)
+    abundance_nodes = define_abundance_node_list(species_name, parameters)
+
+    return build_abundance_profile(
+        pressures,
+        pressure_nodes,
+        abundance_nodes,
+        profile_mode=profile_mode,
+    )
 
 
 # @jit(static_argnames=['line_species', 'cloud_species', 'verbose'])
@@ -728,6 +757,27 @@ def get_abundances(
             imposed_mass_fractions[species_full_name] = parameters[species_full_name]
         elif species_basename in parameters.keys():
             imposed_mass_fractions[species_basename] = parameters[species_basename]
+        else:
+            profile_mode = _get_active_abundance_profile_mode(
+                species_full_name, parameters
+            )
+            profile_species_name = species_full_name
+
+            if profile_mode is None:
+                profile_mode = _get_active_abundance_profile_mode(
+                    species_basename, parameters
+                )
+                profile_species_name = species_basename
+
+            if profile_mode is not None:
+                imposed_mass_fractions[profile_species_name] = (
+                    _build_pressure_varying_mass_fraction_profile(
+                        pressures,
+                        profile_species_name,
+                        parameters,
+                        profile_mode,
+                    )
+                )
 
     mass_fractions, m_sum_total = calculate_gas_mass_fractions(
         pressures=pressures,

@@ -740,7 +740,7 @@ def _compute_feautrier_radiative_transfer_chunk(
     irradiation_geometry_str: str = "dayside_ave",
     return_contribution: bool = False,
     iter_scat_max: int = 100,
-    convergence_threshold: float = 1e-2,
+    convergence_threshold: float = 1e-3,
 ) -> tuple[ArrayLike, ArrayLike]:
     """Solve the scattering emission problem for one frequency chunk.
 
@@ -1061,11 +1061,15 @@ def _compute_feautrier_radiative_transfer_chunk(
     ) -> tuple[tuple[ArrayLike, ...], None]:
         (
             source_gfl,
+            source_prev_gfl,
             I_plus_surface_gfa,
             flux_gf_prev,
             I_minus_gf,
             I_H_top,
-            ng_history,
+            hist0_gfl,
+            hist1_gfl,
+            hist2_gfl,
+            hist3_gfl,
             converged_gf,
         ) = carry
 
@@ -1076,11 +1080,15 @@ def _compute_feautrier_radiative_transfer_chunk(
         def _advance(state: tuple[ArrayLike, ...]) -> tuple[ArrayLike, ...]:
             (
                 current_source_gfl,
+                current_source_prev_gfl,
                 current_I_plus_surface_gfa,
                 current_flux_gf_prev,
                 current_I_minus_gf,
                 current_I_H_top,
-                current_ng_history,
+                current_hist0_gfl,
+                current_hist1_gfl,
+                current_hist2_gfl,
+                current_hist3_gfl,
                 current_converged_gf,
             ) = state
 
@@ -1096,32 +1104,46 @@ def _compute_feautrier_radiative_transfer_chunk(
             source_ali = (
                 pdp_times_planck
                 + one_minus_pdp_gfl
-                * (J_star_ini_gfl + J_bol_gfl - lambda_loc_gfl * current_source_gfl)
+                * (
+                    J_star_ini_gfl
+                    + J_bol_gfl
+                    - lambda_loc_gfl * current_source_prev_gfl
+                )
             ) * ali_inv_denom_gfl
 
-            slot_index = iter_idx % 4
-            updated_slot = jnp.where(
-                active_gfl, source_ali, current_ng_history[slot_index]
-            )
-            current_ng_history = current_ng_history.at[slot_index].set(updated_slot)
-
-            tn = current_ng_history[slot_index]
-            tn1 = current_ng_history[(slot_index - 1) % 4]
-            tn2 = current_ng_history[(slot_index - 2) % 4]
-            tn3 = current_ng_history[(slot_index - 3) % 4]
-
-            B = n_g * n_freq_bins
-            ng_result = _ng_accelerated_batched(
-                tn.reshape(B, n_layers),
-                tn1.reshape(B, n_layers),
-                tn2.reshape(B, n_layers),
-                tn3.reshape(B, n_layers),
-                source_ali.reshape(B, n_layers),
-            ).reshape(n_g, n_freq_bins, n_layers)
-
             do_ng = (iter_idx > 0) & ((iter_idx + 1) % 4 == 0)
-            next_source_gfl = jnp.where(do_ng, ng_result, source_ali)
+
+            next_hist3_gfl = jnp.where(active_gfl, current_hist2_gfl, current_hist3_gfl)
+            next_hist2_gfl = jnp.where(active_gfl, current_hist1_gfl, current_hist2_gfl)
+            next_hist1_gfl = jnp.where(active_gfl, current_hist0_gfl, current_hist1_gfl)
+
+            def _apply_ng(_: None) -> tuple[ArrayLike, ArrayLike]:
+                batch_size = n_g * n_freq_bins
+                next_hist0_gfl = jnp.where(active_gfl, source_ali, current_hist0_gfl)
+                ng_result = _ng_accelerated_batched(
+                    next_hist0_gfl.reshape(batch_size, n_layers),
+                    next_hist1_gfl.reshape(batch_size, n_layers),
+                    next_hist2_gfl.reshape(batch_size, n_layers),
+                    next_hist3_gfl.reshape(batch_size, n_layers),
+                    source_ali.reshape(batch_size, n_layers),
+                ).reshape(n_g, n_freq_bins, n_layers)
+                return next_hist0_gfl, ng_result
+
+            def _skip_ng(_: None) -> tuple[ArrayLike, ArrayLike]:
+                return current_hist0_gfl, source_ali
+
+            next_hist0_gfl, next_source_gfl = lax.cond(
+                do_ng,
+                _apply_ng,
+                _skip_ng,
+                operand=None,
+            )
             next_source_gfl = jnp.where(active_gfl, next_source_gfl, current_source_gfl)
+            next_source_prev_gfl = jnp.where(
+                active_gfl,
+                next_source_gfl,
+                current_source_prev_gfl,
+            )
 
             flux_gf_cur = -jnp.einsum("gfa,a->gf", I_H_top, mu_weight_a)
             conv_val_gf = jnp.abs(
@@ -1148,11 +1170,15 @@ def _compute_feautrier_radiative_transfer_chunk(
 
             return (
                 next_source_gfl,
+                next_source_prev_gfl,
                 next_I_plus_surface_gfa,
                 next_flux_gf_prev,
                 next_I_minus_gf,
                 I_H_top,
-                current_ng_history,
+                next_hist0_gfl,
+                next_hist1_gfl,
+                next_hist2_gfl,
+                next_hist3_gfl,
                 next_converged_gf,
             )
 
@@ -1164,13 +1190,20 @@ def _compute_feautrier_radiative_transfer_chunk(
         )
         return next_carry, None
 
+    zero_source_gfl = jnp.zeros((n_g, n_freq_bins, n_layers))
+    initial_source_prev_gfl = pdp_times_planck + one_minus_pdp_gfl * J_star_ini_gfl
+
     initial_carry = (
         planck_broadcast_gfl,
+        initial_source_prev_gfl,
         jnp.zeros((n_g, n_freq_bins, n_angles)),
         jnp.zeros((n_g, n_freq_bins)),
         jnp.zeros((n_g, n_freq_bins)),
         jnp.zeros((n_g, n_freq_bins, n_angles)),
-        jnp.zeros((4, n_g, n_freq_bins, n_layers)),
+        zero_source_gfl,
+        zero_source_gfl,
+        zero_source_gfl,
+        zero_source_gfl,
         jnp.zeros((n_g, n_freq_bins), dtype=jnp.bool_),
     )
 
@@ -1180,7 +1213,19 @@ def _compute_feautrier_radiative_transfer_chunk(
         jnp.arange(iter_scat_max + 1, dtype=jnp.int32),
     )
 
-    (final_source_gfl, _, flux_gf_final, I_minus_gf_final, I_H_top, _, _) = final_carry
+    (
+        final_source_gfl,
+        _,
+        _,
+        flux_gf_final,
+        I_minus_gf_final,
+        I_H_top,
+        _,
+        _,
+        _,
+        _,
+        _,
+    ) = final_carry
 
     # ------------------------------------------------------------------
     # 14. Flux  (n_freq_bins,)

@@ -159,7 +159,11 @@ def flux_hz2flux_cm(
     Returns:
         (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
     """
-    return flux_hz * frequency**2 / cst.c
+    # Float32 safety: frequency**2 can overflow at optical/IR frequencies even
+    # when the final flux conversion is well within range. Re-express the
+    # Jacobian as c / wavelength**2 to keep intermediates near O(1e18).
+    wavelength = cst.c / frequency
+    return flux_hz * cst.c / wavelength**2
 
 
 def flux2irradiance(
