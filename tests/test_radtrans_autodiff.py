@@ -102,6 +102,34 @@ def test_calculate_flux_grad_correlated_k_scattering():
     assert np.isfinite(np.asarray(gradients)).all()
 
 
+def test_calculate_flux_clouds_affect_correlated_k_non_scattering_emission():
+    flux_inputs = _build_flux_inputs()
+    base_temperatures = jnp.array(temperature_guillot_2010)
+
+    _, cloudy_flux, _ = atmosphere_ck.calculate_flux(
+        temperatures=base_temperatures,
+        mass_fractions=flux_inputs["mass_fractions"],
+        mean_molar_masses=flux_inputs["mean_molar_masses"],
+        reference_gravity=flux_inputs["reference_gravity"],
+        **flux_inputs["cloud_parameters"],
+        frequencies_to_wavelengths=False,
+    )
+    _, clear_flux, _ = atmosphere_ck.calculate_flux(
+        temperatures=base_temperatures,
+        mass_fractions=test_parameters["mass_fractions_correlated_k"],
+        mean_molar_masses=flux_inputs["mean_molar_masses"],
+        reference_gravity=flux_inputs["reference_gravity"],
+        **flux_inputs["cloud_parameters"],
+        frequencies_to_wavelengths=False,
+    )
+
+    relative_difference = jnp.abs(
+        (cloudy_flux - clear_flux) / jnp.maximum(jnp.abs(clear_flux), 1e-30)
+    )
+
+    assert float(jnp.max(relative_difference)) > 0.1
+
+
 def test_calculate_flux_jit_correlated_k_scattering():
     flux_inputs = _build_flux_inputs()
     base_temperatures = jnp.array(temperature_guillot_2010)

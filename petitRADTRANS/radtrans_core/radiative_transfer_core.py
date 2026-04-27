@@ -4,7 +4,7 @@ JAX implementation of fortran_core.core
 """
 
 from functools import partial
-from typing import Any, Optional
+from typing import Any, Literal, Optional, cast, overload
 
 import jax
 import jax.numpy as jnp
@@ -716,11 +716,56 @@ def _ng_accelerated_batched(
 # ---------------------------------------------------------------------------
 
 
+@overload
+def _compute_feautrier_radiative_transfer_chunk(
+    frequencies_bin_edges: ArrayLike,
+    temperatures: ArrayLike,
+    weights_gauss: ArrayLike,
+    emission_cos_angles: ArrayLike,
+    emission_cos_angles_weights: ArrayLike,
+    optical_depths_in: ArrayLike,
+    photon_destruction_probabilities_in: ArrayLike,
+    stellar_intensity: ArrayLike,
+    star_irradiation_cos_angle: float,
+    reflectances: ArrayLike,
+    emissivities: ArrayLike,
+    adaptive_feautrier_iterations: bool = True,
+    irradiation_geometry_str: str = "dayside_ave",
+    return_contribution: bool = False,
+    return_solver_diagnostics: Literal[False] = False,
+    iter_scat_max: int = 100,
+    convergence_threshold: float = 1e-2,
+) -> tuple[ArrayLike, ArrayLike, ArrayLike]: ...
+
+
+@overload
+def _compute_feautrier_radiative_transfer_chunk(
+    frequencies_bin_edges: ArrayLike,
+    temperatures: ArrayLike,
+    weights_gauss: ArrayLike,
+    emission_cos_angles: ArrayLike,
+    emission_cos_angles_weights: ArrayLike,
+    optical_depths_in: ArrayLike,
+    photon_destruction_probabilities_in: ArrayLike,
+    stellar_intensity: ArrayLike,
+    star_irradiation_cos_angle: float,
+    reflectances: ArrayLike,
+    emissivities: ArrayLike,
+    adaptive_feautrier_iterations: bool = True,
+    irradiation_geometry_str: str = "dayside_ave",
+    return_contribution: bool = False,
+    return_solver_diagnostics: Literal[True] = True,
+    iter_scat_max: int = 100,
+    convergence_threshold: float = 1e-2,
+) -> tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]: ...
+
+
 @jit(
     static_argnames=(
         "irradiation_geometry_str",
         "adaptive_feautrier_iterations",
         "return_contribution",
+        "return_solver_diagnostics",
         "iter_scat_max",
     )
 )
@@ -739,9 +784,13 @@ def _compute_feautrier_radiative_transfer_chunk(
     adaptive_feautrier_iterations: bool = True,
     irradiation_geometry_str: str = "dayside_ave",
     return_contribution: bool = False,
+    return_solver_diagnostics: bool = False,
     iter_scat_max: int = 100,
-    convergence_threshold: float = 1e-3,
-) -> tuple[ArrayLike, ArrayLike]:
+    convergence_threshold: float = 1e-2,
+) -> (
+    tuple[ArrayLike, ArrayLike, ArrayLike]
+    | tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]
+):
     """Solve the scattering emission problem for one frequency chunk.
 
     Parameters
@@ -1043,11 +1092,12 @@ def _compute_feautrier_radiative_transfer_chunk(
         return J_bol_gfl, I_H_top, new_I_plus_surface
 
     # ------------------------------------------------------------------
-    # 13. Scattering iteration loop with a fixed iteration count.
+    # 13. Scattering iteration loop with a fixed scan budget.
     #
     # Reverse-mode autodiff cannot differentiate the original data-dependent
-    # while-loop. Run a static number of iterations and freeze per-(g, f)
-    # state once a pair converges.
+    # while-loop. Run a static number of scan steps and skip the whole-grid
+    # solve once every (g, f) pair has satisfied both the minimum iteration
+    # gate and the convergence threshold.
     # ------------------------------------------------------------------
 
     def _surface_reflection(I_plus_gfa: ArrayLike) -> ArrayLike:
@@ -1055,167 +1105,236 @@ def _compute_feautrier_radiative_transfer_chunk(
             I_plus_gfa * mu_weight_a[None, None, :], axis=2
         )  # (g, f)
 
-    def _scan_step(
-        carry: tuple[ArrayLike, ...],
+    def _advance_state(
+        state: tuple[ArrayLike, ...],
         iter_idx: ArrayLike,
-    ) -> tuple[tuple[ArrayLike, ...], None]:
+    ) -> tuple[tuple[ArrayLike, ...], ArrayLike]:
         (
-            source_gfl,
-            source_prev_gfl,
-            I_plus_surface_gfa,
-            flux_gf_prev,
-            I_minus_gf,
-            I_H_top,
-            hist0_gfl,
-            hist1_gfl,
-            hist2_gfl,
-            hist3_gfl,
-            converged_gf,
-        ) = carry
+            current_source_gfl,
+            current_I_plus_surface_gfa,
+            current_flux_gf_prev,
+            current_I_minus_gf,
+            _current_I_H_top,
+            current_hist0_gfl,
+            current_hist1_gfl,
+            current_hist2_gfl,
+            current_hist3_gfl,
+            _current_all_converged,
+            _solve_count,
+            _noop_count,
+        ) = state
 
-        active_gf = jnp.logical_not(converged_gf)
-        active_gfl = active_gf[:, :, None]
-        active_gfa = active_gf[:, :, None]
+        I_minus_gf_new = I_surface_no_scatter_gf + _surface_reflection(
+            current_I_plus_surface_gfa
+        )
+        J_bol_gfl, I_H_top, new_I_plus_surface = _feautrier_solve(
+            current_source_gfl,
+            current_I_plus_surface_gfa,
+            I_minus_gf_new,
+        )
 
-        def _advance(state: tuple[ArrayLike, ...]) -> tuple[ArrayLike, ...]:
-            (
-                current_source_gfl,
-                current_source_prev_gfl,
-                current_I_plus_surface_gfa,
-                current_flux_gf_prev,
-                current_I_minus_gf,
-                current_I_H_top,
-                current_hist0_gfl,
+        source_ali = (
+            pdp_times_planck
+            + one_minus_pdp_gfl
+            * (J_star_ini_gfl + J_bol_gfl - lambda_loc_gfl * current_source_gfl)
+        ) * ali_inv_denom_gfl
+
+        slot_index = iter_idx % 4
+
+        def _slot0(_: None):
+            next_hist0 = source_ali
+            return (
+                next_hist0,
                 current_hist1_gfl,
                 current_hist2_gfl,
                 current_hist3_gfl,
-                current_converged_gf,
-            ) = state
-
-            I_minus_gf_new = I_surface_no_scatter_gf + _surface_reflection(
-                current_I_plus_surface_gfa
-            )
-            J_bol_gfl, I_H_top, new_I_plus_surface = _feautrier_solve(
-                current_source_gfl,
-                current_I_plus_surface_gfa,
-                I_minus_gf_new,
+                next_hist0,
+                current_hist3_gfl,
+                current_hist2_gfl,
+                current_hist1_gfl,
             )
 
-            source_ali = (
-                pdp_times_planck
-                + one_minus_pdp_gfl
-                * (
-                    J_star_ini_gfl
-                    + J_bol_gfl
-                    - lambda_loc_gfl * current_source_prev_gfl
-                )
-            ) * ali_inv_denom_gfl
-
-            do_ng = (iter_idx > 0) & ((iter_idx + 1) % 4 == 0)
-
-            next_hist3_gfl = jnp.where(active_gfl, current_hist2_gfl, current_hist3_gfl)
-            next_hist2_gfl = jnp.where(active_gfl, current_hist1_gfl, current_hist2_gfl)
-            next_hist1_gfl = jnp.where(active_gfl, current_hist0_gfl, current_hist1_gfl)
-
-            def _apply_ng(_: None) -> tuple[ArrayLike, ArrayLike]:
-                batch_size = n_g * n_freq_bins
-                next_hist0_gfl = jnp.where(active_gfl, source_ali, current_hist0_gfl)
-                ng_result = _ng_accelerated_batched(
-                    next_hist0_gfl.reshape(batch_size, n_layers),
-                    next_hist1_gfl.reshape(batch_size, n_layers),
-                    next_hist2_gfl.reshape(batch_size, n_layers),
-                    next_hist3_gfl.reshape(batch_size, n_layers),
-                    source_ali.reshape(batch_size, n_layers),
-                ).reshape(n_g, n_freq_bins, n_layers)
-                return next_hist0_gfl, ng_result
-
-            def _skip_ng(_: None) -> tuple[ArrayLike, ArrayLike]:
-                return current_hist0_gfl, source_ali
-
-            next_hist0_gfl, next_source_gfl = lax.cond(
-                do_ng,
-                _apply_ng,
-                _skip_ng,
-                operand=None,
-            )
-            next_source_gfl = jnp.where(active_gfl, next_source_gfl, current_source_gfl)
-            next_source_prev_gfl = jnp.where(
-                active_gfl,
-                next_source_gfl,
-                current_source_prev_gfl,
-            )
-
-            flux_gf_cur = -jnp.einsum("gfa,a->gf", I_H_top, mu_weight_a)
-            conv_val_gf = jnp.abs(
-                1.0
-                - current_flux_gf_prev
-                / jnp.where(
-                    jnp.abs(flux_gf_cur) < TINIEST,
-                    TINIEST,
-                    flux_gf_cur,
-                )
-            )
-            newly_converged = (iter_idx > n_iter_min_gf) & (
-                conv_val_gf < convergence_threshold
-            )
-            next_converged_gf = current_converged_gf | newly_converged
-
-            next_I_plus_surface_gfa = jnp.where(
-                active_gfa,
-                new_I_plus_surface,
-                current_I_plus_surface_gfa,
-            )
-            next_flux_gf_prev = jnp.where(active_gf, flux_gf_cur, current_flux_gf_prev)
-            next_I_minus_gf = jnp.where(active_gf, I_minus_gf_new, current_I_minus_gf)
-
+        def _slot1(_: None):
+            next_hist1 = source_ali
             return (
-                next_source_gfl,
-                next_source_prev_gfl,
-                next_I_plus_surface_gfa,
-                next_flux_gf_prev,
-                next_I_minus_gf,
-                I_H_top,
-                next_hist0_gfl,
-                next_hist1_gfl,
-                next_hist2_gfl,
-                next_hist3_gfl,
-                next_converged_gf,
+                current_hist0_gfl,
+                next_hist1,
+                current_hist2_gfl,
+                current_hist3_gfl,
+                next_hist1,
+                current_hist0_gfl,
+                current_hist3_gfl,
+                current_hist2_gfl,
+            )
+
+        def _slot2(_: None):
+            next_hist2 = source_ali
+            return (
+                current_hist0_gfl,
+                current_hist1_gfl,
+                next_hist2,
+                current_hist3_gfl,
+                next_hist2,
+                current_hist1_gfl,
+                current_hist0_gfl,
+                current_hist3_gfl,
+            )
+
+        def _slot3(_: None):
+            next_hist3 = source_ali
+            return (
+                current_hist0_gfl,
+                current_hist1_gfl,
+                current_hist2_gfl,
+                next_hist3,
+                next_hist3,
+                current_hist2_gfl,
+                current_hist1_gfl,
+                current_hist0_gfl,
+            )
+
+        (
+            next_hist0_gfl,
+            next_hist1_gfl,
+            next_hist2_gfl,
+            next_hist3_gfl,
+            tn,
+            tn1,
+            tn2,
+            tn3,
+        ) = lax.switch(slot_index, (_slot0, _slot1, _slot2, _slot3), operand=None)
+
+        do_ng = (iter_idx > 0) & ((iter_idx + 1) % 4 == 0)
+
+        def _apply_ng(_: None) -> ArrayLike:
+            batch_size = n_g * n_freq_bins
+            return _ng_accelerated_batched(
+                tn.reshape(batch_size, n_layers),
+                tn1.reshape(batch_size, n_layers),
+                tn2.reshape(batch_size, n_layers),
+                tn3.reshape(batch_size, n_layers),
+                source_ali.reshape(batch_size, n_layers),
+            ).reshape(n_g, n_freq_bins, n_layers)
+
+        next_source_gfl = lax.cond(
+            do_ng,
+            _apply_ng,
+            lambda _: source_ali,
+            operand=None,
+        )
+
+        flux_gf_cur = -jnp.einsum("gfa,a->gf", I_H_top, mu_weight_a)
+        conv_val_gf = jnp.abs(
+            1.0
+            - current_flux_gf_prev
+            / jnp.where(
+                jnp.abs(flux_gf_cur) < TINIEST,
+                TINIEST,
+                flux_gf_cur,
+            )
+        )
+
+        if return_contribution:
+            next_I_minus_gf = I_minus_gf_new
+        else:
+            next_I_minus_gf = current_I_minus_gf
+
+        next_state = (
+            next_source_gfl,
+            new_I_plus_surface,
+            flux_gf_cur,
+            next_I_minus_gf,
+            I_H_top,
+            next_hist0_gfl,
+            next_hist1_gfl,
+            next_hist2_gfl,
+            next_hist3_gfl,
+            _current_all_converged,
+            _solve_count,
+            _noop_count,
+        )
+        return next_state, conv_val_gf
+
+    def _adaptive_scan_step(
+        carry: tuple[ArrayLike, ...],
+        iter_idx: ArrayLike,
+    ) -> tuple[tuple[ArrayLike, ...], None]:
+        def _advance(state: tuple[ArrayLike, ...]) -> tuple[ArrayLike, ...]:
+            next_state, conv_val_gf = _advance_state(state, iter_idx)
+            completed_iterations = iter_idx + jnp.array(1, dtype=jnp.int32)
+            next_all_converged = jnp.all(
+                (completed_iterations >= n_iter_min_gf)
+                & (conv_val_gf < convergence_threshold)
+            )
+            return (
+                next_state[0],
+                next_state[1],
+                next_state[2],
+                next_state[3],
+                next_state[4],
+                next_state[5],
+                next_state[6],
+                next_state[7],
+                next_state[8],
+                next_all_converged,
+                state[10] + jnp.array(1, dtype=jnp.int32),
+                state[11],
+            )
+
+        def _skip(state: tuple[ArrayLike, ...]) -> tuple[ArrayLike, ...]:
+            return (
+                state[0],
+                state[1],
+                state[2],
+                state[3],
+                state[4],
+                state[5],
+                state[6],
+                state[7],
+                state[8],
+                state[9],
+                state[10],
+                state[11] + jnp.array(1, dtype=jnp.int32),
             )
 
         next_carry = lax.cond(
-            jnp.any(active_gf),
+            jnp.logical_not(carry[9]),
             _advance,
-            lambda state: state,
+            _skip,
             carry,
         )
         return next_carry, None
 
     zero_source_gfl = jnp.zeros((n_g, n_freq_bins, n_layers))
-    initial_source_prev_gfl = pdp_times_planck + one_minus_pdp_gfl * J_star_ini_gfl
+    initial_I_minus_gf = (
+        jnp.zeros((n_g, n_freq_bins))
+        if return_contribution
+        else jnp.zeros((1,), dtype=planck_broadcast_gfl.dtype)
+    )
 
     initial_carry = (
         planck_broadcast_gfl,
-        initial_source_prev_gfl,
         jnp.zeros((n_g, n_freq_bins, n_angles)),
         jnp.zeros((n_g, n_freq_bins)),
-        jnp.zeros((n_g, n_freq_bins)),
+        initial_I_minus_gf,
         jnp.zeros((n_g, n_freq_bins, n_angles)),
         zero_source_gfl,
         zero_source_gfl,
         zero_source_gfl,
         zero_source_gfl,
-        jnp.zeros((n_g, n_freq_bins), dtype=jnp.bool_),
+        jnp.array(False, dtype=jnp.bool_),
+        jnp.array(0, dtype=jnp.int32),
+        jnp.array(0, dtype=jnp.int32),
     )
 
     final_carry, _ = lax.scan(
-        _scan_step,
+        _adaptive_scan_step,
         initial_carry,
         jnp.arange(iter_scat_max + 1, dtype=jnp.int32),
     )
 
     (
         final_source_gfl,
-        _,
         _,
         flux_gf_final,
         I_minus_gf_final,
@@ -1224,7 +1343,9 @@ def _compute_feautrier_radiative_transfer_chunk(
         _,
         _,
         _,
-        _,
+        final_all_converged,
+        solve_count,
+        noop_count,
     ) = final_carry
 
     # ------------------------------------------------------------------
@@ -1282,13 +1403,74 @@ def _compute_feautrier_radiative_transfer_chunk(
         total = jnp.sum(accumulated, axis=0, keepdims=True)
         return jnp.where(jnp.abs(total) < TINIEST, 0.0, accumulated / total)
 
-    emission_contribution_lf = lax.cond(
-        return_contribution,
-        compute_contribution,
-        lambda: emission_contribution_lf,
-    )
+    if return_contribution:
+        emission_contribution_lf = compute_contribution()
+
+    solver_diagnostics = {
+        "total_solve_count": solve_count,
+        "total_noop_count": noop_count,
+        "iter_scat_budget": jnp.array(iter_scat_max + 1, dtype=jnp.int32),
+        "configured_iter_scat_budget": jnp.array(iter_scat_max + 1, dtype=jnp.int32),
+        "converged_before_cap": final_all_converged,
+    }
+
+    if return_solver_diagnostics:
+        return (
+            flux_f,
+            emission_contribution_lf,
+            angle_dependent_intensities,
+            solver_diagnostics,
+        )
 
     return flux_f, emission_contribution_lf, angle_dependent_intensities
+
+
+@overload
+def compute_feautrier_radiative_transfer(
+    frequencies_bin_edges: ArrayLike,
+    temperatures: ArrayLike,
+    weights_gauss: ArrayLike,
+    emission_cos_angles: ArrayLike,
+    emission_cos_angles_weights: ArrayLike,
+    optical_depths_in: ArrayLike,
+    photon_destruction_probabilities_in: ArrayLike,
+    stellar_intensity: ArrayLike,
+    star_irradiation_cos_angle: float,
+    reflectances: ArrayLike,
+    emissivities: ArrayLike,
+    adaptive_feautrier_iterations: bool = True,
+    irradiation_geometry_str: str = "dayside_ave",
+    return_contribution: bool = False,
+    return_solver_diagnostics: Literal[False] = False,
+    iter_scat_max: int = 100,
+    convergence_threshold: float = 1e-2,
+    chunk_feautrier: bool = True,
+    feautrier_chunk_size: int = 1024,
+) -> tuple[ArrayLike, ArrayLike, ArrayLike]: ...
+
+
+@overload
+def compute_feautrier_radiative_transfer(
+    frequencies_bin_edges: ArrayLike,
+    temperatures: ArrayLike,
+    weights_gauss: ArrayLike,
+    emission_cos_angles: ArrayLike,
+    emission_cos_angles_weights: ArrayLike,
+    optical_depths_in: ArrayLike,
+    photon_destruction_probabilities_in: ArrayLike,
+    stellar_intensity: ArrayLike,
+    star_irradiation_cos_angle: float,
+    reflectances: ArrayLike,
+    emissivities: ArrayLike,
+    adaptive_feautrier_iterations: bool = True,
+    irradiation_geometry_str: str = "dayside_ave",
+    return_contribution: bool = False,
+    return_solver_diagnostics: Literal[True] = True,
+    iter_scat_max: int = 100,
+    convergence_threshold: float = 1e-2,
+    chunk_feautrier: bool = True,
+    feautrier_chunk_size: int = 1024,
+) -> tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]: ...
 
 
 @jit(
@@ -1296,6 +1478,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         "irradiation_geometry_str",
         "adaptive_feautrier_iterations",
         "return_contribution",
+        "return_solver_diagnostics",
         "iter_scat_max",
         "chunk_feautrier",
         "feautrier_chunk_size",
@@ -1316,11 +1499,15 @@ def compute_feautrier_radiative_transfer(
     adaptive_feautrier_iterations: bool = True,
     irradiation_geometry_str: str = "dayside_ave",
     return_contribution: bool = False,
+    return_solver_diagnostics: bool = False,
     iter_scat_max: int = 100,
     convergence_threshold: float = 1e-2,
     chunk_feautrier: bool = True,
     feautrier_chunk_size: int = 1024,
-) -> tuple[ArrayLike, ArrayLike]:
+) -> (
+    tuple[ArrayLike, ArrayLike, ArrayLike]
+    | tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]
+):
     """Compute emission flux with the Feautrier scattering solver.
 
     Parameters
@@ -1389,6 +1576,7 @@ def compute_feautrier_radiative_transfer(
             adaptive_feautrier_iterations=adaptive_feautrier_iterations,
             irradiation_geometry_str=irradiation_geometry_str,
             return_contribution=return_contribution,
+            return_solver_diagnostics=return_solver_diagnostics,
             iter_scat_max=iter_scat_max,
             convergence_threshold=convergence_threshold,
         )
@@ -1450,20 +1638,26 @@ def compute_feautrier_radiative_transfer(
         )
     )(_chunk_starts)
 
-    def _chunk_body(
-        _: None, chunk_inputs: tuple[ArrayLike, ...]
-    ) -> tuple[None, tuple[ArrayLike, ArrayLike]]:
-        (
-            chunk_frequency_bin_edges,
-            chunk_optical_depths,
-            chunk_photon_destruction_probabilities,
-            chunk_stellar_intensity,
-            chunk_reflectances,
-            chunk_emissivities,
-        ) = chunk_inputs
+    if return_solver_diagnostics:
 
-        chunk_flux, chunk_emission_contribution, chunk_angle_dependent_intensities = (
-            _compute_feautrier_radiative_transfer_chunk(
+        def _chunk_body(
+            _: None, chunk_inputs: tuple[ArrayLike, ...]
+        ) -> tuple[None, tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]]:
+            (
+                chunk_frequency_bin_edges,
+                chunk_optical_depths,
+                chunk_photon_destruction_probabilities,
+                chunk_stellar_intensity,
+                chunk_reflectances,
+                chunk_emissivities,
+            ) = chunk_inputs
+
+            (
+                chunk_flux,
+                chunk_emission_contribution,
+                chunk_angle_dependent_intensities,
+                chunk_solver_diagnostics,
+            ) = _compute_feautrier_radiative_transfer_chunk(
                 frequencies_bin_edges=chunk_frequency_bin_edges,
                 temperatures=temperatures,
                 weights_gauss=weights_gauss,
@@ -1478,33 +1672,98 @@ def compute_feautrier_radiative_transfer(
                 adaptive_feautrier_iterations=adaptive_feautrier_iterations,
                 irradiation_geometry_str=irradiation_geometry_str,
                 return_contribution=return_contribution,
+                return_solver_diagnostics=True,
                 iter_scat_max=iter_scat_max,
                 convergence_threshold=convergence_threshold,
             )
-        )
 
-        return None, (
-            chunk_flux,
-            chunk_emission_contribution,
-            chunk_angle_dependent_intensities,
-        )
+            return None, (
+                chunk_flux,
+                chunk_emission_contribution,
+                chunk_angle_dependent_intensities,
+                chunk_solver_diagnostics,
+            )
 
-    _, (
-        flux_chunks,
-        emission_contribution_chunks,
-        angle_dependent_intensities_chunks,
-    ) = lax.scan(
-        _chunk_body,
-        None,
-        (
-            frequencies_bin_edges_chunks,
-            optical_depths_chunks,
-            photon_destruction_probabilities_chunks,
-            stellar_intensity_chunks,
-            reflectances_chunks,
-            emissivities_chunks,
-        ),
-    )
+        _, (
+            flux_chunks,
+            emission_contribution_chunks,
+            angle_dependent_intensities_chunks,
+            solver_diagnostics_chunks,
+        ) = lax.scan(
+            _chunk_body,
+            None,
+            (
+                frequencies_bin_edges_chunks,
+                optical_depths_chunks,
+                photon_destruction_probabilities_chunks,
+                stellar_intensity_chunks,
+                reflectances_chunks,
+                emissivities_chunks,
+            ),
+        )
+    else:
+
+        def _chunk_body(
+            _: None, chunk_inputs: tuple[ArrayLike, ...]
+        ) -> tuple[None, tuple[ArrayLike, ArrayLike, ArrayLike]]:
+            (
+                chunk_frequency_bin_edges,
+                chunk_optical_depths,
+                chunk_photon_destruction_probabilities,
+                chunk_stellar_intensity,
+                chunk_reflectances,
+                chunk_emissivities,
+            ) = chunk_inputs
+
+            chunk_result = cast(
+                tuple[ArrayLike, ArrayLike, ArrayLike],
+                _compute_feautrier_radiative_transfer_chunk(
+                    frequencies_bin_edges=chunk_frequency_bin_edges,
+                    temperatures=temperatures,
+                    weights_gauss=weights_gauss,
+                    emission_cos_angles=emission_cos_angles,
+                    emission_cos_angles_weights=emission_cos_angles_weights,
+                    optical_depths_in=chunk_optical_depths,
+                    photon_destruction_probabilities_in=chunk_photon_destruction_probabilities,
+                    stellar_intensity=chunk_stellar_intensity,
+                    star_irradiation_cos_angle=star_irradiation_cos_angle,
+                    reflectances=chunk_reflectances,
+                    emissivities=chunk_emissivities,
+                    adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+                    irradiation_geometry_str=irradiation_geometry_str,
+                    return_contribution=return_contribution,
+                    return_solver_diagnostics=False,
+                    iter_scat_max=iter_scat_max,
+                    convergence_threshold=convergence_threshold,
+                ),
+            )
+
+            chunk_flux = chunk_result[0]
+            chunk_emission_contribution = chunk_result[1]
+            chunk_angle_dependent_intensities = chunk_result[2]
+
+            return None, (
+                chunk_flux,
+                chunk_emission_contribution,
+                chunk_angle_dependent_intensities,
+            )
+
+        _, (
+            flux_chunks,
+            emission_contribution_chunks,
+            angle_dependent_intensities_chunks,
+        ) = lax.scan(
+            _chunk_body,
+            None,
+            (
+                frequencies_bin_edges_chunks,
+                optical_depths_chunks,
+                photon_destruction_probabilities_chunks,
+                stellar_intensity_chunks,
+                reflectances_chunks,
+                emissivities_chunks,
+            ),
+        )
 
     flux_f = flux_chunks.reshape(padded_n_freq_bins)[:n_freq_bins]
     emission_contribution_lf = jnp.transpose(
@@ -1513,6 +1772,28 @@ def compute_feautrier_radiative_transfer(
     angle_dependent_intensities = jnp.transpose(
         angle_dependent_intensities_chunks, (1, 0, 2)
     ).reshape(n_angles, padded_n_freq_bins,)[:, :n_freq_bins]
+
+    if return_solver_diagnostics:
+        solver_diagnostics = {
+            "total_solve_count": jnp.sum(
+                solver_diagnostics_chunks["total_solve_count"]
+            ),
+            "total_noop_count": jnp.sum(solver_diagnostics_chunks["total_noop_count"]),
+            "iter_scat_budget": jnp.sum(solver_diagnostics_chunks["iter_scat_budget"]),
+            "configured_iter_scat_budget": jnp.sum(
+                solver_diagnostics_chunks["configured_iter_scat_budget"]
+            ),
+            "converged_before_cap": jnp.all(
+                solver_diagnostics_chunks["converged_before_cap"]
+            ),
+            "n_chunks": jnp.array(n_chunks, dtype=jnp.int32),
+        }
+        return (
+            flux_f,
+            emission_contribution_lf,
+            angle_dependent_intensities,
+            solver_diagnostics,
+        )
 
     return flux_f, emission_contribution_lf, angle_dependent_intensities
 

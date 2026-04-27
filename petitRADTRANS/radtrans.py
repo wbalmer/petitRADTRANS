@@ -2472,7 +2472,7 @@ class Radtrans:
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
         )
 
-        @jit(
+    @jit(
         static_argnames=[
             "self",
             "cloud_particle_radius_distribution",
