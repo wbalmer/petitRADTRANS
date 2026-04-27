@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a23] - 2026-04-20
+## [4.0.0a24] - 2026-04-27
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -19,7 +19,6 @@ Ready for beta testing with version 4.0.0.a16.
 - Feature completion: Implement adaptive mesh refinement with constant size pressure array.
 - Feature completion: New cloud opacities to be compatible with new condensation curves.
 - Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
-- Feature completion: Re-implement non-vertically-constant abundance profiles.
 - Feature completion: Re-implement `additional_absorption_opacities_function`
 - Optimisation: profile code for new bottlenecks.
 - Optimisation: Ensure imports are optimised.
@@ -27,7 +26,6 @@ Ready for beta testing with version 4.0.0.a16.
 - Testing: write unit tests for new JAX functions.
 - Testing: resolve remaining compatibility issues with unit tests.
 - Testing: generate new reference files where necessary, once commited to changes (e.g. chemistry update).
-- Testing: write smaller versions of autodiff, retrieval, and SBI tests to reduce memory and runtime.
 - Testing: Optimise Feautrier chunk size hyper parameters for GPU.
 - Testing: write 32 bit test suite.
 - Testing: Further testing on AMD GPUs, possibly TPUs.
@@ -42,7 +40,6 @@ Ready for beta testing with version 4.0.0.a16.
 - Documentation: Update contribution section with JAX philosophy and links.
 - Housekeeping: Address all remaining TODOs in code.
 - Housekeeping: Clean up comment blocks.
-- Housekeeping: Decide on function to use for calculate_flux.
 - Housekeeping: Ensure Flake8 compatibility and linting.
 - Future goals: JAXify EasyChem
 - Future goals: Incorporate next pRT developments (pRT orange, multi-dimensional retrievals etc.)
@@ -52,6 +49,9 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: correlated-k binning.
 
 ### Changed
+- a24: non-vertically-constant abundance profiles now implemented
+- a24: Performance improvements to Feautrier method
+- a24: Fixed non-Feautrier cloudy case.
 - a22: all cloud particle arguement names standardized to cloud_particle instead of cloud_particles
 - a22: temperature profile names now standardized to author_temperature_profile
 - a21: Parallelised SBI
