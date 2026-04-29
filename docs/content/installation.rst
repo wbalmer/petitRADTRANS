@@ -260,7 +260,7 @@ A common error with Apple silicon when trying to run retrievals is ``AttributeEr
 .. code-block:: bash
 
     import os
-    os.environ["DYLB_LIBRARY_PATH"] = "/path/to/Multinest/lib"
+    os.environ["DYLD_LIBRARY_PATH"] = "/path/to/Multinest/lib"
 
 Other issues
 ------------
