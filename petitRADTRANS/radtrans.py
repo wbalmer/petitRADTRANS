@@ -1414,15 +1414,14 @@ class Radtrans:
                 + cloudy_cloud_continuum_opacities_scattering
             )
         else:
-            # Match legacy behavior in non-scattering emission mode: keep cloud
-            # scattering in the scattering channel instead of folding it into absorption.
+            # Non-scattering emission ignores the scattering channel downstream,
+            # so cloud extinction must be folded into the absorptive continuum.
             cloudy_continuum_opacities = (
-                continuum_opacities + cloudy_cloud_continuum_opacities
-            )
-            cloudy_continuum_opacities_scattering = (
-                continuum_opacities_scattering
+                continuum_opacities
+                + cloudy_cloud_continuum_opacities
                 + cloudy_cloud_continuum_opacities_scattering
             )
+            cloudy_continuum_opacities_scattering = continuum_opacities_scattering
 
         # Combine line opacities with continuum opacities, combined opacities are stored in the 1st species slot
         opacities = continuum.compute_combined_opacities(
@@ -1453,12 +1452,11 @@ class Radtrans:
                 )
             else:
                 clear_continuum_opacities = (
-                    continuum_opacities + clear_cloud_continuum_opacities
-                )
-                clear_continuum_opacities_scattering = (
-                    continuum_opacities_scattering
+                    continuum_opacities
+                    + clear_cloud_continuum_opacities
                     + clear_cloud_continuum_opacities_scattering
                 )
+                clear_continuum_opacities_scattering = continuum_opacities_scattering
             clear_opacities = continuum.compute_combined_opacities(
                 opacities=line_opacities,
                 continuum_opacities=clear_continuum_opacities,

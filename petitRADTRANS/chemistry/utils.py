@@ -555,19 +555,57 @@ def fill_atmosphere(
     """
 
     filled_mass_fractions = mass_fractions.copy()
+
+    if len(filling_species) == 0:
+        return filled_mass_fractions, mass_fraction_sum
+
     sum_weights = jnp.sum(jnp.array(list(filling_species.values())), axis=0)
-    msum = mass_fraction_sum
+    can_fill = jnp.logical_and(
+        jnp.logical_and(0.0 < mass_fraction_sum, mass_fraction_sum < 1.0),
+        sum_weights > 0,
+    )
+    safe_sum_weights = jnp.where(sum_weights > 0, sum_weights, 1.0)
+
     for species, weights in filling_species.items():
         filled_mass_fractions[species] = jnp.where(
-            jnp.logical_and(0.0 < mass_fraction_sum, mass_fraction_sum < 1.0),
-            (1.0 - mass_fraction_sum) * weights / sum_weights,
+            can_fill,
+            (1.0 - mass_fraction_sum) * weights / safe_sum_weights,
             filled_mass_fractions[species],
         )
-        msum += filled_mass_fractions[species]
+
     # Re-add cloud mass fractions
     for species, mass_fraction in mass_fractions.items():
         if "(s)" in species or "(l)" in species:
             filled_mass_fractions[species] = mass_fraction
+
+    msum = jnp.zeros_like(mass_fraction_sum)
+    filling_mass_sum = jnp.zeros_like(mass_fraction_sum)
+    for mass_fraction in filled_mass_fractions.values():
+        msum = msum + mass_fraction
+
+    for species in filling_species:
+        filling_mass_sum = filling_mass_sum + filled_mass_fractions[species]
+
+    target_filling_mass_sum = 1.0 - (msum - filling_mass_sum)
+    can_rebalance_existing_fill = jnp.logical_and(
+        sum_weights <= 0,
+        jnp.logical_and(filling_mass_sum > 0, target_filling_mass_sum > 0),
+    )
+    safe_filling_mass_sum = jnp.where(filling_mass_sum > 0, filling_mass_sum, 1.0)
+
+    for species in filling_species:
+        filled_mass_fractions[species] = jnp.where(
+            can_rebalance_existing_fill,
+            filled_mass_fractions[species]
+            * target_filling_mass_sum
+            / safe_filling_mass_sum,
+            filled_mass_fractions[species],
+        )
+
+    if bool(jnp.any(can_rebalance_existing_fill)):
+        msum = jnp.zeros_like(mass_fraction_sum)
+        for mass_fraction in filled_mass_fractions.values():
+            msum = msum + mass_fraction
 
     return filled_mass_fractions, msum
 

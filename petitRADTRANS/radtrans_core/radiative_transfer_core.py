@@ -15,7 +15,6 @@ import petitRADTRANS.radtrans_core.physics_core as physics_core
 import petitRADTRANS.radtrans_core.linalg as linalg
 from petitRADTRANS.jax_dtype import JAX_DTYPE
 
-
 CST_PI = jnp.pi  # Or the specific precision from Fortran
 
 TINIEST = jnp.finfo(JAX_DTYPE).tiny
@@ -2226,65 +2225,50 @@ def compute_transit_radii(
         is_negative_condition, replacement_value, radius_hydrostatic_equilibrium
     )
 
-    # Calculate the density
-    rho = pressures_cgs * mean_molar_masses * cst.amu / cst.kB / temperatures
+    rho = atmospheric_densities
 
-    # Bring continuum scattering opacities in right shape for matrix operations later.
-    # Reminder: when calling this function, continuum absorption opacities have already
-    # been added to line_struc_kappas.
-    continuum_opa_scat_reshaped = continuum_opacities_scattering.reshape(
+    # Scale continuum scattering once, then broadcast it only onto the first species slot.
+    continuum_opa_scat_reshaped = (continuum_opacities_scattering * rho).reshape(
         (1, continuum_opacities_scattering.shape[0], 1, pressures.size)
     )
 
-    transparencies = opacities * rho
-    transparencies = transparencies.at[:, :, :1, :].add(
-        continuum_opa_scat_reshaped * rho
-    )
+    transparencies = opacities * rho[None, None, None, :]
+    transparencies = transparencies.at[:, :, :1, :].add(continuum_opa_scat_reshaped)
 
-    # Calculate average mean free path between neighboring layers for later integration
     # Factor 1/2 is omitted because it cancels with effective planet area integration below.
-    transparencies = transparencies.at[:, :, :, 1:].add(transparencies[:, :, :, :-1])
+    pair_transparencies = transparencies[..., 1:] + transparencies[..., :-1]
 
-    # Prepare matrix for delta path lengths during optical depth integration
-    diff_s = jnp.zeros((pressures.size, pressures.size))
+    # Only the active shell-path block contributes; avoid building the padded
+    # (n_layers, n_layers) matrix whose first row and column are identically zero.
+    radius_squared = radius_hydrostatic_equilibrium**2.0
+    impact_radius_squared = radius_squared[1:, None]
+    upper_shell_boundaries = radius_squared[:-1][None, :]
+    lower_shell_boundaries = radius_squared[1:][None, :]
+    diff_s_active = _safe_sqrt_positive(
+        upper_shell_boundaries - impact_radius_squared
+    ) - _safe_sqrt_positive(lower_shell_boundaries - impact_radius_squared)
 
-    # Calculate matrix of delta path lengths
-    r_ik = (
-        radius_hydrostatic_equilibrium.reshape(1, pressures.size) ** 2.0
-        - radius_hydrostatic_equilibrium.reshape(pressures.size, 1) ** 2.0
+    optical_depths_active = jnp.einsum(
+        "gfsl,ml->gfsm", pair_transparencies, diff_s_active, optimize=True
     )
-    r_ik = _safe_sqrt_positive(r_ik)
-    diff_s = diff_s.at[1:, 1:].set(-r_ik[1:, 1:] + r_ik[1:, :-1])
-
-    # Calculate optical depths
-    transparencies = jnp.einsum("ijkl,ml", transparencies, diff_s)
-
-    # Delete unnecessary intermediate array
-    del diff_s
-
-    # Calculate transmittances (exp(-optical_depths), out is used for in-place calculations to reduce memory usage)
-    transparencies = jnp.exp(-1 * transparencies)
-
-    # Integrate over g if c-k
-    transparencies = lax.cond(
-        weights_gauss.size == 1,
-        lambda: transparencies[0],
-        lambda: jnp.einsum("ijkl,i", transparencies, weights_gauss),
+    transparencies = jnp.exp(
+        -jnp.pad(optical_depths_active, ((0, 0), (0, 0), (0, 0), (1, 0)))
     )
 
-    transparencies = jnp.swapaxes(
-        transparencies, 1, 0
-    )  # (species, frequencies, levels)
+    if weights_gauss.size == 1:
+        transparencies = transparencies[0]
+    else:
+        transparencies = jnp.einsum(
+            "gfsl,g->fsl", transparencies, weights_gauss, optimize=True
+        )
 
-    transparencies = lax.cond(
-        transparencies.shape[0] == 1,
-        lambda: transparencies[0],
-        lambda: jnp.prod(transparencies, axis=0),
-    )
+    if transparencies.shape[1] == 1:
+        transparencies = transparencies[:, 0, :]
+    else:
+        transparencies = jnp.prod(transparencies, axis=1)
 
     # Calculate transparencies (1 - transmittances)
-    transparencies *= -1
-    transparencies += 1
+    transparencies = 1.0 - transparencies
 
     # Annulus radius increments
     annulus_radius_increments = -jnp.diff(radius_hydrostatic_equilibrium)
@@ -2292,11 +2276,11 @@ def compute_transit_radii(
     # Integrate effective area, 2 pi omitted:
     # - 2 cancels with 1/2 of average inverse mean free path above
     # - pi cancels when calculating the radius from the area below
-    transparencies *= radius_hydrostatic_equilibrium
-    transparencies = transparencies.at[:, 1:].add(transparencies[:, :-1])
-    transparencies = transparencies[:, 1:]  # get rid of unnecessary layer
-    transparencies *= annulus_radius_increments
-    transit_radii = jnp.sum(transparencies, axis=1)  # (frequencies)
+    annulus_terms = (
+        transparencies[:, 1:] * radius_hydrostatic_equilibrium[None, 1:]
+        + transparencies[:, :-1] * radius_hydrostatic_equilibrium[None, :-1]
+    )
+    transit_radii = jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1)
 
     # Transform area to transmission radius
     transit_radii = jnp.sqrt(transit_radii + radius_hydrostatic_equilibrium[-1] ** 2.0)
@@ -2385,62 +2369,50 @@ def compute_transit_radii_summed(
         is_negative_condition, replacement_value, radius_hydrostatic_equilibrium
     )
 
-    # Calculate the density
-    rho = pressures_cgs * mean_molar_masses * cst.amu / cst.kB / temperatures
+    rho = atmospheric_densities
 
     # Bring continuum scattering opacities in right shape for matrix operations later.
     # Reminder: when calling this function, continuum absorption opacities have already
     # been added to line_struc_kappas.
-    continuum_opa_scat_reshaped = continuum_opacities_scattering.reshape(
+    continuum_opa_scat_reshaped = (continuum_opacities_scattering * rho).reshape(
         (1, continuum_opacities_scattering.shape[0], 1, pressures.size)
     )
 
-    transparencies = opacities[:, :, :1, :] * rho
-    transparencies += continuum_opa_scat_reshaped * rho
+    transparencies = opacities[:, :, :1, :] * rho[None, None, None, :]
+    transparencies = transparencies + continuum_opa_scat_reshaped
 
     # Calculate average mean free path between neighboring layers for later integration
     # Factor 1/2 is omitted because it cancels with effective planet area integration below.
-    transparencies = transparencies.at[:, :, :, 1:].add(transparencies[:, :, :, :-1])
+    pair_transparencies = transparencies[..., 1:] + transparencies[..., :-1]
 
-    # Prepare matrix for delta path lengths during optical depth integration
-    diff_s = jnp.zeros((pressures.size, pressures.size))
+    # Only the active shell-path block contributes; avoid building the padded
+    # (n_layers, n_layers) matrix whose first row and column are identically zero.
+    radius_squared = radius_hydrostatic_equilibrium**2.0
+    impact_radius_squared = radius_squared[1:, None]
+    upper_shell_boundaries = radius_squared[:-1][None, :]
+    lower_shell_boundaries = radius_squared[1:][None, :]
+    diff_s_active = _safe_sqrt_positive(
+        upper_shell_boundaries - impact_radius_squared
+    ) - _safe_sqrt_positive(lower_shell_boundaries - impact_radius_squared)
 
-    # Calculate matrix of delta path lengths
-    r_ik = (
-        radius_hydrostatic_equilibrium.reshape(1, pressures.size) ** 2.0
-        - radius_hydrostatic_equilibrium.reshape(pressures.size, 1) ** 2.0
+    optical_depths_active = jnp.einsum(
+        "gfsl,ml->gfsm", pair_transparencies, diff_s_active, optimize=True
     )
-    r_ik = _safe_sqrt_positive(r_ik)
-    diff_s = diff_s.at[1:, 1:].set(-r_ik[1:, 1:] + r_ik[1:, :-1])
-
-    # Calculate optical depths (out is used for in-place calculations to reduce memory usage)
-    transparencies = jnp.einsum("ijkl,ml", transparencies, diff_s)
-
-    # Delete unnecessary intermediate array
-    del diff_s
-
-    # Calculate transmittances (exp(-optical_depths), out is used for in-place calculations to reduce memory usage)
-    transparencies = jnp.exp(-1 * transparencies)
-
-    transparencies = lax.cond(
-        weights_gauss.size == 1,
-        lambda: transparencies[0],
-        lambda: jnp.einsum("ijkl,i", transparencies, weights_gauss, optimize=True),
+    transparencies = jnp.exp(
+        -jnp.pad(optical_depths_active, ((0, 0), (0, 0), (0, 0), (1, 0)))
     )
 
-    transparencies = jnp.swapaxes(
-        transparencies, 1, 0
-    )  # (species, frequencies, levels)
+    if weights_gauss.size == 1:
+        transparencies = transparencies[0]
+    else:
+        transparencies = jnp.einsum(
+            "gfsl,g->fsl", transparencies, weights_gauss, optimize=True
+        )
 
-    transparencies = lax.cond(
-        transparencies.shape[0] == 1,
-        lambda: transparencies[0],
-        lambda: jnp.prod(transparencies, axis=0),
-    )
+    transparencies = transparencies[:, 0, :]
 
     # Calculate transparencies (1 - transmittances)
-    transparencies *= -1
-    transparencies += 1
+    transparencies = 1.0 - transparencies
 
     # Annulus radius increments
     annulus_radius_increments = -jnp.diff(radius_hydrostatic_equilibrium)
@@ -2448,11 +2420,11 @@ def compute_transit_radii_summed(
     # Integrate effective area, 2 pi omitted:
     # - 2 cancels with 1/2 of average inverse mean free path above
     # - pi cancels when calculating the radius from the area below
-    transparencies *= radius_hydrostatic_equilibrium
-    transparencies = transparencies.at[:, 1:].add(transparencies[:, :-1])
-    transparencies = transparencies[:, 1:]  # get rid of unnecessary layer
-    transparencies *= annulus_radius_increments
-    transit_radii = jnp.sum(transparencies, axis=1)  # (frequencies)
+    annulus_terms = (
+        transparencies[:, 1:] * radius_hydrostatic_equilibrium[None, 1:]
+        + transparencies[:, :-1] * radius_hydrostatic_equilibrium[None, :-1]
+    )
+    transit_radii = jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1)
 
     # Transform area to transmission radius
     transit_radii = jnp.sqrt(transit_radii + radius_hydrostatic_equilibrium[-1] ** 2.0)

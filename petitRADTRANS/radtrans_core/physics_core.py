@@ -11,49 +11,71 @@ import petitRADTRANS.physical_constants as cst
 # import petitRADTRANS.fortran_radtrans_core import math as fmath
 
 
+def _as_planck_temperature_array(temperatures):
+    return jnp.atleast_1d(jnp.asarray(temperatures))
+
+
+def _compute_planck_frequency_cubed_term(frequencies):
+    # Keep the nu^3 / c^2 factor in a float32-safe form: (nu / c) * nu^2 / c.
+    return (frequencies / cst.c) * frequencies**2
+
+
+def _compute_planck_spectral_radiance_matrix(temperatures, frequencies):
+    temperatures = _as_planck_temperature_array(temperatures)
+    frequencies = jnp.asarray(frequencies)
+
+    exponent = (cst.h / cst.kB) * frequencies[..., None] / temperatures[None, :]
+    prefactor = (2.0 * cst.h / cst.c) * _compute_planck_frequency_cubed_term(
+        frequencies
+    )
+
+    return prefactor[..., None] / jnp.expm1(exponent)
+
+
+def _compute_boole_sample_frequencies(frequencies):
+    nu_large = frequencies[:-1]
+    nu_small = frequencies[1:]
+    diff_nu = nu_large - nu_small
+
+    return jnp.stack(
+        (
+            nu_small,
+            nu_small + diff_nu * 0.25,
+            nu_small + diff_nu * 0.5,
+            nu_small + diff_nu * 0.75,
+            nu_large,
+        ),
+        axis=0,
+    )
+
+
+def _compute_boole_planck_flux_matrix(temperatures, frequencies):
+    sample_frequencies = _compute_boole_sample_frequencies(frequencies)
+    boole_weights = jnp.asarray(
+        (7.0, 32.0, 12.0, 32.0, 7.0), dtype=sample_frequencies.dtype
+    )
+    sample_flux = _compute_planck_spectral_radiance_matrix(
+        temperatures, sample_frequencies
+    )
+
+    return jnp.sum(boole_weights[:, None, None] * sample_flux, axis=0) / 90.0
+
+
 @jit
 def compute_planck_function_integral_old(T, nul, nur):
     # TODO this might not be used anymore.
-    # calculate planck function between two frequencies
-    B_nu = 0.0
-    # Take mean using Boole's method
+    # Calculate the Planck integral between two frequencies using the same
+    # float32-safe Boole quadrature path as the vectorized implementation.
+    temperatures = _as_planck_temperature_array(T)
     nu_large = jnp.maximum(nul, nur)
     nu_small = jnp.minimum(nul, nur)
-    nu1 = nu_small
-    nu2 = nu_small + 1.0 * (nu_large - nu_small) / 4.0
-    nu3 = nu_small + 2.0 * (nu_large - nu_small) / 4.0
-    nu4 = nu_small + 3.0 * (nu_large - nu_small) / 4.0
-    nu5 = nu_large
-    diff_nu = nu2 - nu1
+    frequency_edges = jnp.stack((nu_large, nu_small))
+    planck_flux = _compute_boole_planck_flux_matrix(temperatures, frequency_edges)
 
-    B_nu = B_nu + 1.0 / 90.0 * (
-        7.0
-        * 2.0
-        * _h_over_c
-        * (nu1**2 * (nu1 / cst.c))
-        / jnp.expm1(cst.h * nu1 / (cst.kB * T))
-        + 32.0
-        * 2.0
-        * _h_over_c
-        * (nu2**2 * (nu2 / cst.c))
-        / jnp.expm1(cst.h * nu2 / (cst.kB * T))
-        + 12.0
-        * 2.0
-        * _h_over_c
-        * (nu3**2 * (nu3 / cst.c))
-        / jnp.expm1(cst.h * nu3 / (cst.kB * T))
-        + 32.0
-        * 2.0
-        * _h_over_c
-        * (nu4**2 * (nu4 / cst.c))
-        / jnp.expm1(cst.h * nu4 / (cst.kB * T))
-        + 7.0
-        * 2.0
-        * _h_over_c
-        * (nu5**2 * (nu5 / cst.c))
-        / jnp.expm1(cst.h * nu5 / (cst.kB * T))
-    )
-    return B_nu
+    if jnp.asarray(T).ndim == 0:
+        return planck_flux[0, 0]
+
+    return planck_flux[0]
 
 
 @jit
@@ -148,15 +170,7 @@ def compute_planck_function(T, nu):
         B_nu (ndarray): (len(nu),len(T)) matrix of the spectral radiance (ie flux) as calculated from
                         Planck's law for each frequency and temperature.
     """
-    T_use = jnp.tile(T, (nu.shape[0], 1))
-    # Float32 safety: nu^3 overflows for near-IR (~3.7e43 > float32 max ~3.4e38).
-    # Factor 2h*nu^3/c^2 = 2*(h/c)*(nu/c)*nu^2 keeps all intermediates in range:
-    # h/c ~ 2.2e-37 (representable), nu/c ~ 1e4, nu^2 ~ 1e28.
-    x = cst.h * nu[:, None] / (cst.kB * T_use)
-    B_nu = (
-        (2.0 * cst.h / cst.c) * (nu[:, None] / cst.c) * nu[:, None] ** 2 / jnp.expm1(x)
-    )
-    return B_nu
+    return _compute_planck_spectral_radiance_matrix(T, nu)
 
 
 @jit
@@ -172,30 +186,20 @@ def compute_planck_function_temperature_derivative(T, frequency_bin_edges):
     Returns:
         B_nu_dT (DeviceArray): (len(T), len(nu)) JAX array of the derivative of the spectral radiance.
     """
+    temperatures = _as_planck_temperature_array(T)
     nu = (
         frequency_bin_edges[:-1] + frequency_bin_edges[1:]
     ) * 0.5  # Calculate midpoints directly
-
-    # Constants for efficiency (avoid repeated calculations within the loop)
-    h_over_kb = cst.h / cst.kB
-
-    # Vectorized calculation of exp_terms and denominator for all T and nu
-    exp_arg = h_over_kb * jnp.outer(0.5 / T, nu)
-
-    # (exp(x) - exp(-x))^2 = (2 sinh(x))^2, numerically stable for all x
-    denominator = (2.0 * jnp.sinh(exp_arg)) ** 2 * jnp.outer(
-        cst.kB * T**2, jnp.ones_like(nu)
-    )
 
     # Float32 safety: 2*h^2/c^2 ~ 9.8e-74 severely underflows, nu^4 severely overflows.
     # Rewrite 2*h^2*nu^4/c^2 = 2*(h*nu)^2*nu^2/c^2 with safe intermediates:
     # h*nu ~ 2.2e-12, (h*nu)^2 ~ 4.9e-24, *nu^2 ~ 5.4e5, 2/c^2 ~ 2.2e-21 -> ~1.2e-15.
     h_nu = cst.h * nu  # (n_freq_midpoints,) ~ 2.2e-12, safe in float32
-    numerator_nu = h_nu**2 * nu**2  # ~ 5.4e5, safe in float32
-    B_nu_dT = (
-        2.0 / cst.c**2 * jnp.outer(jnp.ones_like(T), numerator_nu) / denominator
-    ).T
-    return B_nu_dT
+    numerator_nu = (2.0 / cst.c**2) * (h_nu**2 * nu**2)
+    x_half = 0.5 * (cst.h / cst.kB) * nu[:, None] / temperatures[None, :]
+    denominator = (2.0 * jnp.sinh(x_half)) ** 2 * (cst.kB * temperatures[None, :] ** 2)
+
+    return numerator_nu[:, None] / denominator
 
 
 def compute_planck_function_integral(temperatures, frequencies):
@@ -203,6 +207,7 @@ def compute_planck_function_integral(temperatures, frequencies):
     Compute mean using Boole's method
     TODO: possibly a faster integration method?
     """
+    temperatures = _as_planck_temperature_array(temperatures)
 
     def reverse_frequencies(temperatures, frequencies):
         # warnings.warn("Frequencies are not in descending order. This may lead to incorrect results.")
@@ -219,52 +224,7 @@ def compute_planck_function_integral(temperatures, frequencies):
 
 @jit
 def _compute_planck_function_integral(temperatures, frequencies):
-    # Float32 safety: h/c^2 ~ 7.4e-48 underflows to 0 in float32 (min normal ~1.2e-38),
-    # and nu^3 overflows (~3.7e43 for near-IR > float32 max ~3.4e38).  The combination
-    # 0 * inf produces NaN.  Fix: use h/c (~2.2e-37, representable) as the base constant
-    # and fold the remaining /c into the nu term as (nu/c), so the pattern becomes
-    # factor * (h/c) * (nu/c) * nu^2, with all intermediates within float32 range.
-    cst_h_over_c = cst.h / cst.c  # ~2.21e-37, representable in float32
-    cst_h_k = cst.h / cst.kB
-    factor1 = 1.0 / 90.0
-    factor2 = 14.0 * cst_h_over_c  # (7 * 2) * (h/c); remaining /c applied per-nu below
-    factor3 = 64.0 * cst_h_over_c  # (32 * 2) * (h/c)
-    factor4 = 24.0 * cst_h_over_c  # (12 * 2) * (h/c)
-
-    cst_h_kt = cst_h_k / temperatures
-
-    nu_large = frequencies[:-1]
-    nu_small = frequencies[1:]
-    diff_nu = nu_large - nu_small
-    nu2 = nu_small + diff_nu * 0.25
-    nu3 = nu_small + diff_nu * 0.5
-    nu4 = nu_small + diff_nu * 0.75
-
-    # Each term: factor_k * (nu/c) * nu^2 / expm1(h*nu/(k*T))
-    # This replaces factor_k_old * nu^3 / expm1(...) where factor_k_old = factor_k / c.
-    planck_flux = factor1 * (
-        factor2
-        * (nu_small[None, :] / cst.c)
-        * nu_small[None, :] ** 2
-        / jnp.expm1(cst_h_kt[:, None] * nu_small[None, :])
-        + factor3
-        * (nu2[None, :] / cst.c)
-        * nu2[None, :] ** 2
-        / jnp.expm1(cst_h_kt[:, None] * nu2[None, :])
-        + factor4
-        * (nu3[None, :] / cst.c)
-        * nu3[None, :] ** 2
-        / jnp.expm1(cst_h_kt[:, None] * nu3[None, :])
-        + factor3
-        * (nu4[None, :] / cst.c)
-        * nu4[None, :] ** 2
-        / jnp.expm1(cst_h_kt[:, None] * nu4[None, :])
-        + factor2
-        * (nu_large[None, :] / cst.c)
-        * nu_large[None, :] ** 2
-        / jnp.expm1(cst_h_kt[:, None] * nu_large[None, :])
-    )
-    return planck_flux
+    return _compute_boole_planck_flux_matrix(temperatures, frequencies).T
 
 
 @jit
@@ -282,43 +242,7 @@ def star_planck(T, nu):
         B_nu (ndarray): (len(nu),len(T)) matrix of the spectral radiance (ie flux) as calculated from
                         Planck's law for each frequency and temperature.
     """
-    frequency_len = nu.shape[0]
-
-    # Take mean using Boole's method implemented via lax.scan for JAX friendliness
-    def _body(carry, i):
-        nu_segment = nu[i : i + 1]
-        nu_large = jnp.max(nu_segment)
-        nu_small = jnp.min(nu_segment)
-        nu1 = nu_small
-        nu2 = nu_small + 1.0 * (nu_large - nu_small) / 4.0
-        nu3 = nu_small + 2.0 * (nu_large - nu_small) / 4.0
-        nu4 = nu_small + 3.0 * (nu_large - nu_small) / 4.0
-        nu5 = nu_large
-        # Float32 safety: h*nu^3/c^2 combines nu^3 overflow with h/c^2 underflow.
-        # Use 2*(h/c)*(nu^2)*(nu/c) instead — all intermediates within float32 range.
-        _h_over_c = cst.h / cst.c  # ~2.21e-37, representable in float32
-        val = (
-            1.0
-            / 90.0
-            * (
-                (7.0 * 2.0 * _h_over_c * (nu1**2) * (nu1 / cst.c))
-                / jnp.expm1(cst.h * nu1 / (cst.kB * T))
-                + (32.0 * 2.0 * _h_over_c * (nu2**2) * (nu2 / cst.c))
-                / jnp.expm1(cst.h * nu2 / (cst.kB * T))
-                + (12.0 * 2.0 * _h_over_c * (nu3**2) * (nu3 / cst.c))
-                / jnp.expm1(cst.h * nu3 / (cst.kB * T))
-                + (32.0 * 2.0 * _h_over_c * (nu4**2) * (nu4 / cst.c))
-                / jnp.expm1(cst.h * nu4 / (cst.kB * T))
-                + (7.0 * 2.0 * _h_over_c * (nu5**2) * (nu5 / cst.c))
-                / jnp.expm1(cst.h * nu5 / (cst.kB * T))
-            )
-        )
-        return carry, val
-
-    indices = jnp.arange(frequency_len - 1)
-    _, bnus = lax.scan(_body, None, indices)
-    B_nu = bnus
-    return B_nu
+    return compute_planck_function_integral(T, nu).T
 
 
 def compute_pressure_hydrostatic_equilibrium(
