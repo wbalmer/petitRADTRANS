@@ -598,7 +598,6 @@ def calculate_mass_fraction_mgsio3(metallicity, co_ratio):
 
 def calculate_mass_fraction_mg2sio4(metallicity, co_ratio):
     """Calculate Mg2SiO4 mass fraction for given metallicity and C/O ratio."""
-    # TODO: don't divide by mass twice
     nfracs_use = _prepare_elemental_abundances(metallicity, co_ratio)
     element_counts = {"Mg": 2, "Si": 1, "O": 4}
     compound_mass = (

@@ -35,7 +35,7 @@ dependencies = [
     "numpy>2.0",
     "jax>0.8",
     "scipy",
-    "astropy>=7.0",  # introduces the CAHA observing site
+    "astropy>=7.0",
     "molmass",
     "h5py",
     "dill",
@@ -43,7 +43,6 @@ dependencies = [
     "pyvo",
     "bs4",
     "selenium",
-    "exo_k",
     "interpax",
     "mpi4py",
     "requests",
@@ -68,7 +67,6 @@ full = [
     "matplotlib",
     "corner",
     "seaborn",  # only used in nice_corner
-    "ultranest",
     "pymultinest",
     "blackjax",
     "numpyro",
@@ -78,6 +76,7 @@ full = [
     "numcodecs>=0.13",
     "orbax-checkpoint>=0.6",
     "distrax>=0.1.5"
+    "ultranest",
 ]
 
 retrieval = [
@@ -86,10 +85,10 @@ retrieval = [
     "skycalc-cli",
     "matplotlib",
     "corner",
-    "ultranest",
     "pymultinest",
     "blackjax",
     "numpyro",
+    "ultranest",
 ]
 
 sbi = [
@@ -112,7 +111,6 @@ test = [
     "matplotlib",
     "corner",
     "seaborn",
-    "ultranest",
     "pymultinest",
     "blackjax",
     "numpyro",
@@ -120,6 +118,7 @@ test = [
     "optax>=0.2",
     "zarr>=2.18",
     "numcodecs>=0.13"
+    "ultranest",
 ]
 
 [tool.flake8]

@@ -59,7 +59,7 @@ To manually convert correlated-k opacities, you can use the following example:
 
 .. code-block:: python
 
-    from petitRADTRANS.__file_conversion import _correlated_k_opacities_dat2h5_external_species
+    from petitRADTRANS.opacities.file_conversion import _correlated_k_opacities_dat2h5_external_species
     from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 
     _correlated_k_opacities_dat2h5_external_species(
@@ -95,7 +95,7 @@ First, move the folder containing your pRT2-formatted opacities of the species y
 
 .. code-block:: python
 
-    from petitRADTRANS.__file_conversion import line_by_line_opacities_dat2h5
+    from petitRADTRANS.opacities.file_conversion import line_by_line_opacities_dat2h5
     from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 
     line_by_line_opacities_dat2h5(
@@ -119,7 +119,7 @@ Once you have set the path to your input_data folder (see `"Getting started" <co
 
 .. code-block:: python
 
-    from petitRADTRANS.__file_conversion import convert_all
+    from petitRADTRANS.opacities.file_conversion import convert_all
 
     convert_all(clean=True)  # to not remove the old files automatically, set clean to False
 
@@ -134,6 +134,6 @@ If you get out-of-memory errors while converting line-by-line opacity files, you
 
 .. code-block:: python
 
-    from petitRADTRANS.__file_conversion import convert_all
+    from petitRADTRANS.opacities.file_conversion import convert_all
 
     convert_all(memory_map_mode=True, clean=True)

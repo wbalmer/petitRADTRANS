@@ -109,7 +109,7 @@ class Radtrans:
         "loading opacities from .dat files is discouraged, the HDF5 format offer better performances at for a lower "
         "memory usage\n\n"
         "Converting petitRADTRANS .dat opacity files into HDF5 can be done by executing:\n"
-        ">>> from petitRADTRANS.__file_conversion import convert_all\n"
+        ">>> from petitRADTRANS.opacities.file_conversion import convert_all\n"
         ">>> convert_all()\n\n"
         "Alternatively, the petitRADTRANS HDF5 files can be downloaded "
         "(see https://petitradtrans.readthedocs.io/en/latest/content/available_opacities.html)"
