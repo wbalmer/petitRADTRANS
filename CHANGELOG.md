@@ -27,7 +27,6 @@ Ready for beta testing with version 4.0.0.a16.
 - Testing: resolve remaining compatibility issues with unit tests.
 - Testing: generate new reference files where necessary, once commited to changes (e.g. chemistry update).
 - Testing: Optimise Feautrier chunk size hyper parameters for GPU.
-- Testing: write 32 bit test suite.
 - Testing: Further testing on AMD GPUs, possibly TPUs.
 - Architecture: Set stricter dependency version limits.
 - Architecture: Optional: include ability to use FORTRAN backend, or fully deprecate legacy code.
@@ -49,6 +48,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: correlated-k binning.
 
 ### Changed
+- a24: transmission and non-scattering emission are compatible with 32 bit mode.
 - a24: non-vertically-constant abundance profiles now implemented
 - a24: Performance improvements to Feautrier method
 - a24: Fixed non-Feautrier cloudy case.
