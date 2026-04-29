@@ -35,6 +35,11 @@ import jax.numpy as jnp
 from petitRADTRANS.chemistry import clouds
 from petitRADTRANS.chemistry.core import get_abundances, get_abundances_from_legacy_dict
 from petitRADTRANS.physics import flux2irradiance, planck_function_cm, apply_ism_ext
+from petitRADTRANS.stellar_spectra.phoenix import (
+    _PHOENIX_STAR_TABLE,
+    rebin_star_spectrum,
+)
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.temperature_profiles import (
     cubic_spline_temperature_profile,
     linear_spline_temperature_profile,
@@ -353,6 +358,124 @@ def guillot_emission(
         cloud_properties,
     )
     return calculate_emission_spectrum_runtime(model_context, model_inputs)
+
+
+def guillot_relative_emission(
+    model_context: ModelContext,
+    physical_params: PhysicalParams,
+    pt_plot_mode: bool = False,
+) -> ModelResult:
+    """Guillot emission model normalised by a PHOENIX stellar spectrum.
+
+    Computes the same Guillot global temperature profile and emission spectrum
+    as :func:`guillot_emission`, then divides the planet flux by a PHOENIX
+    stellar spectrum binned to the same wavelength grid.  The returned spectrum
+    is the dimensionless planet-to-star flux ratio F_planet / F_star, suitable
+    for secondary-eclipse or direct-imaging contrast retrieval.
+
+    Required parameters (shared with :func:`guillot_emission`)
+    -----------------------------------------------------------
+    distance_to_system : float
+        Distance from the system to the observer in cm.
+    log_g, planet_radius, mass : float
+        Two of these three must be supplied (see :func:`_compute_gravity`).
+    T_int, T_equ, gamma, log_kappa_IR : float
+        Guillot temperature-profile parameters.
+    Fe/H, C/O, log_pquench : float
+        Equilibrium-chemistry parameters.
+
+    Additional stellar parameters
+    -----------------------------
+    star_effective_temperature : float
+        Effective temperature of the host star in K.  Used to interpolate the
+        PHOENIX spectral grid.
+    stellar_radius : float, optional
+        Stellar radius in cm.  If omitted, the radius from the PHOENIX grid is
+        used.
+    """
+    p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
+    gravity, planet_radius = _compute_gravity(physical_params)
+
+    temperatures = guillot_global_temperature_profile(
+        p_use,
+        10 ** physical_params["log_kappa_IR"],
+        physical_params["gamma"],
+        gravity,
+        physical_params["T_int"],
+        physical_params["T_equ"],
+    )
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        p_use,
+        p_global,
+        temperatures,
+        pt_plot_mode=pt_plot_mode,
+    )
+    if result is not None:
+        return result
+
+    cloud_properties = clouds.setup_clouds(
+        abundance_state["pressures"],
+        physical_params,
+        model_context.radtrans.cloud_species,
+    )
+    model_inputs = _build_runtime_emission_model_inputs(
+        physical_params,
+        abundance_state,
+        gravity,
+        planet_radius,
+        cloud_properties,
+    )
+    planet_result = calculate_emission_spectrum_runtime(model_context, model_inputs)
+
+    if not planet_result.spectrum_is_valid():
+        return planet_result
+
+    # --- Stellar spectrum ---
+    # Frequency bin centres corresponding to the model wavelength grid.
+    freq_edges = model_context.radtrans.frequency_bins_edges
+    freq_centers = 0.5 * (freq_edges[:-1] + freq_edges[1:])  # Hz
+    lambda_cm = cst.c / freq_centers  # wavelengths in cm
+
+    # Interpolate the PHOENIX grid to obtain the surface F_nu [erg/cm^2/s/Hz].
+    star_spectrum, phoenix_star_radius = _PHOENIX_STAR_TABLE.compute_spectrum(
+        physical_params["star_effective_temperature"]
+    )
+
+    # Use an explicitly provided stellar_radius when available.
+    if "stellar_radius" in physical_params.keys():
+        star_radius = physical_params["stellar_radius"]
+    else:
+        star_radius = phoenix_star_radius
+
+    # Rebin surface F_nu to model wavelength grid.
+    stellar_fnu_surface = rebin_star_spectrum(
+        star_spectrum=star_spectrum[:, 1],
+        star_wavelengths=star_spectrum[:, 0],
+        wavelengths=lambda_cm,
+    )  # erg/cm^2/s/Hz at stellar surface
+
+    # Scale to the observer distance: F_nu_earth = F_nu_surface * (R_star / d)^2.
+    distance = physical_params["distance_to_system"]
+    stellar_fnu_earth = stellar_fnu_surface * (star_radius / distance) ** 2
+
+    # Convert F_nu [erg/cm^2/s/Hz] -> F_lambda [erg/cm^2/s/cm] -> [W/cm^2/cm]
+    # using F_lambda = F_nu * c / lambda^2 and 1 erg = 1e-7 J.
+    # The 1e-7 matches the unit convention applied to the planet flux inside
+    # calculate_emission_spectrum_runtime.
+    stellar_flambda_earth = stellar_fnu_earth * cst.c / lambda_cm**2 * 1e-7
+
+    # Dimensionless planet-to-star flux ratio.
+    ratio = planet_result.spectrum / stellar_flambda_earth
+
+    return ModelResult(
+        kind="spectrum",
+        wavelengths=planet_result.wavelengths,
+        spectrum=ratio,
+        auxiliary_outputs=planet_result.auxiliary_outputs,
+    )
 
 
 def guillot_emission_add_gaussian_temperature(
