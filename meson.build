@@ -3,7 +3,7 @@
 project('petitRADTRANS',
     'c',
     # version must be updated here as well
-    version : '4.0.0a24',
+    version : '4.0.0a25',
     license: 'MIT',
     meson_version: '>=1.1.0',
     default_options : [

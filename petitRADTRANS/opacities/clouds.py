@@ -172,19 +172,6 @@ def _init_cloud_background_continuum(
         clear_continuum_opacities, clear_continuum_opacities_scattering, _, _, _, _ = (
             _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
         )
-        clear_continuum_opacities = _maybe_add_opaque_cloud_deck(
-            cloud_continuum_opacities=clear_continuum_opacities,
-            pressures=pressures,
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-        )
-        _, clear_continuum_opacities_scattering = _maybe_add_power_law_cloud_scattering(
-            scattering_in_transmission=scattering_in_transmission,
-            cloud_continuum_opacities_scattering=clear_continuum_opacities_scattering,
-            frequencies=frequencies,
-            pressures=pressures,
-            power_law_opacity_350nm=power_law_opacity_350nm,
-            power_law_opacity_coefficient=power_law_opacity_coefficient,
-        )
     else:
         clear_continuum_opacities = jnp.zeros(
             (frequencies.size, pressures.size), dtype=JAX_DTYPE

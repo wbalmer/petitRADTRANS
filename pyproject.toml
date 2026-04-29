@@ -11,7 +11,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "4.0.0a24"
+version = "4.0.0a25"
 description = "Exopanet spectral synthesis tool for retrievals"
 authors = [
     {name = "Paul Mollière", email = "molliere@mpia.de"},
@@ -75,7 +75,7 @@ full = [
     "zarr>=2.18",
     "numcodecs>=0.13",
     "orbax-checkpoint>=0.6",
-    "distrax>=0.1.5"
+    "distrax>=0.1.5",
     "ultranest",
 ]
 
@@ -117,7 +117,7 @@ test = [
     "equinox>=0.11",
     "optax>=0.2",
     "zarr>=2.18",
-    "numcodecs>=0.13"
+    "numcodecs>=0.13",
     "ultranest",
 ]
 

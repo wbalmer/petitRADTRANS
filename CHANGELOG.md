@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a24] - 2026-04-27
+## [4.0.0a25] - 2026-04-29
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -48,6 +48,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: correlated-k binning.
 
 ### Changed
+- a25: bug fix for patchy grey cloud deck
 - a24: transmission and non-scattering emission are compatible with 32 bit mode.
 - a24: non-vertically-constant abundance profiles now implemented
 - a24: Performance improvements to Feautrier method
@@ -91,6 +92,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Minimum supported Python version is 3.12.
 
 ### Added
+- a25: JAX version of exo-k c-k binning
 - a23: feautrier now also outputs angle dependent intensities
 - a16: Time-variable model function parameterisation
 - a15 Added RetrievalPlotter class, replacing plotting functions and `plot_kwargs` from the Retrieval class.
