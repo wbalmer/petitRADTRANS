@@ -39,6 +39,37 @@ def _filter_complete_coverage_clouds(cloud_species, complete_coverage_clouds):
     )
 
 
+def _select_loaded_cloud_opacity_tables(
+    clouds_loaded_opacities, cloud_species, selected_cloud_species
+):
+    if len(selected_cloud_species) == 0 or len(selected_cloud_species) == len(
+        cloud_species
+    ):
+        return clouds_loaded_opacities
+
+    selected_indices = tuple(
+        i for i, species in enumerate(cloud_species) if species in selected_cloud_species
+    )
+
+    selected_loaded_opacities = LockedDict.build_and_lock(clouds_loaded_opacities)
+    selected_loaded_opacities.unlock()
+    selected_loaded_opacities["particle_densities"] = clouds_loaded_opacities[
+        "particle_densities"
+    ][jnp.array(selected_indices)]
+    selected_loaded_opacities["absorption_opacities"] = clouds_loaded_opacities[
+        "absorption_opacities"
+    ][:, :, jnp.array(selected_indices)]
+    selected_loaded_opacities["scattering_opacities"] = clouds_loaded_opacities[
+        "scattering_opacities"
+    ][:, :, jnp.array(selected_indices)]
+    selected_loaded_opacities["particle_asymmetry_parameters"] = (
+        clouds_loaded_opacities["particle_asymmetry_parameters"][:, :, jnp.array(selected_indices)]
+    )
+    selected_loaded_opacities.lock()
+
+    return selected_loaded_opacities
+
+
 def _init_cloud_branch_outputs(frequencies, pressures, n_clouds):
     min_cloud_shape = max(n_clouds, 1)
     zero_2d = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
@@ -1042,6 +1073,11 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
     cloudy_clouds_have_effect = _selected_clouds_have_effect(
         mass_fractions=mass_fractions, selected_cloud_species=cloud_species
     )
+    cloudy_loaded_opacities = _select_loaded_cloud_opacity_tables(
+        clouds_loaded_opacities=clouds_loaded_opacities,
+        cloud_species=cloud_species,
+        selected_cloud_species=cloud_species,
+    )
 
     (
         cloudy_continuum_opacities,
@@ -1067,7 +1103,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
         mean_molar_masses=mean_molar_masses,
         reference_gravity=reference_gravity,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-        clouds_loaded_opacities=clouds_loaded_opacities,
+        clouds_loaded_opacities=cloudy_loaded_opacities,
         sum_opacities=sum_opacities,
         anisotropic_cloud_scattering=anisotropic_cloud_scattering,
         cloud_f_sed=cloud_f_sed,
@@ -1089,6 +1125,11 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
     if compute_clear_opacities:
         clear_clouds_have_effect = _selected_clouds_have_effect(
             mass_fractions=mass_fractions,
+            selected_cloud_species=complete_coverage_clouds,
+        )
+        clear_loaded_opacities = _select_loaded_cloud_opacity_tables(
+            clouds_loaded_opacities=clouds_loaded_opacities,
+            cloud_species=cloud_species,
             selected_cloud_species=complete_coverage_clouds,
         )
 
@@ -1116,7 +1157,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
             mean_molar_masses=mean_molar_masses,
             reference_gravity=reference_gravity,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-            clouds_loaded_opacities=clouds_loaded_opacities,
+            clouds_loaded_opacities=clear_loaded_opacities,
             sum_opacities=sum_opacities,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             cloud_f_sed=cloud_f_sed,
