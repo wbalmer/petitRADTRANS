@@ -1,13 +1,18 @@
 import sys
 import copy
+from types import SimpleNamespace
 from typing import Any, cast
 
 import jax.numpy as jnp
 from jax import typing
 
 try:
-    from petitRADTRANS.chemistry.prt_easychem import get_exoatmos_abundances
+    from petitRADTRANS.chemistry.prt_easychem import (
+        get_easychem_abundances,
+        get_exoatmos_abundances,
+    )
 except ModuleNotFoundError:
+    get_easychem_abundances = None
     get_exoatmos_abundances = None
 
 from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity
@@ -91,6 +96,183 @@ def _build_pressure_varying_mass_fraction_profile(
     )
 
 
+def _normalize_parameter_mapping(parameters):
+    """Convert plain or legacy parameter values to a plain-value mapping."""
+    return {
+        name: get_parameter_value(value) for name, value in dict(parameters).items()
+    }
+
+
+def _get_parameter_alias_value(parameters, *names, default=None):
+    """Return the first non-``None`` parameter value among the provided aliases."""
+    for name in names:
+        if name in parameters:
+            value = get_parameter_value(parameters[name])
+
+            if value is not None:
+                return value
+
+    return default
+
+
+def _has_truthy_parameter(parameters, *names):
+    """Return whether any aliased parameter is explicitly enabled."""
+    for name in names:
+        if name in parameters and bool(get_parameter_value(parameters[name])):
+            return True
+
+    return False
+
+
+def _resolve_chemistry_mode(parameters):
+    """Resolve free, precalculated-equilibrium, and full-easyChem chemistry modes.
+
+    The parameter mapping drives chemistry selection as follows:
+        - ``use_easychem`` or ``use_exoatmos`` explicitly enables the full
+          easyChem calculation.
+        - Otherwise, a metallicity parameter (``metallicity``, ``M/H``, or
+          ``Fe/H``) selects the built-in precalculated equilibrium table by
+          default.
+        - If neither signal is present, the caller stays on the free-chemistry
+          path.
+    """
+    metallicity = _get_parameter_alias_value(
+        parameters,
+        "metallicity",
+        "M/H",
+        "Fe/H",
+    )
+    co_ratio = _get_parameter_alias_value(parameters, "co_ratio", "C/O")
+    carbon_quench_pressure = _get_parameter_alias_value(
+        parameters,
+        "Pquench",
+        "carbon_quench_pressure",
+    )
+    log_carbon_quench_pressure = _get_parameter_alias_value(
+        parameters,
+        "log_Pquench",
+        "log_pquench",
+    )
+
+    if log_carbon_quench_pressure is not None:
+        carbon_quench_pressure = 10**log_carbon_quench_pressure
+
+    use_full_easychem = _has_truthy_parameter(
+        parameters,
+        "use_easychem",
+        "use_exoatmos",
+    )
+    use_precalculated_equilibrium_chemistry = bool(
+        not use_full_easychem
+        and (
+            metallicity is not None
+            or _has_truthy_parameter(parameters, "use_equilibrium_chemistry")
+        )
+    )
+
+    exo_atmos = _get_parameter_alias_value(parameters, "exo_atmos", "exoatmos")
+    atomic_mass_fractions = _get_parameter_alias_value(
+        parameters,
+        "atomic_mass_fractions",
+    )
+
+    if atomic_mass_fractions is None:
+        atomic_mass_fractions = {}
+    else:
+        atomic_mass_fractions = dict(atomic_mass_fractions)
+
+    if exo_atmos is not None and hasattr(exo_atmos, "atoms"):
+        for atom_name in exo_atmos.atoms:
+            if atom_name in parameters:
+                atomic_mass_fractions[atom_name] = get_parameter_value(
+                    parameters[atom_name]
+                )
+
+    return {
+        "metallicity": metallicity,
+        "co_ratio": co_ratio,
+        "carbon_quench_pressure": carbon_quench_pressure,
+        "use_full_easychem": use_full_easychem,
+        "use_precalculated_equilibrium_chemistry": (
+            use_precalculated_equilibrium_chemistry
+        ),
+        "exo_atmos": exo_atmos,
+        "atomic_mass_fractions": atomic_mass_fractions,
+    }
+
+
+def _build_easychem_mass_fractions(
+    pressures,
+    temperatures,
+    parameters,
+    line_species,
+    cloud_species,
+    metallicity,
+    co_ratio,
+    carbon_quench_pressure,
+    use_full_easychem,
+    exo_atmos,
+    atomic_mass_fractions,
+    adaptive_mesh_refinement,
+):
+    """Build mass fractions from the explicit full easyChem chemistry path."""
+    if not use_full_easychem:
+        raise ValueError("full easyChem mass fractions require use_full_easychem=True")
+
+    if exo_atmos is not None:
+        if get_exoatmos_abundances is None:
+            raise ModuleNotFoundError(
+                "module 'easychem' is not installed, remove key 'use_easychem' "
+                "from the parameters"
+            )
+
+        abundances_interp = get_exoatmos_abundances(
+            exo_atmos=exo_atmos,
+            pressures=pressures,
+            temperatures=temperatures,
+            atomic_mass_fractions=atomic_mass_fractions,
+            metallicity=0.0 if metallicity is None else metallicity,
+            carbon_quench_pressure=carbon_quench_pressure,
+            AMR=adaptive_mesh_refinement,
+        )
+    else:
+        if get_easychem_abundances is None:
+            raise ModuleNotFoundError(
+                "module 'easychem' is not installed, remove key 'use_easychem' "
+                "from the parameters"
+            )
+
+        legacy_parameters = {
+            name: SimpleNamespace(value=value) for name, value in parameters.items()
+        }
+        abundances_interp = get_easychem_abundances(
+            pressures=pressures,
+            temperatures=temperatures,
+            line_species=line_species,
+            cloud_species=cloud_species,
+            metallicity=0.0 if metallicity is None else metallicity,
+            carbon_to_oxygen=0.55 if co_ratio is None else co_ratio,
+            carbon_quench_pressure=carbon_quench_pressure,
+            parameters=legacy_parameters,
+            AMR=adaptive_mesh_refinement,
+        )
+
+    mass_fractions = {
+        species: jnp.asarray(abundance)
+        for species, abundance in abundances_interp.items()
+        if species != "MMW"
+    }
+    line_species_simple = tuple(simplify_species_list(list(line_species)))
+
+    for i, simple_species in enumerate(line_species_simple):
+        if simple_species in mass_fractions and simple_species != line_species[i]:
+            mass_fractions[line_species[i]] = mass_fractions.pop(simple_species)
+
+    mean_molar_mass = jnp.asarray(abundances_interp["MMW"])
+
+    return mass_fractions, mean_molar_mass
+
+
 # @jit(static_argnames=['line_species', 'cloud_species', 'verbose'])
 def calculate_gas_mass_fractions(
     pressures,
@@ -136,9 +318,9 @@ def calculate_gas_mass_fractions(
             ``None``, a species name, an iterable of species names, or a mapping
             of species names to fill weights.
         use_equilibrium_chemistry:
-            Compatibility argument retained for the historical public API. The
-            currently active equilibrium path in this function is selected via
-            ``metallicity`` and ``co_ratio``.
+            If ``True``, use the built-in precalculated equilibrium chemistry
+            table together with ``metallicity`` and ``co_ratio``. The explicit
+            full easyChem path is resolved upstream in :func:`get_abundances`.
         metallicity:
             Metallicity passed to the pre-calculated equilibrium chemistry table.
             When provided, equilibrium gas abundances are interpolated.
@@ -160,9 +342,12 @@ def calculate_gas_mass_fractions(
         mass-fraction profiles and the total mass-fraction sum in each layer.
     """
 
-    # These arguments remain part of the public API, but the currently active
-    # equilibrium path in this function is the pre-calculated chemistry table below.
-    _ = use_equilibrium_chemistry, exo_atmos, atomic_mass_fractions
+    # easychem/exo_atmos remain compatibility arguments for now.
+    _ = exo_atmos, atomic_mass_fractions
+
+    use_precalculated_equilibrium_chemistry = bool(
+        use_equilibrium_chemistry and metallicity is not None
+    )
 
     parameter_source: dict[str, Any] = kwargs.get("parameters", kwargs)
     if parameter_source is None:
@@ -245,7 +430,7 @@ def calculate_gas_mass_fractions(
 
         def h2he_case(filling_species):
             fill_species = {}
-            if metallicity is not None:
+            if use_precalculated_equilibrium_chemistry:
                 fill_species = {
                     "H2": _zeros(),
                     "He": _zeros(),
@@ -334,7 +519,11 @@ def calculate_gas_mass_fractions(
 
     if bool(jnp.any(m_sum_imposed_species > 1)):
         for species in imposed_gas_species:
-            mass_fractions[species] = mass_fractions[species] / m_sum_imposed_species
+            mass_fractions[species] = jnp.where(
+                m_sum_imposed_species > 1,
+                mass_fractions[species] / m_sum_imposed_species,
+                mass_fractions[species],
+            )
 
     # Chemical equilibrium mass fractions
     mass_fractions_chemical_table: dict[str, typing.ArrayLike] = {}
@@ -354,7 +543,7 @@ def calculate_gas_mass_fractions(
         )
         return cast(dict[str, typing.ArrayLike], mf)
 
-    if metallicity is not None:
+    if use_precalculated_equilibrium_chemistry:
         mass_fractions_chemical_table = precalculated_equilibrium_case(metallicity)
 
     # Add non-imposed mass fractions to mass fractions
@@ -406,6 +595,7 @@ def calculate_gas_mass_fractions(
 
     # Ensure that the sum of mass mixing ratios of all species is = 1
     m_sum_total = m_sum_chemical_table_species + m_sum_imposed_species
+    pre_fill_mass_fraction_sum = jnp.asarray(m_sum_total)
 
     mass_fractions, m_sum_total = fill_atmosphere(
         mass_fractions=mass_fractions,
@@ -413,22 +603,43 @@ def calculate_gas_mass_fractions(
         mass_fraction_sum=m_sum_total,
     )
     m_sum_total = jnp.asarray(m_sum_total)
+    effective_imposed_mass_fraction_sum = jnp.where(
+        m_sum_imposed_species > 1,
+        jnp.ones_like(m_sum_imposed_species),
+        m_sum_imposed_species,
+    )
+    chemistry_table_oversubscribed = pre_fill_mass_fraction_sum > (1 + 1e-12)
+    explicit_filling_species = {
+        species
+        for species, weights in filling_species.items()
+        if weights is not None and bool(jnp.any(weights > 0))
+    }
 
     has_chemical_table_species = bool(jnp.any(m_sum_chemical_table_species > 0))
 
     for species, mf_array in mass_fractions.items():
         if species not in imposed_mass_fractions:
             if has_chemical_table_species:
-                mass_fractions[species] = jnp.where(
-                    m_sum_total > 1,
-                    mf_array
-                    * (1 - m_sum_imposed_species)
-                    / m_sum_chemical_table_species,
-                    mf_array,
-                )
+                if (
+                    species in mass_fractions_chemical_table
+                    and species not in explicit_filling_species
+                ):
+                    mass_fractions[species] = jnp.where(
+                        chemistry_table_oversubscribed,
+                        mf_array
+                        * (1 - effective_imposed_mass_fraction_sum)
+                        / m_sum_chemical_table_species,
+                        mf_array,
+                    )
             else:
                 mass_fractions[species] = mf_array / m_sum_total
-    return mass_fractions, m_sum_total
+
+    final_mass_fraction_sum = jnp.zeros_like(pressure_template)
+
+    for mf_array in mass_fractions.values():
+        final_mass_fraction_sum = final_mass_fraction_sum + mf_array
+
+    return mass_fractions, final_mass_fraction_sum
 
 
 # @jit(static_argnames=['cloud_species', 'adaptive_mesh_refinement'])
@@ -470,8 +681,8 @@ def calculate_cloud_mass_fractions(
             Compatibility argument retained for the public API. The current cloud
             path returns the identity pressure grid.
         use_easychem:
-            If ``True``, copy cloud abundances directly from ``mass_fractions``
-            instead of constructing sedimented cloud profiles.
+            If ``True``, copy cloud abundances directly from a full easyChem
+            composition instead of constructing sedimented cloud profiles.
 
     Returns:
         A tuple ``(mass_fractions, p_bases, pressure_indices)`` containing the
@@ -486,7 +697,9 @@ def calculate_cloud_mass_fractions(
     parameter_keys = set(parameters)
     zero_profile = jnp.zeros_like(temperatures)
     one_profile = jnp.ones_like(temperatures)
-    has_equilibrium_cloud_base = "Fe/H" in parameter_keys or "M/H" in parameter_keys
+    has_equilibrium_cloud_base = any(
+        key in parameter_keys for key in ("Fe/H", "M/H", "metallicity")
+    )
     mean_molar_mass_mean = float(jnp.mean(mean_molar_mass))
     mean_molar_mass_surface = float(jnp.asarray(mean_molar_mass[0]))
 
@@ -630,6 +843,20 @@ def get_abundances(
         A tuple ``(mass_fractions, mean_molar_mass, pressure_indices, p_bases)``
         containing the species mass fractions, the mean molar-mass profile, the
         selected pressure-grid indices, and the cloud-base pressures.
+
+    Chemistry-mode selection:
+        ``get_abundances`` distinguishes three chemistry modes from the plain
+        parameter mapping:
+            - free chemistry: no equilibrium selector is present;
+            - precalculated equilibrium chemistry: selected by default when a
+              metallicity parameter such as ``Fe/H``, ``M/H``, or
+              ``metallicity`` is present, or when
+              ``use_equilibrium_chemistry=True``;
+            - full easyChem chemistry: selected only when ``use_easychem`` or
+              ``use_exoatmos`` is explicitly truthy.
+
+        An explicit full easyChem request takes precedence over the default
+        precalculated equilibrium-table path.
     """
     if filling_species is None:
         filling_species = {
@@ -641,35 +868,17 @@ def get_abundances(
     line_species_no_resolution = tuple(
         [species.split(".R")[0] for species in line_species]
     )
-
-    metallicity = None
-    co_ratio = None
-    carbon_quench_pressure = None
-    use_equilibrium_chemistry = False
-    exo_atmos = None
-    atomic_mass_fractions = None
-
-    if "Fe/H" in parameters.keys():
-        metallicity = parameters["Fe/H"]
-
-    if "M/H" in parameters.keys():
-        metallicity = parameters["M/H"]
-
-    if "C/O" in parameters.keys():
-        co_ratio = parameters["C/O"]
-
-    if "log_Pquench" in parameters.keys():
-        carbon_quench_pressure = 10 ** parameters["log_Pquench"]
-    elif "Pquench" in parameters.keys():
-        carbon_quench_pressure = parameters["Pquench"]
-
-    if "use_easychem" in parameters.keys():
-        use_equilibrium_chemistry = parameters["use_exoatmos"]
-        exo_atmos = parameters["exoatmos"]
-        atomic_mass_fractions = {}
-        for atom_name in exo_atmos.atoms:
-            if atom_name in parameters.keys():
-                atomic_mass_fractions[atom_name] = parameters[atom_name]
+    plain_parameters = _normalize_parameter_mapping(parameters)
+    chemistry_mode = _resolve_chemistry_mode(plain_parameters)
+    metallicity = chemistry_mode["metallicity"]
+    co_ratio = chemistry_mode["co_ratio"]
+    carbon_quench_pressure = chemistry_mode["carbon_quench_pressure"]
+    use_full_easychem = chemistry_mode["use_full_easychem"]
+    use_precalculated_equilibrium_chemistry = chemistry_mode[
+        "use_precalculated_equilibrium_chemistry"
+    ]
+    exo_atmos = chemistry_mode["exo_atmos"]
+    atomic_mass_fractions = chemistry_mode["atomic_mass_fractions"]
 
     imposed_mass_fractions = {}
     for species in line_species:
@@ -677,28 +886,48 @@ def get_abundances(
         species_full_name = species_opacity.get_full_name().split(".R")[0]
         species_basename = Opacity.get_species_base_name(species)
 
-        if species_full_name in parameters.keys():
-            imposed_mass_fractions[species_full_name] = parameters[species_full_name]
-        elif species_basename in parameters.keys():
-            imposed_mass_fractions[species_basename] = parameters[species_basename]
+        if species_full_name in plain_parameters:
+            imposed_mass_fractions[species_full_name] = plain_parameters[
+                species_full_name
+            ]
+        elif species_basename in plain_parameters:
+            imposed_mass_fractions[species_basename] = plain_parameters[
+                species_basename
+            ]
 
-    mass_fractions, _ = calculate_gas_mass_fractions(
-        pressures=pressures,
-        temperatures=temperatures,
-        line_species=line_species_no_resolution,
-        imposed_mass_fractions=imposed_mass_fractions,
-        cloud_species=cloud_species,
-        filling_species=filling_species,
-        metallicity=metallicity,
-        co_ratio=co_ratio,
-        carbon_quench_pressure=carbon_quench_pressure,
-        use_equilibrium_chemistry=use_equilibrium_chemistry,
-        exo_atmos=exo_atmos,
-        atomic_mass_fractions=atomic_mass_fractions,
-        parameters=parameters,
-        **kwargs,
-    )
-    mean_molar_mass = compute_mean_molar_masses(mass_fractions)
+    if use_full_easychem:
+        mass_fractions, mean_molar_mass = _build_easychem_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            parameters=plain_parameters,
+            line_species=line_species_no_resolution,
+            cloud_species=tuple(cloud_species),
+            metallicity=metallicity,
+            co_ratio=co_ratio,
+            carbon_quench_pressure=carbon_quench_pressure,
+            use_full_easychem=use_full_easychem,
+            exo_atmos=exo_atmos,
+            atomic_mass_fractions=atomic_mass_fractions,
+            adaptive_mesh_refinement=adaptive_mesh_refinement,
+        )
+    else:
+        mass_fractions, _ = calculate_gas_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            line_species=line_species_no_resolution,
+            imposed_mass_fractions=imposed_mass_fractions,
+            cloud_species=cloud_species,
+            filling_species=filling_species,
+            metallicity=metallicity,
+            co_ratio=co_ratio,
+            carbon_quench_pressure=carbon_quench_pressure,
+            use_equilibrium_chemistry=use_precalculated_equilibrium_chemistry,
+            exo_atmos=exo_atmos,
+            atomic_mass_fractions=atomic_mass_fractions,
+            parameters=plain_parameters,
+            **kwargs,
+        )
+        mean_molar_mass = compute_mean_molar_masses(mass_fractions)
 
     if metallicity is None:
         metallicity, elemental_ratios = mass_fractions2metallicity(
@@ -719,11 +948,11 @@ def get_abundances(
             metallicity,
             co_ratio,
             tuple(cloud_species),
-            parameters,
+            plain_parameters,
             mass_fractions,
             mean_molar_mass,
             adaptive_mesh_refinement=adaptive_mesh_refinement,
-            use_easychem=use_equilibrium_chemistry,
+            use_easychem=use_full_easychem,
         )
 
     # Adjust arrays for amr, and magic fix for FeH abundance.
@@ -731,7 +960,7 @@ def get_abundances(
         if "FeH" in species:
             # Magic factor for FeH opacity - off by factor of 2
             abunds_change_rainout = value / 2.0
-            if "Fe(s)" in p_bases and "use_easychem" not in parameters.keys():
+            if "Fe(s)" in p_bases and not use_full_easychem:
                 index_ro = pressures < p_bases["Fe(s)"]  # Must have iron cloud
                 abunds_change_rainout = jnp.where(index_ro, 0.0, abunds_change_rainout)
             mass_fractions[species] = abunds_change_rainout[pressure_indices]

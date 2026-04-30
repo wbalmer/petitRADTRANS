@@ -48,7 +48,9 @@ def _select_loaded_cloud_opacity_tables(
         return clouds_loaded_opacities
 
     selected_indices = tuple(
-        i for i, species in enumerate(cloud_species) if species in selected_cloud_species
+        i
+        for i, species in enumerate(cloud_species)
+        if species in selected_cloud_species
     )
 
     selected_loaded_opacities = LockedDict.build_and_lock(clouds_loaded_opacities)
@@ -63,7 +65,9 @@ def _select_loaded_cloud_opacity_tables(
         "scattering_opacities"
     ][:, :, jnp.array(selected_indices)]
     selected_loaded_opacities["particle_asymmetry_parameters"] = (
-        clouds_loaded_opacities["particle_asymmetry_parameters"][:, :, jnp.array(selected_indices)]
+        clouds_loaded_opacities["particle_asymmetry_parameters"][
+            :, :, jnp.array(selected_indices)
+        ]
     )
     selected_loaded_opacities.lock()
 
@@ -834,12 +838,8 @@ def init_clouds_particle_porosity_factor(
     Returns:
         Updated porosity-factor mapping with defaults applied.
     """
-    # This check is done in _compute_opacities now
-    # if (clouds_particle_porosity_factor is None) or (not bool(clouds_particle_porosity_factor)):
-    #    clouds_particle_porosity_factor = {species: -jnp.inf for species in cloud_species}
 
     for species in cloud_species:
-        # TODO: check JAX compatibility for split_species_all_info
         _, _, _, _, source, _ = Opacity.split_species_all_info(
             CloudOpacity.get_aliases(species)
         )

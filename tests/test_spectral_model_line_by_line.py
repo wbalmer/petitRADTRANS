@@ -133,6 +133,94 @@ def init_spectral_model_line_by_line():
 spectral_model_lbl_full = init_spectral_model_line_by_line()
 
 
+def test_line_by_line_spectral_model_transmission_full_matches_direct_radtrans():
+    spectral_model = copy.deepcopy(spectral_model_lbl_full)
+
+    wavelengths_wrapper, spectrum_wrapper = spectral_model.calculate_spectrum(
+        mode="transmission",
+        parameters=None,
+        update_parameters=True,
+        scale=False,
+        shift=False,
+        use_transit_light_loss=False,
+        convolve=False,
+        rebin=False,
+        prepare=False,
+    )
+
+    wavelengths_direct, spectrum_direct, _ = spectral_model.calculate_transit_radii(
+        temperatures=spectral_model.temperatures,
+        mass_fractions=spectral_model.mass_fractions,
+        mean_molar_masses=spectral_model.mean_molar_masses,
+        reference_gravity=spectral_model.model_parameters["reference_gravity"],
+        reference_pressure=spectral_model.model_parameters["reference_pressure"],
+        planet_radius=spectral_model.model_parameters["planet_radius"],
+        variable_gravity=spectral_model.model_parameters.get("variable_gravity", True),
+        opaque_cloud_top_pressure=spectral_model.model_parameters.get(
+            "opaque_cloud_top_pressure"
+        ),
+        cloud_particle_mean_radii=spectral_model.model_parameters.get(
+            "cloud_particle_mean_radii"
+        ),
+        cloud_particle_radius_distribution_std=spectral_model.model_parameters.get(
+            "cloud_particle_radius_distribution_std"
+        ),
+        cloud_particle_radius_distribution=spectral_model.model_parameters.get(
+            "cloud_particle_radius_distribution", "lognormal"
+        ),
+        cloud_hansen_a=spectral_model.model_parameters.get("cloud_hansen_a"),
+        cloud_hansen_b=spectral_model.model_parameters.get("cloud_hansen_b"),
+        cloud_particle_number_density_grid=spectral_model.model_parameters.get(
+            "cloud_particle_number_density_grid"
+        ),
+        cloud_f_sed=spectral_model.model_parameters.get("cloud_f_sed"),
+        eddy_diffusion_coefficients=spectral_model.model_parameters.get(
+            "eddy_diffusion_coefficients"
+        ),
+        haze_factor=spectral_model.model_parameters.get("haze_factor", 1.0),
+        power_law_opacity_350nm=spectral_model.model_parameters.get(
+            "power_law_opacity_350nm"
+        ),
+        power_law_opacity_coefficient=spectral_model.model_parameters.get(
+            "power_law_opacity_coefficient"
+        ),
+        gray_opacity=spectral_model.model_parameters.get("gray_opacity"),
+        cloud_fraction=spectral_model.model_parameters.get("cloud_fraction", 1.0),
+        complete_coverage_clouds=spectral_model.model_parameters.get(
+            "complete_coverage_clouds"
+        ),
+        additional_absorption_opacities_function=spectral_model.model_parameters.get(
+            "additional_absorption_opacities_function"
+        ),
+        additional_scattering_opacities_function=spectral_model.model_parameters.get(
+            "additional_scattering_opacities_function"
+        ),
+        frequencies_to_wavelengths=True,
+        return_contribution=False,
+        return_clear_spectrum=False,
+        return_cloud_contribution=False,
+        return_radius_hydrostatic_equilibrium=False,
+        target_particle_radii=spectral_model.model_parameters.get(
+            "target_particle_radii"
+        ),
+        target_pressure=spectral_model.model_parameters.get("target_pressure"),
+    )
+
+    wavelengths_wrapper = np.asarray(wavelengths_wrapper)
+
+    if wavelengths_wrapper.ndim > 1:
+        wavelengths_wrapper = wavelengths_wrapper[0]
+
+    np.testing.assert_allclose(
+        wavelengths_wrapper,
+        np.asarray(wavelengths_direct),
+    )
+    np.testing.assert_allclose(
+        np.asarray(spectrum_wrapper)[0],
+        np.asarray(spectrum_direct),
+    )
+
+
 def test_line_by_line_spectral_model_emission_full_all():
     spectral_model = copy.deepcopy(spectral_model_lbl_full)
 

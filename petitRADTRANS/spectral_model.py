@@ -245,7 +245,9 @@ class SpectralModel(Radtrans):
             If True, the uncertainties are used as fit weights when preparing the spectrum.
             Used when preparing the spectrum with retrieval.preparing.polyfit function.
         use_equilibrium_chemistry:
-            If True, use pRT equilibrium chemistry module to calculate the mass fractions. Does not override the
+            If True, use the built-in precalculated pRT equilibrium chemistry
+            table to calculate the mass fractions. This does not trigger the
+            separate full easyChem chemistry solver and does not override the
             imposed mass fractions.
         verbose:
             If True, displays additional information when running some SpectralModel functions.
@@ -2151,7 +2153,8 @@ class SpectralModel(Radtrans):
             carbon_quench_pressure: (bar) pressure where the carbon species are quenched, used with equilibrium
                 chemistry
             imposed_mass_fractions: imposed mass mixing ratios
-            use_equilibrium_chemistry: if True, use pRT equilibrium chemistry module
+            use_equilibrium_chemistry: if True, use the built-in precalculated
+                pRT equilibrium chemistry table
             filling_species:
                 Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
                 filling species are represented with None.

@@ -489,7 +489,9 @@ Equilibrium Chemistry
    * - ``use_easychem``
      - flag
      - Optional
-     - If present, use EasyChem for on-the-fly equilibrium chemistry calculations.
+     - If truthy, explicitly opt into the full EasyChem equilibrium solver.
+       Otherwise, providing ``Fe/H`` or ``M/H`` uses the built-in
+       precalculated equilibrium chemistry table by default.
 
 .. _chemistry-free:
 

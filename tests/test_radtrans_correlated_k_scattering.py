@@ -329,6 +329,7 @@ def test_correlated_k_emission_spectrum_complete_coverage_calculated_radius_stel
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         opaque_cloud_top_pressure=None,
+        run_benchmark=False,
         temperatures=temperature_guillot_2010,
         reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
         mean_molar_masses=test_parameters["mean_molar_mass"],

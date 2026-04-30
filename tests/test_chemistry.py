@@ -200,6 +200,118 @@ def test_get_abundances_without_clouds_keeps_dict_p_bases_and_identity_indices(
     np.testing.assert_allclose(np.asarray(mean_molar_mass), np.array([1.0, 1.0]))
 
 
+def test_get_abundances_defaults_to_precalculated_equilibrium_table(
+    monkeypatch,
+):
+    pressures = np.array([1.0, 10.0])
+    temperatures = np.array([1000.0, 1100.0])
+    captured = {}
+
+    def fake_calculate_gas_mass_fractions(**kwargs):
+        captured["use_equilibrium_chemistry"] = kwargs["use_equilibrium_chemistry"]
+        return (
+            {
+                "H2": np.array([0.74, 0.74]),
+                "He": np.array([0.26, 0.26]),
+            },
+            np.ones_like(pressures),
+        )
+
+    def fail_full_easychem(**_kwargs):
+        raise AssertionError("full easyChem should not run without an explicit request")
+
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        "calculate_gas_mass_fractions",
+        fake_calculate_gas_mass_fractions,
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        "get_easychem_abundances",
+        fail_full_easychem,
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        "compute_mean_molar_masses",
+        lambda abundances: np.ones_like(next(iter(abundances.values()))),
+    )
+
+    abundances, mean_molar_mass, pressure_indices, p_bases = (
+        petitRADTRANS.chemistry.core.get_abundances(
+            pressures=pressures,
+            temperatures=temperatures,
+            parameters={
+                "Fe/H": 0.0,
+                "C/O": 0.55,
+                "use_easychem": False,
+            },
+            line_species=(),
+            cloud_species=(),
+        )
+    )
+
+    assert captured["use_equilibrium_chemistry"] is True
+    assert p_bases == {}
+    np.testing.assert_array_equal(np.asarray(pressure_indices), np.array([0, 1]))
+    np.testing.assert_allclose(np.asarray(abundances["H2"]), np.array([0.74, 0.74]))
+    np.testing.assert_allclose(np.asarray(mean_molar_mass), np.array([1.0, 1.0]))
+
+
+def test_get_abundances_uses_full_easychem_only_when_explicitly_requested(
+    monkeypatch,
+):
+    pressures = np.array([1.0, 10.0])
+    temperatures = np.array([1000.0, 1100.0])
+    calls = {"easychem": 0}
+
+    def fail_precalculated_table(**_kwargs):
+        raise AssertionError(
+            "the precalculated equilibrium table should not run when easyChem is requested"
+        )
+
+    def fake_easychem_abundances(**kwargs):
+        calls["easychem"] += 1
+        assert kwargs["metallicity"] == 0.0
+        assert kwargs["carbon_to_oxygen"] == 0.55
+        return {
+            "FeH": np.array([0.2, 0.4]),
+            "H2": np.array([0.7, 0.6]),
+            "He": np.array([0.1, 0.2]),
+            "MMW": np.array([2.0, 2.1]),
+        }
+
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        "calculate_gas_mass_fractions",
+        fail_precalculated_table,
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        "get_easychem_abundances",
+        fake_easychem_abundances,
+    )
+
+    abundances, mean_molar_mass, pressure_indices, p_bases = (
+        petitRADTRANS.chemistry.core.get_abundances(
+            pressures=pressures,
+            temperatures=temperatures,
+            parameters={
+                "Fe/H": 0.0,
+                "C/O": 0.55,
+                "use_easychem": True,
+            },
+            line_species=(),
+            cloud_species=(),
+        )
+    )
+
+    assert calls["easychem"] == 1
+    assert p_bases == {}
+    np.testing.assert_array_equal(np.asarray(pressure_indices), np.array([0, 1]))
+    np.testing.assert_allclose(np.asarray(abundances["FeH"]), np.array([0.1, 0.2]))
+    np.testing.assert_allclose(np.asarray(mean_molar_mass), np.array([2.0, 2.1]))
+
+
 def test_profile_node_helpers_accept_plain_and_legacy_parameters():
     pressures = jnp.logspace(-6.0, 2.0, 8)
     parameters = {
@@ -405,6 +517,101 @@ def test_calculate_gas_mass_fractions_accepts_tuple_filling_species():
     assert (
         np.asarray(mass_fractions["H2"]).dtype == np.asarray(mass_fractions["He"]).dtype
     )
+
+
+def test_calculate_gas_mass_fractions_ignores_metallicity_without_equilibrium():
+    pressures = np.asarray(test_parameters["pressures"])
+    temperatures = np.full_like(
+        pressures,
+        test_parameters["temperature_guillot_2010_parameters"][
+            "equilibrium_temperature"
+        ],
+    )
+    imposed_mass_fractions = {
+        species: mass_fraction
+        for species, mass_fraction in test_parameters[
+            "mass_fractions_correlated_k"
+        ].items()
+        if species not in test_parameters["filling_species"]
+    }
+
+    mass_fractions, m_sum_total = (
+        petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            imposed_mass_fractions=imposed_mass_fractions,
+            line_species=test_parameters["spectrum_parameters"][
+                "line_species_correlated_k"
+            ],
+            cloud_species=(),
+            filling_species=test_parameters["filling_species"],
+            use_equilibrium_chemistry=False,
+            metallicity=10
+            ** test_parameters["chemical_parameters"]["metallicities"][1],
+            co_ratio=test_parameters["chemical_parameters"]["c_o_ratios"][0],
+        )
+    )
+
+    imposed_total = np.zeros(pressures.shape)
+
+    for value in imposed_mass_fractions.values():
+        imposed_total = imposed_total + np.broadcast_to(
+            np.asarray(value), pressures.shape
+        )
+
+    fill_mass = 1.0 - imposed_total
+    total_fill_weight = sum(test_parameters["filling_species"].values())
+
+    np.testing.assert_allclose(np.asarray(m_sum_total), np.ones(pressures.size))
+
+    for species, weight in test_parameters["filling_species"].items():
+        expected = np.full(pressures.shape, fill_mass * weight / total_fill_weight)
+        np.testing.assert_allclose(np.asarray(mass_fractions[species]), expected)
+
+
+def test_calculate_gas_mass_fractions_equilibrium_with_imposed_profiles_stays_normalized():
+    pressures = np.asarray(test_parameters["pressures"])
+    temperatures = np.asarray(temperature_guillot_2010)
+    line_species = test_parameters["spectrum_parameters"]["line_species_correlated_k"]
+    imposed_mass_fractions = {
+        species: np.logspace(
+            test_parameters["mass_fractions_test"][0],
+            test_parameters["mass_fractions_test"][1],
+            pressures.size,
+        )
+        for species in line_species
+    }
+
+    mass_fractions, m_sum_total = (
+        petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            imposed_mass_fractions=imposed_mass_fractions,
+            line_species=line_species,
+            cloud_species=(),
+            filling_species=test_parameters["filling_species"],
+            use_equilibrium_chemistry=True,
+            metallicity=10
+            ** test_parameters["chemical_parameters"]["metallicities"][1],
+            co_ratio=test_parameters["chemical_parameters"]["c_o_ratios"][0],
+        )
+    )
+
+    summed_mass_fractions = None
+    for profile in mass_fractions.values():
+        array = np.asarray(profile)
+        summed_mass_fractions = (
+            array.copy()
+            if summed_mass_fractions is None
+            else summed_mass_fractions + array
+        )
+
+    np.testing.assert_allclose(np.asarray(m_sum_total), np.ones(pressures.size))
+    np.testing.assert_allclose(summed_mass_fractions, np.ones(pressures.size))
+    assert np.all(np.asarray(mass_fractions["H2"]) >= 0)
+    assert np.all(np.asarray(mass_fractions["He"]) >= 0)
+    assert np.all(np.isfinite(np.asarray(mass_fractions["H2"])))
+    assert np.all(np.isfinite(np.asarray(mass_fractions["He"])))
 
 
 def test_calculate_cloud_mass_fractions_uses_free_cloud_base_without_equilibrium_parameters(

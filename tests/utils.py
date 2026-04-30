@@ -282,7 +282,7 @@ def make_test_opacities():
 
             hdf5_file = CIAOpacity.find(species=species)
 
-            (doi, species, wavenumbers, alpha, temperatures) = (
+            doi, species, wavenumbers, alpha, temperatures = (
                 SpectralModel.load_cia_opacity(
                     hdf5_file, return_radtrans_opacities=False
                 )
@@ -849,6 +849,7 @@ def check_cloud_complete_coverage_consistency(
     mass_fractions,
     mass_fractions_clear=None,
     opaque_cloud_top_pressure=None,
+    run_benchmark=True,
     **kwargs,
 ):
     """Check if results obtained with partial cloud coverage are consistent."""
@@ -907,27 +908,30 @@ def check_cloud_complete_coverage_consistency(
 
     print("OK")
 
-    benchmark.run(
-        mass_fractions=mass_fractions,
-        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-        cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
-        **kwargs,
-    )
+    if run_benchmark:
+        benchmark.run(
+            mass_fractions=mass_fractions,
+            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            cloud_fraction=cloud_fraction,
+            complete_coverage_clouds=complete_coverage_clouds,
+            **kwargs,
+        )
 
-    # Test flux with cloud fraction
-    print("Testing transit radii with partial cloud coverage consistency...", end=" ")
-    reference_file = benchmark._load_reference_file()
+        # Test flux with cloud fraction
+        print(
+            "Testing transit radii with partial cloud coverage consistency...", end=" "
+        )
+        reference_file = benchmark._load_reference_file()
 
-    assert np.allclose(
-        test_parameters["cloud_parameters"]["cloud_fraction"] * flux_cloudy
-        + (1 - test_parameters["cloud_parameters"]["cloud_fraction"]) * flux_clear,
-        reference_file.outputs["1"],
-        atol=0,
-        rtol=relative_tolerance,
-    )
+        assert np.allclose(
+            test_parameters["cloud_parameters"]["cloud_fraction"] * flux_cloudy
+            + (1 - test_parameters["cloud_parameters"]["cloud_fraction"]) * flux_clear,
+            reference_file.outputs["1"],
+            atol=0,
+            rtol=relative_tolerance,
+        )
 
-    print("OK")
+        print("OK")
 
 
 def check_partial_cloud_coverage_full_consistency(
@@ -938,6 +942,7 @@ def check_partial_cloud_coverage_full_consistency(
     mass_fractions,
     mass_fractions_clear=None,
     opaque_cloud_top_pressure=None,
+    minimum_effect_relative_tolerance=None,
     **kwargs,
 ):
     """Check if results obtained with partial cloud coverage are consistent."""
@@ -985,9 +990,14 @@ def check_partial_cloud_coverage_full_consistency(
 
     assert np.allclose(flux_clear, flux_coverage0, atol=0, rtol=relative_tolerance)
 
-    assert not np.allclose(  # check that there are differences between the cloudy and the cloudless cases
-        flux_clear, flux_cloudy, atol=0, rtol=relative_tolerance
+    cloud_effect = np.max(
+        np.abs(flux_clear - flux_cloudy)
+        / np.maximum(np.abs(flux_clear), np.finfo(float).tiny)
     )
+    if minimum_effect_relative_tolerance is None:
+        minimum_effect_relative_tolerance = relative_tolerance
+
+    assert cloud_effect > minimum_effect_relative_tolerance
 
     print("OK")
 

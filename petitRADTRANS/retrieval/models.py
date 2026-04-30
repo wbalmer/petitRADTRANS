@@ -29,6 +29,7 @@ import inspect
 from functools import wraps
 from numbers import Number
 from types import SimpleNamespace
+import numpy as np
 from jax import vmap
 import jax.numpy as jnp
 
@@ -66,6 +67,17 @@ from petitRADTRANS.retrieval.utils import (
     _get_parameter_value,
 )
 
+
+def _is_full_easychem_requested(parameters) -> bool:
+    """Return whether the retrieval explicitly requested the full easyChem path."""
+    if "use_easychem" not in parameters:
+        return False
+
+    value = parameters["use_easychem"]
+
+    return bool(getattr(value, "value", value))
+
+
 # Global constants to reduce calculations and initializations.
 # PGLOBAL = jnp.logspace(-6, 3, 1000)
 
@@ -78,6 +90,13 @@ _WRAPPED_LEGACY_MODEL_ATTRIBUTE = "_prt_wrapped_legacy_model"
 # Naming-convention patterns for automatic time-series parameter detection
 _TIME_INDEXED_PATTERN = re.compile(r"^(.+)_t_(\d+)$")
 _SINUSOIDAL_SUFFIXES = ("_amplitude", "_period", "_phase", "_offset")
+
+
+def _normalize_legacy_output_value(value):
+    if isinstance(value, np.ma.MaskedArray):
+        return np.asarray(value.filled(0))
+
+    return value
 
 
 def _compute_gravity(physical_params):
@@ -139,7 +158,7 @@ def molliere_2020_emission(
         )
     )
 
-    if "use_easychem" in physical_params.keys():
+    if _is_full_easychem_requested(physical_params):
         temperatures = jnp.clip(temperatures, 40, 40000)
 
     result, abundance_state = _resolve_runtime_abundance_state(
@@ -1343,7 +1362,7 @@ def legacy_molliere_2020_emission(
         )
     )
 
-    if "use_easychem" in parameters.keys():
+    if _is_full_easychem_requested(parameters):
         temperatures = jnp.clip(temperatures, 40, 40000)
 
     # If in evaluation mode, and PTs are supposed to be plotted
@@ -3216,6 +3235,9 @@ def _as_auxiliary_outputs(outputs):
 
 
 def _is_scalar_like(value):
+    if value is None:
+        return False
+
     if isinstance(value, Number):
         return True
 
@@ -3270,8 +3292,8 @@ def _normalize_model_output(model_output, pt_plot_mode=False):
     if len(model_output) < 2:
         raise ValueError("model output must contain at least two elements")
 
-    first = model_output[0]
-    second = model_output[1]
+    first = _normalize_legacy_output_value(model_output[0])
+    second = _normalize_legacy_output_value(model_output[1])
 
     if first is None or second is None:
         return ModelResult(kind="invalid")
@@ -3284,21 +3306,27 @@ def _normalize_model_output(model_output, pt_plot_mode=False):
     auxiliary_outputs = {}
 
     if len(model_output) >= 3:
-        third = model_output[2]
-        if _is_scalar_like(third):
+        third = _normalize_legacy_output_value(model_output[2])
+        if third is None:
+            pass
+        elif _is_scalar_like(third):
             additional_log_likelihood = third
         else:
             auxiliary_outputs["legacy_output_2"] = third
 
     if len(model_output) >= 4:
-        fourth = model_output[3]
-        if atmospheric_column_fluxes is None and not _is_scalar_like(fourth):
+        fourth = _normalize_legacy_output_value(model_output[3])
+        if fourth is None:
+            pass
+        elif atmospheric_column_fluxes is None and not _is_scalar_like(fourth):
             atmospheric_column_fluxes = fourth
         else:
             auxiliary_outputs["legacy_output_3"] = fourth
 
     if len(model_output) > 4:
-        auxiliary_outputs["legacy_extra_outputs"] = tuple(model_output[4:])
+        auxiliary_outputs["legacy_extra_outputs"] = tuple(
+            _normalize_legacy_output_value(value) for value in model_output[4:]
+        )
 
     return ModelResult(
         kind="spectrum",

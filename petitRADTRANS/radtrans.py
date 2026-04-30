@@ -1336,53 +1336,6 @@ class Radtrans:
             target_pressure=target_pressure,
         )
 
-        # TODO jitable for ValueError (jax.debug.callback)
-        # TODO update conditional to not use None, instead check for _MISSING_FLOAT
-        # Check if photospheric_cloud_optical_depths is used with a single cloud model
-        # Combining cloud opacities from different models is currently not supported with the
-        # photospheric_cloud_optical_depths parameter
-        """if len(self._cloud_species) > 0 and cloud_photosphere_median_optical_depth is not None:
-            if (additional_absorption_opacities_function is not None
-                    or additional_scattering_opacities_function is not None):
-                raise ValueError(
-                    "The photospheric_cloud_optical_depths can only be used in combination with "
-                    "a single cloud model. "
-                    "Either use a physical cloud model by choosing cloud_species "
-                    "or use parametrized cloud opacities with "
-                    "the give_absorption_opacity and give_scattering_opacity parameters."
-                )
-        """
-        # Additional opacities
-        """if not self._clouds_have_effect(mass_fractions, cloud_fraction):
-            (additional_absorption_opacities, additional_scattering_opacities,
-             _cloud_absorption_opacities, _cloud_scattering_opacities) = self._compute_additional_continuum_opacities(
-                frequencies=self._frequencies,
-                pressures=self._pressures,
-                additional_absorption_opacities_function=additional_absorption_opacities_function,
-                additional_scattering_opacities_function=additional_scattering_opacities_function,
-                cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth
-            )
-        else:"""
-        # additional_scattering_opacities = None
-        # additional_absorption_opacities = None
-        # _cloud_absorption_opacities = None
-        # _cloud_scattering_opacities = None
-
-        # cloud_absorption_opacities = _cloud_absorption_opacities
-        # cloud_scattering_opacities = _cloud_scattering_opacities
-        """if len(complete_coverage_clouds) > 0:
-            # cloud_absorption_opacities is a list
-            complete_coverage_cloud_absorption_opacities = _cloud_absorption_opacities
-            complete_coverage_cloud_scattering_opacities = _cloud_scattering_opacities
-        else:
-            cloud_absorption_opacities = _cloud_absorption_opacities
-            cloud_scattering_opacities = _cloud_scattering_opacities
-        """
-        # del _cloud_absorption_opacities
-        # del _cloud_scattering_opacities
-
-        # _opacities_first_species = None
-
         # Line opacities (calculating them just before calculating the combined opacities reduces peak memory usage)
         ck_flattened_layout = self._line_opacity_mode == "c-k" and sum_opacities
         line_opacities = interpolate_species_opacities(
@@ -1504,7 +1457,7 @@ class Radtrans:
         variable_gravity,
         opacities,
         continuum_opacities_scattering,
-        copy_opacities,
+        sum_opacities,
         return_contributions,
     ):
         """Compute transmission-spectrum radii for the prepared opacity state.
@@ -1527,7 +1480,7 @@ class Radtrans:
                 Total opacity array produced by ``_calculate_opacities``.
             continuum_opacities_scattering:
                 Continuum scattering opacity array.
-            copy_opacities:
+            sum_opacities:
                 Retained for API compatibility with older transmission
                 contribution workflows.
             return_contributions:
@@ -1539,7 +1492,7 @@ class Radtrans:
             Tuple ``(transit_radii, radius_hydrostatic_equilibrium,
             transmission_contribution)``.
         """
-        # if copy_opacities:
+        # if sum_opacities:
         transmission_contribution = jnp.zeros(
             (jnp.size(self._pressures), self._frequencies.size), dtype=JAX_DTYPE
         )
@@ -1547,34 +1500,37 @@ class Radtrans:
         #    transmission_contribution = None
 
         # Calculate the transmission spectrum
-        """if self.__sum_opacities and len(self._line_species) > 1:
-            transit_radii, radius_hydrostatic_equilibrium = radiative_transfer_core.compute_transit_radii_summed(
-                opacities=opacities,
-                continuum_opacities_scattering=continuum_opacities_scattering,
-                pressures=self._pressures * 1e-6,  # cgs to bar
-                temperatures=temperatures,
-                weights_gauss=self._lines_loaded_opacities['weights_gauss'],
-                mean_molar_masses=mean_molar_masses,
-                reference_gravity=reference_gravity,
-                reference_pressure=reference_pressure,
-                planet_radius=planet_radius,
-                variable_gravity=variable_gravity
-            )"""
-
-        """if return_contributions:
-                # ORDER FOR TRANSMISSION CONTRIBUTION ARGS
-                #opacities,
-                #temperatures,
-                #pressures * 1e-6,
-                #reference_gravity,
-                #mean_molar_masses,
-                #reference_pressure,
-                #planet_radius,
-                #weights_gauss,
-                #transit_radii ** 2,
-                #continuum_opacities_scattering,
-                #scattering_in_transmission,
-                #variable_gravity
+        if sum_opacities and len(self._line_species) > 1:
+            transit_radii, radius_hydrostatic_equilibrium = (
+                radiative_transfer_core.compute_transit_radii_summed(
+                    opacities=opacities,
+                    continuum_opacities_scattering=continuum_opacities_scattering,
+                    pressures=self._pressures * 1e-6,  # cgs to bar
+                    temperatures=temperatures,
+                    weights_gauss=self._lines_loaded_opacities["weights_gauss"],
+                    mean_molar_masses=mean_molar_masses,
+                    reference_gravity=reference_gravity,
+                    reference_pressure=reference_pressure,
+                    planet_radius=planet_radius,
+                    variable_gravity=variable_gravity,
+                )
+            )
+        else:
+            transit_radii, radius_hydrostatic_equilibrium = (
+                radiative_transfer_core.compute_transit_radii(
+                    opacities=opacities,
+                    continuum_opacities_scattering=continuum_opacities_scattering,
+                    pressures=self._pressures * 1e-6,  # cgs to bar
+                    temperatures=temperatures,
+                    weights_gauss=self._lines_loaded_opacities["weights_gauss"],
+                    mean_molar_masses=mean_molar_masses,
+                    reference_gravity=reference_gravity,
+                    reference_pressure=reference_pressure,
+                    planet_radius=planet_radius,
+                    variable_gravity=variable_gravity,
+                )
+            )
+        if return_contributions:
             transmission_contribution, radius_hydrostatic_equilibrium = (
                 radiative_transfer_core.compute_transmission_spectrum_contribution(
                     transit_radii=transit_radii,
@@ -1585,46 +1541,12 @@ class Radtrans:
                     mean_molar_masses=mean_molar_masses,
                     reference_pressure=reference_pressure,
                     planet_radius=planet_radius,
-                    weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+                    weights_gauss=self._lines_loaded_opacities["weights_gauss"],
                     scattering_in_transmission=self.__scattering_in_transmission,
                     continuum_opacities_scattering=continuum_opacities_scattering,
-                    variable_gravity=variable_gravity
+                    variable_gravity=variable_gravity,
                 )
-        )"""
-        # else:
-        transit_radii, radius_hydrostatic_equilibrium = (
-            radiative_transfer_core.compute_transit_radii(
-                opacities=opacities,
-                continuum_opacities_scattering=continuum_opacities_scattering,
-                pressures=self._pressures * 1e-6,  # cgs to bar
-                temperatures=temperatures,
-                weights_gauss=self._lines_loaded_opacities["weights_gauss"],
-                mean_molar_masses=mean_molar_masses,
-                reference_gravity=reference_gravity,
-                reference_pressure=reference_pressure,
-                planet_radius=planet_radius,
-                variable_gravity=variable_gravity,
             )
-        )
-
-        """    if return_contributions:
-                transmission_contribution, radius_hydrostatic_equilibrium = (
-                    radiative_transfer_core.compute_transmission_spectrum_contribution(
-                        transit_radii=transit_radii,
-                        opacities=opacities,
-                        temperatures=temperatures,
-                        pressures=self._pressures,
-                        reference_gravity=reference_gravity,
-                        mean_molar_masses=mean_molar_masses,
-                        reference_pressure=reference_pressure,
-                        planet_radius=planet_radius,
-                        weights_gauss=self._lines_loaded_opacities['weights_gauss'],
-                        scattering_in_transmission=self.__scattering_in_transmission,
-                        continuum_opacities_scattering=continuum_opacities_scattering,
-                        variable_gravity=variable_gravity
-                    )
-                )
-        """
         return transit_radii, radius_hydrostatic_equilibrium, transmission_contribution
 
     def _init_frequency_grid(self):
@@ -3538,11 +3460,11 @@ class Radtrans:
         return_particle_densities=False,
         target_particle_radii=None,
         target_pressure=None,
-        sum_opacities=None,
+        sum_opacities=False,
         anisotropic_cloud_scattering=None,
     ):
         """JIT-compiled kernel for calculate_transit_radii. See calculate_transit_radii for parameter docs."""
-        copy_opacities = bool(return_contribution)
+        sum_opacities = sum_opacities or return_contribution
 
         sanitized_inputs = _sanitize_flux_opacity_inputs(
             complete_coverage_clouds=complete_coverage_clouds,
@@ -3649,7 +3571,7 @@ class Radtrans:
                 variable_gravity=variable_gravity,
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
-                copy_opacities=copy_opacities,
+                sum_opacities=sum_opacities,
                 return_contributions=return_contribution,
             )
         )
@@ -3668,7 +3590,7 @@ class Radtrans:
                     variable_gravity=variable_gravity,
                     opacities=clear_opacities,
                     continuum_opacities_scattering=clear_continuum_opacities_scattering,
-                    copy_opacities=False,
+                    sum_opacities=False,
                     return_contributions=False,
                 )
                 transit_radii = lax.cond(
@@ -3689,7 +3611,7 @@ class Radtrans:
                         variable_gravity=variable_gravity,
                         opacities=clear_opacities,
                         continuum_opacities_scattering=clear_continuum_opacities_scattering,
-                        copy_opacities=False,
+                        sum_opacities=False,
                         return_contributions=False,
                     )
                     return (
