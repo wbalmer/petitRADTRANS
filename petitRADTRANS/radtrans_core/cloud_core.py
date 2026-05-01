@@ -1,5 +1,6 @@
 import numpy as np
-from jax import jit, vmap, lax, debug, Array
+import jax
+from jax import jit, vmap, lax, debug, Array, pure_callback
 from jax.typing import ArrayLike
 import jax.numpy as jnp
 import jax.scipy.special as jsp  # For gamma function
@@ -1104,9 +1105,76 @@ def _compute_mean_radius_hansen_single(
     return lax.cond(jnp.isnan(a_hansen_ij), lambda: 1e-17, lambda: a_hansen_ij)
 
 
-def compute_cloud_hansen_opacities():
-    # TODO
-    return
+def _run_fortran_cloud_hansen_opacities(
+    atmospheric_densities,
+    clouds_particle_densities,
+    clouds_mass_fractions,
+    cloud_particle_mean_radii,
+    cloud_hansen_b,
+    cloud_particle_radii_bins,
+    cloud_particle_radii,
+    clouds_absorption_opacities,
+    clouds_scattering_opacities,
+    clouds_particle_asymmetry_parameters,
+):
+    from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
+
+    outputs = fcore.compute_cloud_hansen_opacities(
+        np.asarray(atmospheric_densities),
+        np.asarray(clouds_particle_densities),
+        np.asarray(clouds_mass_fractions),
+        np.asarray(cloud_particle_mean_radii),
+        np.asarray(cloud_hansen_b),
+        np.asarray(cloud_particle_radii_bins),
+        np.asarray(cloud_particle_radii),
+        np.asarray(clouds_absorption_opacities),
+        np.asarray(clouds_scattering_opacities),
+        np.asarray(clouds_particle_asymmetry_parameters),
+    )
+
+    return tuple(np.ascontiguousarray(output) for output in outputs)
+
+
+def compute_cloud_hansen_opacities(
+    atmospheric_densities,
+    clouds_particle_densities,
+    clouds_mass_fractions,
+    cloud_particle_mean_radii,
+    cloud_hansen_b,
+    cloud_particle_radii_bins,
+    cloud_particle_radii,
+    clouds_absorption_opacities,
+    clouds_scattering_opacities,
+    clouds_particle_asymmetry_parameters,
+):
+    n_layers = atmospheric_densities.shape[0]
+    n_frequencies = clouds_absorption_opacities.shape[1]
+    output_shape = (
+        jax.ShapeDtypeStruct(
+            (n_frequencies, n_layers), clouds_absorption_opacities.dtype
+        ),
+        jax.ShapeDtypeStruct(
+            (n_frequencies, n_layers), clouds_scattering_opacities.dtype
+        ),
+        jax.ShapeDtypeStruct(
+            (n_frequencies, n_layers), clouds_scattering_opacities.dtype
+        ),
+    )
+
+    return pure_callback(
+        _run_fortran_cloud_hansen_opacities,
+        output_shape,
+        atmospheric_densities,
+        clouds_particle_densities,
+        clouds_mass_fractions,
+        cloud_particle_mean_radii,
+        cloud_hansen_b,
+        cloud_particle_radii_bins,
+        cloud_particle_radii,
+        clouds_absorption_opacities,
+        clouds_scattering_opacities,
+        clouds_particle_asymmetry_parameters,
+    )
 
 
 def _compute_cloud_scattering_reduction_factor(

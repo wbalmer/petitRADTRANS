@@ -264,6 +264,7 @@ def _compute_selected_cloud_branch(
     cloud_f_sed,
     eddy_diffusion_coefficients,
     cloud_particle_mean_radii,
+    cloud_particle_number_density_grid,
     cloud_particle_radius_distribution,
     cloud_hansen_a,
     cloud_hansen_b,
@@ -297,6 +298,7 @@ def _compute_selected_cloud_branch(
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_particle_mean_radii=cloud_particle_mean_radii,
+        cloud_particle_number_density_grid=cloud_particle_number_density_grid,
         cloud_particle_radius_distribution=cloud_particle_radius_distribution,
         cloud_hansen_a=cloud_hansen_a,
         cloud_hansen_b=cloud_hansen_b,
@@ -331,6 +333,7 @@ def _maybe_compute_cloud_branch(
     cloud_f_sed,
     eddy_diffusion_coefficients,
     input_cloud_particle_mean_radii,
+    cloud_particle_number_density_grid,
     cloud_particle_radius_distribution,
     cloud_hansen_a,
     cloud_hansen_b,
@@ -389,6 +392,7 @@ def _maybe_compute_cloud_branch(
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             cloud_particle_mean_radii=input_cloud_particle_mean_radii,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
             cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
@@ -631,11 +635,11 @@ def _compute_cloud_opacity_grids_from_known_radii(
         cloud_species_mass_fractions_grid,
         cloud_particle_mean_radii,
         cloud_hansen_b,
-        clouds_loaded_opacities["particle_radii_bins"],
-        clouds_loaded_opacities["particle_radii"],
-        clouds_loaded_opacities["absorption_opacities"],
-        clouds_loaded_opacities["scattering_opacities"],
-        clouds_loaded_opacities["particle_asymmetry_parameters"],
+        cloud_particle_radii_bins=clouds_loaded_opacities["particle_radii_bins"],
+        cloud_particle_radii=clouds_loaded_opacities["particle_radii"],
+        clouds_absorption_opacities=clouds_loaded_opacities["absorption_opacities"],
+        clouds_scattering_opacities=clouds_loaded_opacities["scattering_opacities"],
+        clouds_particle_asymmetry_parameters=clouds_loaded_opacities["particle_asymmetry_parameters"],
     )
 
 
@@ -845,7 +849,13 @@ def init_clouds_particle_porosity_factor(
         )
 
         # Operate on a local variable so we can use lax.cond and jittable jnp ops
-        _porosity = clouds_particle_porosity_factor[species]
+        _porosity = jnp.asarray(
+            clouds_particle_porosity_factor.get(
+                species,
+                jnp.array(jnp.nan, dtype=JAX_DTYPE),
+            ),
+            dtype=JAX_DTYPE,
+        )
 
         # For DHS sources: if porosity == 0 -> print a warning (leave value unchanged),
         # elif not finite -> set to 0.25
@@ -1109,6 +1119,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         input_cloud_particle_mean_radii=cloud_particle_mean_radii,
+        cloud_particle_number_density_grid=cloud_particle_number_density_grid,
         cloud_particle_radius_distribution=cloud_particle_radius_distribution,
         cloud_hansen_a=cloud_hansen_a,
         cloud_hansen_b=cloud_hansen_b,
@@ -1163,6 +1174,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             input_cloud_particle_mean_radii=cloud_particle_mean_radii,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
             cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,

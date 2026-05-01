@@ -733,6 +733,18 @@ def init_test_parameters(recreate_parameter_file=False):
     with open(reference_filenames["config_test_radtrans"], "r") as f:
         parameters = json.load(f)
 
+    if "cloud_particle_number_density_grid" not in parameters:
+        parameters["cloud_particle_number_density_grid"] = (
+            np.ones(
+                (
+                    130,
+                    parameters["pressures"]["num"],
+                    len(parameters["cloud_parameters"]["cloud_species"]),
+                )
+            )
+            * 1e-5
+        ).tolist()
+
     parameters["pressures_thin_atmosphere"] = np.logspace(
         parameters["pressures"]["start"],
         parameters["pressures"]["stop_thin_atmosphere"],

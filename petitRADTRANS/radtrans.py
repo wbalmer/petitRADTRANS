@@ -1531,12 +1531,13 @@ class Radtrans:
                 )
             )
         if return_contributions:
+            transit_radii_squared = jnp.square(transit_radii)
             transmission_contribution, radius_hydrostatic_equilibrium = (
                 radiative_transfer_core.compute_transmission_spectrum_contribution(
-                    transit_radii=transit_radii,
+                    transit_radii_squared=transit_radii_squared,
                     opacities=opacities[:, :, :1, :],
                     temperatures=temperatures,
-                    pressures=self._pressures,
+                    pressures=self._pressures * 1e-6,  # cgs to bar
                     reference_gravity=reference_gravity,
                     mean_molar_masses=mean_molar_masses,
                     reference_pressure=reference_pressure,

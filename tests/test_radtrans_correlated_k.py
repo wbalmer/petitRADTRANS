@@ -129,7 +129,7 @@ def test_correlated_k_emission_spectrum_cloud_hansen_radius():
         ],
         cloud_f_sed=cloud_f_sed,
         cloud_hansen_b=cloud_hansen_b,
-        cloud_particles_radius_distribution="hansen",
+        cloud_particle_radius_distribution="hansen",
         frequencies_to_wavelengths=False,
     )
 
@@ -397,6 +397,6 @@ def test_correlated_k_transmission_spectrum_with_custom_cloud_distribution():
         cloud_particle_number_density_grid=test_parameters[
             "cloud_particle_number_density_grid"
         ],
-        cloud_particles_radius_distribution="custom",
+        cloud_particle_radius_distribution="custom",
         frequencies_to_wavelengths=False,
     )
