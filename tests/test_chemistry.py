@@ -614,6 +614,94 @@ def test_calculate_gas_mass_fractions_equilibrium_with_imposed_profiles_stays_no
     assert np.all(np.isfinite(np.asarray(mass_fractions["He"])))
 
 
+def test_calculate_gas_mass_fractions_builds_rare_isotopologue_profiles_from_ratios(
+    monkeypatch,
+):
+    pressures = jnp.logspace(-6.0, 2.0, 6)
+    temperatures = 1200.0 * jnp.ones_like(pressures)
+    line_species = (
+        "12C-16O__HITEMP.R1000_0.1-250mu",
+        "13C-16O__HITEMP.R1000_0.1-250mu",
+        "1H2-16O__HITEMP.R1000_0.1-250mu",
+        "1H2-18O__HITEMP.R1000_0.1-250mu",
+        "14N-1H3__HITRAN.R1000_0.1-250mu",
+        "15N-1H3__HITRAN.R1000_0.1-250mu",
+    )
+
+    def fake_interpolate_mass_fractions(*_args, **_kwargs):
+        chemistry_table = {
+            "CO": 1e-4 * jnp.ones_like(pressures),
+            "H2O": 2e-4 * jnp.ones_like(pressures),
+            "NH3": 3e-5 * jnp.ones_like(pressures),
+        }
+        return chemistry_table, None, None
+
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core.pre_calculated_equilibrium_chemistry_table,
+        "interpolate_mass_fractions",
+        fake_interpolate_mass_fractions,
+    )
+
+    ratio_parameters = {
+        "13C/12C": 0.02,
+        "18O/16O": 0.01,
+        "15N/14N": 0.03,
+    }
+
+    mass_fractions_with_ratios, m_sum_total = (
+        petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            imposed_mass_fractions={},
+            line_species=line_species,
+            cloud_species=(),
+            filling_species={"H2": 74.0, "He": 24.0},
+            use_equilibrium_chemistry=True,
+            metallicity=0.0,
+            co_ratio=0.55,
+            parameters=ratio_parameters,
+        )
+    )
+
+    mass_fractions_without_ratios, _ = (
+        petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            imposed_mass_fractions={},
+            line_species=line_species,
+            cloud_species=(),
+            filling_species={"H2": 74.0, "He": 24.0},
+            use_equilibrium_chemistry=True,
+            metallicity=0.0,
+            co_ratio=0.55,
+            parameters={},
+        )
+    )
+
+    co_main = np.asarray(mass_fractions_with_ratios["12C-16O__HITEMP.R1000_0.1-250mu"])
+    h2o_main = np.asarray(mass_fractions_with_ratios["1H2-16O__HITEMP.R1000_0.1-250mu"])
+    nh3_main = np.asarray(mass_fractions_with_ratios["14N-1H3__HITRAN.R1000_0.1-250mu"])
+
+    np.testing.assert_allclose(
+        np.asarray(mass_fractions_with_ratios["13C-16O__HITEMP.R1000_0.1-250mu"]),
+        0.02 * co_main,
+    )
+    np.testing.assert_allclose(
+        np.asarray(mass_fractions_with_ratios["1H2-18O__HITEMP.R1000_0.1-250mu"]),
+        0.01 * h2o_main,
+    )
+    np.testing.assert_allclose(
+        np.asarray(mass_fractions_with_ratios["15N-1H3__HITRAN.R1000_0.1-250mu"]),
+        0.03 * nh3_main,
+    )
+    np.testing.assert_allclose(np.asarray(m_sum_total), np.ones(pressures.size))
+
+    assert np.all(
+        np.asarray(mass_fractions_with_ratios["H2"])
+        < np.asarray(mass_fractions_without_ratios["H2"])
+    )
+
+
 def test_calculate_cloud_mass_fractions_uses_free_cloud_base_without_equilibrium_parameters(
     monkeypatch,
 ):

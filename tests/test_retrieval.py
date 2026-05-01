@@ -560,7 +560,7 @@ def test_retrieval_runtime_initializes_missing_radtrans_objects(monkeypatch):
     assert runtime.model_groups[0].radtrans_object is source_data.radtrans_object
 
 
-def test_runtime_construction_auto_detects_model_functions():
+def test_runtime_construction_accepts_explicit_differentiable_model_functions():
     def model_generating_function(context, params, pt_plot_mode=False):
         del context, pt_plot_mode
         amplitude = params.get("amplitude")
@@ -689,7 +689,7 @@ def test_run_runtime_model_adapter_accepts_model_result():
     np.testing.assert_array_equal(result.spectrum, jnp.array([2.0]))
 
 
-def test_calculate_emission_spectrum_returns_model_result():
+def test_calculate_emission_spectrum_runtime_returns_model_result():
     model_context = ModelContext(
         name="emission",
         mode="emission",
@@ -713,7 +713,7 @@ def test_calculate_emission_spectrum_returns_model_result():
     assert result.auxiliary_outputs["source"] == "emission"
 
 
-def test_calculate_transmission_spectrum_returns_model_result():
+def test_calculate_transmission_spectrum_runtime_returns_model_result():
     model_context = ModelContext(
         name="transmission",
         mode="transmission",

@@ -492,6 +492,21 @@ Equilibrium Chemistry
      - If truthy, explicitly opt into the full EasyChem equilibrium solver.
        Otherwise, providing ``Fe/H`` or ``M/H`` uses the built-in
        precalculated equilibrium chemistry table by default.
+   * - ``13C/12C``
+     - —
+     - Optional
+     - Isotopic ratio used to build rare-isotopologue abundances from the
+       equilibrium profile of the corresponding main isotopologue.
+   * - ``18O/16O``
+     - —
+     - Optional
+     - Isotopic ratio used to build rare-isotopologue abundances from the
+       equilibrium profile of the corresponding main isotopologue.
+   * - ``15N/14N``
+     - —
+     - Optional
+     - Isotopic ratio used to build rare-isotopologue abundances from the
+       equilibrium profile of the corresponding main isotopologue.
 
 .. _chemistry-free:
 
@@ -514,7 +529,47 @@ the species name as registered in ``Radtrans.line_species``.
      - log\ :sub:`10`\ (mass fraction)
      - One per species
      - Log base-10 mass fraction of a line opacity species, e.g. ``H2O__POKAZATEL``,
-       ``CO-NatAbun``, ``CH4__MM``.  Typical prior range: (−12.0, −0.5).
+       ``CO-NatAbund``, ``CH4__MM``.  Typical prior range: (−12.0, −0.5).
+
+.. _chemistry-isotopologues:
+
+Isotopologue Parameters and Naming
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Line species can be specified either with explicit isotopes (for example
+``12C-16O`` or ``13C-16O``) or with default/main-isotopologue names
+depending on the selected opacity tables.
+
+When using equilibrium chemistry (precalculated table or EasyChem), isotopic
+ratio keys can be added to the retrieval parameter set:
+
+* ``13C/12C``
+* ``18O/16O``
+* ``15N/14N``
+
+If one of these ratios is provided, and both the main and rare isotopologue
+are present in ``line_species``, petitRADTRANS sets the rare isotopologue mass
+fraction profile as
+
+.. math::
+
+   X_{\mathrm{rare}}(P) = R_{\mathrm{iso}} \times X_{\mathrm{main,eq}}(P)
+
+where :math:`X_{\mathrm{main,eq}}` is the equilibrium-chemistry profile of the
+main isotopologue and :math:`R_{\mathrm{iso}}` is the corresponding ratio
+parameter.
+
+These rare-isotopologue profiles are inserted before background filling-species
+normalisation, so their mass is included in the total atmospheric mass budget.
+
+Notes:
+
+* The ratio-based construction is only applied when matching main and rare
+  isotopologues are both present in ``line_species``.
+* If a species abundance is explicitly imposed in free/mixed chemistry, that
+  explicit value takes precedence over equilibrium-derived values.
+* For isotopologue naming conventions and available tables, see
+  :doc:`available_opacities`.
 
 .. _chemistry-pressure-varying:
 

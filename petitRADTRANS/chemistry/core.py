@@ -1,5 +1,6 @@
 import sys
 import copy
+import re
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -38,6 +39,24 @@ from petitRADTRANS.chemistry import clouds as fc
 from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 INVALID_VALUE = jnp.array(jnp.inf, JAX_DTYPE)
+
+_ISOTOPE_RATIO_SPECS = (
+    {
+        "parameter_aliases": ("13C/12C",),
+        "rare_isotope": "13C",
+        "main_isotope": "12C",
+    },
+    {
+        "parameter_aliases": ("18O/16O",),
+        "rare_isotope": "18O",
+        "main_isotope": "16O",
+    },
+    {
+        "parameter_aliases": ("15N/14N",),
+        "rare_isotope": "15N",
+        "main_isotope": "14N",
+    },
+)
 
 
 def _get_active_abundance_profile_mode(species_name, parameters):
@@ -122,6 +141,105 @@ def _has_truthy_parameter(parameters, *names):
             return True
 
     return False
+
+
+def _contains_isotope(isotopologue_name: str, isotope: str) -> bool:
+    """Return whether an isotopologue name contains a specific isotope token."""
+    pattern = rf"(^|\-){re.escape(isotope)}(?=(\d|\-|$))"
+
+    return re.search(pattern, isotopologue_name) is not None
+
+
+def _replace_isotope(
+    isotopologue_name: str,
+    from_isotope: str,
+    to_isotope: str,
+) -> str:
+    """Replace isotope tokens while preserving token separators and element counts."""
+    pattern = rf"(^|\-){re.escape(from_isotope)}(?=(\d|\-|$))"
+
+    return re.sub(pattern, rf"\g<1>{to_isotope}", isotopologue_name)
+
+
+def _build_isotopologue_ratio_mass_fractions(
+    *,
+    line_species,
+    parameters,
+    mass_fractions_chemical_table,
+):
+    """Build rare-isotopologue profiles from isotope-ratio parameters.
+
+    For each supported isotope ratio, when both a rare isotopologue and its
+    corresponding main isotopologue are present in ``line_species``, this helper
+    defines the rare profile as ``ratio * main_profile``.
+    """
+    line_species_isotopologues = {
+        species: Opacity.get_species_isotopologue_name(species)
+        for species in line_species
+    }
+    species_by_isotopologue = {
+        isotopologue: species
+        for species, isotopologue in line_species_isotopologues.items()
+    }
+    ratio_mass_fractions = {}
+
+    for isotope_ratio_spec in _ISOTOPE_RATIO_SPECS:
+        isotope_ratio = _get_parameter_alias_value(
+            parameters,
+            *isotope_ratio_spec["parameter_aliases"],
+        )
+
+        if isotope_ratio is None:
+            continue
+
+        isotope_ratio = jnp.asarray(isotope_ratio)
+        rare_isotope = isotope_ratio_spec["rare_isotope"]
+        main_isotope = isotope_ratio_spec["main_isotope"]
+
+        for species, isotopologue in line_species_isotopologues.items():
+            if species in mass_fractions_chemical_table:
+                continue
+
+            if not _contains_isotope(isotopologue, rare_isotope):
+                continue
+
+            main_isotopologue = _replace_isotope(
+                isotopologue,
+                from_isotope=rare_isotope,
+                to_isotope=main_isotope,
+            )
+
+            if main_isotopologue == isotopologue:
+                continue
+
+            main_species = species_by_isotopologue.get(main_isotopologue)
+
+            if main_species is None:
+                continue
+
+            profile_key_candidates = (
+                main_species,
+                Opacity.get_species_isotopologue_name(main_species),
+                Opacity.get_species_base_name(main_species),
+                main_isotopologue,
+            )
+            main_profile_key = next(
+                (
+                    key
+                    for key in profile_key_candidates
+                    if key in mass_fractions_chemical_table
+                ),
+                None,
+            )
+
+            if main_profile_key is None:
+                continue
+
+            ratio_mass_fractions[species] = (
+                isotope_ratio * mass_fractions_chemical_table[main_profile_key]
+            )
+
+    return ratio_mass_fractions
 
 
 def _resolve_chemistry_mode(parameters):
@@ -559,6 +677,14 @@ def calculate_gas_mass_fractions(
                     mass_fractions_chemical_table[simple_species]
                 )
                 del mass_fractions_chemical_table[simple_species]
+
+        mass_fractions_chemical_table.update(
+            _build_isotopologue_ratio_mass_fractions(
+                line_species=line_species,
+                parameters=parameter_source,
+                mass_fractions_chemical_table=mass_fractions_chemical_table,
+            )
+        )
 
         imposed_species_simple = simplify_species_list(
             list(imposed_mass_fractions.keys())
