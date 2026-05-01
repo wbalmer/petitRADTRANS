@@ -35,7 +35,9 @@ from petitRADTRANS.retrieval.models import (
     MODEL_CONTRACT_LEGACY_ADAPTER,
     MODEL_CONTRACT_DIFFERENTIABLE,
     calculate_emission_spectrum,
+    calculate_emission_spectrum_runtime,
     calculate_transmission_spectrum,
+    calculate_transmission_spectrum_runtime,
     coerce_model_generating_function,
     mark_legacy_model_function,
     run_legacy_model_adapter,
@@ -66,7 +68,7 @@ from petitRADTRANS.retrieval.runtime import (
     ObservationState,
     PhysicalParams,
 )
-from petitRADTRANS.retrieval.sampler import NumPyroSampler
+from petitRADTRANS.retrieval.sampler import NumPyroSampler, UltranestSampler
 from petitRADTRANS.retrieval.utils import gaussian_prior
 
 from .context import petitRADTRANS
@@ -120,7 +122,9 @@ class _RecordingUltranestSampler:
 
     @classmethod
     def prepare(cls, context, **kwargs):
-        vectorized = kwargs.pop("vectorized", False)
+        vectorized = UltranestSampler._resolve_vectorized(
+            context, kwargs.pop("vectorized", False)
+        )
 
         if vectorized:
             runtime = context.runtime
@@ -251,6 +255,11 @@ def _build_runtime(
             ),
         ),
     )
+
+
+def _mark_differentiable_model_function(model_function):
+    setattr(model_function, "_prt_model_contract", MODEL_CONTRACT_DIFFERENTIABLE)
+    return model_function
 
 
 def test_parameter_layout_supports_ordered_prior_transforms_and_legacy_adapter():
@@ -485,12 +494,11 @@ def test_retrieval_runtime_groups_external_radtrans_references():
     assert groups_by_source["source"].metadata["has_external_references"] is True
     assert groups_by_source["source"].radtrans_object is source_data.radtrans_object
     assert (
-        groups_by_source["source"].model_contract
-        == MODEL_CONTRACT_RUNTIME_LEGACY_ADAPTER
+        groups_by_source["source"].model_contract == MODEL_CONTRACT_LEGACY_ADAPTER
     )
     assert (
         groups_by_source["independent"].model_contract
-        == MODEL_CONTRACT_RUNTIME_LEGACY_ADAPTER
+        == MODEL_CONTRACT_LEGACY_ADAPTER
     )
     assert groups_by_source["independent"].observation_names == ("independent",)
 
@@ -562,6 +570,8 @@ def test_runtime_construction_auto_detects_model_functions():
             spectrum=jnp.array([amplitude, amplitude + 1.0]),
         )
 
+    _mark_differentiable_model_function(model_generating_function)
+
     config = SimpleNamespace(
         parameters={
             "amplitude": Parameter(name="amplitude", is_free_parameter=True, value=0.0),
@@ -605,6 +615,8 @@ def test_calculate_forward_model_accepts_model_functions():
             wavelengths=jnp.array([1.0, 2.0]),
             spectrum=jnp.array([amplitude, amplitude + 1.0]),
         )
+
+    _mark_differentiable_model_function(model_generating_function)
 
     retrieval.configuration = SimpleNamespace(
         parameters={"amplitude": parameter},
@@ -694,7 +706,7 @@ def test_calculate_emission_spectrum_returns_model_result():
         distance_to_system=jnp.array(4.0),
     )
 
-    result = calculate_emission_spectrum(model_context, model_inputs)
+    result = calculate_emission_spectrum_runtime(model_context, model_inputs)
 
     assert result.kind == "spectrum"
     np.testing.assert_allclose(result.wavelengths, jnp.array([1.0, 2.0]))
@@ -719,7 +731,7 @@ def test_calculate_transmission_spectrum_returns_model_result():
         stellar_radius=jnp.array(2.0),
     )
 
-    result = calculate_transmission_spectrum(model_context, model_inputs)
+    result = calculate_transmission_spectrum_runtime(model_context, model_inputs)
 
     assert result.kind == "spectrum"
     np.testing.assert_allclose(result.wavelengths, jnp.array([1.0, 2.0]))
@@ -1132,7 +1144,7 @@ def test_run_legacy_model_adapter_reproduces_builtin_emission_model_output():
             mean_molar_masses=jnp.array([2.3]),
             planet_radius=jnp.array(2.0),
             sigma_lnorm=None,
-            cloud_particles_mean_radii=None,
+            cloud_particle_mean_radii=None,
             cloud_f_sed=None,
             eddy_diffusion_coefficients=None,
             cloud_hansen_b=None,
@@ -1180,7 +1192,7 @@ def test_run_legacy_model_adapter_reproduces_builtin_transmission_model_output()
             reference_pressure=None,
             opaque_cloud_top_pressure=None,
             sigma_lnorm=None,
-            cloud_particles_mean_radii=None,
+            cloud_particle_mean_radii=None,
             cloud_f_sed=None,
             eddy_diffusion_coefficients=None,
             haze_factor=None,
@@ -1239,8 +1251,10 @@ def test_builtin_models_expose_stable_model_result_fields():
         stellar_radius=jnp.array(2.0),
     )
 
-    emission_result = calculate_emission_spectrum(emission_context, emission_inputs)
-    transmission_result = calculate_transmission_spectrum(
+    emission_result = calculate_emission_spectrum_runtime(
+        emission_context, emission_inputs
+    )
+    transmission_result = calculate_transmission_spectrum_runtime(
         transmission_context, transmission_inputs
     )
 

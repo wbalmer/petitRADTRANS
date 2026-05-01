@@ -561,7 +561,7 @@ def fill_atmosphere(
 
     sum_weights = jnp.sum(jnp.array(list(filling_species.values())), axis=0)
     can_fill = jnp.logical_and(
-        jnp.logical_and(0.0 < mass_fraction_sum, mass_fraction_sum < 1.0),
+        jnp.logical_and(0.0 <= mass_fraction_sum, mass_fraction_sum < 1.0),
         sum_weights > 0,
     )
     safe_sum_weights = jnp.where(sum_weights > 0, sum_weights, 1.0)
