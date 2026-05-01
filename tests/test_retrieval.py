@@ -493,12 +493,9 @@ def test_retrieval_runtime_groups_external_radtrans_references():
     assert set(groups_by_source["source"].observation_names) == {"source", "shared"}
     assert groups_by_source["source"].metadata["has_external_references"] is True
     assert groups_by_source["source"].radtrans_object is source_data.radtrans_object
+    assert groups_by_source["source"].model_contract == MODEL_CONTRACT_LEGACY_ADAPTER
     assert (
-        groups_by_source["source"].model_contract == MODEL_CONTRACT_LEGACY_ADAPTER
-    )
-    assert (
-        groups_by_source["independent"].model_contract
-        == MODEL_CONTRACT_LEGACY_ADAPTER
+        groups_by_source["independent"].model_contract == MODEL_CONTRACT_LEGACY_ADAPTER
     )
     assert groups_by_source["independent"].observation_names == ("independent",)
 

@@ -120,6 +120,21 @@ def _compute_gravity(physical_params):
     return gravity, planet_radius
 
 
+def _resolve_guillot_gamma(parameters):
+    """Return the Guillot gamma parameter in linear units for any model contract."""
+    gamma = _get_parameter_value(parameters, "gamma")
+    if gamma is not None:
+        return gamma
+
+    log_gamma = _get_parameter_value(parameters, "log_gamma")
+    if log_gamma is not None:
+        return jnp.power(10.0, log_gamma)
+
+    raise KeyError(
+        "Missing Guillot gamma parameter: provide either 'gamma' or 'log_gamma'"
+    )
+
+
 def molliere_2020_emission(
     model_context: ModelContext,
     physical_params: PhysicalParams,
@@ -344,10 +359,11 @@ def guillot_emission(
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(physical_params)
 
+    gamma = _resolve_guillot_gamma(physical_params)
     temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** physical_params["log_kappa_IR"],
-        physical_params["gamma"],
+        gamma,
         gravity,
         physical_params["T_int"],
         physical_params["T_equ"],
@@ -415,10 +431,11 @@ def guillot_relative_emission(
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(physical_params)
 
+    gamma = _resolve_guillot_gamma(physical_params)
     temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** physical_params["log_kappa_IR"],
-        physical_params["gamma"],
+        gamma,
         gravity,
         physical_params["T_int"],
         physical_params["T_equ"],
@@ -505,10 +522,11 @@ def guillot_emission_add_gaussian_temperature(
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(physical_params)
 
+    gamma = _resolve_guillot_gamma(physical_params)
     temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** physical_params["log_kappa_IR"],
-        physical_params["gamma"],
+        gamma,
         gravity,
         physical_params["T_int"],
         physical_params["T_equ"],
@@ -958,10 +976,12 @@ def guillot_transmission(
         reference_pressure = physical_params["reference_pressure"]
 
     gravity, planet_radius = _compute_gravity(physical_params)
+
+    gamma = _resolve_guillot_gamma(physical_params)
     temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** physical_params["log_kappa_IR"],
-        physical_params["gamma"],
+        gamma,
         gravity,
         physical_params["T_int"],
         physical_params["T_equ"],
@@ -1721,11 +1741,12 @@ def legacy_guillot_emission(
     )
 
     gravity, planet_radius = _compute_gravity(parameters)
+    gamma = _resolve_guillot_gamma(parameters)
 
     temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** parameters["log_kappa_IR"].value,
-        parameters["gamma"].value,
+        gamma,
         gravity,
         parameters["T_int"].value,
         parameters["T_equ"].value,
@@ -1854,11 +1875,12 @@ def legacy_guillot_emission_add_gaussian_temperature(
     )
 
     gravity, planet_radius = _compute_gravity(parameters)
+    gamma = _resolve_guillot_gamma(parameters)
 
     temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** parameters["log_kappa_IR"].value,
-        parameters["gamma"].value,
+        gamma,
         gravity,
         parameters["T_int"].value,
         parameters["T_equ"].value,
@@ -2438,11 +2460,12 @@ def legacy_guillot_transmission(
         reference_pressure = parameters["reference_pressure"].value
     # Calculate the spectrum
     gravity, planet_radius = _compute_gravity(parameters)
+    gamma = _resolve_guillot_gamma(parameters)
 
     temperatures = guillot_global_temperature_profile(
         p_use,
         10 ** parameters["log_kappa_IR"].value,
-        parameters["gamma"].value,
+        gamma,
         gravity,
         parameters["T_int"].value,
         parameters["T_equ"].value,
