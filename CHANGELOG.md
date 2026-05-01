@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a25] - 2026-04-29
+## [4.0.0a26] - 2026-05-01
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -48,6 +48,8 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: correlated-k binning.
 
 ### Changed
+- a26: fixed chemistry nan bugs and fill atmosphere edge cases
+- a26: reference files now match v4 petitRADTRANS argument naming
 - a25: bug fix for patchy grey cloud deck
 - a24: transmission and non-scattering emission are compatible with 32 bit mode.
 - a24: non-vertically-constant abundance profiles now implemented
@@ -92,6 +94,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Minimum supported Python version is 3.12.
 
 ### Added
+- a26: isotopologues in chemistry
 - a25: JAX version of exo-k c-k binning
 - a23: feautrier now also outputs angle dependent intensities
 - a16: Time-variable model function parameterisation
