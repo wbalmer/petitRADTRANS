@@ -639,7 +639,9 @@ def _compute_cloud_opacity_grids_from_known_radii(
         cloud_particle_radii=clouds_loaded_opacities["particle_radii"],
         clouds_absorption_opacities=clouds_loaded_opacities["absorption_opacities"],
         clouds_scattering_opacities=clouds_loaded_opacities["scattering_opacities"],
-        clouds_particle_asymmetry_parameters=clouds_loaded_opacities["particle_asymmetry_parameters"],
+        clouds_particle_asymmetry_parameters=clouds_loaded_opacities[
+            "particle_asymmetry_parameters"
+        ],
     )
 
 
