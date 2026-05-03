@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import math
+from typing import Any, cast
 
 import equinox as eqx
-from jax import Array, vmap, random, nn
+from jax import Array, lax, vmap, random, nn
 import jax.numpy as jnp
+
+
+_NAF_PROBABILITY_EPS = 1e-6
 
 
 class CouplingConditioner(eqx.Module):
@@ -43,6 +47,7 @@ class CouplingConditioner(eqx.Module):
         output_dim: int,
         hidden_dim: int,
         key: Array,
+        depth: int = 2,
     ):
         self.input_dim = int(input_dim)
         self.context_dim = int(context_dim)
@@ -51,7 +56,7 @@ class CouplingConditioner(eqx.Module):
             in_size=self.input_dim + self.context_dim,
             out_size=self.output_dim,
             width_size=hidden_dim,
-            depth=2,
+            depth=depth,
             key=key,
             dtype=jnp.float32,
         )
@@ -67,14 +72,14 @@ class _ScalarSplineConditioner(eqx.Module):
     context_dim: int = eqx.field(static=True)
     output_dim: int = eqx.field(static=True)
 
-    def __init__(self, context_dim: int, output_dim: int, hidden_dim: int, key: Array):
+    def __init__(self, context_dim: int, output_dim: int, hidden_dim: int, key: Array, depth: int = 2):
         self.context_dim = int(context_dim)
         self.output_dim = int(output_dim)
         self.network = eqx.nn.MLP(
             in_size=self.context_dim,
             out_size=self.output_dim,
             width_size=hidden_dim,
-            depth=2,
+            depth=depth,
             key=key,
             dtype=jnp.float32,
         )
@@ -96,6 +101,42 @@ def _normalize_bin_sizes(
 def _searchsorted(bin_locations: jnp.ndarray, value: jnp.ndarray) -> jnp.ndarray:
     index = jnp.sum(value >= bin_locations) - 1
     return jnp.clip(index, 0, bin_locations.shape[0] - 2)
+
+
+def _safe_logit(probability: jnp.ndarray) -> jnp.ndarray:
+    clipped = jnp.clip(
+        probability,
+        jnp.asarray(_NAF_PROBABILITY_EPS, dtype=jnp.asarray(probability).dtype),
+        jnp.asarray(1.0 - _NAF_PROBABILITY_EPS, dtype=jnp.asarray(probability).dtype),
+    )
+    return jnp.log(clipped) - jnp.log1p(-clipped)
+
+
+def _neural_autoregressive_scalar_forward(
+    value: jnp.ndarray,
+    positive_slopes: jnp.ndarray,
+    offsets: jnp.ndarray,
+    weight_logits: jnp.ndarray,
+    residual_fraction: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    dtype = jnp.asarray(value).dtype
+    hidden_values = nn.sigmoid(positive_slopes * value + offsets)
+    weights = nn.softmax(weight_logits)
+    mixture = jnp.sum(weights * hidden_values)
+    mixture = jnp.clip(
+        mixture,
+        jnp.asarray(_NAF_PROBABILITY_EPS, dtype=dtype),
+        jnp.asarray(1.0 - _NAF_PROBABILITY_EPS, dtype=dtype),
+    )
+    neural_output = _safe_logit(mixture)
+    mixture_derivative = jnp.sum(
+        weights * positive_slopes * hidden_values * (1.0 - hidden_values)
+    )
+    neural_derivative = mixture_derivative / (mixture * (1.0 - mixture))
+    derivative = residual_fraction + (1.0 - residual_fraction) * neural_derivative
+    derivative = jnp.maximum(derivative, jnp.asarray(1e-8, dtype=dtype))
+    transformed = residual_fraction * value + (1.0 - residual_fraction) * neural_output
+    return transformed, jnp.log(derivative)
 
 
 def _rational_quadratic_spline_forward(
@@ -160,8 +201,11 @@ def _rational_quadratic_spline_forward(
     log_det = jnp.log(derivative_numerator) - 2.0 * jnp.log(denominator)
 
     return (
-        jnp.where(inside_interval, transformed, value),
-        jnp.where(inside_interval, log_det, jnp.asarray(0.0, dtype=dtype)),
+        cast(jnp.ndarray, jnp.where(inside_interval, transformed, value)),
+        cast(
+            jnp.ndarray,
+            jnp.where(inside_interval, log_det, jnp.asarray(0.0, dtype=dtype)),
+        ),
     )
 
 
@@ -216,7 +260,10 @@ def _rational_quadratic_spline_inverse(
     linear_root = -constant / jnp.where(
         jnp.abs(linear) < 1e-12, jnp.asarray(-1.0, dtype=dtype), linear
     )
-    root = jnp.where(jnp.abs(quadratic) > 1e-8, quadratic_root, linear_root)
+    root = cast(
+        jnp.ndarray,
+        jnp.where(jnp.abs(quadratic) > 1e-8, quadratic_root, linear_root),
+    )
     theta = jnp.clip(root, 0.0, 1.0)
     theta_one_minus_theta = theta * (1.0 - theta)
 
@@ -505,6 +552,392 @@ class ConditionalScalarSplineTransform(eqx.Module):
         return jnp.asarray([transformed], dtype=jnp.asarray(y).dtype), log_det
 
 
+class _AutoregressiveDimensionConditioner(eqx.Module):
+    """Per-dimension conditioner used by the autoregressive affine flow."""
+
+    network: eqx.nn.MLP
+    prefix_dim: int = eqx.field(static=True)
+    context_dim: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        prefix_dim: int,
+        context_dim: int,
+        hidden_dim: int,
+        key: Array,
+        depth: int = 5,
+    ):
+        self.prefix_dim = int(prefix_dim)
+        self.context_dim = int(context_dim)
+        self.network = eqx.nn.MLP(
+            in_size=self.prefix_dim + self.context_dim,
+            out_size=2,
+            width_size=hidden_dim,
+            depth=depth,
+            activation=nn.elu,
+            key=key,
+            dtype=jnp.float32,
+        )
+
+    def __call__(
+        self,
+        prefix: jnp.ndarray,
+        context: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        if self.prefix_dim > 0:
+            inputs = jnp.concatenate((prefix[: self.prefix_dim], context), axis=0)
+        else:
+            inputs = context
+        outputs = self.network(inputs)
+        shift = outputs[0]
+        log_scale = 2.0 * jnp.tanh(outputs[1] / 2.0)
+        return shift, log_scale
+
+
+class _NeuralAutoregressiveDimensionConditioner(eqx.Module):
+    """Per-dimension conditioner for neural autoregressive scalar transforms."""
+
+    network: eqx.nn.MLP
+    prefix_dim: int = eqx.field(static=True)
+    context_dim: int = eqx.field(static=True)
+    transform_units: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        prefix_dim: int,
+        context_dim: int,
+        hidden_dim: int,
+        transform_units: int,
+        key: Array,
+        depth: int = 5,
+    ):
+        self.prefix_dim = int(prefix_dim)
+        self.context_dim = int(context_dim)
+        self.transform_units = int(transform_units)
+        self.network = eqx.nn.MLP(
+            in_size=self.prefix_dim + self.context_dim,
+            out_size=3 * self.transform_units + 1,
+            width_size=hidden_dim,
+            depth=depth,
+            activation=nn.elu,
+            key=key,
+            dtype=jnp.float32,
+        )
+
+    def __call__(
+        self,
+        prefix: jnp.ndarray,
+        context: jnp.ndarray,
+    ) -> jnp.ndarray:
+        if self.prefix_dim > 0:
+            inputs = jnp.concatenate((prefix[: self.prefix_dim], context), axis=0)
+        else:
+            inputs = context
+        return self.network(inputs)
+
+
+class ConditionalAutoregressiveAffineTransform(eqx.Module):
+    """Context-conditioned affine autoregressive transform.
+
+    Notes
+    -----
+    The transform maps data to latent space in a masked-autoregressive manner,
+    using previous data dimensions and the observation embedding to predict one
+    affine transform per parameter dimension.
+    """
+
+    conditioners: tuple[_AutoregressiveDimensionConditioner, ...]
+    parameter_dim: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        parameter_dim: int,
+        context_dim: int,
+        hidden_dim: int,
+        key: Array,
+        depth: int = 5,
+    ):
+        self.parameter_dim = int(parameter_dim)
+        conditioner_keys = random.split(key, self.parameter_dim)
+        self.conditioners = tuple(
+            _AutoregressiveDimensionConditioner(
+                prefix_dim=dimension,
+                context_dim=context_dim,
+                hidden_dim=hidden_dim,
+                key=conditioner_key,
+                depth=depth,
+            )
+            for dimension, conditioner_key in enumerate(conditioner_keys)
+        )
+
+    def forward(
+        self,
+        x: jnp.ndarray,
+        context: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        latent = jnp.zeros_like(x)
+        log_det = jnp.asarray(0.0, dtype=x.dtype)
+
+        for dimension, conditioner in enumerate(self.conditioners):
+            shift, log_scale = conditioner(x[:dimension], context)
+            latent_value = (x[dimension] - shift) * jnp.exp(-log_scale)
+            latent = latent.at[dimension].set(latent_value)
+            log_det = log_det - log_scale
+
+        return latent, log_det
+
+    def inverse(
+        self,
+        z: jnp.ndarray,
+        context: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        x = jnp.zeros_like(z)
+        log_det = jnp.asarray(0.0, dtype=z.dtype)
+
+        for dimension, conditioner in enumerate(self.conditioners):
+            shift, log_scale = conditioner(x[:dimension], context)
+            x_value = z[dimension] * jnp.exp(log_scale) + shift
+            x = x.at[dimension].set(x_value)
+            log_det = log_det + log_scale
+
+        return x, log_det
+
+
+class ConditionalNeuralAutoregressiveTransform(eqx.Module):
+    """Context-conditioned neural autoregressive transform.
+
+    Notes
+    -----
+    Each scalar transform uses a monotonic deep-sigmoidal-style network whose
+    parameters are conditioned on previous dimensions and the observation
+    embedding. Inversion is carried out with fixed-step bisection because the
+    scalar map is strictly monotonic.
+    """
+
+    conditioners: tuple[_NeuralAutoregressiveDimensionConditioner, ...]
+    parameter_dim: int = eqx.field(static=True)
+    transform_units: int = eqx.field(static=True)
+    min_slope: float = eqx.field(static=True)
+    min_residual: float = eqx.field(static=True)
+    inverse_base_bound: float = eqx.field(static=True)
+    inverse_bisection_steps: int = eqx.field(static=True)
+    inverse_expansion_steps: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        parameter_dim: int,
+        context_dim: int,
+        hidden_dim: int,
+        transform_units: int,
+        key: Array,
+        depth: int = 5,
+        min_slope: float = 1e-3,
+        min_residual: float = 0.05,
+        inverse_base_bound: float = 4.0,
+        inverse_bisection_steps: int = 48,
+        inverse_expansion_steps: int = 8,
+    ):
+        self.parameter_dim = int(parameter_dim)
+        self.transform_units = int(transform_units)
+        self.min_slope = float(min_slope)
+        self.min_residual = float(min_residual)
+        self.inverse_base_bound = float(inverse_base_bound)
+        self.inverse_bisection_steps = int(inverse_bisection_steps)
+        self.inverse_expansion_steps = int(inverse_expansion_steps)
+        conditioner_keys = random.split(key, self.parameter_dim)
+        self.conditioners = tuple(
+            _NeuralAutoregressiveDimensionConditioner(
+                prefix_dim=dimension,
+                context_dim=context_dim,
+                hidden_dim=hidden_dim,
+                transform_units=self.transform_units,
+                key=conditioner_key,
+                depth=depth,
+            )
+            for dimension, conditioner_key in enumerate(conditioner_keys)
+        )
+
+    def _parameters(
+        self,
+        conditioner: _NeuralAutoregressiveDimensionConditioner,
+        prefix: jnp.ndarray,
+        context: jnp.ndarray,
+        dtype: jnp.dtype,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        outputs = conditioner(prefix, context)
+        raw_slopes = outputs[: self.transform_units]
+        offsets = outputs[self.transform_units : 2 * self.transform_units]
+        weight_logits = outputs[2 * self.transform_units : 3 * self.transform_units]
+        raw_residual = outputs[-1]
+        positive_slopes = jnp.asarray(self.min_slope, dtype=dtype) + nn.softplus(
+            raw_slopes.astype(dtype)
+        )
+        residual_fraction = jnp.asarray(self.min_residual, dtype=dtype) + (
+            jnp.asarray(1.0, dtype=dtype) - jnp.asarray(self.min_residual, dtype=dtype)
+        ) * nn.sigmoid(raw_residual.astype(dtype))
+        return (
+            positive_slopes,
+            offsets.astype(dtype),
+            weight_logits.astype(dtype),
+            residual_fraction,
+        )
+
+    def _evaluate_scalar(
+        self,
+        value: jnp.ndarray,
+        positive_slopes: jnp.ndarray,
+        offsets: jnp.ndarray,
+        weight_logits: jnp.ndarray,
+        residual_fraction: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        return _neural_autoregressive_scalar_forward(
+            value,
+            positive_slopes,
+            offsets,
+            weight_logits,
+            residual_fraction,
+        )
+
+    def _inverse_scalar(
+        self,
+        target: jnp.ndarray,
+        positive_slopes: jnp.ndarray,
+        offsets: jnp.ndarray,
+        weight_logits: jnp.ndarray,
+        residual_fraction: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        dtype = jnp.asarray(target).dtype
+        min_residual = jnp.maximum(
+            residual_fraction,
+            jnp.asarray(self.min_residual, dtype=dtype),
+        )
+        base_bound = jnp.maximum(
+            jnp.asarray(self.inverse_base_bound, dtype=dtype),
+            jnp.abs(target) / min_residual + jnp.asarray(1.0, dtype=dtype),
+        )
+
+        def evaluate(value: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+            return self._evaluate_scalar(
+                value,
+                positive_slopes,
+                offsets,
+                weight_logits,
+                residual_fraction,
+            )
+
+        lower = -base_bound
+        upper = base_bound
+        lower_value, _ = evaluate(lower)
+        upper_value, _ = evaluate(upper)
+
+        def needs_expansion(state: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]) -> jnp.ndarray:
+            lower_bound, upper_bound, lower_eval, upper_eval, count = state
+            del lower_bound, upper_bound
+            return jnp.logical_and(
+                jnp.logical_or(lower_eval > target, upper_eval < target),
+                count < jnp.asarray(self.inverse_expansion_steps),
+            )
+
+        def expand_bounds(
+            state: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]
+        ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+            lower_bound, upper_bound, lower_eval, upper_eval, count = state
+            del lower_eval, upper_eval
+            new_lower = lower_bound * jnp.asarray(2.0, dtype=dtype)
+            new_upper = upper_bound * jnp.asarray(2.0, dtype=dtype)
+            new_lower_eval, _ = evaluate(new_lower)
+            new_upper_eval, _ = evaluate(new_upper)
+            return new_lower, new_upper, new_lower_eval, new_upper_eval, count + 1
+
+        lower, upper, _, _, _ = lax.while_loop(
+            needs_expansion,
+            expand_bounds,
+            (
+                lower,
+                upper,
+                lower_value,
+                upper_value,
+                jnp.asarray(0),
+            ),
+        )
+
+        def bisect(
+            _,
+            state: tuple[jnp.ndarray, jnp.ndarray],
+        ) -> tuple[jnp.ndarray, jnp.ndarray]:
+            lower_bound, upper_bound = state
+            midpoint = 0.5 * (lower_bound + upper_bound)
+            midpoint_value, _ = evaluate(midpoint)
+            move_upper = midpoint_value >= target
+            new_lower = jnp.where(move_upper, lower_bound, midpoint)
+            new_upper = jnp.where(move_upper, midpoint, upper_bound)
+            return new_lower, new_upper
+
+        lower, upper = lax.fori_loop(
+            0,
+            self.inverse_bisection_steps,
+            bisect,
+            (lower, upper),
+        )
+        recovered = 0.5 * (lower + upper)
+        _, forward_log_det = evaluate(recovered)
+        return recovered, -forward_log_det
+
+    def forward(
+        self,
+        x: jnp.ndarray,
+        context: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        latent = jnp.zeros_like(x)
+        log_det = jnp.asarray(0.0, dtype=x.dtype)
+
+        for dimension, conditioner in enumerate(self.conditioners):
+            positive_slopes, offsets, weight_logits, residual_fraction = self._parameters(
+                conditioner,
+                x[:dimension],
+                context,
+                x.dtype,
+            )
+            latent_value, layer_log_det = self._evaluate_scalar(
+                x[dimension],
+                positive_slopes,
+                offsets,
+                weight_logits,
+                residual_fraction,
+            )
+            latent = latent.at[dimension].set(latent_value)
+            log_det = log_det + layer_log_det
+
+        return latent, log_det
+
+    def inverse(
+        self,
+        z: jnp.ndarray,
+        context: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        x = jnp.zeros_like(z)
+        log_det = jnp.asarray(0.0, dtype=z.dtype)
+
+        for dimension, conditioner in enumerate(self.conditioners):
+            positive_slopes, offsets, weight_logits, residual_fraction = self._parameters(
+                conditioner,
+                x[:dimension],
+                context,
+                z.dtype,
+            )
+            x_value, layer_log_det = self._inverse_scalar(
+                z[dimension],
+                positive_slopes,
+                offsets,
+                weight_logits,
+                residual_fraction,
+            )
+            x = x.at[dimension].set(x_value)
+            log_det = log_det + layer_log_det
+
+        return x, log_det
+
+
 class _ConditionalFlowStack(eqx.Module):
     """Shared stack logic for conditional coupling flows."""
 
@@ -525,7 +958,7 @@ class _ConditionalFlowStack(eqx.Module):
         log_det = jnp.asarray(0.0, dtype=x.dtype)
 
         for layer_index, layer in enumerate(self.layers):
-            transformed, layer_log_det = layer.forward(transformed, context)
+            transformed, layer_log_det = cast(Any, layer).forward(transformed, context)
             log_det = log_det + layer_log_det
             if layer_index < len(self.layers) - 1:
                 transformed = self._reverse_vector(transformed)
@@ -541,7 +974,7 @@ class _ConditionalFlowStack(eqx.Module):
         for reverse_index, layer in enumerate(reversed(self.layers)):
             if reverse_index > 0:
                 transformed = self._reverse_vector(transformed)
-            transformed, layer_log_det = layer.inverse(transformed, context)
+            transformed, layer_log_det = cast(Any, layer).inverse(transformed, context)
             log_det = log_det + layer_log_det
 
         return transformed, log_det
@@ -591,6 +1024,7 @@ class ConditionalAffineFlow(_ConditionalFlowStack):
         context_dim: int,
         num_layers: int = 4,
         hidden_dim: int = 128,
+        conditioner_depth: int = 2,
         key: Array | None = None,
     ):
         if key is None:
@@ -621,11 +1055,104 @@ class ConditionalAffineFlow(_ConditionalFlowStack):
                         output_dim=self.parameter_dim * 2,
                         hidden_dim=hidden_dim,
                         key=layer_key,
+                        depth=conditioner_depth,
                     ),
                 )
             )
 
         self.layers = tuple(layers)
+
+
+class ConditionalAutoregressiveFlow(_ConditionalFlowStack):
+    """Stack of context-conditioned affine autoregressive transforms.
+
+    Notes
+    -----
+    This flow is a lighter-weight autoregressive alternative to the spline
+    stack. Each transform uses ELU MLPs to predict affine parameters for one
+    dimension at a time, conditioned on previous dimensions and the
+    observation embedding.
+    """
+
+    def __init__(
+        self,
+        parameter_dim: int,
+        context_dim: int,
+        num_layers: int = 3,
+        hidden_dim: int = 512,
+        conditioner_depth: int = 5,
+        key: Array | None = None,
+    ):
+        if key is None:
+            key = random.PRNGKey(0)
+
+        self.parameter_dim = int(parameter_dim)
+        self.context_dim = int(context_dim)
+        layer_keys = random.split(key, num_layers)
+        self.layers = tuple(
+            ConditionalAutoregressiveAffineTransform(
+                parameter_dim=self.parameter_dim,
+                context_dim=self.context_dim,
+                hidden_dim=hidden_dim,
+                key=layer_key,
+                depth=conditioner_depth,
+            )
+            for layer_key in layer_keys
+        )
+
+
+class ConditionalNeuralAutoregressiveFlow(_ConditionalFlowStack):
+    """Stack of context-conditioned neural autoregressive transforms.
+
+    Notes
+    -----
+    This backend uses a deep-sigmoidal-style monotonic scalar bijector per
+    parameter dimension. It is more expressive than the affine autoregressive
+    stack while remaining exactly invertible via scalar bisection.
+    """
+
+    transform_units: int = eqx.field(static=True)
+    min_slope: float = eqx.field(static=True)
+    min_residual: float = eqx.field(static=True)
+    inverse_bisection_steps: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        parameter_dim: int,
+        context_dim: int,
+        num_layers: int = 3,
+        hidden_dim: int = 512,
+        conditioner_depth: int = 5,
+        transform_units: int = 16,
+        min_slope: float = 1e-3,
+        min_residual: float = 0.05,
+        inverse_bisection_steps: int = 48,
+        key: Array | None = None,
+    ):
+        if key is None:
+            key = random.PRNGKey(0)
+
+        self.parameter_dim = int(parameter_dim)
+        self.context_dim = int(context_dim)
+        self.transform_units = int(transform_units)
+        self.min_slope = float(min_slope)
+        self.min_residual = float(min_residual)
+        self.inverse_bisection_steps = int(inverse_bisection_steps)
+        layer_keys = random.split(key, num_layers)
+        self.layers = tuple(
+            ConditionalNeuralAutoregressiveTransform(
+                parameter_dim=self.parameter_dim,
+                context_dim=self.context_dim,
+                hidden_dim=hidden_dim,
+                transform_units=self.transform_units,
+                key=layer_key,
+                depth=conditioner_depth,
+                min_slope=self.min_slope,
+                min_residual=self.min_residual,
+                inverse_bisection_steps=self.inverse_bisection_steps,
+            )
+            for layer_key in layer_keys
+        )
 
 
 class ConditionalSplineFlow(_ConditionalFlowStack):
@@ -668,6 +1195,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
         context_dim: int,
         num_layers: int = 6,
         hidden_dim: int = 128,
+        conditioner_depth: int = 2,
         num_bins: int = 8,
         bound: float = 10.0,
         min_bin_width: float = 1e-3,
@@ -698,6 +1226,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
                             output_dim=3 * self.num_bins + 1,
                             hidden_dim=hidden_dim,
                             key=layer_key,
+                            depth=conditioner_depth,
                         ),
                         num_bins=self.num_bins,
                         bound=self.bound,
@@ -727,6 +1256,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
                         output_dim=self.parameter_dim * (3 * self.num_bins + 1),
                         hidden_dim=hidden_dim,
                         key=layer_key,
+                        depth=conditioner_depth,
                     ),
                     parameter_dim=self.parameter_dim,
                     num_bins=self.num_bins,
@@ -741,6 +1271,10 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
 
 
 __all__ = [
+    "ConditionalAutoregressiveAffineTransform",
+    "ConditionalAutoregressiveFlow",
+    "ConditionalNeuralAutoregressiveFlow",
+    "ConditionalNeuralAutoregressiveTransform",
     "ConditionalAffineCoupling",
     "ConditionalAffineFlow",
     "ConditionalRationalQuadraticSplineCoupling",

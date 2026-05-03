@@ -8,7 +8,12 @@ sub-modules for backward compatibility.  New code should import from
 
 from .estimator_registry import register_posterior_estimator
 from .flow_matching_posterior import FlowMatchingPosterior
-from .flow_posterior import ConditionalFlowPosterior, ConditionalSplineFlowPosterior
+from .flow_posterior import (
+    ConditionalAutoregressiveFlowPosterior,
+    ConditionalFlowPosterior,
+    ConditionalNeuralAutoregressiveFlowPosterior,
+    ConditionalSplineFlowPosterior,
+)
 from .posterior_base import (
     POSTERIOR_METADATA_SCHEMA_VERSION,
     PersistentPosteriorEstimator,
@@ -19,7 +24,9 @@ from .posterior_base import (
 )
 
 __all__ = [
+    "ConditionalAutoregressiveFlowPosterior",
     "ConditionalFlowPosterior",
+    "ConditionalNeuralAutoregressiveFlowPosterior",
     "ConditionalSplineFlowPosterior",
     "FlowMatchingPosterior",
     "PersistentPosteriorEstimator",

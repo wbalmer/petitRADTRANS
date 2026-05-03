@@ -356,6 +356,13 @@ def generate_sbc_report(
         posterior, "parameter_space", "physical"
     )
     _data_parallel = len(jax.devices()) > 1 if data_parallel is None else data_parallel
+    _devices = jax.devices()
+    _n_devices = len(_devices)
+    _mesh = (
+        jax.sharding.Mesh(np.array(_devices), axis_names=('batch',))
+        if _data_parallel and _n_devices > 1
+        else None
+    )
     posterior_draws = []
     truths = []
     base_seed = 0 if seed is None else int(seed)
@@ -391,21 +398,17 @@ def generate_sbc_report(
                 [encoded_batch[i].embedding for i in range(n_in_batch)]
             )
             # Optionally shard embeddings across devices for parallel sampling
-            if _data_parallel:
-                devices = jax.devices()
-                if len(devices) > 1:
-                    n_devices = len(devices)
-                    n_emb = stacked_embeddings.shape[0]
-                    remainder = n_emb % n_devices
-                    if remainder != 0:
-                        pad_count = n_devices - remainder
-                        padding = jnp.repeat(stacked_embeddings[-1:], pad_count, axis=0)
-                        stacked_embeddings = jnp.concatenate([stacked_embeddings, padding], axis=0)
-                    mesh = jax.sharding.Mesh(np.array(devices), axis_names=('batch',))
-                    from jax.sharding import NamedSharding, PartitionSpec as P
-                    stacked_embeddings = jax.device_put(
-                        stacked_embeddings, NamedSharding(mesh, P('batch'))
-                    )
+            if _mesh is not None:
+                n_emb = stacked_embeddings.shape[0]
+                remainder = n_emb % _n_devices
+                if remainder != 0:
+                    pad_count = _n_devices - remainder
+                    padding = jnp.repeat(stacked_embeddings[-1:], pad_count, axis=0)
+                    stacked_embeddings = jnp.concatenate([stacked_embeddings, padding], axis=0)
+                from jax.sharding import NamedSharding, PartitionSpec as P
+                stacked_embeddings = jax.device_put(
+                    stacked_embeddings, NamedSharding(_mesh, P('batch'))
+                )
             batch_draws = posterior.batch_sample_posterior(
                 stacked_embeddings,
                 n_samples=n_posterior_samples,

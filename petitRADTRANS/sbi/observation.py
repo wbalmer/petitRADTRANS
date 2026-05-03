@@ -178,32 +178,36 @@ class PreStackedObservations:
     Attributes
     ----------
     stacked_blocks:
-        One ``(values, uncertainties, coordinates, mask)`` tuple per
-        observation block.  Each array has shape ``(batch_size, n_wl)``.
+        One ``(values, uncertainties, coordinates, mask, log_median_flux,
+        absolute_values)`` tuple per observation block. ``values``,
+        ``uncertainties``, ``coordinates``, ``mask``, and ``absolute_values``
+        have shape ``(batch_size, n_wl)``. ``log_median_flux`` has shape
+        ``(batch_size,)``.
     modalities:
         Modality value string for each block, e.g. ``'spectrum'``.
         Treated as static metadata by JAX (does not trigger retrace between
         batches since it is constant for a given SBI task).
     """
 
-    stacked_blocks: tuple  # tuple[(v, u, c, m), ...], one entry per block
+    stacked_blocks: tuple  # tuple[(v, u, c, m, lmf), ...], one entry per block
     modalities: tuple  # tuple[str, ...] – static pytree aux data
 
 
 def _prestacked_flatten(
     obs: PreStackedObservations,
 ) -> tuple[list, tuple]:
-    leaves = [arr for v, u, c, m in obs.stacked_blocks for arr in (v, u, c, m)]
-    return leaves, (obs.modalities, len(obs.stacked_blocks))
+    leaves = [arr for block in obs.stacked_blocks for arr in block]
+    n_fields = len(obs.stacked_blocks[0]) if obs.stacked_blocks else 6
+    return leaves, (obs.modalities, len(obs.stacked_blocks), n_fields)
 
 
 def _prestacked_unflatten(
     aux_data: tuple,
     leaves: list,
 ) -> PreStackedObservations:
-    modalities, n_blocks = aux_data
+    modalities, n_blocks, n_fields = aux_data
     stacked_blocks = tuple(
-        (leaves[i * 4], leaves[i * 4 + 1], leaves[i * 4 + 2], leaves[i * 4 + 3])
+        tuple(leaves[i * n_fields + j] for j in range(n_fields))
         for i in range(n_blocks)
     )
     return PreStackedObservations(stacked_blocks=stacked_blocks, modalities=modalities)

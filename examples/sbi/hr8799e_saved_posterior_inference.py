@@ -31,6 +31,7 @@ from hr8799e_runtime_native_real_data import (  # noqa: E402
     build_retrieval_config,
     build_sbi_task,
     locate_input_files,
+    posterior_samples_to_physical,
 )
 from petitRADTRANS.sbi import (  # noqa: E402
     AmortizedRetrieval,
@@ -89,7 +90,11 @@ def main() -> None:
         seed=INFERENCE_SEED,
     )
 
-    posterior_samples = np.asarray(result.posterior.samples, dtype=float)
+    posterior_samples = posterior_samples_to_physical(
+        task,
+        np.asarray(result.posterior.samples, dtype=float),
+        parameter_space=result.metadata.get('parameter_space', 'physical'),
+    )
     parameter_names = list(task.parameter_names)
 
     print('Loaded posterior from:', posterior_dir)

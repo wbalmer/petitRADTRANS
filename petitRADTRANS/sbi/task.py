@@ -101,7 +101,7 @@ class SBITask:
     observation_schema: ObservationSchema
     simulation_config: SimulationConfig = field(default_factory=SimulationConfig)
     task_version: str = "0.1.0"
-    preprocessing_version: str = "0.1.0"
+    preprocessing_version: str = "0.5.0"
     forward_model_family: str = "unknown"
     petitradtrans_version: str = field(
         default_factory=lambda: importlib.metadata.version("petitRADTRANS")
@@ -169,7 +169,7 @@ class SBITask:
             simulation_config=simulation_config or SimulationConfig(),
             task_version=str(metadata_dict.pop("task_version", "0.1.0")),
             preprocessing_version=str(
-                metadata_dict.pop("preprocessing_version", "0.1.0")
+                metadata_dict.pop("preprocessing_version", "0.5.0")
             ),
             forward_model_family=str(
                 metadata_dict.pop(

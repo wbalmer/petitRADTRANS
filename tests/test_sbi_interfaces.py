@@ -20,6 +20,7 @@ from petitRADTRANS.sbi import (  # noqa: E402
     AmortizedRetrieval,
     build_observation_block_batch,
     ConditionalSplineFlowPosterior,
+    ConditionalNeuralAutoregressiveFlowPosterior,
     DatasetSplit,
     fit_task_preprocessing,
     FlowMatchingPosterior,
@@ -48,7 +49,7 @@ from petitRADTRANS.sbi.artifacts import ArtifactMetadata, ArtifactRole, FileArti
 from petitRADTRANS.sbi.calibration import central_credible_interval, empirical_interval_coverage  # noqa: E402
 from petitRADTRANS.sbi.compatibility import CompatibilityReport  # noqa: E402
 from petitRADTRANS.sbi.dataset import SimulationDatasetManifest, SplitSamplingPolicy  # noqa: E402
-from petitRADTRANS.sbi.flows import ConditionalSplineFlow  # noqa: E402
+from petitRADTRANS.sbi.flows import ConditionalNeuralAutoregressiveFlow, ConditionalSplineFlow  # noqa: E402
 from petitRADTRANS.sbi.preprocessing import compute_block_normalization_stats  # noqa: E402
 
 
@@ -1020,6 +1021,30 @@ def test_conditional_scalar_spline_flow_roundtrip():
     assert samples.shape == (5, 1)
 
 
+def test_conditional_neural_autoregressive_flow_roundtrip():
+    context = jnp.asarray([0.2, -0.3, 0.4, 0.1], dtype=jnp.float32)
+    parameters = jnp.asarray([0.15, -0.35, 0.55], dtype=jnp.float32)
+    flow = ConditionalNeuralAutoregressiveFlow(
+        parameter_dim=3,
+        context_dim=4,
+        num_layers=2,
+        hidden_dim=32,
+        conditioner_depth=3,
+        transform_units=8,
+        key=jax.random.PRNGKey(25),
+    )
+
+    latent, forward_log_det = flow.forward(parameters, context)
+    recovered, inverse_log_det = flow.inverse(latent, context)
+    samples = flow.sample(context=context, n_samples=5, key=jax.random.PRNGKey(26))
+
+    assert latent.shape == parameters.shape
+    assert recovered.shape == parameters.shape
+    assert np.allclose(np.asarray(recovered), np.asarray(parameters), atol=2e-4)
+    assert np.allclose(float(forward_log_det + inverse_log_det), 0.0, atol=2e-4)
+    assert samples.shape == (5, 3)
+
+
 def test_conditional_flow_posterior_fit_sample_and_save_load(tmp_path):
     task = _build_runtime_task(
         retrieval_name='posterior_demo',
@@ -1086,6 +1111,67 @@ def test_conditional_flow_posterior_fit_sample_and_save_load(tmp_path):
     assert saved_metadata['metadata_schema_version'] == '0.2.0'
     assert saved_metadata['estimator_config']['flow_family'] == 'spline'
     assert (checkpoint_directory / 'latest' / 'metadata.json').exists()
+
+
+def test_neural_autoregressive_posterior_fit_sample_and_generic_load(tmp_path):
+    task = _build_runtime_task(
+        retrieval_name='neural_autoregressive_posterior_demo',
+        noise_mode='gaussian',
+        seed=43,
+        include_nuisance=False,
+        store_log_likelihood=False,
+        uncertainties=jnp.array([0.05, 0.05]),
+    )
+    generated = generate_simulation_dataset(
+        task=task,
+        storage_uri=(tmp_path / 'neural_autoregressive_dataset.zarr').as_posix(),
+        n_simulations=8,
+        chunk_size=2,
+        split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
+        dataset_version='0.8.0',
+        backend='zarr',
+    )
+    store = ZarrSimulationDatasetStore(chunk_size=2)
+    dataset = store.open(generated.manifest)
+    reader = NormalizedObservationDatasetReader(
+        dataset=dataset,
+        preprocessing_metadata=generated.preprocessing_metadata,
+    )
+    posterior = ConditionalNeuralAutoregressiveFlowPosterior(
+        parameter_dim=1,
+        embedding_dim=32,
+        num_coupling_layers=2,
+        hidden_dim=32,
+        conditioner_depth=3,
+        autoregressive_transform_units=8,
+        learning_rate=5e-3,
+        batch_size=2,
+        num_epochs=1,
+        parameter_space='unconstrained',
+        seed=27,
+        task_metadata={'task_name': task.name},
+    )
+
+    artifacts = posterior.fit(reader)
+    train_batch = next(reader.iter_batches(split=DatasetSplit.TRAIN, batch_size=1, parameter_space='unconstrained'))
+    encoded_observation = posterior.encode_observation(train_batch.observations[0])
+    samples = posterior.sample_posterior(encoded_observation, n_samples=5, seed=29)
+
+    save_directory = tmp_path / 'saved_neural_autoregressive_posterior'
+    posterior.save(save_directory.as_posix())
+    loaded = load_posterior_estimator(save_directory.as_posix())
+    loaded_samples = loaded.sample_posterior(encoded_observation, n_samples=5, seed=29)
+    saved_metadata = json.loads((save_directory / 'metadata.json').read_text())
+
+    assert len(artifacts.history['train_loss']) == 1
+    assert artifacts.metadata['flow_family'] == 'neural_autoregressive'
+    assert artifacts.metadata['effective_flow_family'] == 'neural_autoregressive'
+    assert np.asarray(samples.samples).shape == (5, 1)
+    assert np.asarray(loaded_samples.samples).shape == (5, 1)
+    assert saved_metadata['estimator_family'] == 'conditional_flow'
+    assert saved_metadata['estimator_config']['flow_family'] == 'neural_autoregressive'
+    assert saved_metadata['estimator_config']['autoregressive_transform_units'] == 8
+    assert loaded.flow_family == 'neural_autoregressive'
 
 
 def test_spline_posterior_training_resumes_from_latest_checkpoint(tmp_path):

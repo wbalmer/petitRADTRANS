@@ -63,7 +63,9 @@ from .observation import (
 
 # Posterior estimators
 from .posterior import (
+    ConditionalAutoregressiveFlowPosterior,
     ConditionalFlowPosterior,
+    ConditionalNeuralAutoregressiveFlowPosterior,
     ConditionalSplineFlowPosterior,
     FlowMatchingPosterior,
     PersistentPosteriorEstimator,
@@ -136,7 +138,9 @@ __all__ = [
     "build_observation_block_batch",
     "build_observation_blocks_from_sample",
     # Posteriors
+    "ConditionalAutoregressiveFlowPosterior",
     "ConditionalFlowPosterior",
+    "ConditionalNeuralAutoregressiveFlowPosterior",
     "ConditionalSplineFlowPosterior",
     "FlowMatchingPosterior",
     "PersistentPosteriorEstimator",

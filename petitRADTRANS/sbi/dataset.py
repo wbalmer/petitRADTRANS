@@ -330,6 +330,64 @@ _OBSERVATION_TRAINING_FIELDS: frozenset[str] = frozenset(
 )
 
 
+def _prepare_batch_for_storage(
+    batch: SimulationBatch,
+    *,
+    store_covariance: bool,
+) -> SimulationBatch:
+    """Return a storage-friendly copy of one simulated batch.
+
+    When ``store_covariance`` is ``False`` the full covariance matrices are
+    reduced to their diagonals before they are written to disk.  This keeps the
+    stored field name as ``covariance`` while collapsing the shape from
+    ``(n_samples, n_wavelengths, n_wavelengths)`` to
+    ``(n_samples, n_wavelengths)``.
+    """
+    if store_covariance:
+        return batch
+
+    observations = batch.observations
+    if not isinstance(observations, Mapping):
+        return batch
+
+    updated_observations: dict[str, Any] = {}
+    changed = False
+
+    for observation_name, payload in observations.items():
+        if not isinstance(payload, Mapping):
+            updated_observations[observation_name] = payload
+            continue
+
+        payload_dict = dict(payload)
+        covariance = payload_dict.get("covariance")
+        if covariance is not None:
+            covariance_array = np.asarray(covariance)
+            if (
+                covariance_array.ndim >= 2
+                and covariance_array.shape[-1] == covariance_array.shape[-2]
+            ):
+                payload_dict["covariance"] = np.diagonal(
+                    covariance_array,
+                    axis1=-2,
+                    axis2=-1,
+                )
+                changed = True
+
+        updated_observations[observation_name] = payload_dict
+
+    if not changed:
+        return batch
+
+    return SimulationBatch(
+        parameters=batch.parameters,
+        observations=updated_observations,
+        cube_parameters=batch.cube_parameters,
+        unconstrained_parameters=batch.unconstrained_parameters,
+        log_likelihood=batch.log_likelihood,
+        diagnostics=batch.diagnostics,
+    )
+
+
 @dataclass
 class NormalizedObservationDatasetReader:
     """Lightweight reader yielding normalized ObservationBlock batches for training."""
@@ -1251,6 +1309,7 @@ def generate_simulation_dataset(
     resume: bool = False,
     backend: str = "hdf5",
     data_parallel: bool | None = None,
+    store_covariance: bool = False,
 ) -> GeneratedSimulationDataset:
     """Generate and persist a simulation corpus in one call.
 
@@ -1267,6 +1326,10 @@ def generate_simulation_dataset(
         effective per-iteration batch size is automatically scaled by the
         device count so each device processes the configured
         ``simulation_config.batch_size`` samples.
+    store_covariance:
+        When ``True`` the full covariance matrix for each simulated spectrum is
+        written to disk.  When ``False`` (default) only the covariance diagonal
+        is stored under the ``covariance`` field to reduce storage pressure.
     """
     resolved_split_policy = split_policy
     if isinstance(split_policy, str):
@@ -1296,6 +1359,7 @@ def generate_simulation_dataset(
             "dataset_version": dataset_version,
             "split_policy": resolved_split_policy.value,
             "split_seed": split_seed,
+            "store_covariance": bool(store_covariance),
         },
     )
 
@@ -1317,6 +1381,13 @@ def generate_simulation_dataset(
         if existing_manifest.metadata.get("split_seed") != split_seed:
             raise ValueError(
                 "Cannot resume dataset generation with a different split seed."
+            )
+        existing_store_covariance = bool(
+            existing_manifest.metadata.get("store_covariance", True)
+        )
+        if existing_store_covariance != bool(store_covariance):
+            raise ValueError(
+                "Cannot resume dataset generation with a different store_covariance setting."
             )
         existing_count = existing_manifest.n_simulations
         if existing_count > n_simulations:
@@ -1367,6 +1438,10 @@ def generate_simulation_dataset(
         while remaining > 0:
             batch_size = min(_effective_batch_size, remaining)
             batch = simulation_backend.simulate_batch(batch_size)
+            batch = _prepare_batch_for_storage(
+                batch,
+                store_covariance=store_covariance,
+            )
             writer.append(batch, split=split)
 
             remaining -= batch_size
@@ -1386,10 +1461,13 @@ def generate_simulation_dataset(
     preprocessing_metadata = None
     if include_preprocessing_metadata:
         if n_new_simulations == 0 and preprocessing_sidecar.exists():
-            preprocessing_metadata = TaskPreprocessingMetadata.from_payload(
+            cached_preprocessing = TaskPreprocessingMetadata.from_payload(
                 json.loads(preprocessing_sidecar.read_text())
             )
-        else:
+            if cached_preprocessing.version == task.preprocessing_version:
+                preprocessing_metadata = cached_preprocessing
+
+        if preprocessing_metadata is None:
             training_split = finalized_dataset.read_split(DatasetSplit.TRAIN)
             training_blocks = build_observation_block_batch(
                 training_split["observations"],
@@ -1417,6 +1495,7 @@ def generate_simulation_dataset(
             "storage_uri": storage_uri,
             "n_simulations": finalized_manifest.n_simulations,
             "splits": dict(finalized_manifest.splits),
+            "store_covariance": bool(store_covariance),
         },
         preprocessing_metadata=(
             {}
