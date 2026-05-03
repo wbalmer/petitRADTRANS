@@ -147,6 +147,50 @@ def init_spectral_model_line_by_line():
 spectral_model_lbl = init_spectral_model_line_by_line()
 
 
+def test_line_by_line_spectral_model_transmission_matches_direct_radtrans():
+    spectral_model = copy.deepcopy(spectral_model_lbl)
+    spectral_model.model_parameters["temperature_profile_mode"] = "isothermal"
+    spectral_model.model_parameters["temperature"] = temperature_isothermal
+
+    wavelengths_wrapper, spectrum_wrapper = spectral_model.calculate_spectrum(
+        mode="transmission",
+        parameters=None,
+        update_parameters=True,
+        telluric_transmittances=None,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=False,
+        shift=False,
+        convolve=False,
+        rebin=False,
+        prepare=False,
+    )
+
+    wavelengths_direct, spectrum_direct, _ = spectral_model.calculate_transit_radii(
+        temperatures=spectral_model.temperatures,
+        mass_fractions=spectral_model.mass_fractions,
+        mean_molar_masses=spectral_model.mean_molar_masses,
+        reference_gravity=spectral_model.model_parameters["reference_gravity"],
+        reference_pressure=spectral_model.model_parameters["reference_pressure"],
+        planet_radius=spectral_model.model_parameters["planet_radius"],
+        frequencies_to_wavelengths=True,
+    )
+
+    wavelengths_wrapper = np.asarray(wavelengths_wrapper)
+
+    if wavelengths_wrapper.ndim > 1:
+        wavelengths_wrapper = wavelengths_wrapper[0]
+
+    np.testing.assert_allclose(
+        wavelengths_wrapper,
+        np.asarray(wavelengths_direct),
+    )
+    np.testing.assert_allclose(
+        np.asarray(spectrum_wrapper)[0],
+        np.asarray(spectrum_direct),
+    )
+
+
 def test_line_by_line_spectral_model_emission():
     spectral_model = copy.deepcopy(spectral_model_lbl)
     spectral_model.model_parameters["is_orbiting"] = False

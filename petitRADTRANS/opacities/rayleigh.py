@@ -41,8 +41,9 @@ def compute_rayleigh_scattering_opacities(
     )
 
     # TODO Store base names
+    # Sort keys to match JAX JIT's alphabetical ordering of dict keys
     species_basenames = []
-    for species in mass_fractions.keys():
+    for species in sorted(mass_fractions.keys()):
         species_basenames.append(Opacity.get_species_base_name(species))
     species_basenames = tuple(species_basenames)
 

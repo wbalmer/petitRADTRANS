@@ -6,15 +6,162 @@ import warnings
 import astropy.io.votable.exceptions
 import astropy.units as u
 import h5py
+import jax.numpy as jnp
 import numpy as np
 import pyvo
 from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 from astropy.table.table import Table
 from astropy.time import Time
+from jax import jit, lax
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.math import calculate_uncertainty, longitude2phase, phase2longitude
+
+
+@jit
+def _calculate_asymmetric_uncertainty_jax(derivatives, uncertainties):
+    covariance_matrix = jnp.identity(jnp.size(derivatives), dtype=derivatives.dtype)
+    sigma_less = derivatives * uncertainties[:, 0]
+    sigma_more = derivatives * uncertainties[:, 1]
+
+    return jnp.sqrt(
+        jnp.array(
+            [
+                jnp.matmul(
+                    sigma_less,
+                    jnp.matmul(covariance_matrix, jnp.transpose(sigma_less)),
+                ),
+                jnp.matmul(
+                    sigma_more,
+                    jnp.matmul(covariance_matrix, jnp.transpose(sigma_more)),
+                ),
+            ]
+        )
+    )
+
+
+@jit
+def mass2reference_gravity_jax(
+    mass,
+    radius,
+    mass_error_upper=0.0,
+    mass_error_lower=0.0,
+    radius_error_upper=0.0,
+    radius_error_lower=0.0,
+):
+    mass = jnp.asarray(mass)
+    radius = jnp.asarray(radius)
+    reference_gravity = cst.G * mass / radius**2
+    uncertainties = jnp.abs(
+        jnp.asarray(
+            [
+                [mass_error_lower, mass_error_upper],
+                [radius_error_lower, radius_error_upper],
+            ],
+            dtype=reference_gravity.dtype,
+        )
+    )
+
+    partial_derivatives = jnp.asarray(
+        [
+            reference_gravity / mass,
+            -2 * reference_gravity / radius,
+        ]
+    )
+
+    errors = lax.cond(
+        jnp.any(jnp.not_equal(uncertainties, 0.0)),
+        lambda _: _calculate_asymmetric_uncertainty_jax(
+            partial_derivatives, uncertainties
+        ),
+        lambda _: jnp.zeros(2, dtype=reference_gravity.dtype),
+        operand=None,
+    )
+
+    return reference_gravity, errors[1], -errors[0]
+
+
+@jit
+def reference_gravity2radius_jax(
+    reference_gravity,
+    mass,
+    reference_gravity_error_upper=0.0,
+    reference_gravity_error_lower=0.0,
+    mass_error_upper=0.0,
+    mass_error_lower=0.0,
+):
+    reference_gravity = jnp.asarray(reference_gravity)
+    mass = jnp.asarray(mass)
+    radius = jnp.sqrt(cst.G * mass / reference_gravity)
+    uncertainties = jnp.abs(
+        jnp.asarray(
+            [
+                [mass_error_lower, mass_error_upper],
+                [reference_gravity_error_lower, reference_gravity_error_upper],
+            ],
+            dtype=radius.dtype,
+        )
+    )
+
+    partial_derivatives = jnp.asarray(
+        [
+            radius / (2 * mass),
+            -radius / (2 * reference_gravity),
+        ]
+    )
+
+    errors = lax.cond(
+        jnp.any(jnp.not_equal(uncertainties, 0.0)),
+        lambda _: _calculate_asymmetric_uncertainty_jax(
+            partial_derivatives, uncertainties
+        ),
+        lambda _: jnp.zeros(2, dtype=radius.dtype),
+        operand=None,
+    )
+
+    return radius, errors[1], -errors[0]
+
+
+@jit
+def reference_gravity2mass_jax(
+    reference_gravity,
+    radius,
+    reference_gravity_error_upper=0.0,
+    reference_gravity_error_lower=0.0,
+    radius_error_upper=0.0,
+    radius_error_lower=0.0,
+):
+    reference_gravity = jnp.asarray(reference_gravity)
+    radius = jnp.asarray(radius)
+    mass = reference_gravity / cst.G * radius**2
+    uncertainties = jnp.abs(
+        jnp.asarray(
+            [
+                [reference_gravity_error_lower, reference_gravity_error_upper],
+                [radius_error_lower, radius_error_upper],
+            ],
+            dtype=mass.dtype,
+        )
+    )
+
+    partial_derivatives = jnp.asarray(
+        [
+            mass / reference_gravity,
+            2 * mass / radius,
+        ]
+    )
+
+    errors = lax.cond(
+        jnp.any(jnp.not_equal(uncertainties, 0.0)),
+        lambda _: _calculate_asymmetric_uncertainty_jax(
+            partial_derivatives, uncertainties
+        ),
+        lambda _: jnp.zeros(2, dtype=mass.dtype),
+        operand=None,
+    )
+
+    return mass, errors[1], -errors[0]
 
 
 class Planet:
@@ -2161,41 +2308,17 @@ class Planet:
 
             return None, None, None
 
-        reference_gravity = cst.G * mass / radius**2
-
-        if np.any(
-            np.not_equal(
-                (
-                    radius_error_upper,
-                    radius_error_lower,
-                    mass_error_upper,
-                    mass_error_lower,
-                ),
-                0.0,
+        return tuple(
+            np.asarray(value)
+            for value in mass2reference_gravity_jax(
+                mass=mass,
+                radius=radius,
+                mass_error_upper=mass_error_upper,
+                mass_error_lower=mass_error_lower,
+                radius_error_upper=radius_error_upper,
+                radius_error_lower=radius_error_lower,
             )
-        ):
-            partial_derivatives = np.array(
-                [
-                    reference_gravity / mass,  # dg/dm
-                    -2 * reference_gravity / radius,  # dg/dr
-                ]
-            )
-            uncertainties = np.abs(
-                np.array(
-                    [
-                        [mass_error_lower, mass_error_upper],
-                        [radius_error_lower, radius_error_upper],
-                    ]
-                )
-            )
-
-            errors = calculate_uncertainty(
-                partial_derivatives, uncertainties
-            )  # lower and upper errors
-        else:
-            errors = (0.0, 0.0)
-
-        return reference_gravity, errors[1], -errors[0]
+        )
 
     @staticmethod
     def reference_gravity2radius(
@@ -2226,41 +2349,17 @@ class Planet:
 
             return None, None, None
 
-        radius = np.sqrt(cst.G * mass / reference_gravity)
-
-        if np.any(
-            np.not_equal(
-                (
-                    reference_gravity_error_upper,
-                    reference_gravity_error_lower,
-                    mass_error_upper,
-                    mass_error_lower,
-                ),
-                0.0,
+        return tuple(
+            np.asarray(value)
+            for value in reference_gravity2radius_jax(
+                reference_gravity=reference_gravity,
+                mass=mass,
+                reference_gravity_error_upper=reference_gravity_error_upper,
+                reference_gravity_error_lower=reference_gravity_error_lower,
+                mass_error_upper=mass_error_upper,
+                mass_error_lower=mass_error_lower,
             )
-        ):
-            partial_derivatives = np.array(
-                [
-                    radius / (2 * mass),  # dr/dm
-                    -radius / (2 * reference_gravity),  # dr/dg
-                ]
-            )
-            uncertainties = np.abs(
-                np.array(
-                    [
-                        [mass_error_lower, mass_error_upper],
-                        [reference_gravity_error_lower, reference_gravity_error_upper],
-                    ]
-                )
-            )
-
-            errors = calculate_uncertainty(
-                partial_derivatives, uncertainties
-            )  # lower and upper errors
-        else:
-            errors = (0.0, 0.0)
-
-        return radius, errors[1], -errors[0]
+        )
 
     @staticmethod
     def reference_gravity2mass(
@@ -2284,38 +2383,18 @@ class Planet:
         Returns:
             (g) the mass of the planet, and its upper and lower error
         """
-        mass = reference_gravity / cst.G * radius**2
 
-        if np.any(
-            np.not_equal(
-                (
-                    radius_error_upper,
-                    radius_error_lower,
-                    reference_gravity_error_upper,
-                    reference_gravity_error_lower,
-                ),
-                0.0,
+        return tuple(
+            np.asarray(value)
+            for value in reference_gravity2mass_jax(
+                reference_gravity=reference_gravity,
+                radius=radius,
+                reference_gravity_error_upper=reference_gravity_error_upper,
+                reference_gravity_error_lower=reference_gravity_error_lower,
+                radius_error_upper=radius_error_upper,
+                radius_error_lower=radius_error_lower,
             )
-        ):
-            partial_derivatives = np.array(
-                [mass / reference_gravity, 2 * mass / radius]  # dm/dg  # dm/dr
-            )
-            uncertainties = np.abs(
-                np.array(
-                    [
-                        [reference_gravity_error_lower, reference_gravity_error_upper],
-                        [radius_error_lower, radius_error_upper],
-                    ]
-                )
-            )
-
-            errors = calculate_uncertainty(
-                partial_derivatives, uncertainties
-            )  # lower and upper errors
-        else:
-            errors = (0.0, 0.0)
-
-        return mass, errors[1], -errors[0]
+        )
 
     def save(self, filename=None):
         if filename is None:

@@ -34,7 +34,7 @@ from petitRADTRANS.physics import (
     frequency2wavelength,
     hz2um,
 )
-from petitRADTRANS.profiles import temperature_profile_function_guillot_metallic
+from petitRADTRANS.temperature_profiles import guillot_metallic_temperature_profile
 from petitRADTRANS.radtrans_core.spectrum_utils import (
     convolve_constant_resolution,
     rebin_spectrum,
@@ -45,7 +45,6 @@ from petitRADTRANS.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import RetrievalParameter
-from petitRADTRANS.retrieval.models import mark_model_function_runtime_native
 from petitRADTRANS.retrieval.preparing import polyfit
 from petitRADTRANS.retrieval.retrieval import Retrieval
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
@@ -246,7 +245,9 @@ class SpectralModel(Radtrans):
             If True, the uncertainties are used as fit weights when preparing the spectrum.
             Used when preparing the spectrum with retrieval.preparing.polyfit function.
         use_equilibrium_chemistry:
-            If True, use pRT equilibrium chemistry module to calculate the mass fractions. Does not override the
+            If True, use the built-in precalculated pRT equilibrium chemistry
+            table to calculate the mass fractions. This does not trigger the
+            separate full easyChem chemistry solver and does not override the
             imposed mass fractions.
         verbose:
             If True, displays additional information when running some SpectralModel functions.
@@ -258,7 +259,7 @@ class SpectralModel(Radtrans):
             Cloud settling parameter.
         cloud_hansen_a:
             A dictionary of the 'a' parameter values for each included cloud species and for each atmospheric
-            layer, formatted as the kzz argument. Equivalent to cloud_particles_mean_radii.
+            layer, formatted as the kzz argument. Equivalent to cloud_particle_mean_radii.
             If cloud_hansen_a is not included and dist is "hansen", then it will be computed using Kzz and fsed
             (recommended).
         cloud_hansen_b:
@@ -269,10 +270,10 @@ class SpectralModel(Radtrans):
             A dictionary of cloud particle number densities for all cloud species.
         cloud_particle_radius_distribution_std:
             Width of the log-normal cloud particle size distribution.
-        cloud_particles_mean_radii:
+        cloud_particle_mean_radii:
             Dictionary of mean particle radii for all cloud species.
             Dictionary keys are the cloud species names. Every radius array has same length as pressure array.
-        cloud_particles_radius_distribution:
+        cloud_particle_radius_distribution:
             The cloud particle size distribution to use.
             Can be either 'lognormal' (default) or 'hansen'.
             If hansen, the cloud_hansen_b parameters must be used.
@@ -280,7 +281,7 @@ class SpectralModel(Radtrans):
             Median optical depth (across ``wavelength_boundaries``) of the clouds from the top of the
             atmosphere down to the gas-only photosphere. This parameter can be used for enforcing the presence
             of clouds in the photospheric region.
-        clouds_particles_porosity_factor:
+        clouds_particle_porosity_factor:
             A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
             are calculated using the Distribution of Hollow Spheres (DHS) method.
         eddy_diffusion_coefficients:
@@ -1459,9 +1460,9 @@ class SpectralModel(Radtrans):
         reference_gravity: float,
         planet_radius: float = None,
         opaque_cloud_top_pressure: float = None,
-        cloud_particles_mean_radii: dict[str, npt.NDArray[np.floating]] = None,
+        cloud_particle_mean_radii: dict[str, npt.NDArray[np.floating]] = None,
         cloud_particle_radius_distribution_std: float = None,
-        cloud_particles_radius_distribution: str = "lognormal",
+        cloud_particle_radius_distribution: str = "lognormal",
         cloud_hansen_a: dict[str, npt.NDArray[np.floating]] = None,
         cloud_hansen_b: dict[str, npt.NDArray[np.floating]] = None,
         cloud_particle_number_density_grid: dict[str, npt.NDArray[np.floating]] = None,
@@ -1508,9 +1509,9 @@ class SpectralModel(Radtrans):
             reference_gravity=reference_gravity,
             planet_radius=planet_radius,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
             cloud_particle_number_density_grid=cloud_particle_number_density_grid,
@@ -1852,9 +1853,9 @@ class SpectralModel(Radtrans):
         planet_radius: float,
         variable_gravity: bool = True,
         opaque_cloud_top_pressure: float = None,
-        cloud_particles_mean_radii: dict[str, npt.NDArray[np.floating]] = None,
+        cloud_particle_mean_radii: dict[str, npt.NDArray[np.floating]] = None,
         cloud_particle_radius_distribution_std: float = None,
-        cloud_particles_radius_distribution: str = "lognormal",
+        cloud_particle_radius_distribution: str = "lognormal",
         cloud_hansen_a: float = None,
         cloud_hansen_b: float = None,
         cloud_particle_number_density_grid: dict[str, npt.NDArray[np.floating]] = None,
@@ -1890,9 +1891,9 @@ class SpectralModel(Radtrans):
                 planet_radius=planet_radius,
                 variable_gravity=variable_gravity,
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-                cloud_particles_mean_radii=cloud_particles_mean_radii,
+                cloud_particle_mean_radii=cloud_particle_mean_radii,
                 cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-                cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+                cloud_particle_radius_distribution=cloud_particle_radius_distribution,
                 cloud_hansen_a=cloud_hansen_a,
                 cloud_hansen_b=cloud_hansen_b,
                 cloud_particle_number_density_grid=cloud_particle_number_density_grid,
@@ -1966,13 +1967,13 @@ class SpectralModel(Radtrans):
         return cloud_f_sed
 
     @staticmethod
-    def compute_cloud_particles_mean_radii(
-        cloud_particles_mean_radii: dict[str, npt.NDArray[np.floating]] = None, **kwargs
+    def compute_cloud_particle_mean_radii(
+        cloud_particle_mean_radii: dict[str, npt.NDArray[np.floating]] = None, **kwargs
     ):
-        """Get the cloud_particles_mean_radii parameter. No calculation performed."""
+        """Get the cloud_particle_mean_radii parameter. No calculation performed."""
         _ = kwargs  # kwargs is not used in this function, this is intended
 
-        return cloud_particles_mean_radii
+        return cloud_particle_mean_radii
 
     @staticmethod
     def compute_cloud_particle_radius_distribution_std(
@@ -1984,13 +1985,13 @@ class SpectralModel(Radtrans):
         return cloud_particle_radius_distribution_std
 
     @staticmethod
-    def compute_clouds_particles_porosity_factor(
-        clouds_particles_porosity_factor: dict[str, float] = None, **kwargs
+    def compute_clouds_particle_porosity_factor(
+        clouds_particle_porosity_factor: dict[str, float] = None, **kwargs
     ):
-        """Get the clouds_particles_porosity_factor parameter. No calculation performed."""
+        """Get the clouds_particle_porosity_factor parameter. No calculation performed."""
         _ = kwargs  # kwargs is not used in this function, this is intended
 
-        return clouds_particles_porosity_factor
+        return clouds_particle_porosity_factor
 
     @staticmethod
     def compute_cloud_hansen_a(
@@ -2152,7 +2153,8 @@ class SpectralModel(Radtrans):
             carbon_quench_pressure: (bar) pressure where the carbon species are quenched, used with equilibrium
                 chemistry
             imposed_mass_fractions: imposed mass mixing ratios
-            use_equilibrium_chemistry: if True, use pRT equilibrium chemistry module
+            use_equilibrium_chemistry: if True, use the built-in precalculated
+                pRT equilibrium chemistry table
             filling_species:
                 Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
                 filling species are represented with None.
@@ -2640,7 +2642,7 @@ class SpectralModel(Radtrans):
                     f"but was: {temperature}"
                 )
         elif temperature_profile_mode == "guillot":
-            temperatures = temperature_profile_function_guillot_metallic(
+            temperatures = guillot_metallic_temperature_profile(
                 pressures=pressures,  # TODO (v4.0.0) change TP pressure to CGS
                 gamma=guillot_temperature_profile_gamma,
                 reference_gravity=reference_gravity,

@@ -19,6 +19,33 @@ from .context import petitRADTRANS
 from .utils import tests_references_directory, tests_error_directory
 
 
+def _align_output_to_reference(test_output, reference_output):
+    """Trim extra dict keys from current outputs while preserving reference coverage."""
+    if not isinstance(reference_output, dict):
+        return test_output
+
+    if not isinstance(test_output, dict):
+        raise AssertionError(
+            f"test output type {type(test_output)} does not match reference dict"
+        )
+
+    aligned_output = {}
+
+    for key, reference_value in reference_output.items():
+        string_key = str(key)
+
+        if string_key in test_output:
+            value = test_output[string_key]
+        elif key in test_output:
+            value = test_output[key]
+        else:
+            raise KeyError(f"reference output key '{string_key}' not in test output dict")
+
+        aligned_output[string_key] = _align_output_to_reference(value, reference_value)
+
+    return aligned_output
+
+
 class TestFile:
     """Base class for test files.
     Can be loaded and saved. Contains the test tolerances, the petitRADTRANS version and the date of the test.
@@ -401,7 +428,10 @@ class Benchmark:
                 raise KeyError(f"reference file output '{output_id}' not in test output dict")
 
             try:
-                comparison_output = test_outputs[output_id]
+                comparison_output = _align_output_to_reference(
+                    test_outputs[output_id],
+                    reference_output,
+                )
                 if isinstance(comparison_output, jnp.ndarray):
                     comparison_output = np.array(comparison_output)
                 petitRADTRANS.utils.check_all_close(

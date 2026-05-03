@@ -129,7 +129,7 @@ def test_correlated_k_emission_spectrum_cloud_hansen_radius():
         ],
         cloud_f_sed=cloud_f_sed,
         cloud_hansen_b=cloud_hansen_b,
-        cloud_particles_radius_distribution="hansen",
+        cloud_particle_radius_distribution="hansen",
         frequencies_to_wavelengths=False,
     )
 
@@ -278,7 +278,7 @@ def test_correlated_k_transmission_spectrum_rayleigh():
 def test_correlated_k_transmission_spectrum_cloud_fixed_radius():
     (
         mass_fractions,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         _,
         cloud_particle_radius_distribution_std,
         _,
@@ -300,7 +300,7 @@ def test_correlated_k_transmission_spectrum_cloud_fixed_radius():
         reference_pressure=test_parameters["planetary_parameters"][
             "reference_pressure"
         ],
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         frequencies_to_wavelengths=False,
     )
@@ -397,6 +397,6 @@ def test_correlated_k_transmission_spectrum_with_custom_cloud_distribution():
         cloud_particle_number_density_grid=test_parameters[
             "cloud_particle_number_density_grid"
         ],
-        cloud_particles_radius_distribution="custom",
+        cloud_particle_radius_distribution="custom",
         frequencies_to_wavelengths=False,
     )

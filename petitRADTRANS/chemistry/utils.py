@@ -2,7 +2,7 @@ import copy
 import sys
 
 import jax.numpy as jnp
-from jax import lax, jit, vmap
+from jax import lax, jit
 from jax.experimental import checkify
 from interpax import PchipInterpolator
 
@@ -191,6 +191,13 @@ def abundance_curvature_prior(press, abundance, gamma):
     return weighted_abund_prior
 
 
+def get_parameter_value(parameter):
+    if hasattr(parameter, "value"):
+        return parameter.value
+
+    return parameter
+
+
 # @partial(jit, static_argnames=['mode', 'nnodes'])
 def compute_pressure_nodes(pressure_array, mode="even", nnodes=0, points_list=None):
     """
@@ -212,46 +219,33 @@ def compute_pressure_nodes(pressure_array, mode="even", nnodes=0, points_list=No
     Returns:
         array: an array of pressure nodes.
     """
-    # nnodes = lax.cond(
-    #   lambda _: 0,
-    #   nnodes == None,
-    #   lambda x: x,
-    #   nnodes
-    # )
+    pressure_array = jnp.asarray(pressure_array)
+    log_top_pressure = jnp.log10(pressure_array[0])
+    log_bottom_pressure = jnp.log10(pressure_array[-1])
 
-    pressure_nodes = jnp.zeros(nnodes)
-    pressure_nodes = lax.cond(
-        mode == "even",
-        lambda x: jnp.linspace(jnp.log10(x[0]), jnp.log10(x[-1]), int(nnodes) + 2),
-        pressure_nodes,
-    )
+    if mode == "even":
+        return jnp.linspace(log_top_pressure, log_bottom_pressure, int(nnodes) + 2)
 
-    def relative(pressure_array, points_list):
-        # points_list is a list of delta log Pressures < 0.
-        # This enforces a monotonically decreasing list of pressure nodes
-        pressures = [jnp.log10(pressure_array[0])]
-        min_pressure = jnp.log10(pressure_array[-1])
-        for i, node in enumerate(points_list):
-            # pressures goes from low to high
-            _next = pressures[i] + node
-            pressures.append(min(_next, min_pressure))
-        pressures.append(min_pressure)
-        return jnp.array(pressures)
+    if mode == "relative":
+        if points_list is None:
+            return jnp.array([log_top_pressure, log_bottom_pressure])
 
-    pressure_nodes = lax.cond(
-        mode == "relative",
-        lambda x: relative,
-        lambda x: pressure_nodes,
-        pressure_array,
-        points_list,
-    )
+        relative_offsets = jnp.asarray(points_list)
+        interior_nodes = log_top_pressure + jnp.cumsum(relative_offsets)
+        interior_nodes = jnp.minimum(interior_nodes, log_bottom_pressure)
 
-    pressure_nodes = lax.cond(
-        mode == "set", lambda x: pressure_nodes, lambda x: pressure_nodes
-    )
-    # else:
-    #    warnings.warn("Incorrect mode specified to define pressure spline nodes! Returning full pressure array!")
-    return pressure_nodes
+        return jnp.concatenate(
+            (
+                jnp.array([log_top_pressure]),
+                interior_nodes,
+                jnp.array([log_bottom_pressure]),
+            )
+        )
+
+    if points_list is None:
+        return jnp.array([log_top_pressure, log_bottom_pressure])
+
+    return jnp.asarray(points_list)
 
 
 # @partial(jit, static_argnames=['mode'])
@@ -397,6 +391,41 @@ def cubic_spline_profile(
     return interpolated_abunds, prior
 
 
+@partial(jit, static_argnames=["profile_mode"])
+def build_abundance_profile(
+    pressure_array,
+    pressure_nodes,
+    abundance_points,
+    profile_mode="linear",
+    gamma=0.04,
+):
+    if profile_mode == "stepped":
+        return stepped_profile(pressure_array, pressure_nodes, abundance_points)
+
+    if profile_mode == "linear":
+        return linear_spline_profile(
+            pressure_array,
+            pressure_nodes,
+            abundance_points,
+            gamma=gamma,
+            nnodes=len(pressure_nodes),
+        )[0]
+
+    if profile_mode == "cubic":
+        return cubic_spline_profile(
+            pressure_array,
+            pressure_nodes,
+            abundance_points,
+            gamma=gamma,
+            nnodes=len(pressure_nodes),
+        )[0]
+
+    raise ValueError(
+        "profile_mode must be 'stepped', 'linear', or 'cubic', "
+        f"but was '{profile_mode}'"
+    )
+
+
 def define_abundance_node_list(species_short_name, parameters):
     """
 
@@ -413,20 +442,26 @@ def define_abundance_node_list(species_short_name, parameters):
     Returns:
         array: an array of pressure nodes
     """
-    # TODO jit
     abundance_nodes = None
     if f"{species_short_name}_n_abundance_nodes" in parameters.keys():
-        nnodes = parameters[f"{species_short_name}_n_abundance_nodes"].value
-        # Retrieve individual relative pressure node locations
+        nnodes = int(
+            get_parameter_value(parameters[f"{species_short_name}_n_abundance_nodes"])
+        )
         abundance_nodes = [
-            parameters[f"{species_short_name}_abundance_node_{i}"].value
+            get_parameter_value(parameters[f"{species_short_name}_abundance_node_{i}"])
             for i in range(nnodes)
         ]
 
     # Predefined list of pressure node locations
     elif f"{species_short_name}_abundance_nodes" in parameters.keys():
-        abundance_nodes = parameters[f"{species_short_name}_abundance_nodes"].value
-    return abundance_nodes
+        abundance_nodes = get_parameter_value(
+            parameters[f"{species_short_name}_abundance_nodes"]
+        )
+
+    if abundance_nodes is None:
+        return None
+
+    return jnp.asarray(abundance_nodes)
 
 
 # TODO: nnode arg for static sizing
@@ -446,49 +481,55 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
     Returns:
         array: an array of pressure nodes, can be used in calculate_pressure_nodes
     """
-    pressure_interpolation_nodes = None
+    pressure_array = jnp.asarray(pressure_array)
+    log_top_pressure = jnp.log10(pressure_array[0])
+    log_bottom_pressure = jnp.log10(pressure_array[-1])
 
     if f"{species_short_name}_n_pressure_nodes" in parameters.keys():
-        nnodes = parameters[f"{species_short_name}_n_pressure_nodes"].value
-        mode = parameters[f"{species_short_name}_interpolation_mode"].value
+        nnodes = int(
+            get_parameter_value(parameters[f"{species_short_name}_n_pressure_nodes"])
+        )
+        mode = get_parameter_value(
+            parameters[f"{species_short_name}_interpolation_mode"]
+        )
 
         # Evenly spaced in log P
         if mode == "even":
-            pressure_interpolation_nodes = compute_pressure_nodes(
-                pressure_array,
-                mode=parameters[f"{species_short_name}_interpolation_mode"].value,
-                nnodes=parameters[f"{species_short_name}_n_pressure_nodes"].value,
-                points_list=None,
-            )
-        # Retrieve individual relative pressure node locations
-        elif mode == "relative":
-            pnodes = [
-                parameters[f"{species_short_name}_pressure_node_{i}"].value
-                for i in range(nnodes)
-            ]
-            pressure_interpolation_nodes = compute_pressure_nodes(
+            return compute_pressure_nodes(
                 pressure_array,
                 mode=mode,
-                nnodes=None,  # TODO None is not handled in function, potential issue?
-                points_list=pnodes,
+                nnodes=nnodes,
+                points_list=None,
             )
-    # Predefined list of pressure node locations
-    # TODO: split this off into separate function?
-    elif f"{species_short_name}_pressure_nodes" in parameters.keys():
-        pressure_interpolation_nodes = compute_pressure_nodes(
-            pressure_array,
-            mode=parameters[f"{species_short_name}_interpolation_mode"].value,
-            nnodes=None,
-            points_list=parameters[f"{species_short_name}_pressure_nodes"].value,
-        )
-    # Default to bottom and top of atmosphere
-    else:
-        pressure_interpolation_nodes = [
-            jnp.log10(pressure_array[0]),
-            jnp.log10(pressure_array[-1]),
+
+        pnodes = [
+            get_parameter_value(parameters[f"{species_short_name}_pressure_node_{i}"])
+            for i in range(nnodes)
         ]
 
-    return jnp.array(pressure_interpolation_nodes)
+        if mode == "relative":
+            return compute_pressure_nodes(
+                pressure_array,
+                mode=mode,
+                points_list=pnodes,
+            )
+
+        return jnp.concatenate(
+            (
+                jnp.array([log_top_pressure]),
+                jnp.asarray(pnodes),
+                jnp.array([log_bottom_pressure]),
+            )
+        )
+
+    # Predefined list of pressure node locations
+    if f"{species_short_name}_pressure_nodes" in parameters.keys():
+        return jnp.asarray(
+            get_parameter_value(parameters[f"{species_short_name}_pressure_nodes"])
+        )
+
+    # Default to bottom and top of atmosphere
+    return jnp.array([log_top_pressure, log_bottom_pressure])
 
 
 # @jit
@@ -514,19 +555,57 @@ def fill_atmosphere(
     """
 
     filled_mass_fractions = mass_fractions.copy()
+
+    if len(filling_species) == 0:
+        return filled_mass_fractions, mass_fraction_sum
+
     sum_weights = jnp.sum(jnp.array(list(filling_species.values())), axis=0)
-    msum = mass_fraction_sum
+    can_fill = jnp.logical_and(
+        jnp.logical_and(0.0 <= mass_fraction_sum, mass_fraction_sum < 1.0),
+        sum_weights > 0,
+    )
+    safe_sum_weights = jnp.where(sum_weights > 0, sum_weights, 1.0)
+
     for species, weights in filling_species.items():
         filled_mass_fractions[species] = jnp.where(
-            jnp.logical_and(0.0 < mass_fraction_sum, mass_fraction_sum < 1.0),
-            (1.0 - mass_fraction_sum) * weights / sum_weights,
+            can_fill,
+            (1.0 - mass_fraction_sum) * weights / safe_sum_weights,
             filled_mass_fractions[species],
         )
-        msum += filled_mass_fractions[species]
+
     # Re-add cloud mass fractions
     for species, mass_fraction in mass_fractions.items():
         if "(s)" in species or "(l)" in species:
             filled_mass_fractions[species] = mass_fraction
+
+    msum = jnp.zeros_like(mass_fraction_sum)
+    filling_mass_sum = jnp.zeros_like(mass_fraction_sum)
+    for mass_fraction in filled_mass_fractions.values():
+        msum = msum + mass_fraction
+
+    for species in filling_species:
+        filling_mass_sum = filling_mass_sum + filled_mass_fractions[species]
+
+    target_filling_mass_sum = 1.0 - (msum - filling_mass_sum)
+    can_rebalance_existing_fill = jnp.logical_and(
+        sum_weights <= 0,
+        jnp.logical_and(filling_mass_sum > 0, target_filling_mass_sum > 0),
+    )
+    safe_filling_mass_sum = jnp.where(filling_mass_sum > 0, filling_mass_sum, 1.0)
+
+    for species in filling_species:
+        filled_mass_fractions[species] = jnp.where(
+            can_rebalance_existing_fill,
+            filled_mass_fractions[species]
+            * target_filling_mass_sum
+            / safe_filling_mass_sum,
+            filled_mass_fractions[species],
+        )
+
+    if bool(jnp.any(can_rebalance_existing_fill)):
+        msum = jnp.zeros_like(mass_fraction_sum)
+        for mass_fraction in filled_mass_fractions.values():
+            msum = msum + mass_fraction
 
     return filled_mass_fractions, msum
 
@@ -796,7 +875,7 @@ def get_base_species_mass_fractions(
     mass_fractions: dict, species_basenames: tuple
 ) -> dict:
     base_species_mass_fractions = {}
-    for i, species in enumerate(list(mass_fractions.keys())):
+    for i, species in enumerate(sorted(list(mass_fractions.keys()))):
         # Using Opacity.get_species_basename to get the base species name
         species_basename = species_basenames[i]
 
@@ -870,10 +949,11 @@ def mass_fractions2metallicity(
 
 def simplify_species_list(species_list: list) -> list:
     species_basenames = [
-        Opacity.get_species_base_name(species) for species in species_list
+        Opacity.get_species_base_name(species) for species in sorted(species_list)
     ]
     species_isotopologue_names = [
-        Opacity.get_species_isotopologue_name(species) for species in species_list
+        Opacity.get_species_isotopologue_name(species)
+        for species in sorted(species_list)
     ]
 
     for i, species in enumerate(species_isotopologue_names):
@@ -895,51 +975,37 @@ def stepped_profile(pressure_array, transition_pressures, abundance_points):
     Compute a stepped profile for abundance based on pressure points.
 
     This function computes the steps for chemical abundance using
-    pressure and abundance data points. This is a JIT-compatible version
-    that uses vmap for vectorization.
+    pressure and abundance data points.
 
     Args:
         pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
-        transition_pressures (array-like): An array of transition pressures in log10 space, sorted descending.
-                                           It should include the top and bottom of the atmosphere, so the length is nnodes + 2.
-        abundance_points (array-like): An array or list of abundances for each pressure node. Length must be nnodes + 1.
+        transition_pressures (array-like): An array of transition pressures in log10 space, sorted from low to high
+                                           pressure. It should include the top and bottom of the atmosphere.
+        abundance_points (array-like): An array or list of abundances for each pressure interval. A legacy
+            length matching transition_pressures is also accepted; in that case the last value is used only at the
+            bottom boundary.
 
     Returns:
         array-like: An array of abundance values corresponding to the pressure_array.
     """
 
-    def _stepped_profile_impl(pressure_array, transition_pressures, abundance_points):
-        nnodes = len(transition_pressures) - 2
+    transition_pressures = jnp.asarray(transition_pressures)
+    abundance_points = jnp.asarray(abundance_points)
+    n_intervals = len(transition_pressures) - 1
 
-        # Check for correct lengths of inputs
-        checkify.check(
-            len(abundance_points) == nnodes + 1,
-            f"Length of abundance_points ({len(abundance_points)}) must be nnodes + 1 ({nnodes + 1})",
+    if len(abundance_points) not in (n_intervals, len(transition_pressures)):
+        raise ValueError(
+            f"Length of abundance_points ({len(abundance_points)}) must be either {n_intervals} "
+            f"or {len(transition_pressures)}"
         )
-        log_pressure = jnp.log10(pressure_array)
 
-        # Define the function to get abundance at a single pressure point.
-        # This function replaces the loop and conditional logic from the original.
-        def get_abundance(log_p):
-            # We search on the intermediate transition pressures (nodes).
-            # searchsorted requires an ascending array, so we reverse the nodes.
-            nodes_asc = transition_pressures[1:-1][::-1]
-            idx = jnp.searchsorted(nodes_asc, log_p)
-            abund_idx = nnodes - idx
-
-            return 10 ** abundance_points[abund_idx]
-
-        # Vectorize the function across all pressure points.
-        abundance_profile = vmap(get_abundance)(log_pressure)
-
-        return abundance_profile
-
-    err, result = checkify.checkify(_stepped_profile_impl)(
-        pressure_array, transition_pressures, abundance_points
+    log_pressure = jnp.log10(pressure_array)
+    abundance_indices = jnp.searchsorted(
+        transition_pressures[1:], log_pressure, side="right"
     )
-    checkify.check_error(err)
+    abundance_indices = jnp.clip(abundance_indices, 0, len(abundance_points) - 1)
 
-    return result
+    return 10 ** abundance_points[abundance_indices]
 
 
 def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=None):

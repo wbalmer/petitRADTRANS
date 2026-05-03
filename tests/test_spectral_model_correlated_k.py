@@ -87,6 +87,24 @@ def init_spectral_model_correlated_k():
 spectral_model_ck = init_spectral_model_correlated_k()
 
 
+def test_correlated_k_spectral_model_non_equilibrium_chemistry_stays_constant():
+    spectral_model = copy.deepcopy(spectral_model_ck)
+    spectral_model.model_parameters["is_observed"] = False
+    spectral_model.model_parameters["is_around_star"] = False
+    spectral_model.model_parameters["star_effective_temperature"] = None
+    spectral_model.model_parameters["star_radius"] = None
+    spectral_model.model_parameters["use_equilibrium_chemistry"] = False
+
+    spectral_model.calculate_spectrum(mode="emission", update_parameters=True)
+
+    for species in test_parameters["filling_species"]:
+        profile = np.asarray(spectral_model.mass_fractions[species])
+        assert np.allclose(profile, profile[0])
+
+    mean_molar_masses = np.asarray(spectral_model.mean_molar_masses)
+    assert np.allclose(mean_molar_masses, mean_molar_masses[0])
+
+
 def test_correlated_k_spectral_model_emission():
     spectral_model = copy.deepcopy(spectral_model_ck)
     spectral_model.model_parameters["is_observed"] = False

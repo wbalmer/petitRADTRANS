@@ -126,6 +126,236 @@ def solve_tridiagonal_thomas_batched(a, b, c, d):
 
 
 @partial(jit, static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
+def factor_feautrier_thomas(
+    a,
+    b,
+    c,
+    n_g,
+    n_freq_bins,
+    n_angles,
+    n_layers,
+):
+    """Pre-factor the LHS of the Feautrier tridiagonal system.
+
+    Performs the forward elimination that depends only on (a, b, c),
+    caching the modified upper diagonal and reciprocal denominators so
+    that subsequent solves with different RHS vectors only need the
+    cheaper RHS-only forward sweep and backward substitution.
+
+    Parameters
+    ----------
+    a, b, c : jax.Array, shape (batch, n_layers)
+        Tridiagonal coefficients where batch = n_g * n_freq_bins * n_angles.
+    n_g, n_freq_bins, n_angles, n_layers : int
+        Static shape parameters.
+
+    Returns
+    -------
+    c_prime : jax.Array, shape (n_layers, batch)
+        Modified upper diagonal from Thomas forward elimination.
+        ``c_prime[n_layers-1]`` is unused (padding) but kept for shape
+        consistency.
+    inv_denom : jax.Array, shape (n_layers, batch)
+        Reciprocal of the elimination denominators.  Includes the surface
+        row at index ``n_layers - 1``.
+    a_times_inv_denom : jax.Array, shape (n_layers, batch)
+        ``a[:, k] * inv_denom[k]`` pre-multiplied for the RHS sweep.
+    """
+    n = n_layers
+    batch = n_g * n_freq_bins * n_angles
+
+    inv_denom_0 = 1.0 / b[:, 0]  # (batch,)
+    c_prime_0 = c[:, 0] * inv_denom_0  # (batch,)
+    a_inv_0 = jnp.zeros(batch, dtype=a.dtype)  # a[0] is unused
+
+    if n > 2:
+
+        def fwd_step(carry, k):
+            c_prev = carry
+            denom = b[:, k] - a[:, k] * c_prev
+            safe_den = jnp.where(jnp.abs(denom) < TINIEST, TINIEST, denom)
+            inv_den = 1.0 / safe_den
+            c_k = c[:, k] * inv_den
+            a_inv_k = a[:, k] * inv_den
+            return c_k, (c_k, inv_den, a_inv_k)
+
+        _, (c_mid, inv_mid, a_inv_mid) = lax.scan(
+            fwd_step,
+            c_prime_0,
+            jnp.arange(1, n - 1),
+        )
+        # c_mid, inv_mid, a_inv_mid are (n-2, batch)
+
+        c_nm2 = c_mid[-1, :]
+        c_prime_inner = jnp.concatenate(
+            [c_prime_0[None, :], c_mid], axis=0
+        )  # (n-1, batch)
+        inv_denom_inner = jnp.concatenate(
+            [inv_denom_0[None, :], inv_mid], axis=0
+        )  # (n-1, batch)
+        a_inv_inner = jnp.concatenate(
+            [a_inv_0[None, :], a_inv_mid], axis=0
+        )  # (n-1, batch)
+    else:
+        c_nm2 = c_prime_0
+        c_prime_inner = c_prime_0[None, :]  # (1, batch)
+        inv_denom_inner = inv_denom_0[None, :]  # (1, batch)
+        a_inv_inner = a_inv_0[None, :]  # (1, batch)
+
+    # Surface row (layer n-1)
+    denom_last = b[:, n - 1] - a[:, n - 1] * c_nm2
+    safe_denom_last = jnp.where(jnp.abs(denom_last) < TINIEST, TINIEST, denom_last)
+    inv_denom_last = 1.0 / safe_denom_last
+    a_inv_last = a[:, n - 1] * inv_denom_last
+
+    # Pad surface row: c_prime at surface is unused (zero)
+    c_prime = jnp.concatenate(
+        [c_prime_inner, jnp.zeros((1, batch), dtype=c.dtype)], axis=0
+    )  # (n, batch)
+    inv_denom = jnp.concatenate(
+        [inv_denom_inner, inv_denom_last[None, :]], axis=0
+    )  # (n, batch)
+    a_times_inv_denom = jnp.concatenate(
+        [a_inv_inner, a_inv_last[None, :]], axis=0
+    )  # (n, batch)
+
+    return c_prime, inv_denom, a_times_inv_denom
+
+
+@partial(jit, static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
+def solve_feautrier_thomas_prefactored(
+    c_prime,
+    inv_denom,
+    a_times_inv_denom,
+    d_inner,
+    d_surf,
+    angle_weight_a,
+    n_g,
+    n_freq_bins,
+    n_angles,
+    n_layers,
+):
+    """Solve the Feautrier tridiagonal system using pre-factored LHS arrays.
+
+    Uses the output of :func:`factor_feautrier_thomas` to skip the LHS
+    forward elimination, performing only the RHS forward sweep and backward
+    substitution.
+
+    Parameters
+    ----------
+    c_prime : jax.Array, shape (n_layers, batch)
+        Modified upper diagonal from :func:`factor_feautrier_thomas`.
+    inv_denom : jax.Array, shape (n_layers, batch)
+        Reciprocal denominators from :func:`factor_feautrier_thomas`.
+    a_times_inv_denom : jax.Array, shape (n_layers, batch)
+        Pre-multiplied ``a * inv_denom`` from :func:`factor_feautrier_thomas`.
+    d_inner : jax.Array, shape (n_g, n_freq_bins, n_layers - 1)
+        Angle-independent RHS entries for layers 0 .. n_layers-2.
+    d_surf : jax.Array, shape (n_g, n_freq_bins, n_angles)
+        Boundary RHS entry for the surface layer.
+    angle_weight_a : jax.Array, shape (n_angles,)
+        Angular quadrature weights for mean-intensity accumulation.
+    n_g, n_freq_bins, n_angles, n_layers : int
+        Static shape parameters.
+
+    Returns
+    -------
+    I_H_top : jax.Array, shape (n_g, n_freq_bins, n_angles)
+    x_last : jax.Array, shape (n_g, n_freq_bins, n_angles)
+    x_nm2 : jax.Array, shape (n_g, n_freq_bins, n_angles)
+    J_bol_gfl : jax.Array, shape (n_g, n_freq_bins, n_layers)
+    """
+    n = n_layers
+    n_gf = n_g * n_freq_bins
+    batch = n_gf * n_angles
+
+    def _broadcast_rhs_layer(layer_idx):
+        return jnp.broadcast_to(
+            d_inner[:, :, layer_idx][:, :, None],
+            (n_g, n_freq_bins, n_angles),
+        ).reshape(batch)
+
+    def _weighted_gf(x_k):
+        return jnp.sum(
+            x_k.reshape(n_gf, n_angles) * angle_weight_a[None, :],
+            axis=1,
+        )
+
+    # RHS-only forward sweep using cached factors.
+    # d'[0] = rhs[0] * inv_denom[0]
+    d0 = _broadcast_rhs_layer(0) * inv_denom[0]  # (batch,)
+
+    if n > 2:
+
+        def fwd_rhs_step(d_prev, k):
+            rhs_k = _broadcast_rhs_layer(k)
+            d_k = rhs_k * inv_denom[k] - a_times_inv_denom[k] * d_prev
+            return d_k, d_k
+
+        _, d_mid = lax.scan(
+            fwd_rhs_step,
+            d0,
+            jnp.arange(1, n - 1),
+        )
+        # d_mid: (n-2, batch)
+
+        d_nm2 = d_mid[-1, :]
+        d_upto_nm2 = jnp.concatenate([d0[None, :], d_mid], axis=0)  # (n-1, batch)
+    else:
+        d_nm2 = d0
+        d_upto_nm2 = d0[None, :]  # (1, batch)
+
+    # Surface row
+    x_last_flat = (
+        d_surf.reshape(batch) * inv_denom[n - 1] - a_times_inv_denom[n - 1] * d_nm2
+    )
+
+    if n == 1:
+        weighted_layers = _weighted_gf(x_last_flat)[None, :]
+        return (
+            (-x_last_flat).reshape(n_g, n_freq_bins, n_angles),
+            x_last_flat.reshape(n_g, n_freq_bins, n_angles),
+            x_last_flat.reshape(n_g, n_freq_bins, n_angles),
+            weighted_layers.T.reshape(n_g, n_freq_bins, n),
+        )
+
+    # Backward substitution — identical to the non-prefactored version.
+    x_nm2_flat = d_upto_nm2[n - 2, :] - c_prime[n - 2, :] * x_last_flat
+    weighted_last = _weighted_gf(x_last_flat)
+    weighted_nm2 = _weighted_gf(x_nm2_flat)
+
+    if n > 2:
+
+        def bwd_step(x_next, k):
+            x_k = d_upto_nm2[k, :] - c_prime[k, :] * x_next
+            return x_k, _weighted_gf(x_k)
+
+        x0_flat, weighted_rest_desc = lax.scan(
+            bwd_step,
+            x_nm2_flat,
+            jnp.arange(n - 3, -1, -1),
+        )
+        weighted_layers = jnp.concatenate(
+            [
+                weighted_rest_desc[::-1, :],
+                weighted_nm2[None, :],
+                weighted_last[None, :],
+            ],
+            axis=0,
+        )
+    else:
+        x0_flat = x_nm2_flat
+        weighted_layers = jnp.stack([weighted_nm2, weighted_last], axis=0)
+
+    I_H_top = (-x0_flat).reshape(n_g, n_freq_bins, n_angles)
+    x_last = x_last_flat.reshape(n_g, n_freq_bins, n_angles)
+    x_nm2 = x_nm2_flat.reshape(n_g, n_freq_bins, n_angles)
+    J_bol_gfl = weighted_layers.T.reshape(n_g, n_freq_bins, n)
+
+    return I_H_top, x_last, x_nm2, J_bol_gfl
+
+
+@partial(jit, static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
 def solve_tridiagonal_thomas_batched_feautrier_fused(
     a,
     b,
@@ -533,11 +763,13 @@ def solve_tridiagonal_pcr_batched_feautrier_fused(
 
     # Build the full RHS (batch, n_layers) by broadcasting d_inner over
     # angles and placing d_surf at the surface layer.
-    d_inner_broadcast = jnp.broadcast_to(
-        d_inner[:, :, :, None],  # (g, f, l-1, 1)
-        (n_g, n_freq_bins, n_layers - 1, n_angles),
-    ).reshape(
-        batch, n_layers - 1
+    d_inner_broadcast = (
+        jnp.broadcast_to(
+            d_inner[:, :, :, None],  # (g, f, l-1, 1)
+            (n_g, n_freq_bins, n_layers - 1, n_angles),
+        )
+        .transpose(0, 1, 3, 2)
+        .reshape(batch, n_layers - 1)
     )  # (batch, l-1)
     d_surf_flat = d_surf.reshape(batch, 1)  # (batch, 1)
     d_full = jnp.concatenate([d_inner_broadcast, d_surf_flat], axis=1)  # (batch, n)
@@ -587,6 +819,76 @@ def solve_feautrier_tridiagonal(
             n_layers,
         )
     return solve_tridiagonal_thomas_batched_feautrier_fused(
+        a,
+        b,
+        c,
+        d_inner,
+        d_surf,
+        angle_weight_a,
+        n_g,
+        n_freq_bins,
+        n_angles,
+        n_layers,
+    )
+
+
+def factor_feautrier(a, b, c, n_g, n_freq_bins, n_angles, n_layers):
+    """Pre-factor the Feautrier tridiagonal LHS.
+
+    On CPU, delegates to :func:`factor_feautrier_thomas`.
+    On GPU, returns ``None`` (PCR has no separable factorisation step).
+
+    Returns
+    -------
+    factors : tuple or None
+        ``(c_prime, inv_denom, a_times_inv_denom)`` on CPU, ``None`` on GPU.
+    """
+    if _USE_GPU:
+        return None
+    return factor_feautrier_thomas(a, b, c, n_g, n_freq_bins, n_angles, n_layers)
+
+
+def solve_feautrier_prefactored(
+    factors,
+    a,
+    b,
+    c,
+    d_inner,
+    d_surf,
+    angle_weight_a,
+    n_g,
+    n_freq_bins,
+    n_angles,
+    n_layers,
+):
+    """Solve the Feautrier system, using pre-factored LHS when available.
+
+    On CPU (``factors is not None``), uses :func:`solve_feautrier_thomas_prefactored`
+    which skips the LHS forward elimination.  On GPU (``factors is None``), falls
+    back to the full PCR solver.
+
+    Parameters
+    ----------
+    factors : tuple or None
+        Output of :func:`factor_feautrier`.  ``None`` triggers the GPU path.
+    a, b, c, d_inner, d_surf, angle_weight_a, n_g, n_freq_bins, n_angles, n_layers
+        Same as :func:`solve_feautrier_tridiagonal`.
+    """
+    if factors is not None:
+        c_prime, inv_denom, a_times_inv_denom = factors
+        return solve_feautrier_thomas_prefactored(
+            c_prime,
+            inv_denom,
+            a_times_inv_denom,
+            d_inner,
+            d_surf,
+            angle_weight_a,
+            n_g,
+            n_freq_bins,
+            n_angles,
+            n_layers,
+        )
+    return solve_tridiagonal_pcr_batched_feautrier_fused(
         a,
         b,
         c,

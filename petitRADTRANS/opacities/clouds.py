@@ -39,6 +39,41 @@ def _filter_complete_coverage_clouds(cloud_species, complete_coverage_clouds):
     )
 
 
+def _select_loaded_cloud_opacity_tables(
+    clouds_loaded_opacities, cloud_species, selected_cloud_species
+):
+    if len(selected_cloud_species) == 0 or len(selected_cloud_species) == len(
+        cloud_species
+    ):
+        return clouds_loaded_opacities
+
+    selected_indices = tuple(
+        i
+        for i, species in enumerate(cloud_species)
+        if species in selected_cloud_species
+    )
+
+    selected_loaded_opacities = LockedDict.build_and_lock(clouds_loaded_opacities)
+    selected_loaded_opacities.unlock()
+    selected_loaded_opacities["particle_densities"] = clouds_loaded_opacities[
+        "particle_densities"
+    ][jnp.array(selected_indices)]
+    selected_loaded_opacities["absorption_opacities"] = clouds_loaded_opacities[
+        "absorption_opacities"
+    ][:, :, jnp.array(selected_indices)]
+    selected_loaded_opacities["scattering_opacities"] = clouds_loaded_opacities[
+        "scattering_opacities"
+    ][:, :, jnp.array(selected_indices)]
+    selected_loaded_opacities["particle_asymmetry_parameters"] = (
+        clouds_loaded_opacities["particle_asymmetry_parameters"][
+            :, :, jnp.array(selected_indices)
+        ]
+    )
+    selected_loaded_opacities.lock()
+
+    return selected_loaded_opacities
+
+
 def _init_cloud_branch_outputs(frequencies, pressures, n_clouds):
     min_cloud_shape = max(n_clouds, 1)
     zero_2d = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
@@ -168,34 +203,17 @@ def _init_cloud_background_continuum(
         )
     )
 
-    def _build_clear_branch(_):
+    if compute_clear_opacities:
         clear_continuum_opacities, clear_continuum_opacities_scattering, _, _, _, _ = (
             _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
         )
-        clear_continuum_opacities = _maybe_add_opaque_cloud_deck(
-            cloud_continuum_opacities=clear_continuum_opacities,
-            pressures=pressures,
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+    else:
+        clear_continuum_opacities = jnp.zeros(
+            (frequencies.size, pressures.size), dtype=JAX_DTYPE
         )
-        _, clear_continuum_opacities_scattering = _maybe_add_power_law_cloud_scattering(
-            scattering_in_transmission=scattering_in_transmission,
-            cloud_continuum_opacities_scattering=clear_continuum_opacities_scattering,
-            frequencies=frequencies,
-            pressures=pressures,
-            power_law_opacity_350nm=power_law_opacity_350nm,
-            power_law_opacity_coefficient=power_law_opacity_coefficient,
+        clear_continuum_opacities_scattering = jnp.zeros(
+            (frequencies.size, pressures.size), dtype=JAX_DTYPE
         )
-        return clear_continuum_opacities, clear_continuum_opacities_scattering
-
-    clear_continuum_opacities, clear_continuum_opacities_scattering = lax.cond(
-        compute_clear_opacities,
-        _build_clear_branch,
-        lambda _: (
-            jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE),
-            jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE),
-        ),
-        operand=None,
-    )
 
     _validate_power_law_inputs(power_law_opacity_350nm, power_law_opacity_coefficient)
 
@@ -245,11 +263,12 @@ def _compute_selected_cloud_branch(
     anisotropic_cloud_scattering,
     cloud_f_sed,
     eddy_diffusion_coefficients,
-    cloud_particles_mean_radii,
-    cloud_particles_radius_distribution,
+    cloud_particle_mean_radii,
+    cloud_particle_number_density_grid,
+    cloud_particle_radius_distribution,
     cloud_hansen_a,
     cloud_hansen_b,
-    clouds_particles_porosity_factor,
+    clouds_particle_porosity_factor,
     cloud_photosphere_median_optical_depth,
     return_cloud_contribution,
     target_particle_radii,
@@ -278,11 +297,12 @@ def _compute_selected_cloud_branch(
         anisotropic_cloud_scattering=anisotropic_cloud_scattering,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
-        cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
+        cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+        cloud_particle_radius_distribution=cloud_particle_radius_distribution,
         cloud_hansen_a=cloud_hansen_a,
         cloud_hansen_b=cloud_hansen_b,
-        clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+        clouds_particle_porosity_factor=clouds_particle_porosity_factor,
         photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
         continuum_opacities=continuum_seed,
         return_cloud_contribution=return_cloud_contribution,
@@ -299,7 +319,7 @@ def _maybe_compute_cloud_branch(
     cloud_scattering_opacities,
     cloud_absorption_opacities,
     cloud_opacities,
-    cloud_particles_mean_radii,
+    cloud_particle_mean_radii,
     pressures,
     temperatures,
     frequency_bins_edges,
@@ -312,11 +332,12 @@ def _maybe_compute_cloud_branch(
     anisotropic_cloud_scattering,
     cloud_f_sed,
     eddy_diffusion_coefficients,
-    input_cloud_particles_mean_radii,
-    cloud_particles_radius_distribution,
+    input_cloud_particle_mean_radii,
+    cloud_particle_number_density_grid,
+    cloud_particle_radius_distribution,
     cloud_hansen_a,
     cloud_hansen_b,
-    clouds_particles_porosity_factor,
+    clouds_particle_porosity_factor,
     cloud_photosphere_median_optical_depth,
     return_cloud_contribution,
     target_particle_radii,
@@ -329,13 +350,13 @@ def _maybe_compute_cloud_branch(
             cloud_scattering_opacities,
             cloud_absorption_opacities,
             cloud_opacities,
-            cloud_particles_mean_radii,
+            cloud_particle_mean_radii,
             False,
         )
 
-    selected_cloud_particles_mean_radii = jnp.zeros(
+    selected_cloud_particle_mean_radii = jnp.zeros(
         (pressures.size, max(len(selected_cloud_species), 1)),
-        dtype=cloud_particles_mean_radii.dtype,
+        dtype=cloud_particle_mean_radii.dtype,
     )
 
     def _compute_branch(args):
@@ -345,7 +366,7 @@ def _maybe_compute_cloud_branch(
             _cloud_scattering_opacities,
             _cloud_absorption_opacities,
             _cloud_opacities,
-            _cloud_particles_mean_radii,
+            _cloud_particle_mean_radii,
         ) = args
 
         (
@@ -354,7 +375,7 @@ def _maybe_compute_cloud_branch(
             _cloud_scattering_opacities,
             _cloud_absorption_opacities,
             _cloud_opacities,
-            _cloud_particles_mean_radii,
+            _cloud_particle_mean_radii,
         ) = _compute_selected_cloud_branch(
             selected_cloud_species=selected_cloud_species,
             continuum_seed=_base_continuum_opacities,
@@ -370,11 +391,12 @@ def _maybe_compute_cloud_branch(
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-            cloud_particles_mean_radii=input_cloud_particles_mean_radii,
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_mean_radii=input_cloud_particle_mean_radii,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
             return_cloud_contribution=return_cloud_contribution,
             target_particle_radii=target_particle_radii,
@@ -388,7 +410,7 @@ def _maybe_compute_cloud_branch(
             _cloud_scattering_opacities,
             _cloud_absorption_opacities,
             _cloud_opacities,
-            _cloud_particles_mean_radii,
+            _cloud_particle_mean_radii,
         )
 
     (
@@ -397,7 +419,7 @@ def _maybe_compute_cloud_branch(
         cloud_scattering_opacities,
         cloud_absorption_opacities,
         cloud_opacities,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
     ) = lax.cond(
         selected_clouds_have_effect,
         _compute_branch,
@@ -407,7 +429,7 @@ def _maybe_compute_cloud_branch(
             args[2],
             args[3],
             args[4],
-            selected_cloud_particles_mean_radii,
+            selected_cloud_particle_mean_radii,
         ),
         (
             base_continuum_opacities,
@@ -415,7 +437,7 @@ def _maybe_compute_cloud_branch(
             cloud_scattering_opacities,
             cloud_absorption_opacities,
             cloud_opacities,
-            cloud_particles_mean_radii,
+            cloud_particle_mean_radii,
         ),
     )
 
@@ -425,15 +447,15 @@ def _maybe_compute_cloud_branch(
         cloud_scattering_opacities,
         cloud_absorption_opacities,
         cloud_opacities,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         selected_clouds_have_effect,
     )
 
 
 def _initialize_hansen_b(
-    cloud_hansen_b, cloud_particles_radius_distribution, pressures, n_clouds
+    cloud_hansen_b, cloud_particle_radius_distribution, pressures, n_clouds
 ):
-    if "hansen" not in cloud_particles_radius_distribution.lower():
+    if "hansen" not in cloud_particle_radius_distribution.lower():
         return cloud_hansen_b
 
     if isinstance(cloud_hansen_b, jnp.ndarray):
@@ -471,8 +493,8 @@ def _initialize_cloud_species_inputs(
     cloud_species_mass_fractions,
     pressures,
     clouds_loaded_opacities,
-    clouds_particles_porosity_factor,
-    cloud_particles_mean_radii,
+    clouds_particle_porosity_factor,
+    cloud_particle_mean_radii,
     cloud_hansen_a,
 ):
     n_clouds = len(cloud_species)
@@ -480,12 +502,17 @@ def _initialize_cloud_species_inputs(
     species_mass_fractions = jnp.zeros(
         (pressures.size, min_cloud_shape), dtype=JAX_DTYPE
     )
-    cloud_particles_mean_radii_grid = jnp.zeros(
+    cloud_particle_mean_radii_grid = jnp.zeros(
         (pressures.size, min_cloud_shape), dtype=JAX_DTYPE
     )
-    cloud_particles_density = jnp.zeros(n_clouds, dtype=JAX_DTYPE)
+    cloud_particle_density = jnp.zeros(n_clouds, dtype=JAX_DTYPE)
 
-    for i_spec, cloud_name in enumerate(cloud_species_mass_fractions):
+    # Iterate in explicit cloud_species order to keep i_spec aligned with
+    # clouds_loaded_opacities tables. Dict iteration order may differ under JAX tracing.
+    for i_spec, cloud_name in enumerate(cloud_species):
+        if cloud_name not in cloud_species_mass_fractions:
+            continue
+
         cloud_opacity = CloudOpacity([cloud_name], natural_abundance=False)
         species_full_name = cloud_opacity.species_full_name
         cloud_short_name = species_full_name.split("_")[0]
@@ -494,39 +521,39 @@ def _initialize_cloud_species_inputs(
             cloud_species_mass_fractions[cloud_name]
         )
 
-        if clouds_particles_porosity_factor is not None:
-            cloud_particles_density = cloud_particles_density.at[i_spec].set(
-                clouds_loaded_opacities["particles_densities"][i_spec]
-                * (1 - clouds_particles_porosity_factor[cloud_name])
+        if clouds_particle_porosity_factor is not None:
+            cloud_particle_density = cloud_particle_density.at[i_spec].set(
+                clouds_loaded_opacities["particle_densities"][i_spec]
+                * (1 - clouds_particle_porosity_factor[cloud_name])
             )
         else:
-            cloud_particles_density = cloud_particles_density.at[i_spec].set(
-                clouds_loaded_opacities["particles_densities"][i_spec]
+            cloud_particle_density = cloud_particle_density.at[i_spec].set(
+                clouds_loaded_opacities["particle_densities"][i_spec]
             )
 
-        if cloud_particles_mean_radii is not None:
-            if cloud_name in cloud_particles_mean_radii.keys():
-                cloud_particles_mean_radii_grid = cloud_particles_mean_radii_grid.at[
+        if cloud_particle_mean_radii is not None:
+            if cloud_name in cloud_particle_mean_radii.keys():
+                cloud_particle_mean_radii_grid = cloud_particle_mean_radii_grid.at[
                     :, i_spec
-                ].set(cloud_particles_mean_radii[cloud_name])
-            elif cloud_short_name in cloud_particles_mean_radii.keys():
-                cloud_particles_mean_radii_grid = cloud_particles_mean_radii_grid.at[
+                ].set(cloud_particle_mean_radii[cloud_name])
+            elif cloud_short_name in cloud_particle_mean_radii.keys():
+                cloud_particle_mean_radii_grid = cloud_particle_mean_radii_grid.at[
                     :, i_spec
-                ].set(cloud_particles_mean_radii[cloud_short_name])
+                ].set(cloud_particle_mean_radii[cloud_short_name])
         elif cloud_hansen_a is not None:
             if cloud_name in cloud_hansen_a.keys():
-                cloud_particles_mean_radii_grid = cloud_particles_mean_radii_grid.at[
+                cloud_particle_mean_radii_grid = cloud_particle_mean_radii_grid.at[
                     :, i_spec
                 ].set(cloud_hansen_a[cloud_name])
             elif cloud_short_name in cloud_hansen_a.keys():
-                cloud_particles_mean_radii_grid = cloud_particles_mean_radii_grid.at[
+                cloud_particle_mean_radii_grid = cloud_particle_mean_radii_grid.at[
                     :, i_spec
                 ].set(cloud_hansen_a[cloud_short_name])
 
     return (
         species_mass_fractions,
-        cloud_particles_density,
-        cloud_particles_mean_radii_grid,
+        cloud_particle_density,
+        cloud_particle_mean_radii_grid,
     )
 
 
@@ -551,11 +578,11 @@ def _standardize_f_sed(cloud_f_sed, cloud_species, pressures_size):
 
 
 def _compute_cloud_opacity_grids_from_known_radii(
-    cloud_particles_radius_distribution,
+    cloud_particle_radius_distribution,
     atmospheric_densities,
-    cloud_particles_density,
+    cloud_particle_density,
     cloud_species_mass_fractions_grid,
-    cloud_particles_mean_radii,
+    cloud_particle_mean_radii,
     cloud_hansen_b,
     cloud_particle_radius_distribution_std,
     cloud_particle_number_density_grid,
@@ -565,45 +592,37 @@ def _compute_cloud_opacity_grids_from_known_radii(
     target_particle_radii,
     target_pressure,
 ):
-    if cloud_particles_radius_distribution == "lognormal":
-        return (
-            cloud_core.compute_cloud_log_normal_particles_distribution_opacities_grid(
-                atmosphere_densities=atmospheric_densities,
-                clouds_particles_densities=cloud_particles_density,
-                clouds_mass_fractions=cloud_species_mass_fractions_grid,
-                cloud_particles_mean_radii=cloud_particles_mean_radii,
-                cloud_particles_distribution_std=cloud_particle_radius_distribution_std,
-                cloud_particles_radii_bins=clouds_loaded_opacities[
-                    "particles_radii_bins"
-                ],
-                cloud_particles_radii=clouds_loaded_opacities["particles_radii"],
-                clouds_absorption_opacities=clouds_loaded_opacities[
-                    "absorption_opacities"
-                ],
-                clouds_scattering_opacities=clouds_loaded_opacities[
-                    "scattering_opacities"
-                ],
-                clouds_particles_asymmetry_parameters=clouds_loaded_opacities[
-                    "particles_asymmetry_parameters"
-                ],
-                pressures=pressures,
-                target_particle_radii=target_particle_radii,
-                target_pressure=target_pressure,
-            )
+    if cloud_particle_radius_distribution == "lognormal":
+        return cloud_core.compute_cloud_log_normal_particle_distribution_opacities_grid(
+            atmosphere_densities=atmospheric_densities,
+            clouds_particle_densities=cloud_particle_density,
+            clouds_mass_fractions=cloud_species_mass_fractions_grid,
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
+            cloud_particle_distribution_std=cloud_particle_radius_distribution_std,
+            cloud_particle_radii_bins=clouds_loaded_opacities["particle_radii_bins"],
+            cloud_particle_radii=clouds_loaded_opacities["particle_radii"],
+            clouds_absorption_opacities=clouds_loaded_opacities["absorption_opacities"],
+            clouds_scattering_opacities=clouds_loaded_opacities["scattering_opacities"],
+            clouds_particle_asymmetry_parameters=clouds_loaded_opacities[
+                "particle_asymmetry_parameters"
+            ],
+            pressures=pressures,
+            target_particle_radii=target_particle_radii,
+            target_pressure=target_pressure,
         )
 
-    if cloud_particles_radius_distribution == "custom":
+    if cloud_particle_radius_distribution == "custom":
         return cloud_core._compute_cloud_opacities_using_particle_size_grid(
             atmosphere_densities=atmospheric_densities,
             clouds_mass_fractions=cloud_species_mass_fractions,
             cloud_particle_number_density_grid=cloud_particle_number_density_grid,
-            clouds_particles_densities=cloud_particles_density,
-            cloud_particles_radii_bins=clouds_loaded_opacities["particles_radii_bins"],
-            cloud_particles_radii=clouds_loaded_opacities["particles_radii"],
+            clouds_particle_densities=cloud_particle_density,
+            cloud_particle_radii_bins=clouds_loaded_opacities["particle_radii_bins"],
+            cloud_particle_radii=clouds_loaded_opacities["particle_radii"],
             clouds_absorption_opacities=clouds_loaded_opacities["absorption_opacities"],
             clouds_scattering_opacities=clouds_loaded_opacities["scattering_opacities"],
-            clouds_particles_asymmetry_parameters=clouds_loaded_opacities[
-                "particles_asymmetry_parameters"
+            clouds_particle_asymmetry_parameters=clouds_loaded_opacities[
+                "particle_asymmetry_parameters"
             ],
             pressures=pressures,
             target_particle_radii=target_particle_radii,
@@ -612,21 +631,23 @@ def _compute_cloud_opacity_grids_from_known_radii(
 
     return cloud_core.compute_cloud_hansen_opacities(
         atmospheric_densities,
-        cloud_particles_density,
+        cloud_particle_density,
         cloud_species_mass_fractions_grid,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_hansen_b,
-        clouds_loaded_opacities["particles_radii_bins"],
-        clouds_loaded_opacities["particles_radii"],
-        clouds_loaded_opacities["absorption_opacities"],
-        clouds_loaded_opacities["scattering_opacities"],
-        clouds_loaded_opacities["particles_asymmetry_parameters"],
+        cloud_particle_radii_bins=clouds_loaded_opacities["particle_radii_bins"],
+        cloud_particle_radii=clouds_loaded_opacities["particle_radii"],
+        clouds_absorption_opacities=clouds_loaded_opacities["absorption_opacities"],
+        clouds_scattering_opacities=clouds_loaded_opacities["scattering_opacities"],
+        clouds_particle_asymmetry_parameters=clouds_loaded_opacities[
+            "particle_asymmetry_parameters"
+        ],
     )
 
 
 def _validate_missing_cloud_radius_arguments(
     cloud_particle_radius_distribution_std,
-    cloud_particles_radius_distribution,
+    cloud_particle_radius_distribution,
     cloud_f_sed,
     eddy_diffusion_coefficients,
     clouds_loaded_opacities,
@@ -634,7 +655,7 @@ def _validate_missing_cloud_radius_arguments(
 ):
     missing_arguments = []
 
-    if cloud_particles_radius_distribution == "lognormal" and (
+    if cloud_particle_radius_distribution == "lognormal" and (
         cloud_particle_radius_distribution_std is None
         or cloud_particle_radius_distribution_std is _MISSING_FLOAT
     ):
@@ -649,11 +670,11 @@ def _validate_missing_cloud_radius_arguments(
     ):
         missing_arguments.append("'eddy_diffusion_coefficients'")
 
-    if clouds_loaded_opacities["particles_radii_bins"] is None:
-        missing_arguments.append("'clouds_loaded_opacities.particles_radii_bins'")
+    if clouds_loaded_opacities["particle_radii_bins"] is None:
+        missing_arguments.append("'clouds_loaded_opacities.particle_radii_bins'")
 
     if (
-        cloud_particles_radius_distribution == "custom"
+        cloud_particle_radius_distribution == "custom"
         and cloud_particle_number_density_grid is None
     ):
         missing_arguments.append("'cloud_particle_number_density_grid'")
@@ -665,7 +686,7 @@ def _validate_missing_cloud_radius_arguments(
                 f"(got 'None')\n"
                 f"Set the missing arguments, "
                 f"or directly set cloud particle radii "
-                f"through the arguments 'cloud_particles_mean_radii' or 'cloud_hansen_a', "
+                f"through the arguments 'cloud_particle_mean_radii' or 'cloud_hansen_a', "
                 f"and argument 'cloud_particle_radius_distribution_std'.\n"
                 f"The cloud particle radii are necessary to calculate the cloud opacities."
             )
@@ -674,10 +695,10 @@ def _validate_missing_cloud_radius_arguments(
 
 
 def _compute_cloud_opacity_grids_with_derived_radii(
-    cloud_particles_radius_distribution,
+    cloud_particle_radius_distribution,
     reference_gravity,
     atmospheric_densities,
-    cloud_particles_density,
+    cloud_particle_density,
     temperatures,
     mean_molar_masses,
     cloud_f_sed,
@@ -695,23 +716,23 @@ def _compute_cloud_opacity_grids_with_derived_radii(
 ):
     f_seds = _standardize_f_sed(cloud_f_sed, list(cloud_species), pressures.size)
 
-    if cloud_particles_radius_distribution == "lognormal":
-        cloud_particles_mean_radii = cloud_core.compute_cloud_particles_mean_radius(
+    if cloud_particle_radius_distribution == "lognormal":
+        cloud_particle_mean_radii = cloud_core.compute_cloud_particle_mean_radius(
             reference_gravity,
             atmospheric_densities,
-            cloud_particles_density,
+            cloud_particle_density,
             temperatures,
             mean_molar_masses,
             f_seds,
             cloud_particle_radius_distribution_std,
             eddy_diffusion_coefficients,
         )
-    elif cloud_particles_radius_distribution == "hansen":
-        cloud_particles_mean_radii = (
-            cloud_core.compute_cloud_particles_mean_radius_hansen(
+    elif cloud_particle_radius_distribution == "hansen":
+        cloud_particle_mean_radii = (
+            cloud_core.compute_cloud_particle_mean_radius_hansen(
                 reference_gravity,
                 atmospheric_densities,
-                cloud_particles_density,
+                cloud_particle_density,
                 temperatures,
                 mean_molar_masses,
                 f_seds,
@@ -720,14 +741,14 @@ def _compute_cloud_opacity_grids_with_derived_radii(
             )
         )
     else:
-        cloud_particles_mean_radii = jnp.zeros_like(cloud_species_mass_fractions_grid)
+        cloud_particle_mean_radii = jnp.zeros_like(cloud_species_mass_fractions_grid)
 
     cloud_opacity_grids = _compute_cloud_opacity_grids_from_known_radii(
-        cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+        cloud_particle_radius_distribution=cloud_particle_radius_distribution,
         atmospheric_densities=atmospheric_densities,
-        cloud_particles_density=cloud_particles_density,
+        cloud_particle_density=cloud_particle_density,
         cloud_species_mass_fractions_grid=cloud_species_mass_fractions_grid,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_hansen_b=cloud_hansen_b,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         cloud_particle_number_density_grid=cloud_particle_number_density_grid,
@@ -738,7 +759,7 @@ def _compute_cloud_opacity_grids_with_derived_radii(
         target_pressure=target_pressure,
     )
 
-    return (*cloud_opacity_grids, cloud_particles_mean_radii)
+    return (*cloud_opacity_grids, cloud_particle_mean_radii)
 
 
 def _assemble_cloud_opacity_outputs(
@@ -803,8 +824,8 @@ def _assemble_cloud_opacity_outputs(
 
 
 @jit(static_argnames=["cloud_species"])
-def init_clouds_particles_porosity_factor(
-    clouds_particles_porosity_factor, cloud_species
+def init_clouds_particle_porosity_factor(
+    clouds_particle_porosity_factor, cloud_species
 ):
     """Normalize and validate per-species cloud porosity factors.
 
@@ -815,7 +836,7 @@ def init_clouds_particles_porosity_factor(
     interval $[0, 1)$.
 
     Args:
-        clouds_particles_porosity_factor:
+        clouds_particle_porosity_factor:
             Mapping from cloud species name to porosity factor.
         cloud_species:
             Cloud species included in the current calculation.
@@ -823,18 +844,20 @@ def init_clouds_particles_porosity_factor(
     Returns:
         Updated porosity-factor mapping with defaults applied.
     """
-    # This check is done in _compute_opacities now
-    # if (clouds_particles_porosity_factor is None) or (not bool(clouds_particles_porosity_factor)):
-    #    clouds_particles_porosity_factor = {species: -jnp.inf for species in cloud_species}
 
     for species in cloud_species:
-        # TODO: check JAX compatibility for split_species_all_info
         _, _, _, _, source, _ = Opacity.split_species_all_info(
             CloudOpacity.get_aliases(species)
         )
 
         # Operate on a local variable so we can use lax.cond and jittable jnp ops
-        _porosity = clouds_particles_porosity_factor[species]
+        _porosity = jnp.asarray(
+            clouds_particle_porosity_factor.get(
+                species,
+                jnp.array(jnp.nan, dtype=JAX_DTYPE),
+            ),
+            dtype=JAX_DTYPE,
+        )
 
         # For DHS sources: if porosity == 0 -> print a warning (leave value unchanged),
         # elif not finite -> set to 0.25
@@ -877,7 +900,7 @@ def init_clouds_particles_porosity_factor(
         )
 
         # Store back the (possibly updated) porosity
-        clouds_particles_porosity_factor[species] = _porosity
+        clouds_particle_porosity_factor[species] = _porosity
 
         # Validate value with jnp logicals, raise via debug.callback so it works under jitting/tracing
         def _raise_if_invalid(porosity, species_name):
@@ -891,14 +914,15 @@ def init_clouds_particles_porosity_factor(
         # Only call the callback when invalid is True (callback will run during tracing/execution)
         debug.callback(_raise_if_invalid, _porosity, species)
 
-    return clouds_particles_porosity_factor
+    return clouds_particle_porosity_factor
 
 
 @jit(
     static_argnames=[
         "cloud_species",
-        "cloud_particles_radius_distribution",
+        "cloud_particle_radius_distribution",
         "complete_coverage_clouds",
+        "compute_clear_opacities",
     ]
 )
 def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
@@ -915,15 +939,15 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
     power_law_opacity_350nm: float,
     power_law_opacity_coefficient: float,
     cloud_species: list[str] | tuple[str],  # NOTE: use self
-    clouds_particles_porosity_factor: dict[str, float],
+    clouds_particle_porosity_factor: dict[str, float],
     clouds_loaded_opacities: LockedDict[str, ArrayLike],  # NOTE: use self
     anisotropic_cloud_scattering: bool,  # NOTE: use self?
-    cloud_particles_mean_radii: ArrayLike,
+    cloud_particle_mean_radii: ArrayLike,
     cloud_particle_radius_distribution_std: float,
     cloud_particle_number_density_grid: ArrayLike,  # TODO update to Annie's version
     cloud_f_sed: dict[str, float],
     eddy_diffusion_coefficients: dict[str, float],
-    cloud_particles_radius_distribution: str,
+    cloud_particle_radius_distribution: str,
     cloud_hansen_a: float,
     cloud_hansen_b: float,
     cloud_photosphere_median_optical_depth: float,
@@ -969,14 +993,14 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
             Wavelength exponent for the power-law cloud scattering model.
         cloud_species:
             Cloud species to include in the cloudy branch.
-        clouds_particles_porosity_factor:
+        clouds_particle_porosity_factor:
             Mapping of cloud species to particle porosity factors.
         clouds_loaded_opacities:
             Loaded cloud opacity tables and metadata.
         anisotropic_cloud_scattering:
             If ``True``, use anisotropic scattering when forming continuum
             scattering opacities.
-        cloud_particles_mean_radii:
+        cloud_particle_mean_radii:
             Optional prescribed particle mean radii.
         cloud_particle_radius_distribution_std:
             Width of the log-normal particle size distribution.
@@ -986,7 +1010,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
             Cloud settling parameter, scalar or per-species mapping.
         eddy_diffusion_coefficients:
             Eddy diffusion coefficient profile or mapping.
-        cloud_particles_radius_distribution:
+        cloud_particle_radius_distribution:
             Particle size distribution model, such as ``"lognormal"``,
             ``"hansen"``, or ``"custom"``.
         cloud_hansen_a:
@@ -1019,7 +1043,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
         cloud_scattering_opacities,
         cloud_absorption_opacities,
         cloud_opacities,
-        _cloud_particles_mean_radii,
+        _cloud_particle_mean_radii,
     ) = _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
     (
         clear_continuum_opacities,
@@ -1051,18 +1075,20 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
     )
 
     if len(cloud_species) > 0:
-        if clouds_particles_porosity_factor is None:
-            clouds_particles_porosity_factor = {}
-        clouds_particles_porosity_factor = init_clouds_particles_porosity_factor(
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+        if clouds_particle_porosity_factor is None:
+            clouds_particle_porosity_factor = {}
+        clouds_particle_porosity_factor = init_clouds_particle_porosity_factor(
+            clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_species=cloud_species,
         )
 
     cloudy_clouds_have_effect = _selected_clouds_have_effect(
         mass_fractions=mass_fractions, selected_cloud_species=cloud_species
     )
-    clear_clouds_have_effect = _selected_clouds_have_effect(
-        mass_fractions=mass_fractions, selected_cloud_species=complete_coverage_clouds
+    cloudy_loaded_opacities = _select_loaded_cloud_opacity_tables(
+        clouds_loaded_opacities=clouds_loaded_opacities,
+        cloud_species=cloud_species,
+        selected_cloud_species=cloud_species,
     )
 
     (
@@ -1071,7 +1097,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
         cloud_scattering_opacities,
         cloud_absorption_opacities,
         cloud_opacities,
-        _cloud_particles_mean_radii,
+        _cloud_particle_mean_radii,
         cloudy_branch_has_effect,
     ) = _maybe_compute_cloud_branch(
         selected_cloud_species=cloud_species,
@@ -1081,7 +1107,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
         cloud_scattering_opacities=cloud_scattering_opacities,
         cloud_absorption_opacities=cloud_absorption_opacities,
         cloud_opacities=cloud_opacities,
-        cloud_particles_mean_radii=_cloud_particles_mean_radii,
+        cloud_particle_mean_radii=_cloud_particle_mean_radii,
         pressures=pressures,
         temperatures=temperatures,
         frequency_bins_edges=frequency_bins_edges,
@@ -1089,16 +1115,17 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
         mean_molar_masses=mean_molar_masses,
         reference_gravity=reference_gravity,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-        clouds_loaded_opacities=clouds_loaded_opacities,
+        clouds_loaded_opacities=cloudy_loaded_opacities,
         sum_opacities=sum_opacities,
         anisotropic_cloud_scattering=anisotropic_cloud_scattering,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-        input_cloud_particles_mean_radii=cloud_particles_mean_radii,
-        cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+        input_cloud_particle_mean_radii=cloud_particle_mean_radii,
+        cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+        cloud_particle_radius_distribution=cloud_particle_radius_distribution,
         cloud_hansen_a=cloud_hansen_a,
         cloud_hansen_b=cloud_hansen_b,
-        clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+        clouds_particle_porosity_factor=clouds_particle_porosity_factor,
         cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
         return_cloud_contribution=return_cloud_contribution,
         target_particle_radii=target_particle_radii,
@@ -1108,15 +1135,25 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
         scattering_in_transmission, cloudy_branch_has_effect
     )
 
-    def _compute_clear_branch(_):
+    if compute_clear_opacities:
+        clear_clouds_have_effect = _selected_clouds_have_effect(
+            mass_fractions=mass_fractions,
+            selected_cloud_species=complete_coverage_clouds,
+        )
+        clear_loaded_opacities = _select_loaded_cloud_opacity_tables(
+            clouds_loaded_opacities=clouds_loaded_opacities,
+            cloud_species=cloud_species,
+            selected_cloud_species=complete_coverage_clouds,
+        )
+
         (
-            _clear_continuum_opacities,
-            _clear_continuum_opacities_scattering,
-            _clear_cloud_scattering_opacities,
-            _clear_cloud_absorption_opacities,
-            _clear_cloud_opacities,
+            clear_continuum_opacities,
+            clear_continuum_opacities_scattering,
+            clear_cloud_scattering_opacities,
+            clear_cloud_absorption_opacities,
             _,
-            _clear_branch_has_effect,
+            _,
+            clear_branch_has_effect,
         ) = _maybe_compute_cloud_branch(
             selected_cloud_species=complete_coverage_clouds,
             selected_clouds_have_effect=clear_clouds_have_effect,
@@ -1125,7 +1162,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
             cloud_scattering_opacities=clear_cloud_scattering_opacities,
             cloud_absorption_opacities=clear_cloud_absorption_opacities,
             cloud_opacities=cloud_opacities,
-            cloud_particles_mean_radii=_cloud_particles_mean_radii,
+            cloud_particle_mean_radii=_cloud_particle_mean_radii,
             pressures=pressures,
             temperatures=temperatures,
             frequency_bins_edges=frequency_bins_edges,
@@ -1133,57 +1170,25 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
             mean_molar_masses=mean_molar_masses,
             reference_gravity=reference_gravity,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-            clouds_loaded_opacities=clouds_loaded_opacities,
+            clouds_loaded_opacities=clear_loaded_opacities,
             sum_opacities=sum_opacities,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-            input_cloud_particles_mean_radii=cloud_particles_mean_radii,
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            input_cloud_particle_mean_radii=cloud_particle_mean_radii,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
-            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+            clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
             return_cloud_contribution=return_cloud_contribution,
             target_particle_radii=target_particle_radii,
             target_pressure=target_pressure,
         )
-
-        return (
-            _clear_continuum_opacities,
-            _clear_continuum_opacities_scattering,
-            _clear_cloud_scattering_opacities,
-            _clear_cloud_absorption_opacities,
-            _clear_cloud_opacities,
-            _cloud_particles_mean_radii,
-            _clear_branch_has_effect,
+        scattering_in_transmission = jnp.logical_or(
+            scattering_in_transmission, clear_branch_has_effect
         )
-
-    (
-        clear_continuum_opacities,
-        clear_continuum_opacities_scattering,
-        clear_cloud_scattering_opacities,
-        clear_cloud_absorption_opacities,
-        _,
-        _,
-        clear_branch_has_effect,
-    ) = lax.cond(
-        compute_clear_opacities,
-        _compute_clear_branch,
-        lambda _: (
-            clear_continuum_opacities,
-            clear_continuum_opacities_scattering,
-            clear_cloud_scattering_opacities,
-            clear_cloud_absorption_opacities,
-            cloud_opacities,
-            _cloud_particles_mean_radii,
-            False,
-        ),
-        operand=None,
-    )
-    scattering_in_transmission = jnp.logical_or(
-        scattering_in_transmission, clear_branch_has_effect
-    )
 
     return (
         cloudy_continuum_opacities,
@@ -1191,7 +1196,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
         cloud_scattering_opacities,
         cloud_absorption_opacities,
         cloud_opacities,
-        _cloud_particles_mean_radii,
+        _cloud_particle_mean_radii,
         clear_continuum_opacities,
         clear_continuum_opacities_scattering,
         clear_cloud_scattering_opacities,
@@ -1200,7 +1205,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
     )
 
 
-@jit(static_argnames=["cloud_species", "cloud_particles_radius_distribution"])
+@jit(static_argnames=["cloud_species", "cloud_particle_radius_distribution"])
 def _compute_cloud_opacities(
     pressures,
     temperatures,
@@ -1215,12 +1220,12 @@ def _compute_cloud_opacities(
     anisotropic_cloud_scattering,
     cloud_f_sed=None,
     eddy_diffusion_coefficients=None,
-    cloud_particles_mean_radii=None,
-    cloud_particles_radius_distribution="lognormal",
+    cloud_particle_mean_radii=None,
+    cloud_particle_radius_distribution="lognormal",
     cloud_hansen_a=None,
     cloud_hansen_b=None,
     cloud_particle_number_density_grid=None,
-    clouds_particles_porosity_factor=None,
+    clouds_particle_porosity_factor=None,
     photospheric_cloud_optical_depths=None,
     continuum_opacities=None,
     return_cloud_contribution=False,
@@ -1263,9 +1268,9 @@ def _compute_cloud_opacities(
         eddy_diffusion_coefficients:
             Eddy diffusion coefficient profile or mapping used for derived
             particle radii.
-        cloud_particles_mean_radii:
+        cloud_particle_mean_radii:
             Optional prescribed cloud particle mean radii.
-        cloud_particles_radius_distribution:
+        cloud_particle_radius_distribution:
             Particle size distribution model.
         cloud_hansen_a:
             Optional Hansen ``a`` parameter or equivalent mean-radius input.
@@ -1273,7 +1278,7 @@ def _compute_cloud_opacities(
             Optional Hansen ``b`` width parameter.
         cloud_particle_number_density_grid:
             Optional custom particle number density grid.
-        clouds_particles_porosity_factor:
+        clouds_particle_porosity_factor:
             Optional mapping of cloud species to particle porosity factors.
         photospheric_cloud_optical_depths:
             Optional target cloud optical depth near the photosphere.
@@ -1291,7 +1296,7 @@ def _compute_cloud_opacities(
     Returns:
         Tuple ``(continuum_opacities, continuum_opacities_scattering,
         cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-        cloud_opacities, cloud_particles_mean_radii)``.
+        cloud_opacities, cloud_particle_mean_radii)``.
     """
     n_clouds = len(cloud_species)
     atmospheric_densities = (
@@ -1305,35 +1310,35 @@ def _compute_cloud_opacities(
 
     cloud_hansen_b = _initialize_hansen_b(
         cloud_hansen_b=cloud_hansen_b,
-        cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+        cloud_particle_radius_distribution=cloud_particle_radius_distribution,
         pressures=pressures,
         n_clouds=n_clouds,
     )
     (
         _cloud_species_mass_fractions,
-        _cloud_particles_density,
-        _cloud_particles_mean_radii,
+        _cloud_particle_density,
+        _cloud_particle_mean_radii,
     ) = _initialize_cloud_species_inputs(
         cloud_species=cloud_species,
         cloud_species_mass_fractions=cloud_species_mass_fractions,
         pressures=pressures,
         clouds_loaded_opacities=clouds_loaded_opacities,
-        clouds_particles_porosity_factor=clouds_particles_porosity_factor,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        clouds_particle_porosity_factor=clouds_particle_porosity_factor,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_hansen_a=cloud_hansen_a,
     )
 
-    if cloud_particles_mean_radii is not None or cloud_hansen_a is not None:
+    if cloud_particle_mean_radii is not None or cloud_hansen_a is not None:
         (
             clouds_total_absorption_opacities,
             clouds_total_scattering_opacities,
             cloud_scattering_reduction_factor,
         ) = _compute_cloud_opacity_grids_from_known_radii(
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             atmospheric_densities=atmospheric_densities,
-            cloud_particles_density=_cloud_particles_density,
+            cloud_particle_density=_cloud_particle_density,
             cloud_species_mass_fractions_grid=_cloud_species_mass_fractions,
-            cloud_particles_mean_radii=_cloud_particles_mean_radii,
+            cloud_particle_mean_radii=_cloud_particle_mean_radii,
             cloud_hansen_b=cloud_hansen_b,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_particle_number_density_grid=cloud_particle_number_density_grid,
@@ -1346,7 +1351,7 @@ def _compute_cloud_opacities(
     else:
         _validate_missing_cloud_radius_arguments(
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             clouds_loaded_opacities=clouds_loaded_opacities,
@@ -1372,12 +1377,12 @@ def _compute_cloud_opacities(
             clouds_total_absorption_opacities,
             clouds_total_scattering_opacities,
             cloud_scattering_reduction_factor,
-            _cloud_particles_mean_radii,
+            _cloud_particle_mean_radii,
         ) = _compute_cloud_opacity_grids_with_derived_radii(
-            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
             reference_gravity=reference_gravity,
             atmospheric_densities=atmospheric_densities,
-            cloud_particles_density=_cloud_particles_density,
+            cloud_particle_density=_cloud_particle_density,
             temperatures=temperatures,
             mean_molar_masses=mean_molar_masses,
             cloud_f_sed=_cloud_f_sed,
@@ -1418,7 +1423,7 @@ def _compute_cloud_opacities(
         cloud_anisotropic_scattering_opacities,
         cloud_absorption_opacities,
         cloud_opacities,
-        _cloud_particles_mean_radii,
+        _cloud_particle_mean_radii,
     )
 
 

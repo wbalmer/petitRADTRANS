@@ -46,384 +46,6 @@ logger = logging.getLogger(__name__)
 INVALID_LOG_LIKELIHOOD = jnp.asarray(jnp.finfo(JAX_DTYPE).min, dtype=JAX_DTYPE)
 
 
-def _flatten_parameter_values(
-    values: npt.ArrayLike,
-    expected_size: int | None = None,
-) -> np.ndarray:
-    if isinstance(values, np.ndarray):
-        return values.reshape(-1)
-
-    if hasattr(values, "tolist"):
-        converted_values = values.tolist()
-        if isinstance(converted_values, list):
-            return np.array(converted_values, dtype=float).reshape(-1)
-
-    if expected_size is not None:
-        try:
-            return np.array(
-                [values[index] for index in range(expected_size)], dtype=float
-            )
-        except (IndexError, TypeError, ValueError):
-            pass
-
-    try:
-        return np.array(values, dtype=float).reshape(-1)
-    except (TypeError, ValueError):
-        pass
-
-    try:
-        return np.array([values[index] for index in range(len(values))], dtype=float)
-    except (TypeError, ValueError):
-        return np.array([values], dtype=float)
-
-
-def _is_static_parameter_value(value: Any) -> bool:
-    if value is None:
-        return True
-
-    if isinstance(value, (str, bytes, dict)):
-        return True
-
-    if isinstance(value, (list, tuple)):
-        return all(_is_static_parameter_value(item) for item in value)
-
-    return False
-
-
-def _clone_parameter(parameter: Parameter, value: Any) -> Parameter:
-    return parameter.__class__(
-        name=parameter.name,
-        is_free_parameter=parameter.is_free_parameter,
-        value=value,
-        distribution=parameter.distribution,
-        transform_prior_cube_coordinate=parameter.transform_prior_cube_coordinate,
-        plot_in_corner=parameter.plot_in_corner,
-        corner_ranges=copy.deepcopy(parameter.corner_ranges),
-        corner_transform=parameter.corner_transform,
-        corner_label=parameter.corner_label,
-    )
-
-
-def _serialize_runtime_metadata_value(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {
-            str(key): _serialize_runtime_metadata_value(val)
-            for key, val in sorted(value.items(), key=lambda item: str(item[0]))
-        }
-
-    if isinstance(value, tuple):
-        return [_serialize_runtime_metadata_value(item) for item in value]
-
-    if isinstance(value, list):
-        return [_serialize_runtime_metadata_value(item) for item in value]
-
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-
-    if isinstance(value, np.generic):
-        return value.item()
-
-    if callable(value):
-        module = getattr(value, "__module__", "__callable__")
-        qualname = getattr(value, "__qualname__", repr(value))
-        return f"{module}.{qualname}"
-
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-
-    return repr(value)
-
-
-# ---------------------------------------------------------------------------
-# Pure functions for parameter-dependent observation transforms.
-# These replace the mutable ``Data`` methods with free functions operating on
-# ``ObservationState`` fields and a parameter dictionary.
-# ---------------------------------------------------------------------------
-
-
-def _apply_flux_scaling(
-    input_spectrum: Any,
-    observation: ObservationState,
-    parameters: Mapping[str, Any],
-) -> Any:
-    """Apply multiplicative flux scaling to a spectrum."""
-    if not observation.scale_flux:
-        return input_spectrum
-    scale_factor = _get_parameter_value(
-        parameters, f"{observation.name}_scale_factor", default=1.0
-    )
-    return input_spectrum * scale_factor
-
-
-def _offset_flux(
-    input_spectrum: Any,
-    observation: ObservationState,
-    parameters: Mapping[str, Any],
-) -> Any:
-    """Apply additive flux offset to a spectrum."""
-    if not observation.fit_flux_offset:
-        return input_spectrum
-    offset_val = _get_parameter_value(
-        parameters, f"{observation.name}_offset", default=0.0
-    )
-    return input_spectrum - offset_val
-
-
-def _line_b_uncertainty_scaling(
-    observation_name: str,
-    parameters: Mapping[str, Any],
-) -> Any:
-    """Compute the Line (2015) 10^b uncertainty inflation term."""
-    b_val = -jnp.inf
-    if parameters is not None:
-        if f"{observation_name}_b" in parameters:
-            b_val = _get_parameter_value(
-                parameters, f"{observation_name}_b", default=-jnp.inf
-            )
-        elif "uncertainty_scaling_b" in parameters:
-            b_val = _get_parameter_value(
-                parameters, "uncertainty_scaling_b", default=-jnp.inf
-            )
-    return b_val
-
-
-def _scale_and_inflate_uncertainties(
-    observation: ObservationState,
-    parameters: Mapping[str, Any],
-) -> tuple[Any, Any]:
-    """Compute scaled uncertainties and covariance from observation state.
-
-    This is the pure-function equivalent of ``Data.scale_and_inflate_uncertainties``.
-    For observations with ``fit_covariance=True``, this builds the fitted
-    covariance matrix from parameters. Otherwise it scales the static
-    uncertainties or covariance stored on the observation.
-    """
-    err_scale_factor = 1.0
-    if observation.scale_uncertainties:
-        err_scale_factor = _get_parameter_value(
-            parameters,
-            f"{observation.name}_scale_factor",
-            default=1.0,
-        )
-
-    raw_b_val = _line_b_uncertainty_scaling(observation.name, parameters)
-    additive_variance_term = jnp.where(
-        jnp.isfinite(raw_b_val),
-        10**raw_b_val,
-        0.0,
-    )
-
-    if observation.fit_covariance:
-        from petitRADTRANS.retrieval.covariance import (
-            build_global_covariance_kernel,
-            build_local_covariance_kernel,
-        )
-
-        scaled_covariance = _build_fitted_covariance_from_observation(
-            observation,
-            parameters,
-            err_scale_factor,
-            additive_variance_term,
-        )
-        scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
-        return scaled_uncertainties, scaled_covariance
-
-    if observation.covariance is not None:
-        scaled_covariance = observation.covariance * (err_scale_factor**2)
-        scaled_covariance = scaled_covariance + additive_variance_term * jnp.eye(
-            scaled_covariance.shape[0],
-            dtype=scaled_covariance.dtype,
-        )
-        scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
-    elif observation.uncertainties is not None:
-        scaled_uncertainties = observation.uncertainties * err_scale_factor
-        scaled_uncertainties = jnp.sqrt(
-            scaled_uncertainties**2 + additive_variance_term
-        )
-        scaled_covariance = None
-    else:
-        raise ValueError(
-            f"Observation '{observation.name}' has neither uncertainties nor covariance."
-        )
-
-    return scaled_uncertainties, scaled_covariance
-
-
-def _build_fitted_covariance_from_observation(
-    observation: ObservationState,
-    parameters: Mapping[str, Any],
-    err_scale_factor: float,
-    additive_variance_term: Any,
-) -> Any:
-    """Build a fitted covariance matrix from observation state and parameters.
-
-    This is the pure-function equivalent of ``Data._build_fitted_covariance``.
-    """
-    from petitRADTRANS.retrieval.covariance import (
-        build_global_covariance_kernel,
-        build_local_covariance_kernel,
-    )
-
-    wavelength_vector = jnp.asarray(observation.wavelengths)
-
-    if observation.covariance is not None:
-        base_covariance = jnp.asarray(observation.covariance) * (err_scale_factor**2)
-    elif observation.uncertainties is not None:
-        scaled_uncertainties = jnp.asarray(observation.uncertainties) * err_scale_factor
-        base_covariance = jnp.diag(scaled_uncertainties**2)
-    else:
-        raise ValueError(
-            f"Observation '{observation.name}' has neither uncertainties nor covariance."
-        )
-
-    identity = jnp.eye(wavelength_vector.shape[0], dtype=base_covariance.dtype)
-    total_covariance = base_covariance + additive_variance_term * identity
-
-    if observation.covariance_mode in {"global", "global_local"}:
-        global_amplitude = _get_parameter_value(
-            parameters,
-            f"{observation.name}_gp_global_amp",
-            default=0.0,
-        )
-        global_length = _get_parameter_value(
-            parameters,
-            f"{observation.name}_gp_global_length",
-            default=1.0,
-        )
-        total_covariance = total_covariance + build_global_covariance_kernel(
-            wavelength_vector,
-            amplitude=global_amplitude,
-            length_scale=global_length,
-            kernel_name=observation.global_covariance_kernel,
-        )
-
-    if observation.covariance_mode in {"local", "global_local"}:
-        for kernel_index in range(1, observation.n_local_covariance_kernels + 1):
-            local_amplitude = _get_parameter_value(
-                parameters,
-                f"{observation.name}_gp_local_{kernel_index}_amp",
-                default=0.0,
-            )
-            local_length = _get_parameter_value(
-                parameters,
-                f"{observation.name}_gp_local_{kernel_index}_length",
-                default=1.0,
-            )
-            default_center = jnp.mean(wavelength_vector)
-            local_center = _get_parameter_value(
-                parameters,
-                f"{observation.name}_gp_local_{kernel_index}_center",
-                default=default_center,
-            )
-            total_covariance = total_covariance + build_local_covariance_kernel(
-                wavelength_vector,
-                amplitude=local_amplitude,
-                length_scale=local_length,
-                center=local_center,
-                kernel_name=observation.local_covariance_kernel,
-            )
-
-    if observation.covariance_jitter > 0.0:
-        total_covariance = total_covariance + observation.covariance_jitter * jnp.eye(
-            total_covariance.shape[0],
-            dtype=total_covariance.dtype,
-        )
-
-    return total_covariance
-
-
-def _configuration_requires_radtrans_initialization(configuration: Any) -> bool:
-    for data in getattr(configuration, "data", {}).values():
-        if (
-            getattr(data, "external_radtrans_reference", None) is None
-            and getattr(data, "radtrans_object", None) is None
-        ):
-            return True
-
-    return False
-
-
-def _ensure_configuration_radtrans_objects_initialized(configuration: Any) -> None:
-    if not _configuration_requires_radtrans_initialization(configuration):
-        return
-
-    from petitRADTRANS.config.configuration import petitradtrans_config_parser
-    from petitRADTRANS.retrieval.retrieval import Retrieval
-
-    retrieval = object.__new__(Retrieval)
-    retrieval.configuration = configuration
-    retrieval.path = petitradtrans_config_parser.get_input_data_path()
-
-    Retrieval.initialise_radtrans_objects(retrieval)
-
-
-def _radtrans_wavelength_grid(radtrans_object: Any) -> Any:
-    """Return the wavelength-space bin centres for a Radtrans object (in µm)."""
-    edges = radtrans_object.frequency_bins_edges
-    # bin centres in frequency → convert to wavelength (cm → µm)
-    centres = 0.5 * (edges[:-1] + edges[1:])
-    # speed of light in cm/s → wavelength in cm, then to µm
-    wavelengths_cm = 2.99792458e10 / centres
-    return wavelengths_cm * 1e4  # cm → µm
-
-
-def project_model_to_observation_space(
-    wavelengths_model: Any,
-    spectrum_model: Any,
-    observation: "ObservationState",
-    parameters: Mapping[str, Any],
-    data_name: str,
-) -> Any:
-    """Convolve, rebin, and shift a 1-D model spectrum onto the observation grid.
-
-    This is a thin composition of ``extract_spectrum_parameters`` and
-    ``process_spectrum_pipeline`` from :mod:`petitRADTRANS.retrieval.utils`,
-    gathered here so that ``_score_dataset`` can delegate to a single call.
-    """
-    from petitRADTRANS.retrieval.utils import (
-        extract_spectrum_parameters,
-        process_spectrum_pipeline,
-    )
-
-    spectrum_params = extract_spectrum_parameters(parameters, data_name)
-    return process_spectrum_pipeline(
-        wavelengths_model,
-        spectrum_model,
-        observation,
-        parameters,
-        data_name,
-        spectrum_params,
-    )
-
-
-def compute_observation_log_likelihood(
-    model_spectrum: Any,
-    data_spectrum: Any,
-    data_uncertainties: Any | None,
-    data_covariance: Any | None,
-    n_free_parameters: int,
-) -> Any:
-    """Compute the log-likelihood for a single 1-D observation slice.
-
-    Returns ``INVALID_LOG_LIKELIHOOD`` when the model contains NaN values.
-    Otherwise delegates to :class:`~petitRADTRANS.retrieval.log_likelihood.LogLikelihood`.
-    """
-    from petitRADTRANS.retrieval.log_likelihood import LogLikelihood
-
-    return lax.cond(
-        jnp.isnan(model_spectrum).any(),
-        lambda _: INVALID_LOG_LIKELIHOOD,
-        lambda _: LogLikelihood(
-            model_spectrum=model_spectrum,
-            data_spectrum=data_spectrum,
-            data_uncertainties=data_uncertainties,
-            data_covariance=data_covariance,
-            n_free_parameters=n_free_parameters,
-        ).calculate_log_likelihood(),
-        operand=None,
-    )
-
-
 @tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class PhysicalParams:
@@ -643,7 +265,7 @@ class ModelInputs:
     reference_pressure: Any = 0.1  # bar
     opaque_cloud_top_pressure: Any = None
     sigma_lnorm: Any = None
-    cloud_particles_mean_radii: Any = None
+    cloud_particle_mean_radii: Any = None
     cloud_f_sed: Any = None
     eddy_diffusion_coefficients: Any = None
     haze_factor: Any = 1.0
@@ -652,7 +274,7 @@ class ModelInputs:
     cloud_hansen_b: Any = None
     cloud_fraction: Any = 1.0
     complete_coverage_clouds: tuple[str, ...] = ()
-    cloud_particles_radius_distribution: str | None = None
+    cloud_particle_radius_distribution: str | None = None
     distance_to_system: Any = None
     stellar_radius: Any = None
     disk_blackbody_temperature: Any = None
@@ -689,7 +311,7 @@ class ModelInputs:
             self.reference_pressure,
             self.opaque_cloud_top_pressure,
             self.sigma_lnorm,
-            self.cloud_particles_mean_radii,
+            self.cloud_particle_mean_radii,
             self.cloud_f_sed,
             self.eddy_diffusion_coefficients,
             self.haze_factor,
@@ -706,7 +328,7 @@ class ModelInputs:
         )
         aux_data = {
             "complete_coverage_clouds": self.complete_coverage_clouds,
-            "cloud_particles_radius_distribution": self.cloud_particles_radius_distribution,
+            "cloud_particle_radius_distribution": self.cloud_particle_radius_distribution,
             "additional_inputs": self.additional_inputs,
         }
         return children, aux_data
@@ -724,7 +346,7 @@ class ModelInputs:
             reference_pressure=children[6],
             opaque_cloud_top_pressure=children[7],
             sigma_lnorm=children[8],
-            cloud_particles_mean_radii=children[9],
+            cloud_particle_mean_radii=children[9],
             cloud_f_sed=children[10],
             eddy_diffusion_coefficients=children[11],
             haze_factor=children[12],
@@ -739,8 +361,8 @@ class ModelInputs:
             v_band_extinction=children[21],
             v_band_reddening=children[22],
             complete_coverage_clouds=aux_data["complete_coverage_clouds"],
-            cloud_particles_radius_distribution=aux_data[
-                "cloud_particles_radius_distribution"
+            cloud_particle_radius_distribution=aux_data[
+                "cloud_particle_radius_distribution"
             ],
             additional_inputs=aux_data["additional_inputs"],
         )
@@ -1406,7 +1028,7 @@ class RetrievalRuntime:
     ) -> Any:
         """Evaluate a batch of parameter vectors with an explicit per-stage vmap.
 
-        For model groups using ``MODEL_CONTRACT_RUNTIME_NATIVE`` this method
+        For model groups using ``MODEL_CONTRACT_DIFFERENTIABLE`` this method
         makes the batch structure explicit to XLA:
 
         1. The model-generating function is vmapped with ``model_context`` as
@@ -1430,7 +1052,7 @@ class RetrievalRuntime:
             Log-posterior contributions, shape ``(n_samples,)`` or scalar.
         """
         from petitRADTRANS.retrieval.models import (
-            MODEL_CONTRACT_RUNTIME_NATIVE,
+            MODEL_CONTRACT_DIFFERENTIABLE,
             calculate_emission_spectra_batched,
         )
 
@@ -1449,7 +1071,7 @@ class RetrievalRuntime:
         # Check whether all model groups use the runtime-native contract so we
         # can apply the explicit per-stage vmap.
         all_native = all(
-            g.model_contract == MODEL_CONTRACT_RUNTIME_NATIVE for g in self.model_groups
+            g.model_contract == MODEL_CONTRACT_DIFFERENTIABLE for g in self.model_groups
         )
         if not all_native:
             return self.evaluate_vectorized_jax(
@@ -1911,6 +1533,384 @@ class ParameterLayout:
             "cube_epsilon": float(self.cube_epsilon),
             "parameters": parameter_metadata,
         }
+
+
+def _flatten_parameter_values(
+    values: npt.ArrayLike,
+    expected_size: int | None = None,
+) -> np.ndarray:
+    if isinstance(values, np.ndarray):
+        return values.reshape(-1)
+
+    if hasattr(values, "tolist"):
+        converted_values = values.tolist()
+        if isinstance(converted_values, list):
+            return np.array(converted_values, dtype=float).reshape(-1)
+
+    if expected_size is not None:
+        try:
+            return np.array(
+                [values[index] for index in range(expected_size)], dtype=float
+            )
+        except (IndexError, TypeError, ValueError):
+            pass
+
+    try:
+        return np.array(values, dtype=float).reshape(-1)
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        return np.array([values[index] for index in range(len(values))], dtype=float)
+    except (TypeError, ValueError):
+        return np.array([values], dtype=float)
+
+
+def _is_static_parameter_value(value: Any) -> bool:
+    if value is None:
+        return True
+
+    if isinstance(value, (str, bytes, dict)):
+        return True
+
+    if isinstance(value, (list, tuple)):
+        return all(_is_static_parameter_value(item) for item in value)
+
+    return False
+
+
+def _clone_parameter(parameter: Parameter, value: Any) -> Parameter:
+    return parameter.__class__(
+        name=parameter.name,
+        is_free_parameter=parameter.is_free_parameter,
+        value=value,
+        distribution=parameter.distribution,
+        transform_prior_cube_coordinate=parameter.transform_prior_cube_coordinate,
+        plot_in_corner=parameter.plot_in_corner,
+        corner_ranges=copy.deepcopy(parameter.corner_ranges),
+        corner_transform=parameter.corner_transform,
+        corner_label=parameter.corner_label,
+    )
+
+
+def _serialize_runtime_metadata_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _serialize_runtime_metadata_value(val)
+            for key, val in sorted(value.items(), key=lambda item: str(item[0]))
+        }
+
+    if isinstance(value, tuple):
+        return [_serialize_runtime_metadata_value(item) for item in value]
+
+    if isinstance(value, list):
+        return [_serialize_runtime_metadata_value(item) for item in value]
+
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+
+    if isinstance(value, np.generic):
+        return value.item()
+
+    if callable(value):
+        module = getattr(value, "__module__", "__callable__")
+        qualname = getattr(value, "__qualname__", repr(value))
+        return f"{module}.{qualname}"
+
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+
+    return repr(value)
+
+
+# ---------------------------------------------------------------------------
+# Pure functions for parameter-dependent observation transforms.
+# These replace the mutable ``Data`` methods with free functions operating on
+# ``ObservationState`` fields and a parameter dictionary.
+# ---------------------------------------------------------------------------
+
+
+def _apply_flux_scaling(
+    input_spectrum: Any,
+    observation: ObservationState,
+    parameters: Mapping[str, Any],
+) -> Any:
+    """Apply multiplicative flux scaling to a spectrum."""
+    if not observation.scale_flux:
+        return input_spectrum
+    scale_factor = _get_parameter_value(
+        parameters, f"{observation.name}_scale_factor", default=1.0
+    )
+    return input_spectrum * scale_factor
+
+
+def _offset_flux(
+    input_spectrum: Any,
+    observation: ObservationState,
+    parameters: Mapping[str, Any],
+) -> Any:
+    """Apply additive flux offset to a spectrum."""
+    if not observation.fit_flux_offset:
+        return input_spectrum
+    offset_val = _get_parameter_value(
+        parameters, f"{observation.name}_offset", default=0.0
+    )
+    return input_spectrum - offset_val
+
+
+def _line_b_uncertainty_scaling(
+    observation_name: str,
+    parameters: Mapping[str, Any],
+) -> Any:
+    """Compute the Line (2015) 10^b uncertainty inflation term."""
+    b_val = -jnp.inf
+    if parameters is not None:
+        if f"{observation_name}_b" in parameters:
+            b_val = _get_parameter_value(
+                parameters, f"{observation_name}_b", default=-jnp.inf
+            )
+        elif "uncertainty_scaling_b" in parameters:
+            b_val = _get_parameter_value(
+                parameters, "uncertainty_scaling_b", default=-jnp.inf
+            )
+    return b_val
+
+
+def _scale_and_inflate_uncertainties(
+    observation: ObservationState,
+    parameters: Mapping[str, Any],
+) -> tuple[Any, Any]:
+    """Compute scaled uncertainties and covariance from observation state.
+
+    This is the pure-function equivalent of ``Data.scale_and_inflate_uncertainties``.
+    For observations with ``fit_covariance=True``, this builds the fitted
+    covariance matrix from parameters. Otherwise it scales the static
+    uncertainties or covariance stored on the observation.
+    """
+    err_scale_factor = 1.0
+    if observation.scale_uncertainties:
+        err_scale_factor = _get_parameter_value(
+            parameters,
+            f"{observation.name}_scale_factor",
+            default=1.0,
+        )
+
+    raw_b_val = _line_b_uncertainty_scaling(observation.name, parameters)
+    additive_variance_term = jnp.where(
+        jnp.isfinite(raw_b_val),
+        10**raw_b_val,
+        0.0,
+    )
+
+    if observation.fit_covariance:
+        from petitRADTRANS.retrieval.covariance import (
+            build_global_covariance_kernel,
+            build_local_covariance_kernel,
+        )
+
+        scaled_covariance = _build_fitted_covariance_from_observation(
+            observation,
+            parameters,
+            err_scale_factor,
+            additive_variance_term,
+        )
+        scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
+        return scaled_uncertainties, scaled_covariance
+
+    if observation.covariance is not None:
+        scaled_covariance = observation.covariance * (err_scale_factor**2)
+        scaled_covariance = scaled_covariance + additive_variance_term * jnp.eye(
+            scaled_covariance.shape[0],
+            dtype=scaled_covariance.dtype,
+        )
+        scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
+    elif observation.uncertainties is not None:
+        scaled_uncertainties = observation.uncertainties * err_scale_factor
+        scaled_uncertainties = jnp.sqrt(
+            scaled_uncertainties**2 + additive_variance_term
+        )
+        scaled_covariance = None
+    else:
+        raise ValueError(
+            f"Observation '{observation.name}' has neither uncertainties nor covariance."
+        )
+
+    return scaled_uncertainties, scaled_covariance
+
+
+def _build_fitted_covariance_from_observation(
+    observation: ObservationState,
+    parameters: Mapping[str, Any],
+    err_scale_factor: float,
+    additive_variance_term: Any,
+) -> Any:
+    """Build a fitted covariance matrix from observation state and parameters.
+
+    This is the pure-function equivalent of ``Data._build_fitted_covariance``.
+    """
+    from petitRADTRANS.retrieval.covariance import (
+        build_global_covariance_kernel,
+        build_local_covariance_kernel,
+    )
+
+    wavelength_vector = jnp.asarray(observation.wavelengths)
+
+    if observation.covariance is not None:
+        base_covariance = jnp.asarray(observation.covariance) * (err_scale_factor**2)
+    elif observation.uncertainties is not None:
+        scaled_uncertainties = jnp.asarray(observation.uncertainties) * err_scale_factor
+        base_covariance = jnp.diag(scaled_uncertainties**2)
+    else:
+        raise ValueError(
+            f"Observation '{observation.name}' has neither uncertainties nor covariance."
+        )
+
+    identity = jnp.eye(wavelength_vector.shape[0], dtype=base_covariance.dtype)
+    total_covariance = base_covariance + additive_variance_term * identity
+
+    if observation.covariance_mode in {"global", "global_local"}:
+        global_amplitude = _get_parameter_value(
+            parameters,
+            f"{observation.name}_gp_global_amp",
+            default=0.0,
+        )
+        global_length = _get_parameter_value(
+            parameters,
+            f"{observation.name}_gp_global_length",
+            default=1.0,
+        )
+        total_covariance = total_covariance + build_global_covariance_kernel(
+            wavelength_vector,
+            amplitude=global_amplitude,
+            length_scale=global_length,
+            kernel_name=observation.global_covariance_kernel,
+        )
+
+    if observation.covariance_mode in {"local", "global_local"}:
+        for kernel_index in range(1, observation.n_local_covariance_kernels + 1):
+            local_amplitude = _get_parameter_value(
+                parameters,
+                f"{observation.name}_gp_local_{kernel_index}_amp",
+                default=0.0,
+            )
+            local_length = _get_parameter_value(
+                parameters,
+                f"{observation.name}_gp_local_{kernel_index}_length",
+                default=1.0,
+            )
+            default_center = jnp.mean(wavelength_vector)
+            local_center = _get_parameter_value(
+                parameters,
+                f"{observation.name}_gp_local_{kernel_index}_center",
+                default=default_center,
+            )
+            total_covariance = total_covariance + build_local_covariance_kernel(
+                wavelength_vector,
+                amplitude=local_amplitude,
+                length_scale=local_length,
+                center=local_center,
+                kernel_name=observation.local_covariance_kernel,
+            )
+
+    if observation.covariance_jitter > 0.0:
+        total_covariance = total_covariance + observation.covariance_jitter * jnp.eye(
+            total_covariance.shape[0],
+            dtype=total_covariance.dtype,
+        )
+
+    return total_covariance
+
+
+def _configuration_requires_radtrans_initialization(configuration: Any) -> bool:
+    for data in getattr(configuration, "data", {}).values():
+        if (
+            getattr(data, "external_radtrans_reference", None) is None
+            and getattr(data, "radtrans_object", None) is None
+        ):
+            return True
+
+    return False
+
+
+def _ensure_configuration_radtrans_objects_initialized(configuration: Any) -> None:
+    if not _configuration_requires_radtrans_initialization(configuration):
+        return
+
+    from petitRADTRANS.config.configuration import petitradtrans_config_parser
+    from petitRADTRANS.retrieval.retrieval import Retrieval
+
+    retrieval = object.__new__(Retrieval)
+    retrieval.configuration = configuration
+    retrieval.path = petitradtrans_config_parser.get_input_data_path()
+
+    Retrieval.initialise_radtrans_objects(retrieval)
+
+
+def _radtrans_wavelength_grid(radtrans_object: Any) -> Any:
+    """Return the wavelength-space bin centres for a Radtrans object (in µm)."""
+    edges = radtrans_object.frequency_bins_edges
+    # bin centres in frequency → convert to wavelength (cm → µm)
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    # speed of light in cm/s → wavelength in cm, then to µm
+    wavelengths_cm = 2.99792458e10 / centres
+    return wavelengths_cm * 1e4  # cm → µm
+
+
+def project_model_to_observation_space(
+    wavelengths_model: Any,
+    spectrum_model: Any,
+    observation: "ObservationState",
+    parameters: Mapping[str, Any],
+    data_name: str,
+) -> Any:
+    """Convolve, rebin, and shift a 1-D model spectrum onto the observation grid.
+
+    This is a thin composition of ``extract_spectrum_parameters`` and
+    ``process_spectrum_pipeline`` from :mod:`petitRADTRANS.retrieval.utils`,
+    gathered here so that ``_score_dataset`` can delegate to a single call.
+    """
+    from petitRADTRANS.retrieval.utils import (
+        extract_spectrum_parameters,
+        process_spectrum_pipeline,
+    )
+
+    spectrum_params = extract_spectrum_parameters(parameters, data_name)
+    return process_spectrum_pipeline(
+        wavelengths_model,
+        spectrum_model,
+        observation,
+        parameters,
+        data_name,
+        spectrum_params,
+    )
+
+
+def compute_observation_log_likelihood(
+    model_spectrum: Any,
+    data_spectrum: Any,
+    data_uncertainties: Any | None,
+    data_covariance: Any | None,
+    n_free_parameters: int,
+) -> Any:
+    """Compute the log-likelihood for a single 1-D observation slice.
+
+    Returns ``INVALID_LOG_LIKELIHOOD`` when the model contains NaN values.
+    Otherwise delegates to :class:`~petitRADTRANS.retrieval.log_likelihood.LogLikelihood`.
+    """
+    from petitRADTRANS.retrieval.log_likelihood import LogLikelihood
+
+    return lax.cond(
+        jnp.isnan(model_spectrum).any(),
+        lambda _: INVALID_LOG_LIKELIHOOD,
+        lambda _: LogLikelihood(
+            model_spectrum=model_spectrum,
+            data_spectrum=data_spectrum,
+            data_uncertainties=data_uncertainties,
+            data_covariance=data_covariance,
+            n_free_parameters=n_free_parameters,
+        ).calculate_log_likelihood(),
+        operand=None,
+    )
 
 
 __all__ = [

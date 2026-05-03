@@ -1,4 +1,3 @@
-import sys
 import copy
 import jax.numpy as jnp
 from jax import vmap, debug
@@ -9,6 +8,10 @@ from petitRADTRANS.opacities.hminus import get_non_cia_gas_continuum_contributio
 from petitRADTRANS.chemistry.utils import get_base_species_mass_fractions
 
 from petitRADTRANS.jax_dtype import JAX_DTYPE
+
+
+_INV_LOSCHMIDT_SQUARED = jnp.array((1.0 / cst.L0) ** 2, dtype=JAX_DTYPE)
+_CIA_OPACITY_CUTOFF = jnp.finfo(JAX_DTYPE).tiny
 
 
 def get_cia_aliases(name: str) -> str:
@@ -79,8 +82,9 @@ def compute_cia_opacities(
 ):
     """Wrapper to interpolate_cia, calculating each collision's combined mass fraction."""
     # Add mass fractions sharing the same basename
+    # Sort keys to match JAX JIT's alphabetical ordering of dict keys
     species_basenames = []
-    for species in mass_fractions.keys():
+    for species in sorted(mass_fractions.keys()):
         species_basenames.append(Opacity.get_species_base_name(species))
     species_basenames = tuple(species_basenames)
 
@@ -153,7 +157,7 @@ def interpolate_cia(
         / weights
         * mean_molar_masses
         / cst.amu
-        / (cst.L0**2)
+        * _INV_LOSCHMIDT_SQUARED
         * pressures
         / cst.kB
         / temperatures
@@ -178,7 +182,7 @@ def interpolate_cia(
 
     # Ensure no values below sys.float_info.min
     cia_opacities = jnp.where(
-        cia_frequency_interpolated < sys.float_info.min, 0, cia_frequency_interpolated
+        cia_frequency_interpolated < _CIA_OPACITY_CUTOFF, 0, cia_frequency_interpolated
     )
 
     return cia_opacities * factor

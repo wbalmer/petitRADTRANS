@@ -57,7 +57,7 @@ The DACE opacity database itself is described in `Grimm et al. (2021) <https://u
 
 .. code-block:: python
 
-    from petitRADTRANS.__file_conversion import format2petitradtrans
+    from petitRADTRANS.opacities.file_conversion import format2petitradtrans
 
     format2petitradtrans(
         load_function='dace',
@@ -201,7 +201,7 @@ Next, execute the following command:
 
 .. code-block:: python
 
-    from petitRADTRANS.__file_conversion import format2petitradtrans
+    from petitRADTRANS.opacities.file_conversion import format2petitradtrans
 
     format2petitradtrans(
         load_function='exocross',
@@ -263,7 +263,7 @@ You can then proceed to the conversion as follows:
 
 .. code-block:: python
 
-    from petitRADTRANS.__file_conversion import format2petitradtrans
+    from petitRADTRANS.opacities.file_conversion import format2petitradtrans
 
     format2petitradtrans(
         load_function=my_load_function,  # replace with your loading function's name

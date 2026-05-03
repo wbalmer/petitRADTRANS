@@ -3,9 +3,7 @@ from jax import Array
 from jax.typing import ArrayLike
 
 
-def temperature_profile_function_isothermal(
-    pressures: ArrayLike, temperature: float
-) -> Array:
+def isothermal_temperature_profile(pressures: ArrayLike, temperature: float) -> Array:
     """
     Returns an isothermal temperature profile.
 

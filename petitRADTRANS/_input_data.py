@@ -20,7 +20,7 @@ def _get_input_data_file_not_found_error_message(file: str) -> str:
         f">>> petitradtrans_config_parser.set_input_data_path('path/to/input_data')\n"
         f"replacing 'path/to/' with the path to the input_data directory\n\n"
         f"To update the outdated files, execute:\n"
-        f">>> from petitRADTRANS.__file_conversion import convert_all\n"
+        f">>> from petitRADTRANS.opacities.file_conversion import convert_all\n"
         f">>> convert_all()\n\n"
         f"To download the missing file, "
         f"see https://petitradtrans.readthedocs.io/en/latest/content/installation.html"

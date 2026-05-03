@@ -127,6 +127,7 @@ def test_line_by_line_transmission_spectrum_partial_gray_cloud():
         mass_fractions=test_parameters["mass_fractions_line_by_line"],
         mass_fractions_clear=None,
         opaque_cloud_top_pressure=test_parameters["cloud_parameters"]["cloud_pressure"],
+        minimum_effect_relative_tolerance=relative_tolerance / 10,
         temperatures=temperature_isothermal,
         reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
         mean_molar_masses=test_parameters["mean_molar_mass"],

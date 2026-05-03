@@ -4,7 +4,7 @@ from jax.typing import ArrayLike
 from typing import Optional
 
 
-def temperature_profile_function_guillot(
+def guillot_temperature_profile(
     pressures: ArrayLike,
     infrared_mean_opacity: float,
     gamma: float,
@@ -50,7 +50,7 @@ def temperature_profile_function_guillot(
     return temperature
 
 
-def temperature_profile_function_guillot_dayside(
+def guillot_dayside_temperature_profile(
     pressures: ArrayLike,
     infrared_mean_opacity: float,
     gamma: float,
@@ -60,7 +60,7 @@ def temperature_profile_function_guillot_dayside(
 ) -> Array:
     """Returns a dayside temperature array, in units of K, using the Guillot (2010) model.
 
-    This is a wrapper for `temperature_profile_function_guillot` with `redistribution_coefficient` set to 0.5,
+    This is a wrapper for `guillot_temperature_profile` with `redistribution_coefficient` set to 0.5,
     which corresponds to an average over the day side of the planet.
 
     Args:
@@ -73,7 +73,7 @@ def temperature_profile_function_guillot_dayside(
     Returns:
         The temperature profile in K.
     """
-    return temperature_profile_function_guillot(
+    return guillot_temperature_profile(
         pressures=pressures,
         infrared_mean_opacity=infrared_mean_opacity,
         gamma=gamma,
@@ -84,7 +84,7 @@ def temperature_profile_function_guillot_dayside(
     )
 
 
-def temperature_profile_function_guillot_global(
+def guillot_global_temperature_profile(
     pressures: ArrayLike,
     infrared_mean_opacity: float,
     gamma: float,
@@ -94,7 +94,7 @@ def temperature_profile_function_guillot_global(
 ) -> Array:
     """Returns a global average temperature array, in units of K, using the Guillot (2010) model.
 
-    This is a wrapper for `temperature_profile_function_guillot` with `redistribution_coefficient` set to 0.25,
+    This is a wrapper for `guillot_temperature_profile` with `redistribution_coefficient` set to 0.25,
     which corresponds to an average over the whole planetary surface.
 
     Args:
@@ -107,7 +107,7 @@ def temperature_profile_function_guillot_global(
     Returns:
         The temperature profile in K.
     """
-    return temperature_profile_function_guillot(
+    return guillot_temperature_profile(
         pressures=pressures,
         infrared_mean_opacity=infrared_mean_opacity,
         gamma=gamma,
@@ -118,7 +118,7 @@ def temperature_profile_function_guillot_global(
     )
 
 
-def temperature_profile_function_guillot_global_ret(
+def guillot_global_ret_temperature_profile(
     pressures: ArrayLike,
     delta: float,
     gamma: float,
@@ -162,7 +162,7 @@ def temperature_profile_function_guillot_global_ret(
     return temperature
 
 
-def temperature_profile_function_guillot_metallic(
+def guillot_metallic_temperature_profile(
     pressures: ArrayLike,
     gamma: float,
     reference_gravity: ArrayLike,
@@ -194,7 +194,7 @@ def temperature_profile_function_guillot_metallic(
     else:
         kappa_ir = infrared_mean_opacity_solar_metallicity
 
-    temperatures = temperature_profile_function_guillot_global(
+    temperatures = guillot_global_temperature_profile(
         pressures=pressures,
         infrared_mean_opacity=kappa_ir,
         gamma=gamma,
@@ -206,7 +206,7 @@ def temperature_profile_function_guillot_metallic(
     return temperatures
 
 
-def temperature_profile_function_guillot_modif(
+def guillot_modif_temperature_profile(
     pressures: ArrayLike,
     delta: float,
     gamma: float,
@@ -217,7 +217,7 @@ def temperature_profile_function_guillot_modif(
 ) -> Array:
     """Modified Guillot P-T formula for retrievals.
 
-    This function uses the `temperature_profile_function_guillot_global_ret` and applies a
+    This function uses the `guillot_global_ret_temperature_profile` and applies a
     modifying factor to the temperature profile. The modification is controlled by `alpha`
     and `ptrans`, which can shape the profile around a transition pressure.
 
@@ -232,7 +232,7 @@ def temperature_profile_function_guillot_modif(
     Returns:
         The modified temperature profile in K.
     """
-    return temperature_profile_function_guillot_global_ret(
+    return guillot_global_ret_temperature_profile(
         pressures,
         jnp.abs(delta),
         jnp.abs(gamma),

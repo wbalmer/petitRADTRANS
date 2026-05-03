@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a20] - 2026-04-08
+## [4.0.0a26] - 2026-05-01
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -17,10 +17,8 @@ Ready for beta testing with version 4.0.0.a16.
 - Feature completion: Implement hansen cloud opacities in `cloud_core`.
 - Feature completion: Finish reimplementing contribution functions.
 - Feature completion: Implement adaptive mesh refinement with constant size pressure array.
-- Feature completion: Figure out how to implement `additional_outputs` in jax compatible way.
 - Feature completion: New cloud opacities to be compatible with new condensation curves.
 - Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
-- Feature completion: Re-implement non-vertically-constant abundance profiles.
 - Feature completion: Re-implement `additional_absorption_opacities_function`
 - Optimisation: profile code for new bottlenecks.
 - Optimisation: Ensure imports are optimised.
@@ -28,11 +26,8 @@ Ready for beta testing with version 4.0.0.a16.
 - Testing: write unit tests for new JAX functions.
 - Testing: resolve remaining compatibility issues with unit tests.
 - Testing: generate new reference files where necessary, once commited to changes (e.g. chemistry update).
-- Testing: write smaller versions of autodiff, retrieval, and SBI tests to reduce memory and runtime.
 - Testing: Optimise Feautrier chunk size hyper parameters for GPU.
-- Testing: write 32 bit test suite.
 - Testing: Further testing on AMD GPUs, possibly TPUs.
-- Architecture: Verify all chi2 calculations use LogLikelihood class.
 - Architecture: Set stricter dependency version limits.
 - Architecture: Optional: include ability to use FORTRAN backend, or fully deprecate legacy code.
 - Documentation: Add docstrings to all new JAX functions.
@@ -44,15 +39,26 @@ Ready for beta testing with version 4.0.0.a16.
 - Documentation: Update contribution section with JAX philosophy and links.
 - Housekeeping: Address all remaining TODOs in code.
 - Housekeeping: Clean up comment blocks.
-- Housekeeping: Decide on function to use for calculate_flux.
 - Housekeeping: Ensure Flake8 compatibility and linting.
 - Future goals: JAXify EasyChem
 - Future goals: Incorporate next pRT developments (pRT orange, multi-dimensional retrievals etc.)
 - Future goals: Times series retrieval plotting
 - Future goals: Implement additional radiative transfer methods.
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
+- Future goals: correlated-k binning.
 
 ### Changed
+- a26: fixed chemistry nan bugs and fill atmosphere edge cases
+- a26: reference files now match v4 petitRADTRANS argument naming
+- a25: bug fix for patchy grey cloud deck
+- a24: transmission and non-scattering emission are compatible with 32 bit mode.
+- a24: non-vertically-constant abundance profiles now implemented
+- a24: Performance improvements to Feautrier method
+- a24: Fixed non-Feautrier cloudy case.
+- a22: all cloud particle arguement names standardized to cloud_particle instead of cloud_particles
+- a22: temperature profile names now standardized to author_temperature_profile
+- a21: Parallelised SBI
+- a21: Fixed bug with sorting of dictionary keys with JIT that led to incorrect rayleigh opacities.
 - a19 Vectorised likelihood in retrieval module and training set generation in SBI module.
 - a17 `emission_geometry` is now `irradiation_geometry` throughout, renamed other args in `Opacity`.
 - a16: Shard_map parallelisation for MCMC samplers
@@ -88,6 +94,9 @@ Ready for beta testing with version 4.0.0.a16.
 - Minimum supported Python version is 3.12.
 
 ### Added
+- a26: isotopologues in chemistry
+- a25: JAX version of exo-k c-k binning
+- a23: feautrier now also outputs angle dependent intensities
 - a16: Time-variable model function parameterisation
 - a15 Added RetrievalPlotter class, replacing plotting functions and `plot_kwargs` from the Retrieval class.
 - a15 Added automatic calculation of BIC, AIC and BPICS following retrievals.

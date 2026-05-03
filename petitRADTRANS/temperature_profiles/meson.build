@@ -8,5 +8,5 @@ py.install_sources([
     'spline.py',
     '__init__.py',
     ],
-    subdir: 'petitRADTRANS/profiles'
+    subdir: 'petitRADTRANS/temperature_profiles'
 )

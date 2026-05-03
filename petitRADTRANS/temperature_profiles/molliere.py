@@ -3,7 +3,8 @@ from jax import lax
 from interpax import interp1d
 
 
-def spline_eddington_adiabatic_temperature_profile(rad_trans_params):
+# molliere2020
+def molliere_2020_temperature_profile(rad_trans_params):
     """
     Self-luminous retrieval P-T model.
     # TODO find better name

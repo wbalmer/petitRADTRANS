@@ -4,7 +4,8 @@ from jax.typing import ArrayLike
 from interpax import interp1d
 
 
-def dtdp_temperature_profile(
+# TODO zhang23
+def zhang_2023_temperature_profile(
     pressures: ArrayLike,
     num_layer: int,
     layer_pt_slopes: ArrayLike,

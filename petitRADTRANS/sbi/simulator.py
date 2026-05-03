@@ -323,8 +323,7 @@ class SimulationRuntime(RetrievalRuntime):
                             ordered_names=batched_physical_params.ordered_names,
                             dynamic_names=batched_physical_params.dynamic_names,
                             dynamic_values=tuple(
-                                v[i]
-                                for v in batched_physical_params.dynamic_values
+                                v[i] for v in batched_physical_params.dynamic_values
                             ),
                             static_items=batched_physical_params.static_items,
                         )
@@ -332,16 +331,12 @@ class SimulationRuntime(RetrievalRuntime):
                         unc_list.append(u)
                         cov_list.append(c)
                     stacked_unc = (
-                        jnp.stack(
-                            [jnp.asarray(u, dtype=JAX_DTYPE) for u in unc_list]
-                        )
+                        jnp.stack([jnp.asarray(u, dtype=JAX_DTYPE) for u in unc_list])
                         if base_unc is not None
                         else None
                     )
                     stacked_cov = (
-                        jnp.stack(
-                            [jnp.asarray(c, dtype=JAX_DTYPE) for c in cov_list]
-                        )
+                        jnp.stack([jnp.asarray(c, dtype=JAX_DTYPE) for c in cov_list])
                         if base_cov is not None
                         else None
                     )
@@ -371,7 +366,11 @@ class SimulationRuntime(RetrievalRuntime):
                     "fit_flux_offset": observation.fit_flux_offset,
                 }
 
-                _mask_arr = np.asarray(observation.mask) if observation.mask is not None else None
+                _mask_arr = (
+                    np.asarray(observation.mask)
+                    if observation.mask is not None
+                    else None
+                )
                 _coord_arr = jnp.asarray(observation.wavelengths, dtype=JAX_DTYPE)
 
                 simulated_observations[obs_name] = {
@@ -402,7 +401,7 @@ class SimulationRuntime(RetrievalRuntime):
     ) -> dict[str, dict[str, Any]]:
         """Return deterministic batched observation outputs for a parameter matrix.
 
-        For model groups using ``MODEL_CONTRACT_RUNTIME_NATIVE`` this method
+        For model groups using ``MODEL_CONTRACT_DIFFERENTIABLE`` this method
         vmaps the expensive RT kernel over the whole batch in one XLA call,
         then performs the cheap projection step (interpolation, scaling, etc.)
         in a Python loop.  Non-native groups fall back to a scalar-loop path
@@ -419,7 +418,7 @@ class SimulationRuntime(RetrievalRuntime):
             has shape ``(n_samples, n_wavelengths)`` and ``"mask"``,
             ``"coordinates"``, and ``"metadata"`` are static / per-sample lists.
         """
-        from petitRADTRANS.retrieval.models import MODEL_CONTRACT_RUNTIME_NATIVE
+        from petitRADTRANS.retrieval.models import MODEL_CONTRACT_DIFFERENTIABLE
 
         parameter_matrix = jnp.asarray(parameter_matrix, dtype=JAX_DTYPE)
         if parameter_matrix.ndim == 1:
@@ -428,7 +427,7 @@ class SimulationRuntime(RetrievalRuntime):
         n_samples = int(parameter_matrix.shape[0])
 
         all_native = all(
-            g.model_contract == MODEL_CONTRACT_RUNTIME_NATIVE for g in self.model_groups
+            g.model_contract == MODEL_CONTRACT_DIFFERENTIABLE for g in self.model_groups
         )
 
         if not all_native:
@@ -450,9 +449,7 @@ class SimulationRuntime(RetrievalRuntime):
             }
 
         use_multi_device = (
-            multi_device
-            and len(jax.devices()) > 1
-            and n_samples >= len(jax.devices())
+            multi_device and len(jax.devices()) > 1 and n_samples >= len(jax.devices())
         )
         if use_multi_device:
             batched_pp, group_results = self._run_batched_rt_kernel_multi_device(
@@ -792,19 +789,36 @@ class RuntimeSimulator(BatchedSimulator):
             if remainder != 0:
                 pad_count = n_devices - remainder
                 parameter_matrix = jnp.concatenate(
-                    [parameter_matrix, jnp.repeat(parameter_matrix[-1:], pad_count, axis=0)],
+                    [
+                        parameter_matrix,
+                        jnp.repeat(parameter_matrix[-1:], pad_count, axis=0),
+                    ],
                     axis=0,
                 )
                 if cube_parameters is not None:
                     cube_parameters = jnp.concatenate(
-                        [jnp.asarray(cube_parameters, dtype=JAX_DTYPE),
-                         jnp.repeat(jnp.asarray(cube_parameters, dtype=JAX_DTYPE)[-1:], pad_count, axis=0)],
+                        [
+                            jnp.asarray(cube_parameters, dtype=JAX_DTYPE),
+                            jnp.repeat(
+                                jnp.asarray(cube_parameters, dtype=JAX_DTYPE)[-1:],
+                                pad_count,
+                                axis=0,
+                            ),
+                        ],
                         axis=0,
                     )
                 if unconstrained_parameters is not None:
                     unconstrained_parameters = jnp.concatenate(
-                        [jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE),
-                         jnp.repeat(jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE)[-1:], pad_count, axis=0)],
+                        [
+                            jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE),
+                            jnp.repeat(
+                                jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE)[
+                                    -1:
+                                ],
+                                pad_count,
+                                axis=0,
+                            ),
+                        ],
                         axis=0,
                     )
                 padded_n = int(parameter_matrix.shape[0])
@@ -819,15 +833,25 @@ class RuntimeSimulator(BatchedSimulator):
             if padded_n > n_samples:
                 parameter_matrix = parameter_matrix[:n_samples]
                 if cube_parameters is not None:
-                    cube_parameters = jnp.asarray(cube_parameters, dtype=JAX_DTYPE)[:n_samples]
+                    cube_parameters = jnp.asarray(cube_parameters, dtype=JAX_DTYPE)[
+                        :n_samples
+                    ]
                 if unconstrained_parameters is not None:
-                    unconstrained_parameters = jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE)[:n_samples]
+                    unconstrained_parameters = jnp.asarray(
+                        unconstrained_parameters, dtype=JAX_DTYPE
+                    )[:n_samples]
                 for obs_name in det_obs:
                     payload = det_obs[obs_name]
                     for key in ("values", "uncertainties", "covariance", "coordinates"):
-                        if payload.get(key) is not None and hasattr(payload[key], '__getitem__'):
+                        if payload.get(key) is not None and hasattr(
+                            payload[key], "__getitem__"
+                        ):
                             arr = payload[key]
-                            if hasattr(arr, 'shape') and arr.ndim >= 1 and arr.shape[0] == padded_n:
+                            if (
+                                hasattr(arr, "shape")
+                                and arr.ndim >= 1
+                                and arr.shape[0] == padded_n
+                            ):
                                 payload[key] = arr[:n_samples]
 
             stacked_observations_batched: dict[str, Any] = {}

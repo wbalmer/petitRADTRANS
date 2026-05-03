@@ -103,9 +103,9 @@ def write_cloud_opacities(
     cloud_absorption_opacities,
     cloud_scattering_opacities,
     cloud_asymmetry_parameter,
-    cloud_particles_densities,
-    cloud_particles_radii,
-    cloud_particles_radius_bins,
+    cloud_particle_densities,
+    cloud_particle_radii,
+    cloud_particle_radius_bins,
     doi="",
     description="",
 ):
@@ -155,7 +155,7 @@ def write_cloud_opacities(
         dataset.attrs["units"] = "None"
 
         dataset = fh5.create_dataset(
-            name="particles_density", data=cloud_particles_densities
+            name="particle_density", data=cloud_particle_densities
         )
         dataset.attrs["long_name"] = "Average density of the cloud particles"
         dataset.attrs["units"] = "g.cm^-3"
@@ -165,12 +165,12 @@ def write_cloud_opacities(
             'Name of the species described, "(c)" indicates that it has condensed'
         )
 
-        dataset = fh5.create_dataset(name="particles_radii", data=cloud_particles_radii)
+        dataset = fh5.create_dataset(name="particle_radii", data=cloud_particle_radii)
         dataset.attrs["long_name"] = "Particles average radius grid"
         dataset.attrs["units"] = "cm"
 
         dataset = fh5.create_dataset(
-            name="particle_radius_bins", data=cloud_particles_radius_bins
+            name="particle_radius_bins", data=cloud_particle_radius_bins
         )
         dataset.attrs["long_name"] = "Particles average radius grid bins"
         dataset.attrs["units"] = "cm"
