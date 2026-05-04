@@ -361,7 +361,7 @@ class SpectralModel(Radtrans):
             :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line
             treatment.
         scattering_in_emission:
-            Will be ``False`` by default.
+            Will be ``True`` by default.
             If ``True`` scattering will be included in the emission spectral
             calculations. Note that this increases the runtime of pRT!
         line_by_line_opacity_sampling:
@@ -404,7 +404,7 @@ class SpectralModel(Radtrans):
         cloud_species: list[str] = None,
         line_opacity_mode: str = "c-k",
         line_by_line_opacity_sampling: int = 1,
-        scattering_in_emission: bool = False,
+        scattering_in_emission: bool = True,
         emission_angle_grid: npt.NDArray[np.floating] = None,
         anisotropic_cloud_scattering: bool = "auto",
         path_input_data: str = None,
@@ -2916,7 +2916,7 @@ class SpectralModel(Radtrans):
         cloud_species: list[str] = None,
         line_opacity_mode: str = "c-k",
         line_by_line_opacity_sampling: int = 1,
-        scattering_in_emission: bool = False,
+        scattering_in_emission: bool = True,
         emission_angle_grid: npt.NDArray[np.floating] = None,
         anisotropic_cloud_scattering: bool = "auto",
         path_input_data: str = None,
@@ -3523,7 +3523,7 @@ class SpectralModel(Radtrans):
         prepare=False,
         run_mode="retrieval",
         amr=False,
-        scattering_in_emission=False,
+        scattering_in_emission=True,
         pressures=None,
         dataset_name="data",
         **kwargs,
@@ -4458,7 +4458,7 @@ class SpectralModel(Radtrans):
         cloud_species: list[str] = None,
         line_opacity_mode: str = "c-k",
         line_by_line_opacity_sampling: int = 1,
-        scattering_in_emission: bool = False,
+        scattering_in_emission: bool = True,
         emission_angle_grid: npt.NDArray[np.floating] = None,
         anisotropic_cloud_scattering: bool = "auto",
         path_input_data: str = petitradtrans_config_parser.get_input_data_path(),

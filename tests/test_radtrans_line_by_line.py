@@ -37,6 +37,7 @@ def init_radtrans_line_by_line():
             "wavelength_range_line_by_line"
         ],
         line_opacity_mode="lbl",
+        scattering_in_emission=False,
     )
 
     return atmosphere
@@ -77,6 +78,7 @@ def test_line_by_line_emission_partial_cloud_calculated_radius():
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         opaque_cloud_top_pressure=None,
+        minimum_effect_relative_tolerance=relative_tolerance / 10,
         temperatures=temperature_guillot_2010,
         reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
         mean_molar_masses=test_parameters["mean_molar_mass"],

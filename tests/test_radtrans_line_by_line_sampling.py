@@ -28,6 +28,7 @@ def init_radtrans_downsampled_line_by_line():
             "line_by_line_opacity_sampling"
         ],
         line_opacity_mode="lbl",
+        scattering_in_emission=False,
     )
 
     return atmosphere
