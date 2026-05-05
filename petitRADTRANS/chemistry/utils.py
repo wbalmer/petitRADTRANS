@@ -602,10 +602,9 @@ def fill_atmosphere(
             filled_mass_fractions[species],
         )
 
-    if bool(jnp.any(can_rebalance_existing_fill)):
-        msum = jnp.zeros_like(mass_fraction_sum)
-        for mass_fraction in filled_mass_fractions.values():
-            msum = msum + mass_fraction
+    msum = jnp.zeros_like(mass_fraction_sum)
+    for mass_fraction in filled_mass_fractions.values():
+        msum = msum + mass_fraction
 
     return filled_mass_fractions, msum
 
