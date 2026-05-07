@@ -317,24 +317,50 @@ def _write_verbose_diagnostic_artifacts(
         axes[0, 1],
         epochs,
         metric_history,
-        ('forward_inverse_max_abs_error', 'inverse_forward_max_abs_error'),
+        (
+            'forward_inverse_max_abs_error',
+            'inverse_forward_max_abs_error',
+            'forward_inverse_logdet_closure_max_abs_error',
+            'inverse_forward_logdet_closure_max_abs_error',
+        ),
         'Round-Trip Errors',
         log_scale=True,
     )
-    _plot_metric_series(
-        axes[1, 0],
-        epochs,
-        metric_history,
-        ('spline_max_derivative', 'spline_min_bin_width', 'spline_min_bin_height'),
-        'Spline Extremes',
-        log_scale=True,
+    neural_inverse_keys = (
+        'inverse_solver_max_abs_residual',
+        'inverse_solver_max_bracket_width',
+        'inverse_solver_failure_rate',
+        'inverse_solver_max_expansion_steps',
     )
+    if any(
+        np.isfinite(np.asarray(metric_history.get(key, []), dtype=float)).any()
+        for key in neural_inverse_keys
+    ):
+        _plot_metric_series(
+            axes[1, 0],
+            epochs,
+            metric_history,
+            neural_inverse_keys,
+            'Neural Inverse Diagnostics',
+            log_scale=True,
+        )
+    else:
+        _plot_metric_series(
+            axes[1, 0],
+            epochs,
+            metric_history,
+            ('spline_max_derivative', 'spline_min_bin_width', 'spline_min_bin_height'),
+            'Spline Extremes',
+            log_scale=True,
+        )
     _plot_metric_series(
         axes[1, 1],
         epochs,
         metric_history,
         (
             'cube_edge_hit_rate',
+            'checkpoint_is_stable',
+            'checkpoint_stability_violation_count',
             'spline_bin_width_floor_fraction',
             'spline_bin_height_floor_fraction',
             'spline_mean_min_width_ratio',
@@ -551,25 +577,22 @@ class SBITrainer:
 
     @property
     def _latest_checkpoint_directory(self) -> Path | None:
-        if self.checkpoint_directory is None:
-            return None
-        return self.checkpoint_directory / 'latest'
+        return self._checkpoint_directory_for_kind('latest')
 
     @property
     def _best_checkpoint_directory(self) -> Path | None:
+        return self._checkpoint_directory_for_kind('best')
+
+    def _checkpoint_directory_for_kind(self, checkpoint_kind: str) -> Path | None:
         if self.checkpoint_directory is None:
             return None
-        return self.checkpoint_directory / 'best'
+        return self.checkpoint_directory / checkpoint_kind
 
     def _save_checkpoint(self, checkpoint_kind: str, state: dict[str, Any], metadata: dict[str, Any]) -> None:
         if self.checkpoint_backend is None or self.checkpoint_directory is None:
             return
 
-        checkpoint_path = (
-            self._latest_checkpoint_directory
-            if checkpoint_kind == 'latest'
-            else self._best_checkpoint_directory
-        )
+        checkpoint_path = self._checkpoint_directory_for_kind(checkpoint_kind)
         assert checkpoint_path is not None
         payload = {
             'checkpoint_kind': checkpoint_kind,
@@ -599,11 +622,7 @@ class SBITrainer:
         if self.checkpoint_backend is None:
             return None
 
-        checkpoint_path = (
-            self._latest_checkpoint_directory
-            if checkpoint_kind == 'latest'
-            else self._best_checkpoint_directory
-        )
+        checkpoint_path = self._checkpoint_directory_for_kind(checkpoint_kind)
         if checkpoint_path is None or not checkpoint_path.exists():
             return None
 
@@ -626,6 +645,8 @@ class SBITrainer:
         eval_diagnostic_fn: Callable[[Any, Any], Mapping[str, float]] | None = None,
         selection_metric_fn: Callable[[float, Mapping[str, float] | None], float] | None = None,
         selection_metric_name: str | None = None,
+        stability_metric_fn: Callable[[float, Mapping[str, float] | None], Mapping[str, float]] | None = None,
+        stability_flag_key: str = 'checkpoint_is_stable',
     ) -> tuple[Any, dict[str, list[float]], dict[str, list[float]], dict[str, Any]]:
         """Optimize one posterior model against a dataset reader.
 
@@ -692,21 +713,37 @@ class SBITrainer:
         else:
             optimizer = base_optimizer
         optimizer_state = optimizer.init(eqx.filter(model, eqx.is_inexact_array))
+        has_validation = dataset.dataset.manifest.splits.get('validation', 0) > 0
+        effective_selection_metric_name = selection_metric_name or (
+            'validation_selection_metric' if has_validation else 'train_loss'
+        )
+        primary_metric_name = 'validation_loss' if has_validation else 'train_loss'
         train_loss_history: list[float] = []
         validation_loss_history: list[float] = []
         validation_metrics_history: dict[str, list[float]] = {'validation_loss': validation_loss_history}
         best_model = model
         best_metric = float('inf')
+        best_metric_name = primary_metric_name
         best_validation_loss = float('inf')
         best_validation_metrics: dict[str, float] = {}
         best_epoch = -1
+        best_checkpoint_kind = 'best_loss' if has_validation else 'best_selection'
+        best_selection_model = model
+        best_selection_metric = float('inf')
+        best_selection_validation_loss = float('inf')
+        best_selection_validation_metrics: dict[str, float] = {}
+        best_selection_epoch = -1
+        best_loss_model = model
+        best_loss_validation_loss = float('inf')
+        best_loss_validation_metrics: dict[str, float] = {}
+        best_loss_epoch = -1
+        best_stable_model = model
+        best_stable_validation_loss = float('inf')
+        best_stable_validation_metrics: dict[str, float] = {}
+        best_stable_epoch = -1
         patience_counter = 0
         start_epoch = 0
         resumed_from_checkpoint = False
-        has_validation = dataset.dataset.manifest.splits.get('validation', 0) > 0
-        effective_selection_metric_name = selection_metric_name or (
-            'validation_selection_metric' if has_validation else 'train_loss'
-        )
 
         template_state = {
             'model': model,
@@ -721,8 +758,20 @@ class SBITrainer:
             'start_epoch': 0,
             'best_epoch': -1,
             'best_metric': float('inf'),
+            'best_metric_name': primary_metric_name,
             'best_validation_loss': float('inf'),
             'best_validation_metrics': {},
+            'best_checkpoint_kind': best_checkpoint_kind,
+            'best_selection_epoch': -1,
+            'best_selection_metric': float('inf'),
+            'best_selection_validation_loss': float('inf'),
+            'best_selection_validation_metrics': {},
+            'best_loss_epoch': -1,
+            'best_loss_validation_loss': float('inf'),
+            'best_loss_validation_metrics': {},
+            'best_stable_epoch': -1,
+            'best_stable_validation_loss': float('inf'),
+            'best_stable_validation_metrics': {},
             'patience_counter': 0,
         }
 
@@ -752,12 +801,65 @@ class SBITrainer:
                 start_epoch = int(restored_state.get('start_epoch', 0))
                 best_epoch = int(restored_state.get('best_epoch', -1))
                 best_metric = float(restored_state.get('best_metric', float('inf')))
+                best_metric_name = str(
+                    restored_state.get(
+                        'best_metric_name',
+                        primary_metric_name,
+                    )
+                )
                 best_validation_loss = float(
                     restored_state.get('best_validation_loss', float('inf'))
                 )
                 best_validation_metrics = {
                     str(key): float(value)
                     for key, value in restored_state.get('best_validation_metrics', {}).items()
+                }
+                best_checkpoint_kind = str(
+                    restored_state.get(
+                        'best_checkpoint_kind',
+                        'best_loss' if has_validation else 'best_selection',
+                    )
+                )
+                best_selection_epoch = int(
+                    restored_state.get('best_selection_epoch', best_epoch)
+                )
+                best_selection_metric = float(
+                    restored_state.get('best_selection_metric', best_metric)
+                )
+                best_selection_validation_loss = float(
+                    restored_state.get(
+                        'best_selection_validation_loss',
+                        best_validation_loss,
+                    )
+                )
+                best_selection_validation_metrics = {
+                    str(key): float(value)
+                    for key, value in restored_state.get(
+                        'best_selection_validation_metrics',
+                        best_validation_metrics,
+                    ).items()
+                }
+                best_loss_epoch = int(restored_state.get('best_loss_epoch', best_epoch))
+                best_loss_validation_loss = float(
+                    restored_state.get('best_loss_validation_loss', best_validation_loss)
+                )
+                best_loss_validation_metrics = {
+                    str(key): float(value)
+                    for key, value in restored_state.get(
+                        'best_loss_validation_metrics',
+                        best_validation_metrics,
+                    ).items()
+                }
+                best_stable_epoch = int(restored_state.get('best_stable_epoch', -1))
+                best_stable_validation_loss = float(
+                    restored_state.get('best_stable_validation_loss', float('inf'))
+                )
+                best_stable_validation_metrics = {
+                    str(key): float(value)
+                    for key, value in restored_state.get(
+                        'best_stable_validation_metrics',
+                        {},
+                    ).items()
                 }
                 patience_counter = int(restored_state.get('patience_counter', 0))
                 resumed_from_checkpoint = True
@@ -768,9 +870,36 @@ class SBITrainer:
                 else:
                     best_model = model
 
+                restored_best_selection = self._restore_checkpoint(
+                    template_state,
+                    'best_selection',
+                )
+                if restored_best_selection is not None:
+                    best_selection_model = restored_best_selection[0]['model']
+                else:
+                    best_selection_model = best_model
+
+                restored_best_loss = self._restore_checkpoint(template_state, 'best_loss')
+                if restored_best_loss is not None:
+                    best_loss_model = restored_best_loss[0]['model']
+                else:
+                    best_loss_model = best_model
+
+                restored_best_stable = self._restore_checkpoint(
+                    template_state,
+                    'best_stable',
+                )
+                if restored_best_stable is not None:
+                    best_stable_model = restored_best_stable[0]['model']
+                else:
+                    best_stable_model = best_model
+
                 if best_epoch < 0 and start_epoch > 0:
                     best_epoch = start_epoch - 1
                 best_metric = float(restored_metadata.get('best_metric', best_metric))
+                best_metric_name = str(
+                    restored_metadata.get('best_metric_name', best_metric_name)
+                )
                 best_validation_loss = float(
                     restored_metadata.get('best_validation_loss', best_validation_loss)
                 )
@@ -876,6 +1005,75 @@ class SBITrainer:
             else:
                 obs = _shard_batch(obs, mesh)
             return params, obs
+
+        def _checkpoint_state(checkpoint_model: Any, next_epoch: int) -> dict[str, Any]:
+            return {
+                'model': checkpoint_model,
+                'optimizer_state': optimizer_state,
+                'history': {
+                    'train_loss': list(train_loss_history),
+                    'validation_loss': list(validation_loss_history),
+                },
+                'validation_metrics': {
+                    key: list(values)
+                    for key, values in validation_metrics_history.items()
+                },
+                'start_epoch': next_epoch,
+                'best_epoch': best_epoch,
+                'best_metric': best_metric,
+                'best_metric_name': best_metric_name,
+                'best_validation_loss': best_validation_loss,
+                'best_validation_metrics': dict(best_validation_metrics),
+                'best_checkpoint_kind': best_checkpoint_kind,
+                'best_selection_epoch': best_selection_epoch,
+                'best_selection_metric': best_selection_metric,
+                'best_selection_validation_loss': best_selection_validation_loss,
+                'best_selection_validation_metrics': dict(best_selection_validation_metrics),
+                'best_loss_epoch': best_loss_epoch,
+                'best_loss_validation_loss': best_loss_validation_loss,
+                'best_loss_validation_metrics': dict(best_loss_validation_metrics),
+                'best_stable_epoch': best_stable_epoch,
+                'best_stable_validation_loss': best_stable_validation_loss,
+                'best_stable_validation_metrics': dict(best_stable_validation_metrics),
+                'patience_counter': patience_counter,
+            }
+
+        def _checkpoint_metadata(
+            checkpoint_kind: str,
+            epoch_index: int,
+            checkpoint_metric: float,
+            checkpoint_metric_name: str,
+            checkpoint_validation_loss: float,
+            checkpoint_validation_metrics: Mapping[str, float],
+        ) -> dict[str, Any]:
+            return {
+                'epoch': epoch_index,
+                'checkpoint_kind': checkpoint_kind,
+                'checkpoint_metric': checkpoint_metric,
+                'checkpoint_metric_name': checkpoint_metric_name,
+                'checkpoint_validation_loss': checkpoint_validation_loss,
+                'checkpoint_validation_metrics': dict(checkpoint_validation_metrics),
+                'best_epoch': best_epoch + 1 if best_epoch >= 0 else None,
+                'best_metric': best_metric,
+                'best_metric_name': best_metric_name,
+                'best_validation_loss': best_validation_loss,
+                'best_validation_metrics': dict(best_validation_metrics),
+                'best_checkpoint_kind': best_checkpoint_kind,
+                'best_selection_epoch': best_selection_epoch + 1 if best_selection_epoch >= 0 else None,
+                'best_selection_metric': best_selection_metric,
+                'best_selection_validation_loss': best_selection_validation_loss,
+                'best_selection_validation_metrics': dict(best_selection_validation_metrics),
+                'best_loss_epoch': best_loss_epoch + 1 if best_loss_epoch >= 0 else None,
+                'best_loss_validation_loss': best_loss_validation_loss,
+                'best_loss_validation_metrics': dict(best_loss_validation_metrics),
+                'best_stable_epoch': best_stable_epoch + 1 if best_stable_epoch >= 0 else None,
+                'best_stable_validation_loss': best_stable_validation_loss,
+                'best_stable_validation_metrics': dict(best_stable_validation_metrics),
+                'selection_metric_name': effective_selection_metric_name,
+                'checkpoint_backend': (
+                    None if self.checkpoint_backend is None else self.checkpoint_backend.name
+                ),
+            }
 
         # --- Pre-load and pre-stack training and validation data --------
         # Reading from HDF5 with shuffled (scattered) indices each epoch is
@@ -1048,6 +1246,15 @@ class SBITrainer:
                     else validation_metric
                 )
                 epoch_validation_metrics[effective_selection_metric_name] = selection_metric
+                if stability_metric_fn is not None:
+                    stability_metrics = {
+                        str(key): float(value)
+                        for key, value in stability_metric_fn(
+                            validation_metric,
+                            epoch_validation_metrics,
+                        ).items()
+                    }
+                    epoch_validation_metrics.update(stability_metrics)
                 _write_epoch_metrics(
                     validation_metrics_history,
                     epoch,
@@ -1070,6 +1277,14 @@ class SBITrainer:
                         )
 
             _elapsed = time.monotonic() - _epoch_start
+            is_stable_checkpoint = True
+            if has_validation:
+                if stability_metric_fn is not None:
+                    is_stable_checkpoint = bool(
+                        epoch_validation_metrics.get(stability_flag_key, 0.0) >= 0.5
+                    )
+                else:
+                    is_stable_checkpoint = np.isfinite(validation_metric)
             _val_str = (
                 f" | val_loss: {validation_metric:.6f}" if has_validation else ""
             )
@@ -1088,6 +1303,19 @@ class SBITrainer:
                 )
                 if np.isfinite(roundtrip_error):
                     _selection_str += f" | rt_err: {roundtrip_error:.3e}"
+                inverse_roundtrip_error = epoch_validation_metrics.get(
+                    'inverse_forward_max_abs_error',
+                    float('nan'),
+                )
+                if np.isfinite(inverse_roundtrip_error):
+                    _selection_str += f" | inv_rt_err: {inverse_roundtrip_error:.3e}"
+                inverse_logdet_error = epoch_validation_metrics.get(
+                    'inverse_forward_logdet_closure_max_abs_error',
+                    float('nan'),
+                )
+                if np.isfinite(inverse_logdet_error):
+                    _selection_str += f" | inv_logdet_err: {inverse_logdet_error:.3e}"
+                _selection_str += f" | stable: {'yes' if is_stable_checkpoint else 'no'}"
                 if self.config.verbose_diagnostics:
                     max_derivative = epoch_validation_metrics.get('spline_max_derivative', float('nan'))
                     min_bin_width = epoch_validation_metrics.get('spline_min_bin_width', float('nan'))
@@ -1154,82 +1382,153 @@ class SBITrainer:
                 flush=True,
             )
 
-            monitor_metric = selection_metric if has_validation else train_metric
-            improved = best_epoch < 0 or (
-                np.isfinite(monitor_metric)
+            selection_monitor_metric = selection_metric if has_validation else train_metric
+            selection_improved = best_selection_epoch < 0 or (
+                np.isfinite(selection_monitor_metric)
                 and (
-                    monitor_metric < best_metric - self._min_delta
-                    or not np.isfinite(best_metric)
+                    selection_monitor_metric < best_selection_metric - self._min_delta
+                    or not np.isfinite(best_selection_metric)
                 )
             )
-            if improved:
-                best_metric = monitor_metric
+            if selection_improved:
+                best_selection_metric = selection_monitor_metric
                 if has_validation and np.isfinite(validation_metric):
-                    best_validation_loss = validation_metric
-                best_validation_metrics = dict(epoch_validation_metrics)
-                best_epoch = epoch
-                best_model = model
+                    best_selection_validation_loss = validation_metric
+                best_selection_validation_metrics = dict(epoch_validation_metrics)
+                best_selection_epoch = epoch
+                best_selection_model = model
                 patience_counter = 0
                 self._save_checkpoint(
-                    'best',
-                    {
-                        'model': best_model,
-                        'optimizer_state': optimizer_state,
-                        'history': {
-                            'train_loss': list(train_loss_history),
-                            'validation_loss': list(validation_loss_history),
-                        },
-                        'validation_metrics': {
-                            key: list(values)
-                            for key, values in validation_metrics_history.items()
-                        },
-                        'start_epoch': epoch + 1,
-                        'best_epoch': best_epoch,
-                        'best_metric': best_metric,
-                        'best_validation_loss': best_validation_loss,
-                        'best_validation_metrics': dict(best_validation_metrics),
-                        'patience_counter': patience_counter,
-                    },
-                    {
-                        'epoch': epoch + 1,
-                        'best_metric': best_metric,
-                        'best_validation_loss': best_validation_loss,
-                        'best_validation_metrics': dict(best_validation_metrics),
-                        'selection_metric_name': effective_selection_metric_name,
-                        'checkpoint_backend': None if self.checkpoint_backend is None else self.checkpoint_backend.name,
-                    },
+                    'best_selection',
+                    _checkpoint_state(best_selection_model, epoch + 1),
+                    _checkpoint_metadata(
+                        'best_selection',
+                        epoch + 1,
+                        best_selection_metric,
+                        effective_selection_metric_name,
+                        best_selection_validation_loss,
+                        best_selection_validation_metrics,
+                    ),
                 )
             else:
                 patience_counter += 1
 
+            if has_validation and np.isfinite(validation_metric):
+                loss_improved = best_loss_epoch < 0 or (
+                    validation_metric < best_loss_validation_loss - self._min_delta
+                    or not np.isfinite(best_loss_validation_loss)
+                )
+                if loss_improved:
+                    best_loss_epoch = epoch
+                    best_loss_validation_loss = validation_metric
+                    best_loss_validation_metrics = dict(epoch_validation_metrics)
+                    best_loss_model = model
+                    self._save_checkpoint(
+                        'best_loss',
+                        _checkpoint_state(best_loss_model, epoch + 1),
+                        _checkpoint_metadata(
+                            'best_loss',
+                            epoch + 1,
+                            best_loss_validation_loss,
+                            'validation_loss',
+                            best_loss_validation_loss,
+                            best_loss_validation_metrics,
+                        ),
+                    )
+
+                stable_improved = is_stable_checkpoint and (
+                    best_stable_epoch < 0
+                    or validation_metric < best_stable_validation_loss - self._min_delta
+                    or not np.isfinite(best_stable_validation_loss)
+                )
+                if stable_improved:
+                    best_stable_epoch = epoch
+                    best_stable_validation_loss = validation_metric
+                    best_stable_validation_metrics = dict(epoch_validation_metrics)
+                    best_stable_model = model
+                    self._save_checkpoint(
+                        'best_stable',
+                        _checkpoint_state(best_stable_model, epoch + 1),
+                        _checkpoint_metadata(
+                            'best_stable',
+                            epoch + 1,
+                            best_stable_validation_loss,
+                            'validation_loss',
+                            best_stable_validation_loss,
+                            best_stable_validation_metrics,
+                        ),
+                    )
+
+            previous_best_signature = (
+                best_checkpoint_kind,
+                best_epoch,
+                best_metric_name,
+                best_metric,
+            )
+            if has_validation:
+                if best_stable_epoch >= 0:
+                    best_checkpoint_kind = 'best_stable'
+                    best_epoch = best_stable_epoch
+                    best_metric = best_stable_validation_loss
+                    best_metric_name = 'validation_loss'
+                    best_validation_loss = best_stable_validation_loss
+                    best_validation_metrics = dict(best_stable_validation_metrics)
+                    best_model = best_stable_model
+                elif best_loss_epoch >= 0:
+                    best_checkpoint_kind = 'best_loss'
+                    best_epoch = best_loss_epoch
+                    best_metric = best_loss_validation_loss
+                    best_metric_name = 'validation_loss'
+                    best_validation_loss = best_loss_validation_loss
+                    best_validation_metrics = dict(best_loss_validation_metrics)
+                    best_model = best_loss_model
+                else:
+                    best_checkpoint_kind = 'best_selection'
+                    best_epoch = best_selection_epoch
+                    best_metric = best_selection_metric
+                    best_metric_name = effective_selection_metric_name
+                    best_validation_loss = best_selection_validation_loss
+                    best_validation_metrics = dict(best_selection_validation_metrics)
+                    best_model = best_selection_model
+            else:
+                best_checkpoint_kind = 'best_selection'
+                best_epoch = best_selection_epoch
+                best_metric = best_selection_metric
+                best_metric_name = effective_selection_metric_name
+                best_validation_loss = best_selection_validation_loss
+                best_validation_metrics = dict(best_selection_validation_metrics)
+                best_model = best_selection_model
+
+            if previous_best_signature != (
+                best_checkpoint_kind,
+                best_epoch,
+                best_metric_name,
+                best_metric,
+            ):
+                self._save_checkpoint(
+                    'best',
+                    _checkpoint_state(best_model, epoch + 1),
+                    _checkpoint_metadata(
+                        'best',
+                        epoch + 1,
+                        best_metric,
+                        best_metric_name,
+                        best_validation_loss,
+                        best_validation_metrics,
+                    ),
+                )
+
             self._save_checkpoint(
                 'latest',
-                {
-                    'model': model,
-                    'optimizer_state': optimizer_state,
-                    'history': {
-                        'train_loss': list(train_loss_history),
-                        'validation_loss': list(validation_loss_history),
-                    },
-                    'validation_metrics': {
-                        key: list(values)
-                        for key, values in validation_metrics_history.items()
-                    },
-                    'start_epoch': epoch + 1,
-                    'best_epoch': best_epoch,
-                    'best_metric': best_metric,
-                    'best_validation_loss': best_validation_loss,
-                    'best_validation_metrics': dict(best_validation_metrics),
-                    'patience_counter': patience_counter,
-                },
-                {
-                    'epoch': epoch + 1,
-                    'best_metric': best_metric,
-                    'best_validation_loss': best_validation_loss,
-                    'best_validation_metrics': dict(best_validation_metrics),
-                    'selection_metric_name': effective_selection_metric_name,
-                    'checkpoint_backend': None if self.checkpoint_backend is None else self.checkpoint_backend.name,
-                },
+                _checkpoint_state(model, epoch + 1),
+                _checkpoint_metadata(
+                    'latest',
+                    epoch + 1,
+                    selection_monitor_metric,
+                    effective_selection_metric_name if has_validation else 'train_loss',
+                    validation_metric,
+                    epoch_validation_metrics,
+                ),
             )
 
             if self._should_stop(patience_counter):
@@ -1242,8 +1541,20 @@ class SBITrainer:
             {
                 'best_epoch': best_epoch + 1 if best_epoch >= 0 else None,
                 'best_metric': best_metric,
+                'best_metric_name': best_metric_name,
                 'best_validation_loss': best_validation_loss,
                 'best_validation_metrics': dict(best_validation_metrics),
+                'best_checkpoint_kind': best_checkpoint_kind,
+                'best_selection_epoch': best_selection_epoch + 1 if best_selection_epoch >= 0 else None,
+                'best_selection_metric': best_selection_metric,
+                'best_selection_validation_loss': best_selection_validation_loss,
+                'best_selection_validation_metrics': dict(best_selection_validation_metrics),
+                'best_loss_epoch': best_loss_epoch + 1 if best_loss_epoch >= 0 else None,
+                'best_loss_validation_loss': best_loss_validation_loss,
+                'best_loss_validation_metrics': dict(best_loss_validation_metrics),
+                'best_stable_epoch': best_stable_epoch + 1 if best_stable_epoch >= 0 else None,
+                'best_stable_validation_loss': best_stable_validation_loss,
+                'best_stable_validation_metrics': dict(best_stable_validation_metrics),
                 'selection_metric_name': effective_selection_metric_name,
                 'stopped_early': self._should_stop(patience_counter),
                 'resumed_from_checkpoint': resumed_from_checkpoint,

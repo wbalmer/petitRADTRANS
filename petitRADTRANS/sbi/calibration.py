@@ -106,6 +106,105 @@ class PosteriorPredictiveReport:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class LocalSensitivityPointReport:
+    """Local linear-identifiability summary around one representative point.
+
+    Attributes
+    ----------
+    label:
+        Short human-readable label for the representative point.
+    parameters:
+        Physical parameter vector at which the Jacobian was evaluated.
+    finite_difference_steps:
+        Per-parameter finite-difference step sizes used during Jacobian
+        construction.
+    finite_difference_schemes:
+        Per-parameter scheme labels such as ``'central'`` or ``'forward'``.
+    whitened_jacobian:
+        Observation Jacobian divided by observational uncertainty, with shape
+        ``(n_observation_values, n_parameters)``.
+    singular_values:
+        Singular values of the whitened Jacobian.
+    effective_rank:
+        Number of singular values larger than the configured relative cutoff.
+    condition_number:
+        Condition number inferred from the singular spectrum.
+    fisher_matrix:
+        Approximate Fisher information matrix ``J^T J``.
+    fisher_covariance:
+        Damped pseudo-inverse of the Fisher matrix.
+    fisher_correlation:
+        Correlation matrix derived from the approximate Fisher covariance.
+    parameter_sensitivity_norm:
+        Per-parameter square-root Fisher diagonal.
+    local_sigma:
+        Approximate local standard deviation from the Fisher covariance.
+    metadata:
+        Auxiliary diagnostics such as the ridge term and failed columns.
+    """
+
+    label: str
+    parameters: np.ndarray
+    finite_difference_steps: np.ndarray
+    finite_difference_schemes: tuple[str, ...]
+    whitened_jacobian: np.ndarray
+    singular_values: np.ndarray
+    effective_rank: int
+    condition_number: float
+    fisher_matrix: np.ndarray
+    fisher_covariance: np.ndarray
+    fisher_correlation: np.ndarray
+    parameter_sensitivity_norm: np.ndarray
+    local_sigma: np.ndarray
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class LocalSensitivityReport:
+    """Aggregate local information-content diagnostics for one observation.
+
+    Attributes
+    ----------
+    parameter_names:
+        Parameter ordering used throughout the report.
+    posterior_mean:
+        Posterior mean in physical parameter space.
+    posterior_std:
+        Posterior standard deviation in physical parameter space.
+    posterior_median:
+        Posterior median in physical parameter space.
+    posterior_iqr:
+        Posterior interquartile range in physical parameter space.
+    representative_points:
+        Local sensitivity summaries evaluated at representative posterior
+        points such as the posterior mean and highest-density sample.
+    aggregate_local_sigma:
+        Median local Fisher sigma across representative points.
+    aggregate_parameter_sensitivity_norm:
+        Median parameter sensitivity norm across representative points.
+    posterior_to_local_sigma_ratio:
+        Ratio between posterior standard deviation and local Fisher sigma.
+    parameter_diagnostics:
+        Per-parameter heuristic summary separating weak data constraints from
+        broader-than-local posterior structure.
+    metadata:
+        Auxiliary metadata such as quantile levels and observation slices.
+    """
+
+    parameter_names: tuple[str, ...]
+    posterior_mean: np.ndarray
+    posterior_std: np.ndarray
+    posterior_median: np.ndarray
+    posterior_iqr: np.ndarray
+    representative_points: tuple[LocalSensitivityPointReport, ...]
+    aggregate_local_sigma: np.ndarray
+    aggregate_parameter_sensitivity_norm: np.ndarray
+    posterior_to_local_sigma_ratio: np.ndarray
+    parameter_diagnostics: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
 def _coerce_sample_array(samples: Any) -> np.ndarray:
     sample_array = np.asarray(samples, dtype=float)
 
@@ -156,6 +255,497 @@ def _posterior_space_to_physical(
         )
 
     raise ValueError(f"Unsupported parameter_space: {parameter_space!r}")
+
+
+def _flatten_observation_blocks(
+    observation_blocks: Sequence[Any],
+) -> tuple[np.ndarray, np.ndarray, tuple[dict[str, Any], ...], float]:
+    observed_parts: list[np.ndarray] = []
+    uncertainty_parts: list[np.ndarray] = []
+    observation_slices: list[dict[str, Any]] = []
+    offset = 0
+
+    for block in observation_blocks:
+        block_values = np.asarray(block.values, dtype=float).reshape(-1)
+        if block.uncertainties is None:
+            block_uncertainties = np.full(block_values.shape, np.nan, dtype=float)
+        else:
+            block_uncertainties = np.asarray(block.uncertainties, dtype=float)
+            if block_uncertainties.ndim == 0:
+                block_uncertainties = np.full(
+                    block_values.shape,
+                    float(block_uncertainties),
+                    dtype=float,
+                )
+            else:
+                block_uncertainties = np.asarray(
+                    np.broadcast_to(block_uncertainties.reshape(-1), block_values.shape),
+                    dtype=float,
+                )
+
+        observed_parts.append(block_values)
+        uncertainty_parts.append(np.abs(block_uncertainties))
+        observation_slices.append(
+            {
+                "name": str(block.name),
+                "start": offset,
+                "stop": offset + int(block_values.size),
+                "size": int(block_values.size),
+            }
+        )
+        offset += int(block_values.size)
+
+    if not observed_parts:
+        raise ValueError("At least one observation block is required for local sensitivity diagnostics.")
+
+    observed_vector = np.concatenate(observed_parts).astype(float, copy=False)
+    uncertainty_vector = np.concatenate(uncertainty_parts).astype(float, copy=False)
+    positive_uncertainties = uncertainty_vector[
+        np.isfinite(uncertainty_vector) & (uncertainty_vector > 0.0)
+    ]
+    uncertainty_floor = float(np.nanmedian(positive_uncertainties) * 1e-3) if positive_uncertainties.size else 1e-8
+    uncertainty_floor = max(uncertainty_floor, 1e-8)
+    uncertainty_vector = np.where(
+        np.isfinite(uncertainty_vector) & (uncertainty_vector > uncertainty_floor),
+        uncertainty_vector,
+        uncertainty_floor,
+    )
+    return observed_vector, uncertainty_vector, tuple(observation_slices), uncertainty_floor
+
+
+def _flatten_simulated_observations(
+    observation_blocks: Sequence[Any],
+    simulated_observations: Mapping[str, Mapping[str, Any]],
+) -> np.ndarray:
+    simulated_parts: list[np.ndarray] = []
+    for block in observation_blocks:
+        if block.name not in simulated_observations:
+            raise KeyError(
+                f"Simulated observations do not contain required dataset {block.name!r}."
+            )
+        simulated_parts.append(
+            np.asarray(simulated_observations[block.name]["values"], dtype=float).reshape(-1)
+        )
+
+    simulated_vector = np.concatenate(simulated_parts).astype(float, copy=False)
+    if not np.all(np.isfinite(simulated_vector)):
+        raise ValueError("Simulated observation vector contains non-finite values.")
+    return simulated_vector
+
+
+def _simulate_deterministic_observation_vector(
+    simulator: RuntimeSimulator,
+    parameters: np.ndarray,
+    observation_blocks: Sequence[Any],
+) -> np.ndarray:
+    physical_params = simulator.runtime.parameter_layout.physical_params_from_vector(parameters)
+    simulated_observations = simulator.runtime.simulate_observations_scalar(
+        physical_params=physical_params
+    )
+    return _flatten_simulated_observations(observation_blocks, simulated_observations)
+
+
+def _select_representative_posterior_points(
+    samples: np.ndarray,
+    posterior_log_probabilities: Any = None,
+    quantile_levels: Sequence[float] = (0.1, 0.5, 0.9),
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, tuple[tuple[str, np.ndarray], ...]]:
+    sample_array = np.asarray(samples, dtype=float)
+    if sample_array.ndim != 2:
+        raise ValueError(
+            f"Expected posterior samples with shape (n_samples, n_dim), got {sample_array.shape}."
+        )
+
+    posterior_mean = np.mean(sample_array, axis=0)
+    posterior_std = np.std(sample_array, axis=0)
+    posterior_median = np.median(sample_array, axis=0)
+    posterior_iqr = np.subtract(
+        np.quantile(sample_array, 0.75, axis=0),
+        np.quantile(sample_array, 0.25, axis=0),
+    )
+    representatives: list[tuple[str, np.ndarray]] = [("posterior_mean", posterior_mean)]
+
+    used_sample_indices: set[int] = set()
+    if posterior_log_probabilities is not None:
+        log_probabilities = np.asarray(posterior_log_probabilities, dtype=float).reshape(-1)
+        finite_mask = np.isfinite(log_probabilities)
+        if finite_mask.any():
+            best_index = int(np.argmax(np.where(finite_mask, log_probabilities, -np.inf)))
+            representatives.append(
+                ("highest_log_probability_sample", sample_array[best_index].copy())
+            )
+            used_sample_indices.add(best_index)
+
+    distance_scale = np.maximum(posterior_std, 1e-6)
+    for quantile_level in quantile_levels:
+        target = np.quantile(sample_array, float(quantile_level), axis=0)
+        scaled_distances = np.linalg.norm((sample_array - target) / distance_scale, axis=1)
+        for candidate_index in np.argsort(scaled_distances):
+            if int(candidate_index) in used_sample_indices:
+                continue
+            representatives.append(
+                (
+                    f"quantile_{int(round(float(quantile_level) * 100.0)):02d}",
+                    sample_array[int(candidate_index)].copy(),
+                )
+            )
+            used_sample_indices.add(int(candidate_index))
+            break
+
+    return (
+        posterior_mean,
+        posterior_std,
+        posterior_median,
+        posterior_iqr,
+        tuple(representatives),
+    )
+
+
+def _robust_finite_difference_column(
+    simulator: RuntimeSimulator,
+    center_parameters: np.ndarray,
+    center_observation_vector: np.ndarray,
+    observation_blocks: Sequence[Any],
+    parameter_index: int,
+    base_step: float,
+    max_step_reduction_attempts: int,
+) -> tuple[np.ndarray, float, str]:
+    for reduction_attempt in range(max_step_reduction_attempts + 1):
+        step = float(base_step) * (0.5 ** reduction_attempt)
+        if not np.isfinite(step) or step <= 0.0:
+            continue
+
+        plus_parameters = np.array(center_parameters, dtype=float, copy=True)
+        minus_parameters = np.array(center_parameters, dtype=float, copy=True)
+        plus_parameters[parameter_index] += step
+        minus_parameters[parameter_index] -= step
+
+        plus_vector: np.ndarray | None = None
+        minus_vector: np.ndarray | None = None
+
+        try:
+            plus_vector = _simulate_deterministic_observation_vector(
+                simulator, plus_parameters, observation_blocks
+            )
+        except Exception:
+            plus_vector = None
+
+        try:
+            minus_vector = _simulate_deterministic_observation_vector(
+                simulator, minus_parameters, observation_blocks
+            )
+        except Exception:
+            minus_vector = None
+
+        if plus_vector is not None and minus_vector is not None:
+            return (plus_vector - minus_vector) / (2.0 * step), step, "central"
+        if plus_vector is not None:
+            return (plus_vector - center_observation_vector) / step, step, "forward"
+        if minus_vector is not None:
+            return (center_observation_vector - minus_vector) / step, step, "backward"
+
+    return np.zeros_like(center_observation_vector), float("nan"), "failed"
+
+
+def _covariance_to_correlation(covariance: np.ndarray) -> np.ndarray:
+    covariance_array = np.asarray(covariance, dtype=float)
+    standard_deviations = np.sqrt(np.clip(np.diag(covariance_array), 0.0, None))
+    outer = np.outer(standard_deviations, standard_deviations)
+    correlation = np.full_like(covariance_array, np.nan, dtype=float)
+    valid = outer > 0.0
+    correlation[valid] = covariance_array[valid] / outer[valid]
+    np.fill_diagonal(correlation, 1.0)
+    return correlation
+
+
+def generate_local_sensitivity_report(
+    task: SBITask,
+    posterior_samples: Any,
+    observation_blocks: Sequence[Any],
+    posterior_log_probabilities: Any = None,
+    parameter_space: str = "physical",
+    simulator: RuntimeSimulator | None = None,
+    quantile_levels: Sequence[float] = (0.1, 0.5, 0.9),
+    finite_difference_relative_step: float = 1e-3,
+    finite_difference_std_fraction: float = 0.1,
+    finite_difference_absolute_floor: float = 1e-5,
+    max_step_reduction_attempts: int = 6,
+    svd_relative_tolerance: float = 1e-3,
+    posterior_underexploited_ratio_threshold: float = 1.5,
+    weak_sensitivity_fraction_threshold: float = 0.15,
+    seed: int | None = None,
+) -> LocalSensitivityReport:
+    """Diagnose local physical identifiability around representative posterior points.
+
+    The report evaluates a deterministic simulator Jacobian at representative
+    posterior points, whitens it by observational uncertainty, and derives a
+    Fisher-style local covariance approximation for each point.
+    """
+
+    sample_array = _coerce_sample_array(posterior_samples)
+    if sample_array.ndim != 2:
+        raise ValueError(
+            "generate_local_sensitivity_report expects samples for one posterior, not a batch."
+        )
+
+    physical_samples = _posterior_space_to_physical(task, sample_array, parameter_space)
+    (
+        posterior_mean,
+        posterior_std,
+        posterior_median,
+        posterior_iqr,
+        representative_points,
+    ) = _select_representative_posterior_points(
+        physical_samples,
+        posterior_log_probabilities=posterior_log_probabilities,
+        quantile_levels=quantile_levels,
+    )
+
+    _, uncertainty_vector, observation_slices, uncertainty_floor = _flatten_observation_blocks(
+        observation_blocks
+    )
+    resolved_simulator = simulator or RuntimeSimulator(
+        task=task,
+        seed=seed,
+        data_parallel=False,
+    )
+
+    point_reports: list[LocalSensitivityPointReport] = []
+    for label, representative_parameters in representative_points:
+        center_parameters = np.asarray(representative_parameters, dtype=float)
+        center_observation_vector = _simulate_deterministic_observation_vector(
+            resolved_simulator,
+            center_parameters,
+            observation_blocks,
+        )
+
+        jacobian_columns: list[np.ndarray] = []
+        finite_difference_steps: list[float] = []
+        finite_difference_schemes: list[str] = []
+        failed_columns = 0
+
+        for parameter_index in range(center_parameters.shape[0]):
+            base_step = max(
+                float(finite_difference_absolute_floor),
+                abs(float(center_parameters[parameter_index])) * float(finite_difference_relative_step),
+                float(posterior_std[parameter_index]) * float(finite_difference_std_fraction),
+            )
+            column, actual_step, scheme = _robust_finite_difference_column(
+                resolved_simulator,
+                center_parameters,
+                center_observation_vector,
+                observation_blocks,
+                parameter_index,
+                base_step,
+                max_step_reduction_attempts,
+            )
+            jacobian_columns.append(column)
+            finite_difference_steps.append(actual_step)
+            finite_difference_schemes.append(scheme)
+            if scheme == "failed":
+                failed_columns += 1
+
+        jacobian = np.column_stack(jacobian_columns)
+        whitened_jacobian = jacobian / uncertainty_vector[:, None]
+        singular_values = np.linalg.svd(whitened_jacobian, compute_uv=False)
+        if singular_values.size and np.isfinite(singular_values[0]) and singular_values[0] > 0.0:
+            effective_rank = int(
+                np.sum(singular_values > (float(singular_values[0]) * float(svd_relative_tolerance)))
+            )
+            smallest_singular_value = float(singular_values[-1])
+            if smallest_singular_value > 0.0:
+                condition_number = float(singular_values[0] / smallest_singular_value)
+            else:
+                condition_number = float("inf")
+        else:
+            effective_rank = 0
+            condition_number = float("inf")
+
+        fisher_matrix = whitened_jacobian.T @ whitened_jacobian
+        fisher_scale = float(np.nanmax(np.diag(fisher_matrix))) if fisher_matrix.size else 0.0
+        ridge = max(fisher_scale * 1e-8, 1e-10)
+        fisher_covariance = np.linalg.pinv(
+            fisher_matrix + (ridge * np.eye(fisher_matrix.shape[0], dtype=float))
+        )
+        fisher_correlation = _covariance_to_correlation(fisher_covariance)
+        parameter_sensitivity_norm = np.sqrt(np.clip(np.diag(fisher_matrix), 0.0, None))
+        local_sigma = np.sqrt(np.clip(np.diag(fisher_covariance), 0.0, None))
+
+        point_reports.append(
+            LocalSensitivityPointReport(
+                label=label,
+                parameters=center_parameters,
+                finite_difference_steps=np.asarray(finite_difference_steps, dtype=float),
+                finite_difference_schemes=tuple(finite_difference_schemes),
+                whitened_jacobian=np.asarray(whitened_jacobian, dtype=float),
+                singular_values=np.asarray(singular_values, dtype=float),
+                effective_rank=effective_rank,
+                condition_number=condition_number,
+                fisher_matrix=np.asarray(fisher_matrix, dtype=float),
+                fisher_covariance=np.asarray(fisher_covariance, dtype=float),
+                fisher_correlation=np.asarray(fisher_correlation, dtype=float),
+                parameter_sensitivity_norm=np.asarray(parameter_sensitivity_norm, dtype=float),
+                local_sigma=np.asarray(local_sigma, dtype=float),
+                metadata={
+                    "ridge": ridge,
+                    "failed_columns": failed_columns,
+                    "whitened_observation_size": int(whitened_jacobian.shape[0]),
+                },
+            )
+        )
+
+    local_sigma_stack = np.stack([point.local_sigma for point in point_reports], axis=0)
+    parameter_sensitivity_stack = np.stack(
+        [point.parameter_sensitivity_norm for point in point_reports],
+        axis=0,
+    )
+    aggregate_local_sigma = np.nanmedian(local_sigma_stack, axis=0)
+    aggregate_parameter_sensitivity_norm = np.nanmedian(
+        parameter_sensitivity_stack,
+        axis=0,
+    )
+    posterior_to_local_sigma_ratio = np.divide(
+        posterior_std,
+        np.maximum(aggregate_local_sigma, 1e-12),
+    )
+    max_parameter_sensitivity = float(
+        np.nanmax(aggregate_parameter_sensitivity_norm)
+    ) if np.any(np.isfinite(aggregate_parameter_sensitivity_norm)) else 1.0
+    normalized_parameter_sensitivity = aggregate_parameter_sensitivity_norm / max(
+        max_parameter_sensitivity,
+        1e-12,
+    )
+
+    parameter_diagnostics: dict[str, dict[str, Any]] = {}
+    for parameter_index, parameter_name in enumerate(task.parameter_names):
+        normalized_sensitivity = float(normalized_parameter_sensitivity[parameter_index])
+        ratio = float(posterior_to_local_sigma_ratio[parameter_index])
+        local_sigma_value = float(aggregate_local_sigma[parameter_index])
+        posterior_std_value = float(posterior_std[parameter_index])
+
+        if (not np.isfinite(normalized_sensitivity)) or (
+            normalized_sensitivity <= float(weak_sensitivity_fraction_threshold)
+        ):
+            status = "weakly_identified_by_data"
+        elif np.isfinite(ratio) and ratio >= float(
+            posterior_underexploited_ratio_threshold
+        ):
+            status = "posterior_broader_than_local_information"
+        else:
+            status = "consistent_with_local_information"
+
+        parameter_diagnostics[str(parameter_name)] = {
+            "status": status,
+            "posterior_std": posterior_std_value,
+            "aggregate_local_sigma": local_sigma_value,
+            "posterior_to_local_sigma_ratio": ratio,
+            "normalized_sensitivity": normalized_sensitivity,
+        }
+
+    return LocalSensitivityReport(
+        parameter_names=tuple(task.parameter_names),
+        posterior_mean=np.asarray(posterior_mean, dtype=float),
+        posterior_std=np.asarray(posterior_std, dtype=float),
+        posterior_median=np.asarray(posterior_median, dtype=float),
+        posterior_iqr=np.asarray(posterior_iqr, dtype=float),
+        representative_points=tuple(point_reports),
+        aggregate_local_sigma=np.asarray(aggregate_local_sigma, dtype=float),
+        aggregate_parameter_sensitivity_norm=np.asarray(
+            aggregate_parameter_sensitivity_norm,
+            dtype=float,
+        ),
+        posterior_to_local_sigma_ratio=np.asarray(
+            posterior_to_local_sigma_ratio,
+            dtype=float,
+        ),
+        parameter_diagnostics=parameter_diagnostics,
+        metadata={
+            "task_name": task.name,
+            "parameter_space": parameter_space,
+            "quantile_levels": [float(level) for level in quantile_levels],
+            "observation_slices": list(observation_slices),
+            "uncertainty_floor": uncertainty_floor,
+            "finite_difference_relative_step": float(finite_difference_relative_step),
+            "finite_difference_std_fraction": float(finite_difference_std_fraction),
+            "finite_difference_absolute_floor": float(finite_difference_absolute_floor),
+            "max_step_reduction_attempts": int(max_step_reduction_attempts),
+            "svd_relative_tolerance": float(svd_relative_tolerance),
+            "posterior_underexploited_ratio_threshold": float(
+                posterior_underexploited_ratio_threshold
+            ),
+            "weak_sensitivity_fraction_threshold": float(
+                weak_sensitivity_fraction_threshold
+            ),
+        },
+    )
+
+
+def local_sensitivity_report_to_payload(
+    report: LocalSensitivityReport,
+) -> dict[str, Any]:
+    """Convert a local sensitivity report into a JSON-serializable payload."""
+
+    return {
+        "parameter_names": list(report.parameter_names),
+        "posterior_mean": np.asarray(report.posterior_mean, dtype=float).tolist(),
+        "posterior_std": np.asarray(report.posterior_std, dtype=float).tolist(),
+        "posterior_median": np.asarray(report.posterior_median, dtype=float).tolist(),
+        "posterior_iqr": np.asarray(report.posterior_iqr, dtype=float).tolist(),
+        "aggregate_local_sigma": np.asarray(
+            report.aggregate_local_sigma,
+            dtype=float,
+        ).tolist(),
+        "aggregate_parameter_sensitivity_norm": np.asarray(
+            report.aggregate_parameter_sensitivity_norm,
+            dtype=float,
+        ).tolist(),
+        "posterior_to_local_sigma_ratio": np.asarray(
+            report.posterior_to_local_sigma_ratio,
+            dtype=float,
+        ).tolist(),
+        "parameter_diagnostics": {
+            str(name): dict(values)
+            for name, values in report.parameter_diagnostics.items()
+        },
+        "representative_points": [
+            {
+                "label": point.label,
+                "parameters": np.asarray(point.parameters, dtype=float).tolist(),
+                "finite_difference_steps": np.asarray(
+                    point.finite_difference_steps,
+                    dtype=float,
+                ).tolist(),
+                "finite_difference_schemes": list(point.finite_difference_schemes),
+                "whitened_jacobian": np.asarray(
+                    point.whitened_jacobian,
+                    dtype=float,
+                ).tolist(),
+                "singular_values": np.asarray(
+                    point.singular_values,
+                    dtype=float,
+                ).tolist(),
+                "effective_rank": int(point.effective_rank),
+                "condition_number": float(point.condition_number),
+                "fisher_matrix": np.asarray(point.fisher_matrix, dtype=float).tolist(),
+                "fisher_covariance": np.asarray(
+                    point.fisher_covariance,
+                    dtype=float,
+                ).tolist(),
+                "fisher_correlation": np.asarray(
+                    point.fisher_correlation,
+                    dtype=float,
+                ).tolist(),
+                "parameter_sensitivity_norm": np.asarray(
+                    point.parameter_sensitivity_norm,
+                    dtype=float,
+                ).tolist(),
+                "local_sigma": np.asarray(point.local_sigma, dtype=float).tolist(),
+                "metadata": dict(point.metadata),
+            }
+            for point in report.representative_points
+        ],
+        "metadata": dict(report.metadata),
+    }
 
 
 def central_credible_interval(
@@ -815,12 +1405,16 @@ def generate_posterior_predictive_report(
 
 __all__ = [
     "CoverageLevelReport",
+    "LocalSensitivityPointReport",
+    "LocalSensitivityReport",
     "PosteriorPredictiveReport",
     "SimulationBasedCalibrationReport",
     "central_credible_interval",
     "empirical_interval_coverage",
+    "generate_local_sensitivity_report",
     "generate_posterior_predictive_report",
     "generate_sbc_report",
+    "local_sensitivity_report_to_payload",
     "posterior_predictive_report_from_samples",
     "simulation_based_calibration_report",
 ]

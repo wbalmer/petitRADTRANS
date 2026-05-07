@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import jax.numpy as jnp
+from jax.core import Tracer
 from jax import typing
 
 try:
@@ -75,8 +76,9 @@ def _get_active_abundance_profile_mode(species_name, parameters):
     for profile_mode in ("stepped", "linear", "cubic"):
         profile_key = f"{species_name}_{profile_mode}_abundance_profile"
 
-        if profile_key in parameters and bool(
-            get_parameter_value(parameters[profile_key])
+        if profile_key in parameters and _get_static_bool_parameter(
+            profile_key,
+            parameters[profile_key],
         ):
             return profile_mode
 
@@ -134,10 +136,38 @@ def _get_parameter_alias_value(parameters, *names, default=None):
     return default
 
 
+def _get_static_bool_parameter(parameter_name, parameter_value) -> bool:
+    """Return a Python bool for structural chemistry flags.
+
+    Chemistry-mode and profile-selection flags drive Python control flow, so
+    they must remain static scalars when the chemistry path is traced.
+    """
+    value = get_parameter_value(parameter_value)
+
+    if value is None:
+        return False
+
+    if isinstance(value, Tracer):
+        raise TypeError(
+            f"Parameter '{parameter_name}' controls chemistry structure and must be a static scalar, not a traced JAX value."
+        )
+
+    if hasattr(value, "shape") and hasattr(value, "dtype"):
+        if value.shape != ():
+            raise TypeError(
+                f"Parameter '{parameter_name}' must be scalar-valued, got shape {value.shape}."
+            )
+
+        if hasattr(value, "item"):
+            value = value.item()
+
+    return bool(value)
+
+
 def _has_truthy_parameter(parameters, *names):
     """Return whether any aliased parameter is explicitly enabled."""
     for name in names:
-        if name in parameters and bool(get_parameter_value(parameters[name])):
+        if name in parameters and _get_static_bool_parameter(name, parameters[name]):
             return True
 
     return False
@@ -280,7 +310,7 @@ def _resolve_chemistry_mode(parameters):
         "use_easychem",
         "use_exoatmos",
     )
-    use_precalculated_equilibrium_chemistry = bool(
+    use_precalculated_equilibrium_chemistry = (
         not use_full_easychem
         and (
             metallicity is not None
@@ -463,7 +493,7 @@ def calculate_gas_mass_fractions(
     # easychem/exo_atmos remain compatibility arguments for now.
     _ = exo_atmos, atomic_mass_fractions
 
-    use_precalculated_equilibrium_chemistry = bool(
+    use_precalculated_equilibrium_chemistry = (
         use_equilibrium_chemistry and metallicity is not None
     )
 
@@ -635,13 +665,12 @@ def calculate_gas_mass_fractions(
         if species in line_species_lookup or species in line_species_simple_lookup
     )
 
-    if bool(jnp.any(m_sum_imposed_species > 1)):
-        for species in imposed_gas_species:
-            mass_fractions[species] = jnp.where(
-                m_sum_imposed_species > 1,
-                mass_fractions[species] / m_sum_imposed_species,
-                mass_fractions[species],
-            )
+    for species in imposed_gas_species:
+        mass_fractions[species] = jnp.where(
+            m_sum_imposed_species > 1,
+            mass_fractions[species] / m_sum_imposed_species,
+            mass_fractions[species],
+        )
 
     # Chemical equilibrium mass fractions
     mass_fractions_chemical_table: dict[str, typing.ArrayLike] = {}
@@ -700,9 +729,20 @@ def calculate_gas_mass_fractions(
                 continue
 
             if species in filling_species and filling_species[species] is not None:
-                has_filling_mass = bool(jnp.any(filling_species[species] > 0))
-                if has_filling_mass:
-                    continue
+                has_filling_mass = jnp.any(filling_species[species] > 0)
+                if species not in mass_fractions:
+                    mass_fractions[species] = jnp.zeros_like(species_mass_fraction)
+                mass_fractions[species] = jnp.where(
+                    has_filling_mass,
+                    mass_fractions[species],
+                    species_mass_fraction,
+                )
+                m_sum_chemical_table_species = m_sum_chemical_table_species + jnp.where(
+                    has_filling_mass,
+                    jnp.zeros_like(species_mass_fraction),
+                    species_mass_fraction,
+                )
+                continue
 
             mass_fractions[species] = species_mass_fraction
             m_sum_chemical_table_species = (
@@ -735,30 +775,45 @@ def calculate_gas_mass_fractions(
         m_sum_imposed_species,
     )
     chemistry_table_oversubscribed = pre_fill_mass_fraction_sum > (1 + 1e-12)
-    explicit_filling_species = {
-        species
-        for species, weights in filling_species.items()
-        if weights is not None and bool(jnp.any(weights > 0))
-    }
-
-    has_chemical_table_species = bool(jnp.any(m_sum_chemical_table_species > 0))
+    has_chemical_table_species = jnp.any(m_sum_chemical_table_species > 0)
+    safe_m_sum_chemical_table_species = jnp.where(
+        m_sum_chemical_table_species > 0,
+        m_sum_chemical_table_species,
+        jnp.ones_like(m_sum_chemical_table_species),
+    )
+    safe_m_sum_total = jnp.where(
+        m_sum_total > 0,
+        m_sum_total,
+        jnp.ones_like(m_sum_total),
+    )
 
     for species, mf_array in mass_fractions.items():
         if species not in imposed_mass_fractions:
-            if has_chemical_table_species:
-                if (
-                    species in mass_fractions_chemical_table
-                    and species not in explicit_filling_species
-                ):
-                    mass_fractions[species] = jnp.where(
-                        chemistry_table_oversubscribed,
-                        mf_array
-                        * (1 - effective_imposed_mass_fraction_sum)
-                        / m_sum_chemical_table_species,
-                        mf_array,
-                    )
-            else:
-                mass_fractions[species] = mf_array / m_sum_total
+            updated_if_has_chemistry_table_species = mf_array
+
+            if species in mass_fractions_chemical_table:
+                has_explicit_filling_mass = jnp.asarray(False)
+                if species in filling_species and filling_species[species] is not None:
+                    has_explicit_filling_mass = jnp.any(filling_species[species] > 0)
+
+                rescale_mask = jnp.logical_and(
+                    chemistry_table_oversubscribed,
+                    jnp.logical_not(has_explicit_filling_mass),
+                )
+                updated_if_has_chemistry_table_species = jnp.where(
+                    rescale_mask,
+                    mf_array
+                    * (1 - effective_imposed_mass_fraction_sum)
+                    / safe_m_sum_chemical_table_species,
+                    mf_array,
+                )
+
+            updated_if_no_chemistry_table_species = mf_array / safe_m_sum_total
+            mass_fractions[species] = jnp.where(
+                has_chemical_table_species,
+                updated_if_has_chemistry_table_species,
+                updated_if_no_chemistry_table_species,
+            )
 
     final_mass_fraction_sum = jnp.zeros_like(pressure_template)
 
@@ -826,8 +881,6 @@ def calculate_cloud_mass_fractions(
     has_equilibrium_cloud_base = any(
         key in parameter_keys for key in ("Fe/H", "M/H", "metallicity")
     )
-    mean_molar_mass_mean = float(jnp.mean(mean_molar_mass))
-    mean_molar_mass_surface = float(jnp.asarray(mean_molar_mass[0]))
 
     cloud_metadata = []
     for cloud in cloud_species:
@@ -868,7 +921,7 @@ def calculate_cloud_mass_fractions(
                     pressures,
                     temperatures,
                     10 ** parameters[log_x_cb_key],
-                    mean_molar_mass_surface,
+                    jnp.asarray(mean_molar_mass[0], dtype=JAX_DTYPE),
                 ),
                 dtype=JAX_DTYPE,
             )
@@ -881,7 +934,7 @@ def calculate_cloud_mass_fractions(
                     temp=temperatures,
                     metallicity=metallicity,
                     co_ratio=co_ratio,
-                    mmw=mean_molar_mass_mean,
+                    mmw=jnp.asarray(jnp.mean(mean_molar_mass), dtype=JAX_DTYPE),
                 ),
                 dtype=JAX_DTYPE,
             )

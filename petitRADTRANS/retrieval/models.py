@@ -34,7 +34,11 @@ from jax import vmap
 import jax.numpy as jnp
 
 from petitRADTRANS.chemistry import clouds
-from petitRADTRANS.chemistry.core import get_abundances, get_abundances_from_legacy_dict
+from petitRADTRANS.chemistry.core import (
+    _get_static_bool_parameter,
+    get_abundances,
+    get_abundances_from_legacy_dict,
+)
 from petitRADTRANS.physics import flux2irradiance, planck_function_cm, apply_ism_ext
 from petitRADTRANS.stellar_spectra.phoenix import (
     _PHOENIX_STAR_TABLE,
@@ -73,9 +77,7 @@ def _is_full_easychem_requested(parameters) -> bool:
     if "use_easychem" not in parameters:
         return False
 
-    value = parameters["use_easychem"]
-
-    return bool(getattr(value, "value", value))
+    return _get_static_bool_parameter("use_easychem", parameters["use_easychem"])
 
 
 # Global constants to reduce calculations and initializations.

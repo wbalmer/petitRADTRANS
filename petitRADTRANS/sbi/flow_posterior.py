@@ -838,6 +838,70 @@ def _flow_validation_selection_metric(
     return selection_metric + penalty
 
 
+def _flow_validation_stability_metrics(
+    validation_loss: float,
+    diagnostics: Mapping[str, Any] | None,
+    *,
+    inverse_forward_max_abs_error_threshold: float | None,
+    inverse_forward_logdet_closure_max_abs_error_threshold: float | None,
+    cube_edge_hit_rate_threshold: float | None,
+) -> dict[str, float]:
+    diagnostics = diagnostics or {}
+    stable = np.isfinite(float(validation_loss))
+    violation_count = 0
+    metrics: dict[str, float] = {
+        "checkpoint_is_stable": 0.0,
+        "checkpoint_stability_violation_count": 0.0,
+    }
+
+    def _apply_threshold(
+        metric_name: str,
+        threshold: float | None,
+        *,
+        ignore_non_finite: bool = False,
+    ) -> None:
+        nonlocal stable, violation_count
+        if threshold is None:
+            return
+
+        metric_value = float(diagnostics.get(metric_name, float("nan")))
+        margin_key = f"checkpoint_stability_margin_{metric_name}"
+        pass_key = f"checkpoint_stability_pass_{metric_name}"
+
+        if not np.isfinite(metric_value):
+            metrics[margin_key] = float("nan")
+            metrics[pass_key] = 1.0 if ignore_non_finite else 0.0
+            if not ignore_non_finite:
+                stable = False
+                violation_count += 1
+            return
+
+        passed = metric_value <= threshold
+        metrics[margin_key] = float(threshold - metric_value)
+        metrics[pass_key] = 1.0 if passed else 0.0
+        if not passed:
+            stable = False
+            violation_count += 1
+
+    _apply_threshold(
+        "inverse_forward_max_abs_error",
+        inverse_forward_max_abs_error_threshold,
+    )
+    _apply_threshold(
+        "inverse_forward_logdet_closure_max_abs_error",
+        inverse_forward_logdet_closure_max_abs_error_threshold,
+    )
+    _apply_threshold(
+        "cube_edge_hit_rate",
+        cube_edge_hit_rate_threshold,
+        ignore_non_finite=True,
+    )
+
+    metrics["checkpoint_is_stable"] = 1.0 if stable else 0.0
+    metrics["checkpoint_stability_violation_count"] = float(violation_count)
+    return metrics
+
+
 class ConditionalFlowPosterior(PersistentPosteriorEstimator):
     """Concrete amortized posterior using a conditional flow backend.
 
@@ -931,6 +995,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         use_cosine_schedule: bool = False,
         warmup_fraction: float = 0.02,
         min_learning_rate: float = 1e-6,
+        stable_inverse_forward_max_abs_error_threshold: float | None = 1e-4,
+        stable_inverse_forward_logdet_closure_max_abs_error_threshold: float | None = 1e-4,
+        stable_cube_edge_hit_rate_threshold: float | None = 0.0,
         spectrum_encoder_type: str = "conv1d",
         n_wavelengths: int = 233,
         spectrum_embedding_dim: int = 64,
@@ -1006,6 +1073,21 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.use_cosine_schedule = bool(use_cosine_schedule)
         self.warmup_fraction = float(warmup_fraction)
         self.min_learning_rate = float(min_learning_rate)
+        self.stable_inverse_forward_max_abs_error_threshold = (
+            None
+            if stable_inverse_forward_max_abs_error_threshold is None
+            else float(stable_inverse_forward_max_abs_error_threshold)
+        )
+        self.stable_inverse_forward_logdet_closure_max_abs_error_threshold = (
+            None
+            if stable_inverse_forward_logdet_closure_max_abs_error_threshold is None
+            else float(stable_inverse_forward_logdet_closure_max_abs_error_threshold)
+        )
+        self.stable_cube_edge_hit_rate_threshold = (
+            None
+            if stable_cube_edge_hit_rate_threshold is None
+            else float(stable_cube_edge_hit_rate_threshold)
+        )
         self.spectrum_encoder_type = str(spectrum_encoder_type)
         self.n_wavelengths = int(n_wavelengths)
         self.spectrum_embedding_dim = int(spectrum_embedding_dim)
@@ -1044,6 +1126,26 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             raise ValueError(
                 "neural_autoregressive_inverse_bisection_steps must be positive"
             )
+        if (
+            self.stable_inverse_forward_max_abs_error_threshold is not None
+            and self.stable_inverse_forward_max_abs_error_threshold < 0.0
+        ):
+            raise ValueError(
+                "stable_inverse_forward_max_abs_error_threshold must be non-negative"
+            )
+        if (
+            self.stable_inverse_forward_logdet_closure_max_abs_error_threshold
+            is not None
+            and self.stable_inverse_forward_logdet_closure_max_abs_error_threshold < 0.0
+        ):
+            raise ValueError(
+                "stable_inverse_forward_logdet_closure_max_abs_error_threshold must be non-negative"
+            )
+        if (
+            self.stable_cube_edge_hit_rate_threshold is not None
+            and self.stable_cube_edge_hit_rate_threshold < 0.0
+        ):
+            raise ValueError("stable_cube_edge_hit_rate_threshold must be non-negative")
 
         encoder_key, flow_key, scale_key = random.split(random.PRNGKey(self.seed), 3)
         self.model = _PosteriorModel(
@@ -1250,6 +1352,14 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "inverse_forward_max_abs_error": float("nan"),
                 "inverse_forward_mean_abs_error": float("nan"),
                 "inverse_forward_logdet_closure_max_abs_error": float("nan"),
+                "inverse_solver_max_abs_residual": float("nan"),
+                "inverse_solver_mean_abs_residual": float("nan"),
+                "inverse_solver_max_bracket_width": float("nan"),
+                "inverse_solver_mean_bracket_width": float("nan"),
+                "inverse_solver_max_expansion_steps": float("nan"),
+                "inverse_solver_mean_expansion_steps": float("nan"),
+                "inverse_solver_converged_fraction": float("nan"),
+                "inverse_solver_failure_rate": float("nan"),
                 "cube_edge_hit_rate": float("nan"),
                 "cube_low_edge_hit_rate": float("nan"),
                 "cube_high_edge_hit_rate": float("nan"),
@@ -1274,9 +1384,27 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             shape=(flow_inputs.shape[0], model.flow.parameter_dim),
             dtype=flow_inputs.dtype,
         )
-        sampled_inputs, sampled_inverse_logdet = vmap(
-            lambda latent_sample, context: model.flow.inverse(latent_sample, context)
-        )(latent_samples, embeddings)
+        sampled_inverse_diagnostics = None
+        inverse_with_diagnostics = getattr(model.flow, "inverse_with_diagnostics", None)
+        if callable(inverse_with_diagnostics):
+            inverse_with_diagnostics_fn = cast(
+                Callable[[Any, Any], tuple[Any, Any, Any]],
+                inverse_with_diagnostics,
+            )
+            (
+                sampled_inputs,
+                sampled_inverse_logdet,
+                sampled_inverse_diagnostics,
+            ) = vmap(
+                lambda latent_sample, context: inverse_with_diagnostics_fn(
+                    latent_sample,
+                    context,
+                )
+            )(latent_samples, embeddings)
+        else:
+            sampled_inputs, sampled_inverse_logdet = vmap(
+                lambda latent_sample, context: model.flow.inverse(latent_sample, context)
+            )(latent_samples, embeddings)
         recovered_latents, sampled_forward_logdet = vmap(
             lambda sample, context: model.flow.forward(sample, context)
         )(sampled_inputs, embeddings)
@@ -1293,6 +1421,14 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "inverse_forward_logdet_closure_max_abs_error": float(
                 jnp.max(jnp.abs(sampled_inverse_logdet + sampled_forward_logdet))
             ),
+            "inverse_solver_max_abs_residual": float("nan"),
+            "inverse_solver_mean_abs_residual": float("nan"),
+            "inverse_solver_max_bracket_width": float("nan"),
+            "inverse_solver_mean_bracket_width": float("nan"),
+            "inverse_solver_max_expansion_steps": float("nan"),
+            "inverse_solver_mean_expansion_steps": float("nan"),
+            "inverse_solver_converged_fraction": float("nan"),
+            "inverse_solver_failure_rate": float("nan"),
             "cube_edge_hit_rate": float("nan"),
             "cube_low_edge_hit_rate": float("nan"),
             "cube_high_edge_hit_rate": float("nan"),
@@ -1305,6 +1441,32 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "spline_global_min_width_ratio": float("nan"),
             "spline_global_min_height_ratio": float("nan"),
         }
+
+        if sampled_inverse_diagnostics is not None:
+            diagnostics["inverse_solver_max_abs_residual"] = float(
+                jnp.max(sampled_inverse_diagnostics.max_abs_residual)
+            )
+            diagnostics["inverse_solver_mean_abs_residual"] = float(
+                jnp.mean(sampled_inverse_diagnostics.mean_abs_residual)
+            )
+            diagnostics["inverse_solver_max_bracket_width"] = float(
+                jnp.max(sampled_inverse_diagnostics.max_bracket_width)
+            )
+            diagnostics["inverse_solver_mean_bracket_width"] = float(
+                jnp.mean(sampled_inverse_diagnostics.mean_bracket_width)
+            )
+            diagnostics["inverse_solver_max_expansion_steps"] = float(
+                jnp.max(sampled_inverse_diagnostics.max_expansion_steps)
+            )
+            diagnostics["inverse_solver_mean_expansion_steps"] = float(
+                jnp.mean(sampled_inverse_diagnostics.mean_expansion_steps)
+            )
+            diagnostics["inverse_solver_converged_fraction"] = float(
+                jnp.mean(sampled_inverse_diagnostics.converged_fraction)
+            )
+            diagnostics["inverse_solver_failure_rate"] = float(
+                1.0 - jnp.mean(sampled_inverse_diagnostics.converged_fraction)
+            )
 
         if parameter_space == "cube":
             cube_samples = np.asarray(nn.sigmoid(sampled_inputs))
@@ -1615,6 +1777,20 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             eval_diagnostic_fn=self._validation_diagnostics,
             selection_metric_fn=_flow_validation_selection_metric,
             selection_metric_name="validation_selection_metric",
+            stability_metric_fn=lambda validation_loss, diagnostics: (
+                _flow_validation_stability_metrics(
+                    validation_loss,
+                    diagnostics,
+                    inverse_forward_max_abs_error_threshold=(
+                        self.stable_inverse_forward_max_abs_error_threshold
+                    ),
+                    inverse_forward_logdet_closure_max_abs_error_threshold=(
+                        self.stable_inverse_forward_logdet_closure_max_abs_error_threshold
+                    ),
+                    cube_edge_hit_rate_threshold=self.stable_cube_edge_hit_rate_threshold,
+                )
+            ),
+            stability_flag_key="checkpoint_is_stable",
         )
         self.training_artifacts = TrainingArtifacts(
             history=history,
@@ -1666,6 +1842,13 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "spline_max_derivative_target": self.spline_max_derivative_target,
             "weight_decay": self.weight_decay,
             "use_cosine_schedule": self.use_cosine_schedule,
+            "stable_inverse_forward_max_abs_error_threshold": (
+                self.stable_inverse_forward_max_abs_error_threshold
+            ),
+            "stable_inverse_forward_logdet_closure_max_abs_error_threshold": (
+                self.stable_inverse_forward_logdet_closure_max_abs_error_threshold
+            ),
+            "stable_cube_edge_hit_rate_threshold": self.stable_cube_edge_hit_rate_threshold,
             "spectrum_encoder_type": self.spectrum_encoder_type,
             "n_wavelengths": self.n_wavelengths,
             "spectrum_embedding_dim": self.spectrum_embedding_dim,
@@ -1711,6 +1894,13 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "spline_max_derivative_target": self.spline_max_derivative_target,
                 "weight_decay": self.weight_decay,
                 "use_cosine_schedule": self.use_cosine_schedule,
+                "stable_inverse_forward_max_abs_error_threshold": (
+                    self.stable_inverse_forward_max_abs_error_threshold
+                ),
+                "stable_inverse_forward_logdet_closure_max_abs_error_threshold": (
+                    self.stable_inverse_forward_logdet_closure_max_abs_error_threshold
+                ),
+                "stable_cube_edge_hit_rate_threshold": self.stable_cube_edge_hit_rate_threshold,
                 "spectrum_encoder_type": self.spectrum_encoder_type,
                 "n_wavelengths": self.n_wavelengths,
                 "spectrum_embedding_dim": self.spectrum_embedding_dim,
@@ -1791,6 +1981,18 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             ),
             "weight_decay": metadata.get("weight_decay", 0.0),
             "use_cosine_schedule": metadata.get("use_cosine_schedule", False),
+            "stable_inverse_forward_max_abs_error_threshold": metadata.get(
+                "stable_inverse_forward_max_abs_error_threshold",
+                1e-4,
+            ),
+            "stable_inverse_forward_logdet_closure_max_abs_error_threshold": metadata.get(
+                "stable_inverse_forward_logdet_closure_max_abs_error_threshold",
+                1e-4,
+            ),
+            "stable_cube_edge_hit_rate_threshold": metadata.get(
+                "stable_cube_edge_hit_rate_threshold",
+                0.0,
+            ),
             "spectrum_encoder_type": metadata.get("spectrum_encoder_type", "conv1d"),
             "n_wavelengths": metadata.get("n_wavelengths", 233),
             "spectrum_embedding_dim": metadata.get("spectrum_embedding_dim", 64),
@@ -1879,6 +2081,18 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             ),
             weight_decay=float(estimator_config.get("weight_decay", 0.0)),
             use_cosine_schedule=bool(estimator_config.get("use_cosine_schedule", False)),
+            stable_inverse_forward_max_abs_error_threshold=estimator_config.get(
+                "stable_inverse_forward_max_abs_error_threshold",
+                1e-4,
+            ),
+            stable_inverse_forward_logdet_closure_max_abs_error_threshold=estimator_config.get(
+                "stable_inverse_forward_logdet_closure_max_abs_error_threshold",
+                1e-4,
+            ),
+            stable_cube_edge_hit_rate_threshold=estimator_config.get(
+                "stable_cube_edge_hit_rate_threshold",
+                0.0,
+            ),
             spectrum_encoder_type=str(estimator_config.get("spectrum_encoder_type", "conv1d")),
             n_wavelengths=int(estimator_config.get("n_wavelengths", 233)),
             spectrum_embedding_dim=int(estimator_config.get("spectrum_embedding_dim", 64)),
