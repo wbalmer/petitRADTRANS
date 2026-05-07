@@ -759,3 +759,46 @@ def test_calculate_cloud_mass_fractions_uses_free_cloud_base_without_equilibrium
     np.testing.assert_allclose(np.asarray(p_bases["StubCloud"]), np.array(22.0))
     np.testing.assert_array_equal(np.asarray(pressure_indices), np.array([0, 1]))
     assert np.asarray(mass_fractions["dummy"]).shape == pressures.shape
+
+
+def test_calculate_cloud_mass_fractions_accepts_traced_mean_molar_mass_with_explicit_cloud_base(
+    monkeypatch,
+):
+    class FakeCloudOpacity:
+        def __init__(self, *_args, **_kwargs):
+            self.species_full_name = "StubCloud_placeholder"
+
+    monkeypatch.setattr(petitRADTRANS.chemistry.core, "CloudOpacity", FakeCloudOpacity)
+
+    def compute_cloud_profile(mean_molar_mass):
+        mass_fractions, p_bases, pressure_indices = (
+            petitRADTRANS.chemistry.core.calculate_cloud_mass_fractions(
+                pressures=jnp.array([1.0, 10.0]),
+                temperatures=jnp.array([1000.0, 1100.0]),
+                metallicity=0.0,
+                co_ratio=0.55,
+                cloud_species=("dummy",),
+                parameters={
+                    "log_Pbase_StubCloud": -1.5,
+                    "log_X_cb_StubCloud": -5.0,
+                    "fsed": 2.0,
+                },
+                mass_fractions={
+                    "H2": jnp.array([0.75, 0.75]),
+                    "He": jnp.array([0.25, 0.25]),
+                },
+                mean_molar_mass=mean_molar_mass,
+                adaptive_mesh_refinement=False,
+                use_easychem=False,
+            )
+        )
+
+        return mass_fractions["dummy"], p_bases["StubCloud"], pressure_indices
+
+    cloud_profile, cloud_base, pressure_indices = jax.jit(compute_cloud_profile)(
+        jnp.array([2.3, 2.4])
+    )
+
+    np.testing.assert_allclose(np.asarray(cloud_base), np.array(10 ** -1.5))
+    np.testing.assert_array_equal(np.asarray(pressure_indices), np.array([0, 1]))
+    assert np.asarray(cloud_profile).shape == (2,)

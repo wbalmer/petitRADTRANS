@@ -17,10 +17,14 @@ from .benchmark import (
 
 # Calibration / diagnostics
 from .calibration import (
+    LocalSensitivityPointReport,
+    LocalSensitivityReport,
     PosteriorPredictiveReport,
     SimulationBasedCalibrationReport,
+    generate_local_sensitivity_report,
     generate_posterior_predictive_report,
     generate_sbc_report,
+    local_sensitivity_report_to_payload,
 )
 
 # Error types users may need to catch
@@ -76,6 +80,10 @@ from .posterior import (
 
 # Plotting
 from .plotting import (
+    plot_local_sensitivity_fisher_correlations,
+    plot_local_sensitivity_jacobians,
+    plot_local_sensitivity_singular_values,
+    plot_posterior_corner,
     plot_posterior_marginals,
     plot_posterior_predictive_report,
     plot_sbc_rank_histograms,
@@ -105,11 +113,15 @@ __all__ = [
     "RetrievalBenchmarkCase",
     "RetrievalBenchmarkSuite",
     # Calibration / diagnostics
+    "LocalSensitivityPointReport",
+    "LocalSensitivityReport",
     "OODDiagnostic",
     "PosteriorPredictiveReport",
     "SimulationBasedCalibrationReport",
+    "generate_local_sensitivity_report",
     "generate_posterior_predictive_report",
     "generate_sbc_report",
+    "local_sensitivity_report_to_payload",
     # Errors
     "TaskCompatibilityError",
     # Datasets
@@ -148,6 +160,10 @@ __all__ = [
     "PosteriorEstimator",
     "PosteriorSamples",
     # Plotting
+    "plot_local_sensitivity_fisher_correlations",
+    "plot_local_sensitivity_jacobians",
+    "plot_local_sensitivity_singular_values",
+    "plot_posterior_corner",
     "plot_posterior_marginals",
     "plot_posterior_predictive_report",
     "plot_sbc_rank_histograms",

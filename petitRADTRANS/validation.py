@@ -107,6 +107,13 @@ def _check_return_clear_spectrum_relevance(
         opaque_cloud_top_pressure: The pressure of the opaque cloud top.
         cloud_fraction: The cloud fraction.
     """
+    # When callers pass a concrete Python false, do not build the JAX debug
+    # branches at all. This avoids spurious warning prints under transformed
+    # call paths that trace through the effectful lax.cond branches even
+    # though no clear spectrum was requested.
+    if isinstance(return_clear_spectrum, (bool, np.bool_)) and not return_clear_spectrum:
+        return
+
     lax.cond(  # TODO: revert to clearer pythonic statements
         jnp.logical_and(
             jnp.logical_and(return_clear_spectrum, jnp.logical_not(clouds_have_effect)),

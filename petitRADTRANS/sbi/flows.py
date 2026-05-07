@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import equinox as eqx
 from jax import Array, lax, vmap, random, nn
@@ -11,6 +11,19 @@ import jax.numpy as jnp
 
 
 _NAF_PROBABILITY_EPS = 1e-6
+_NAF_INVERSE_DIAGNOSTIC_TOLERANCE = 1e-6
+
+
+class NeuralInverseDiagnostics(NamedTuple):
+    """Aggregate diagnostics for one neural autoregressive inverse pass."""
+
+    max_abs_residual: jnp.ndarray
+    mean_abs_residual: jnp.ndarray
+    max_bracket_width: jnp.ndarray
+    mean_bracket_width: jnp.ndarray
+    max_expansion_steps: jnp.ndarray
+    mean_expansion_steps: jnp.ndarray
+    converged_fraction: jnp.ndarray
 
 
 class CouplingConditioner(eqx.Module):
@@ -806,6 +819,23 @@ class ConditionalNeuralAutoregressiveTransform(eqx.Module):
         weight_logits: jnp.ndarray,
         residual_fraction: jnp.ndarray,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        recovered, inverse_log_det, _, _, _, _ = self._inverse_scalar_with_diagnostics(
+            target,
+            positive_slopes,
+            offsets,
+            weight_logits,
+            residual_fraction,
+        )
+        return recovered, inverse_log_det
+
+    def _inverse_scalar_with_diagnostics(
+        self,
+        target: jnp.ndarray,
+        positive_slopes: jnp.ndarray,
+        offsets: jnp.ndarray,
+        weight_logits: jnp.ndarray,
+        residual_fraction: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         dtype = jnp.asarray(target).dtype
         min_residual = jnp.maximum(
             residual_fraction,
@@ -849,7 +879,7 @@ class ConditionalNeuralAutoregressiveTransform(eqx.Module):
             new_upper_eval, _ = evaluate(new_upper)
             return new_lower, new_upper, new_lower_eval, new_upper_eval, count + 1
 
-        lower, upper, _, _, _ = lax.while_loop(
+        lower, upper, _, _, expansion_count = lax.while_loop(
             needs_expansion,
             expand_bounds,
             (
@@ -880,8 +910,25 @@ class ConditionalNeuralAutoregressiveTransform(eqx.Module):
             (lower, upper),
         )
         recovered = 0.5 * (lower + upper)
-        _, forward_log_det = evaluate(recovered)
-        return recovered, -forward_log_det
+        recovered_target, forward_log_det = evaluate(recovered)
+        residual_abs = jnp.abs(recovered_target - target)
+        bracket_width = jnp.abs(upper - lower)
+        diagnostic_tolerance = jnp.asarray(
+            _NAF_INVERSE_DIAGNOSTIC_TOLERANCE,
+            dtype=dtype,
+        ) * (jnp.asarray(1.0, dtype=dtype) + jnp.abs(target))
+        converged = jnp.logical_or(
+            residual_abs <= diagnostic_tolerance,
+            bracket_width <= diagnostic_tolerance,
+        )
+        return (
+            recovered,
+            -forward_log_det,
+            residual_abs,
+            bracket_width,
+            expansion_count.astype(dtype),
+            converged.astype(dtype),
+        )
 
     def forward(
         self,
@@ -936,6 +983,57 @@ class ConditionalNeuralAutoregressiveTransform(eqx.Module):
             log_det = log_det + layer_log_det
 
         return x, log_det
+
+    def inverse_with_diagnostics(
+        self,
+        z: jnp.ndarray,
+        context: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, NeuralInverseDiagnostics]:
+        x = jnp.zeros_like(z)
+        log_det = jnp.asarray(0.0, dtype=z.dtype)
+        residuals = jnp.zeros_like(z)
+        bracket_widths = jnp.zeros_like(z)
+        expansion_steps = jnp.zeros_like(z)
+        converged = jnp.zeros_like(z)
+
+        for dimension, conditioner in enumerate(self.conditioners):
+            positive_slopes, offsets, weight_logits, residual_fraction = self._parameters(
+                conditioner,
+                x[:dimension],
+                context,
+                z.dtype,
+            )
+            (
+                x_value,
+                layer_log_det,
+                residual_abs,
+                bracket_width,
+                expansion_count,
+                converged_flag,
+            ) = self._inverse_scalar_with_diagnostics(
+                z[dimension],
+                positive_slopes,
+                offsets,
+                weight_logits,
+                residual_fraction,
+            )
+            x = x.at[dimension].set(x_value)
+            log_det = log_det + layer_log_det
+            residuals = residuals.at[dimension].set(residual_abs)
+            bracket_widths = bracket_widths.at[dimension].set(bracket_width)
+            expansion_steps = expansion_steps.at[dimension].set(expansion_count)
+            converged = converged.at[dimension].set(converged_flag)
+
+        diagnostics = NeuralInverseDiagnostics(
+            max_abs_residual=jnp.max(residuals),
+            mean_abs_residual=jnp.mean(residuals),
+            max_bracket_width=jnp.max(bracket_widths),
+            mean_bracket_width=jnp.mean(bracket_widths),
+            max_expansion_steps=jnp.max(expansion_steps),
+            mean_expansion_steps=jnp.mean(expansion_steps),
+            converged_fraction=jnp.mean(converged),
+        )
+        return x, log_det, diagnostics
 
 
 class _ConditionalFlowStack(eqx.Module):
@@ -1154,6 +1252,68 @@ class ConditionalNeuralAutoregressiveFlow(_ConditionalFlowStack):
             for layer_key in layer_keys
         )
 
+    def inverse_with_diagnostics(
+        self,
+        z: jnp.ndarray,
+        context: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, NeuralInverseDiagnostics]:
+        transformed = z
+        log_det = jnp.asarray(0.0, dtype=z.dtype)
+        max_abs_residual = jnp.asarray(0.0, dtype=z.dtype)
+        mean_abs_residual_sum = jnp.asarray(0.0, dtype=z.dtype)
+        max_bracket_width = jnp.asarray(0.0, dtype=z.dtype)
+        mean_bracket_width_sum = jnp.asarray(0.0, dtype=z.dtype)
+        max_expansion_steps = jnp.asarray(0.0, dtype=z.dtype)
+        mean_expansion_steps_sum = jnp.asarray(0.0, dtype=z.dtype)
+        converged_fraction_sum = jnp.asarray(0.0, dtype=z.dtype)
+
+        for reverse_index, layer in enumerate(reversed(self.layers)):
+            neural_layer = cast(ConditionalNeuralAutoregressiveTransform, layer)
+            if reverse_index > 0:
+                transformed = self._reverse_vector(transformed)
+            (
+                transformed,
+                layer_log_det,
+                layer_diagnostics,
+            ) = neural_layer.inverse_with_diagnostics(transformed, context)
+            log_det = log_det + layer_log_det
+            max_abs_residual = jnp.maximum(
+                max_abs_residual,
+                layer_diagnostics.max_abs_residual,
+            )
+            mean_abs_residual_sum = (
+                mean_abs_residual_sum + layer_diagnostics.mean_abs_residual
+            )
+            max_bracket_width = jnp.maximum(
+                max_bracket_width,
+                layer_diagnostics.max_bracket_width,
+            )
+            mean_bracket_width_sum = (
+                mean_bracket_width_sum + layer_diagnostics.mean_bracket_width
+            )
+            max_expansion_steps = jnp.maximum(
+                max_expansion_steps,
+                layer_diagnostics.max_expansion_steps,
+            )
+            mean_expansion_steps_sum = (
+                mean_expansion_steps_sum + layer_diagnostics.mean_expansion_steps
+            )
+            converged_fraction_sum = (
+                converged_fraction_sum + layer_diagnostics.converged_fraction
+            )
+
+        layer_count = jnp.asarray(max(len(self.layers), 1), dtype=z.dtype)
+        diagnostics = NeuralInverseDiagnostics(
+            max_abs_residual=max_abs_residual,
+            mean_abs_residual=mean_abs_residual_sum / layer_count,
+            max_bracket_width=max_bracket_width,
+            mean_bracket_width=mean_bracket_width_sum / layer_count,
+            max_expansion_steps=max_expansion_steps,
+            mean_expansion_steps=mean_expansion_steps_sum / layer_count,
+            converged_fraction=converged_fraction_sum / layer_count,
+        )
+        return transformed, log_det, diagnostics
+
 
 class ConditionalSplineFlow(_ConditionalFlowStack):
     """Stack of conditional rational-quadratic spline transforms.
@@ -1281,4 +1441,5 @@ __all__ = [
     "ConditionalScalarSplineTransform",
     "ConditionalSplineFlow",
     "CouplingConditioner",
+    "NeuralInverseDiagnostics",
 ]

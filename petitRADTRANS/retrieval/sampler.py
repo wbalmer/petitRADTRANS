@@ -28,6 +28,7 @@ jit = None
 local_device_count = None
 make_mesh = None
 shard_map = None
+set_mesh = None
 devices = None
 jnp = None
 NamedSharding = None
@@ -37,7 +38,7 @@ tfp = None
 
 def _require_jax():
     global lax, random, tree, vmap, tree_util, jit, local_device_count
-    global make_mesh, shard_map, devices, jnp, NamedSharding, P, tfp
+    global make_mesh, shard_map, set_mesh, devices, jnp, NamedSharding, P, tfp
 
     if jnp is not None:
         return
@@ -53,6 +54,7 @@ def _require_jax():
             local_device_count as _ldc,
             make_mesh as _mm,
             shard_map as _sm,
+            set_mesh as _set_mesh,
             devices as _devices,
         )
         import jax.numpy as _jnp
@@ -72,6 +74,7 @@ def _require_jax():
     local_device_count = _ldc
     make_mesh = _mm
     shard_map = _sm
+    set_mesh = _set_mesh
     devices = _devices
     jnp = _jnp
     NamedSharding = _ns
@@ -708,7 +711,8 @@ class BlackJAXSampler(Sampler):
                 )
                 if use_jit:
                     run_all = jit(run_all)
-                all_states, all_infos = run_all(sample_key)
+                with set_mesh(mesh):
+                    all_states, all_infos = run_all(sample_key)
             else:
                 # Single device: vmap over all chains.
                 chain_keys = random.split(sample_key, num_chains)
@@ -1165,15 +1169,16 @@ class NumPyroSampler(Sampler):
                 out_specs=(P("devices"),)
                 * 7,  # all 7 outputs concatenated along axis 0
             )
-            (
-                all_unc,
-                all_pe,
-                all_accept,
-                all_diverge,
-                all_steps,
-                all_step_sizes,
-                all_imm,
-            ) = run_sharded(rng_key)
+            with set_mesh(mesh):
+                (
+                    all_unc,
+                    all_pe,
+                    all_accept,
+                    all_diverge,
+                    all_steps,
+                    all_step_sizes,
+                    all_imm,
+                ) = run_sharded(rng_key)
 
             unconstrained_samples = np.asarray(all_unc)
             potential_energy = np.asarray(all_pe)

@@ -3,6 +3,7 @@ import sys
 from dataclasses import replace
 from types import SimpleNamespace
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -24,6 +25,7 @@ from petitRADTRANS.sbi import (  # noqa: E402
     DatasetSplit,
     fit_task_preprocessing,
     FlowMatchingPosterior,
+    generate_local_sensitivity_report,
     generate_posterior_predictive_report,
     generate_sbc_report,
     generate_simulation_dataset,
@@ -43,7 +45,9 @@ from petitRADTRANS.sbi import (  # noqa: E402
     TaskCompatibilityError,
     TaskPreprocessingMetadata,
     ZarrSimulationDatasetStore,
+    local_sensitivity_report_to_payload,
     normalize_observation_blocks,
+    plot_posterior_corner,
 )
 from petitRADTRANS.sbi.artifacts import ArtifactMetadata, ArtifactRole, FileArtifactRegistry  # noqa: E402
 from petitRADTRANS.sbi.calibration import central_credible_interval, empirical_interval_coverage  # noqa: E402
@@ -51,6 +55,7 @@ from petitRADTRANS.sbi.compatibility import CompatibilityReport  # noqa: E402
 from petitRADTRANS.sbi.dataset import SimulationDatasetManifest, SplitSamplingPolicy  # noqa: E402
 from petitRADTRANS.sbi.flows import ConditionalNeuralAutoregressiveFlow, ConditionalSplineFlow  # noqa: E402
 from petitRADTRANS.sbi.preprocessing import compute_block_normalization_stats  # noqa: E402
+from petitRADTRANS.sbi.training import SBITrainer, TrainingConfig  # noqa: E402
 
 
 def _dummy_model(*args, **kwargs):
@@ -1045,6 +1050,33 @@ def test_conditional_neural_autoregressive_flow_roundtrip():
     assert samples.shape == (5, 3)
 
 
+def test_conditional_neural_autoregressive_flow_inverse_diagnostics():
+    context = jnp.asarray([0.2, -0.3, 0.4, 0.1], dtype=jnp.float32)
+    parameters = jnp.asarray([0.15, -0.35, 0.55], dtype=jnp.float32)
+    flow = ConditionalNeuralAutoregressiveFlow(
+        parameter_dim=3,
+        context_dim=4,
+        num_layers=2,
+        hidden_dim=32,
+        conditioner_depth=3,
+        transform_units=8,
+        key=jax.random.PRNGKey(125),
+    )
+
+    latent, forward_log_det = flow.forward(parameters, context)
+    recovered, inverse_log_det, diagnostics = flow.inverse_with_diagnostics(latent, context)
+
+    assert np.allclose(np.asarray(recovered), np.asarray(parameters), atol=2e-4)
+    assert np.allclose(float(forward_log_det + inverse_log_det), 0.0, atol=2e-4)
+    assert float(diagnostics.max_abs_residual) < 1e-4
+    assert float(diagnostics.mean_abs_residual) < 1e-4
+    assert float(diagnostics.max_bracket_width) >= 0.0
+    assert float(diagnostics.mean_bracket_width) >= 0.0
+    assert float(diagnostics.max_expansion_steps) >= 0.0
+    assert float(diagnostics.mean_expansion_steps) >= 0.0
+    assert float(diagnostics.converged_fraction) >= 0.99
+
+
 def test_conditional_flow_posterior_fit_sample_and_save_load(tmp_path):
     task = _build_runtime_task(
         retrieval_name='posterior_demo',
@@ -1137,6 +1169,7 @@ def test_neural_autoregressive_posterior_fit_sample_and_generic_load(tmp_path):
         dataset=dataset,
         preprocessing_metadata=generated.preprocessing_metadata,
     )
+    checkpoint_directory = tmp_path / 'neural_autoregressive_checkpoints'
     posterior = ConditionalNeuralAutoregressiveFlowPosterior(
         parameter_dim=1,
         embedding_dim=32,
@@ -1148,6 +1181,9 @@ def test_neural_autoregressive_posterior_fit_sample_and_generic_load(tmp_path):
         batch_size=2,
         num_epochs=1,
         parameter_space='unconstrained',
+        checkpoint_directory=checkpoint_directory.as_posix(),
+        stable_inverse_forward_max_abs_error_threshold=1e-2,
+        stable_inverse_forward_logdet_closure_max_abs_error_threshold=1e-2,
         seed=27,
         task_metadata={'task_name': task.name},
     )
@@ -1166,12 +1202,110 @@ def test_neural_autoregressive_posterior_fit_sample_and_generic_load(tmp_path):
     assert len(artifacts.history['train_loss']) == 1
     assert artifacts.metadata['flow_family'] == 'neural_autoregressive'
     assert artifacts.metadata['effective_flow_family'] == 'neural_autoregressive'
+    assert artifacts.metadata['best_checkpoint_kind'] == 'best_stable'
+    assert artifacts.metadata['best_loss_epoch'] == 1
+    assert artifacts.metadata['best_stable_epoch'] == 1
     assert np.asarray(samples.samples).shape == (5, 1)
     assert np.asarray(loaded_samples.samples).shape == (5, 1)
+    assert 'inverse_solver_max_abs_residual' in artifacts.validation_metrics
+    assert len(artifacts.validation_metrics['inverse_solver_max_abs_residual']) == 1
     assert saved_metadata['estimator_family'] == 'conditional_flow'
     assert saved_metadata['estimator_config']['flow_family'] == 'neural_autoregressive'
     assert saved_metadata['estimator_config']['autoregressive_transform_units'] == 8
+    assert saved_metadata['estimator_config']['stable_inverse_forward_max_abs_error_threshold'] == 1e-2
+    assert (checkpoint_directory / 'best' / 'metadata.json').exists()
+    assert (checkpoint_directory / 'best_loss' / 'metadata.json').exists()
+    assert (checkpoint_directory / 'best_selection' / 'metadata.json').exists()
+    assert (checkpoint_directory / 'best_stable' / 'metadata.json').exists()
     assert loaded.flow_family == 'neural_autoregressive'
+
+
+def test_trainer_tracks_best_loss_and_best_stable_checkpoints(tmp_path):
+    class ScalarModel(eqx.Module):
+        weight: jnp.ndarray
+
+    class ToyDataset:
+        def __init__(self):
+            self.dataset = SimpleNamespace(
+                manifest=SimpleNamespace(
+                    splits={'train': 1, 'validation': 1},
+                )
+            )
+
+        def iter_batches(
+            self,
+            split,
+            batch_size,
+            shuffle=False,
+            seed=0,
+            parameter_space='unconstrained',
+        ):
+            del split, batch_size, shuffle, seed, parameter_space
+            yield SimpleNamespace(
+                parameters=np.zeros((1, 1), dtype=np.float32),
+                observations=np.zeros((1, 1), dtype=np.float32),
+            )
+
+    trainer = SBITrainer(
+        TrainingConfig(
+            learning_rate=0.5,
+            batch_size=1,
+            num_epochs=3,
+            checkpoint_directory=(tmp_path / 'toy_trainer_checkpoints').as_posix(),
+            checkpoint_backend='equinox',
+        )
+    )
+    model = ScalarModel(weight=jnp.asarray(0.0, dtype=jnp.float32))
+    dataset = ToyDataset()
+
+    def loss_fn(model, batch):
+        del batch
+        return -model.weight
+
+    def eval_diagnostic_fn(model, batch):
+        del batch
+        unstable = float(model.weight >= 0.75)
+        diagnostic_value = 1e-2 if unstable else 1e-6
+        return {
+            'inverse_forward_max_abs_error': diagnostic_value,
+            'inverse_forward_logdet_closure_max_abs_error': diagnostic_value,
+            'cube_edge_hit_rate': 0.0,
+        }
+
+    def stability_metric_fn(validation_loss, diagnostics):
+        del validation_loss
+        stable = (
+            diagnostics['inverse_forward_max_abs_error'] <= 1e-4
+            and diagnostics['inverse_forward_logdet_closure_max_abs_error'] <= 1e-4
+        )
+        return {'checkpoint_is_stable': 1.0 if stable else 0.0}
+
+    _, history, validation_metrics, metadata = trainer.fit(
+        model,
+        dataset,
+        loss_fn,
+        eval_loss_fn=loss_fn,
+        eval_diagnostic_fn=eval_diagnostic_fn,
+        selection_metric_fn=lambda validation_loss, diagnostics: validation_loss,
+        selection_metric_name='validation_selection_metric',
+        stability_metric_fn=stability_metric_fn,
+        stability_flag_key='checkpoint_is_stable',
+    )
+
+    checkpoint_directory = tmp_path / 'toy_trainer_checkpoints'
+    best_metadata = json.loads((checkpoint_directory / 'best' / 'metadata.json').read_text())
+    best_loss_metadata = json.loads((checkpoint_directory / 'best_loss' / 'metadata.json').read_text())
+    best_stable_metadata = json.loads((checkpoint_directory / 'best_stable' / 'metadata.json').read_text())
+
+    assert len(history['train_loss']) == 3
+    assert len(validation_metrics['validation_loss']) == 3
+    assert metadata['best_checkpoint_kind'] == 'best_stable'
+    assert metadata['best_stable_epoch'] == 1
+    assert metadata['best_loss_epoch'] == 3
+    assert metadata['best_selection_epoch'] == 3
+    assert best_metadata['best_checkpoint_kind'] == 'best_stable'
+    assert best_loss_metadata['checkpoint_kind'] == 'best_loss'
+    assert best_stable_metadata['checkpoint_kind'] == 'best_stable'
 
 
 def test_spline_posterior_training_resumes_from_latest_checkpoint(tmp_path):
@@ -1594,6 +1728,76 @@ def test_generate_sbc_report_returns_rank_summaries(tmp_path):
     assert report.metadata['parameter_space'] == 'unconstrained'
     assert np.all(report.ranks >= 0)
     assert np.all(report.ranks <= 64)
+
+
+def test_plot_posterior_corner_returns_square_axes_grid():
+    matplotlib = pytest.importorskip('matplotlib')
+    del matplotlib
+
+    samples = np.asarray(
+        [
+            [0.0, 1.0, 2.0],
+            [0.1, 1.1, 1.9],
+            [0.2, 0.9, 2.1],
+            [0.3, 1.2, 1.8],
+        ],
+        dtype=float,
+    )
+
+    figure, axes = plot_posterior_corner(
+        samples,
+        parameter_names=['alpha', 'beta', 'gamma'],
+        bins=8,
+    )
+
+    assert axes.shape == (3, 3)
+    assert len(figure.axes) == 9
+
+
+def test_generate_local_sensitivity_report_tracks_linear_information_content():
+    task = _build_runtime_task(
+        retrieval_name='local_sensitivity_demo',
+        noise_mode='no_noise',
+        seed=121,
+        include_nuisance=False,
+        store_log_likelihood=False,
+        uncertainties=jnp.array([0.1, 0.2]),
+    )
+    observation_blocks = [
+        ObservationBlock(
+            name='synthetic_spectrum',
+            modality=ObservationModality.SPECTRUM,
+            values=np.array([0.5, 1.5], dtype=float),
+            uncertainties=np.array([0.1, 0.2], dtype=float),
+            coordinates=np.array([1.0, 2.0], dtype=float),
+        )
+    ]
+    posterior_samples = np.asarray([[0.2], [0.4], [0.6], [0.8]], dtype=float)
+    posterior_log_probabilities = np.asarray([-2.0, -0.5, -0.2, -1.0], dtype=float)
+
+    report = generate_local_sensitivity_report(
+        task=task,
+        posterior_samples=posterior_samples,
+        observation_blocks=observation_blocks,
+        posterior_log_probabilities=posterior_log_probabilities,
+        quantile_levels=(0.1, 0.9),
+        finite_difference_std_fraction=0.25,
+        finite_difference_relative_step=1e-3,
+        seed=7,
+    )
+    payload = local_sensitivity_report_to_payload(report)
+
+    assert report.parameter_names == ('amplitude',)
+    assert len(report.representative_points) == 4
+    assert report.representative_points[0].label == 'posterior_mean'
+    assert np.allclose(
+        report.representative_points[0].whitened_jacobian[:, 0],
+        np.array([10.0, 5.0]),
+        atol=0.2,
+    )
+    assert report.representative_points[0].effective_rank == 1
+    assert payload['parameter_names'] == ['amplitude']
+    assert payload['representative_points'][0]['label'] == 'posterior_mean'
 
 
 def test_generate_posterior_predictive_report_summarizes_heldout_split(tmp_path):
