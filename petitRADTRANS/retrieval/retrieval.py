@@ -2261,7 +2261,7 @@ class Retrieval:
                             / 2.0
                         )
                     else:
-                        cube.append(parameter.distribution.mean)
+                        cube.append(parameter.distribution.mean())
                 else:
                     cube.append(0.5)
 
