@@ -4,7 +4,6 @@ from jax.typing import ArrayLike
 from interpax import interp1d
 
 
-# TODO zhang23
 def zhang_2023_temperature_profile(
     pressures: ArrayLike,
     num_layer: int,
@@ -30,9 +29,9 @@ def zhang_2023_temperature_profile(
     Returns:
         The temperature profile in K.
     """
-    id_sub = jnp.where(pressures >= 10**top_of_atmosphere_pressure)
-    p_use_sub = pressures[id_sub]
-    num_sub = len(p_use_sub)
+    pressure_floor = 10**top_of_atmosphere_pressure
+    p_use = jnp.maximum(pressures, pressure_floor)
+    num_pressures = p_use.shape[0]
 
     # 1.3 pressures of layers
     layer_pressures = jnp.logspace(
@@ -43,28 +42,25 @@ def zhang_2023_temperature_profile(
     # for index in range(num_layer):
     #    layer_pt_slopes[index] = parameters['PTslope_%d'%(num_layer - index)].value
     # 1.5 interpolate the P-T slopes to compute slopes for all layers
-    pt_slopes_sub = interp1d(
-        jnp.log10(p_use_sub),
+    pt_slopes = interp1d(
+        jnp.log10(p_use),
         jnp.log10(layer_pressures),
         layer_pt_slopes,
         method="cubic",
     )
 
     # 1.6 compute temperatures
-    temperatures_sub = jnp.ones(num_sub) * jnp.nan
-    temperatures_sub = temperatures_sub.at[-1].set(t_bottom)
+    temperatures = jnp.ones_like(p_use) * jnp.nan
+    temperatures = temperatures.at[-1].set(t_bottom)
 
     # Note: higher index is lower pressure.
-    for index in range(1, num_sub):
-        temperatures_sub = temperatures_sub.at[-1 - index].set(
+    for index in range(1, num_pressures):
+        temperatures = temperatures.at[-1 - index].set(
             jnp.exp(
-                jnp.log(temperatures_sub[-index])
-                - pt_slopes_sub[-index]
-                * (jnp.log(p_use_sub[-index]) - jnp.log(p_use_sub[-1 - index]))
+                jnp.log(temperatures[-index])
+                - pt_slopes[-index]
+                * (jnp.log(p_use[-index]) - jnp.log(p_use[-1 - index]))
             )
         )
 
-    # 1.7 isothermal in the remaining region, i.e., upper atmosphere
-    temperatures = jnp.ones_like(pressures) * temperatures_sub[0]
-    temperatures = temperatures.at[id_sub].set(temperatures_sub)
     return temperatures
