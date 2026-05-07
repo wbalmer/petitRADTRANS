@@ -55,9 +55,11 @@ def continuum_subtract_spectrum(
 
     if method == "spline":
         nodes = wavelengths[0]
-        if name is not None and +(name + "_nodes" in parameters.keys()):
+        if name is not None and +(name + "_node_array" in parameters.keys()):
             nodes = getattr(
-                parameters[name + "_nodes"], "value", parameters[name + "_nodes"]
+                parameters[name + "_node_array"],
+                "value",
+                parameters[name + "_node_array"],
             )
         elif "continuum_subtract_nodes" in parameters.keys():
             nodes = getattr(
