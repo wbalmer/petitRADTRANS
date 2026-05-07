@@ -55,8 +55,13 @@ def continuum_subtract_spectrum(
 
     if method == "spline":
         nodes = wavelengths[0]
-        if name is not None and +(name + "_node_array" in parameters.keys()):
+        if name is not None and +(name + "_nodes" in parameters.keys()):
             nodes = getattr(
+                parameters[name + "_nodes"], "value", parameters[name + "_nodes"]
+            )
+            x_nodes = jnp.linspace(wavelengths[0], wavelengths[-1], nodes)
+        elif name is not None and +(name + "_node_array" in parameters.keys()):
+            x_nodes = getattr(
                 parameters[name + "_node_array"],
                 "value",
                 parameters[name + "_node_array"],
@@ -67,9 +72,10 @@ def continuum_subtract_spectrum(
                 "value",
                 parameters["continuum_subtract_nodes"],
             )
+            x_nodes = jnp.linspace(wavelengths[0], wavelengths[-1], nodes)
         else:
             raise ValueError("No nodes available to create spline.")
-        x_nodes = jnp.linspace(wavelengths[0], wavelengths[-1], nodes)
+
         return filter_spectrum_with_spline(wavelengths, spectrum, x_nodes=x_nodes)
     elif method == "medfilt":
         median_filter_width = 10
