@@ -280,7 +280,7 @@ def setup_clouds(pressures, parameters, cloud_species):
         kzz = 10 ** parameters["log_kzz"] * jnp.ones_like(pressures)
 
     cloud_fraction = 1.0
-    complete_coverage_clouds = None
+    patchy_clouds = None
 
     if "patchiness" in parameters.keys():
         cloud_fraction = parameters["patchiness"]
@@ -288,11 +288,11 @@ def setup_clouds(pressures, parameters, cloud_species):
     if "cloud_fraction" in parameters.keys():
         cloud_fraction = parameters["cloud_fraction"]
 
-    if "complete_coverage_clouds" in parameters.keys():
-        complete_coverage_clouds = parameters["complete_coverage_clouds"]
+    if "patchy_clouds" in parameters.keys():
+        patchy_clouds = parameters["patchy_clouds"]
 
     if "remove_cloud_species" in parameters.keys():
-        complete_coverage_clouds = parameters["complete_coverage_clouds"]
+        patchy_clouds = parameters["remove_cloud_species"]
     return (
         sigma_lnorm,
         fseds,
@@ -300,7 +300,7 @@ def setup_clouds(pressures, parameters, cloud_species):
         b_hans,
         radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     )
 

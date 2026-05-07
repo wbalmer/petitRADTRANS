@@ -112,7 +112,7 @@
         "cloud_pressure": 0.01,
         "haze_factor": 10.0,
         "cloud_fraction": 0.67,
-        "complete_coverage_clouds": 0,
+        "patchy_clouds": 1,
         "cloud_species": {
             "Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.9-2.3mu": {
                 "mass_fraction": 5e-07,

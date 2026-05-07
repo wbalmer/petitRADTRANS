@@ -33,10 +33,8 @@ def _build_cloud_species_mass_fractions(mass_fractions, selected_cloud_species):
     return cloud_species_mass_fractions
 
 
-def _filter_complete_coverage_clouds(cloud_species, complete_coverage_clouds):
-    return tuple(
-        species for species in cloud_species if species in complete_coverage_clouds
-    )
+def _filter_patchy_clouds(cloud_species, patchy_clouds):
+    return tuple(species for species in cloud_species if species in patchy_clouds)
 
 
 def _select_loaded_cloud_opacity_tables(
@@ -921,7 +919,7 @@ def init_clouds_particle_porosity_factor(
     static_argnames=[
         "cloud_species",
         "cloud_particle_radius_distribution",
-        "complete_coverage_clouds",
+        "patchy_clouds",
         "compute_clear_opacities",
     ]
 )
@@ -951,7 +949,7 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
     cloud_hansen_a: float,
     cloud_hansen_b: float,
     cloud_photosphere_median_optical_depth: float,
-    complete_coverage_clouds: tuple[str],
+    patchy_clouds: tuple[str],
     return_cloud_contribution: bool,
     compute_clear_opacities,
     target_particle_radii,
@@ -1019,8 +1017,9 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
             Optional Hansen ``b`` width parameter.
         cloud_photosphere_median_optical_depth:
             Optional target cloud optical depth near the photosphere.
-        complete_coverage_clouds:
-            Cloud species that should remain in the clear branch.
+        patchy_clouds:
+            Cloud species affected by ``cloud_fraction`` and therefore
+            excluded from the clear branch.
         return_cloud_contribution:
             Whether to propagate cloud-only products required by contribution
             diagnostics.
@@ -1053,8 +1052,9 @@ def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
         _,
         _,
     ) = _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
-    complete_coverage_clouds = _filter_complete_coverage_clouds(
-        cloud_species, complete_coverage_clouds
+    patchy_clouds = _filter_patchy_clouds(cloud_species, patchy_clouds)
+    complete_coverage_clouds = tuple(
+        species for species in cloud_species if species not in patchy_clouds
     )
 
     (

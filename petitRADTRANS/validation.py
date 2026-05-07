@@ -255,8 +255,20 @@ def _normalize_optional_scalar(value, missing_value):
     return jnp.array(value, dtype=JAX_DTYPE)
 
 
+def _normalize_cloud_species_selection(selection, default_species):
+    if selection is None:
+        return tuple(default_species)
+
+    if isinstance(selection, (str, bytes)):
+        selection = (selection,)
+
+    selection = tuple(selection)
+
+    return tuple(species for species in default_species if species in selection)
+
+
 def _sanitize_flux_opacity_inputs(
-    complete_coverage_clouds,
+    patchy_clouds,
     cloud_particle_mean_radii,
     cloud_hansen_a,
     cloud_hansen_b,
@@ -313,8 +325,9 @@ def _sanitize_flux_opacity_inputs(
         )
 
     return {
-        "complete_coverage_clouds": (
-            () if complete_coverage_clouds is None else tuple(complete_coverage_clouds)
+        "patchy_clouds": _normalize_cloud_species_selection(
+            selection=patchy_clouds,
+            default_species=cloud_species,
         ),
         "cloud_particle_mean_radii": _normalize_optional_mapping(
             cloud_particle_mean_radii

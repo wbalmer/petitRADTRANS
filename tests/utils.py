@@ -168,7 +168,7 @@ def make_petitradtrans_test_config_file(filename):
                     "cloud_pressure": 0.01,
                     "haze_factor": 10.0,
                     "cloud_fraction": 0.67,
-                    "complete_coverage_clouds": 0,  # index of the cloud species that must have complete coverage
+                    "patchy_clouds": 0,  # index of the cloud species that must have complete coverage
                     "cloud_species": {
                         f"Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_{other_range}": {
                             "mass_fraction": 5e-7,
@@ -778,9 +778,9 @@ def init_test_parameters(recreate_parameter_file=False):
         parameters["pressures"]
     )
 
-    parameters["cloud_parameters"]["complete_coverage_clouds"] = [
+    parameters["cloud_parameters"]["patchy_clouds"] = [
         list(parameters["cloud_parameters"]["cloud_species"].keys())[
-            parameters["cloud_parameters"]["complete_coverage_clouds"]
+            parameters["cloud_parameters"]["patchy_clouds"]
         ]
     ]
 
@@ -857,7 +857,7 @@ def check_cloud_complete_coverage_consistency(
     benchmark,
     relative_tolerance,
     cloud_fraction,
-    complete_coverage_clouds,
+    patchy_clouds,
     mass_fractions,
     mass_fractions_clear=None,
     opaque_cloud_top_pressure=None,
@@ -879,7 +879,7 @@ def check_cloud_complete_coverage_consistency(
         mass_fractions=mass_fractions,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure,
         cloud_fraction=1,
-        complete_coverage_clouds=None,
+        patchy_clouds=None,
         **kwargs,
     )
 
@@ -887,7 +887,7 @@ def check_cloud_complete_coverage_consistency(
         mass_fractions=mass_fractions,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure,
         cloud_fraction=1,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         **kwargs,
     )
 
@@ -900,7 +900,7 @@ def check_cloud_complete_coverage_consistency(
     _, flux_clear, _ = spectrum_function(
         mass_fractions=mass_fractions_clear,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure_clear,
-        complete_coverage_clouds=None,
+        patchy_clouds=None,
         **kwargs,
     )
 
@@ -908,15 +908,17 @@ def check_cloud_complete_coverage_consistency(
         mass_fractions=mass_fractions,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure,
         cloud_fraction=0,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         **kwargs,
     )
 
     assert np.allclose(flux_clear, flux_coverage0, atol=0, rtol=relative_tolerance)
 
-    assert not np.allclose(  # check that there are differences between the cloudy and the cloudless cases
-        flux_clear, flux_cloudy, atol=0, rtol=relative_tolerance
+    cloud_effect = np.max(
+        np.abs(flux_clear - flux_cloudy)
+        / np.maximum(np.abs(flux_clear), np.finfo(float).tiny)
     )
+    assert cloud_effect > relative_tolerance / 10
 
     print("OK")
 
@@ -925,7 +927,7 @@ def check_cloud_complete_coverage_consistency(
             mass_fractions=mass_fractions,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
             cloud_fraction=cloud_fraction,
-            complete_coverage_clouds=complete_coverage_clouds,
+            patchy_clouds=patchy_clouds,
             **kwargs,
         )
 

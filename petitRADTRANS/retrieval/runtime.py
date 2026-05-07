@@ -273,7 +273,7 @@ class ModelInputs:
     power_law_opacity_350nm: Any = None
     cloud_hansen_b: Any = None
     cloud_fraction: Any = 1.0
-    complete_coverage_clouds: tuple[str, ...] = ()
+    patchy_clouds: tuple[str, ...] | None = None
     cloud_particle_radius_distribution: str | None = None
     distance_to_system: Any = None
     stellar_radius: Any = None
@@ -284,19 +284,19 @@ class ModelInputs:
     additional_inputs: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.complete_coverage_clouds is None:
-            normalized_complete_coverage_clouds = ()
-        elif isinstance(self.complete_coverage_clouds, tuple):
-            normalized_complete_coverage_clouds = self.complete_coverage_clouds
-        elif isinstance(self.complete_coverage_clouds, (str, bytes)):
-            normalized_complete_coverage_clouds = (self.complete_coverage_clouds,)
+        if self.patchy_clouds is None:
+            normalized_patchy_clouds = None
+        elif isinstance(self.patchy_clouds, tuple):
+            normalized_patchy_clouds = self.patchy_clouds
+        elif isinstance(self.patchy_clouds, (str, bytes)):
+            normalized_patchy_clouds = (self.patchy_clouds,)
         else:
-            normalized_complete_coverage_clouds = tuple(self.complete_coverage_clouds)
+            normalized_patchy_clouds = tuple(self.patchy_clouds)
 
         object.__setattr__(
             self,
-            "complete_coverage_clouds",
-            normalized_complete_coverage_clouds,
+            "patchy_clouds",
+            normalized_patchy_clouds,
         )
 
     def tree_flatten(self):
@@ -327,7 +327,7 @@ class ModelInputs:
             self.v_band_reddening,
         )
         aux_data = {
-            "complete_coverage_clouds": self.complete_coverage_clouds,
+            "patchy_clouds": self.patchy_clouds,
             "cloud_particle_radius_distribution": self.cloud_particle_radius_distribution,
             "additional_inputs": self.additional_inputs,
         }
@@ -360,7 +360,7 @@ class ModelInputs:
             disk_radius=children[20],
             v_band_extinction=children[21],
             v_band_reddening=children[22],
-            complete_coverage_clouds=aux_data["complete_coverage_clouds"],
+            patchy_clouds=aux_data["patchy_clouds"],
             cloud_particle_radius_distribution=aux_data[
                 "cloud_particle_radius_distribution"
             ],

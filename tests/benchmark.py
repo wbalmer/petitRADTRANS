@@ -227,9 +227,23 @@ class Benchmark:
         """
         invalid_parameters: dict = {}
         error_messages: dict = {}
+        renamed_parameter_aliases = {
+            "complete_coverage_clouds": "patchy_clouds",
+            "patchy_clouds": "complete_coverage_clouds",
+        }
 
         for parameter, value in reference_file.parameters.items():
             if parameter not in test_parameters:
+                if (
+                    parameter in renamed_parameter_aliases
+                    and renamed_parameter_aliases[parameter] in test_parameters
+                ):
+                    # This rename also inverted the parameter semantics, so the
+                    # stored metadata values are not directly comparable.
+                    # Keep the old references usable and let the output
+                    # comparison enforce behavioral equivalence instead.
+                    continue
+
                 raise KeyError(f"reference file parameter '{parameter}' not in test parameters dict")
 
             try:

@@ -738,7 +738,7 @@ These parameters are used by all model functions that call
      - Optional
      - Fraction of the planetary disc covered by clouds.  The complementary fraction
        ``(1 − cloud_fraction)`` is cloud-free.  Also accepted as ``patchiness``.
-   * - ``complete_coverage_clouds``
+   * - ``patchy_clouds``
      - list
      - Optional
      - List of cloud species with 100 % coverage even in the nominally clear column.

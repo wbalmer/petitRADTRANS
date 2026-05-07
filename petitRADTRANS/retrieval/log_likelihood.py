@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+from jax.scipy.linalg import solve_triangular
 from jax.typing import ArrayLike
 from jax.scipy.special import logsumexp
 from petitRADTRANS.jax_dtype import JAX_DTYPE
@@ -137,7 +138,11 @@ class LogLikelihood:
 
     def _calculate_chi_squared_covariance(self):
         residual = self.data_spectrum - self.model_spectrum
-        whitened_residual = jnp.linalg.solve(self.cholesky_factor, residual)
+        whitened_residual = solve_triangular(
+            self.cholesky_factor,
+            residual,
+            lower=True,
+        )
         return jnp.dot(whitened_residual, whitened_residual)
 
     def _calculate_chi_squared_uncertainties(self):

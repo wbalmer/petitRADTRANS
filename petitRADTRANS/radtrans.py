@@ -2,6 +2,7 @@
 
 import copy
 import os
+import warnings
 from typing import Any, Callable
 
 import jax.numpy as jnp
@@ -49,13 +50,115 @@ from petitRADTRANS.validation import (
 from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 # JAX-friendly sentinels and helpers for optional inputs
+_UNSET = object()
 _MISSING_FLOAT = jnp.array(-1.0, dtype=JAX_DTYPE)
 _MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=JAX_DTYPE)
+
+_DEPRECATED_CLOUD_PARTICLE_ARGUMENTS = {
+    "cloud_particles_mean_radii": "cloud_particle_mean_radii",
+    "cloud_particles_radius_distribution_std": "cloud_particle_radius_distribution_std",
+    "cloud_particles_radius_distribution": "cloud_particle_radius_distribution",
+    "cloud_particles_number_density_grid": "cloud_particle_number_density_grid",
+}
 
 
 def _noop_opacity_fn(wavelengths, pressures):
     """Return zero opacity matrix with shape (n_wavelengths, n_pressures)."""
     return jnp.zeros((wavelengths.size, pressures.size), dtype=JAX_DTYPE)
+
+
+def _warn_deprecated_cloud_particle_argument(
+    deprecated_name: str, canonical_name: str
+):
+    warnings.warn(
+        f"The '{deprecated_name}' argument is deprecated; use '{canonical_name}' instead.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
+def _resolve_deprecated_cloud_particle_argument(
+    *,
+    deprecated_name: str,
+    canonical_name: str,
+    deprecated_value: Any,
+    canonical_value: Any,
+):
+    if deprecated_value is _UNSET:
+        return canonical_value
+
+    _warn_deprecated_cloud_particle_argument(deprecated_name, canonical_name)
+
+    if canonical_value is not None:
+        raise ValueError(
+            f"received both deprecated argument '{deprecated_name}' and canonical argument "
+            f"'{canonical_name}'; use only '{canonical_name}'"
+        )
+
+    return deprecated_value
+
+
+def _normalize_deprecated_cloud_particle_arguments(
+    *,
+    cloud_particle_mean_radii,
+    cloud_particle_radius_distribution_std,
+    cloud_particle_radius_distribution,
+    cloud_particle_number_density_grid,
+    cloud_particles_mean_radii=_UNSET,
+    cloud_particles_radius_distribution_std=_UNSET,
+    cloud_particles_radius_distribution=_UNSET,
+    cloud_particles_number_density_grid=_UNSET,
+):
+    return {
+        "cloud_particle_mean_radii": _resolve_deprecated_cloud_particle_argument(
+            deprecated_name="cloud_particles_mean_radii",
+            canonical_name="cloud_particle_mean_radii",
+            deprecated_value=cloud_particles_mean_radii,
+            canonical_value=cloud_particle_mean_radii,
+        ),
+        "cloud_particle_radius_distribution_std": _resolve_deprecated_cloud_particle_argument(
+            deprecated_name="cloud_particles_radius_distribution_std",
+            canonical_name="cloud_particle_radius_distribution_std",
+            deprecated_value=cloud_particles_radius_distribution_std,
+            canonical_value=cloud_particle_radius_distribution_std,
+        ),
+        "cloud_particle_radius_distribution": _resolve_deprecated_cloud_particle_argument(
+            deprecated_name="cloud_particles_radius_distribution",
+            canonical_name="cloud_particle_radius_distribution",
+            deprecated_value=cloud_particles_radius_distribution,
+            canonical_value=cloud_particle_radius_distribution,
+        ),
+        "cloud_particle_number_density_grid": _resolve_deprecated_cloud_particle_argument(
+            deprecated_name="cloud_particles_number_density_grid",
+            canonical_name="cloud_particle_number_density_grid",
+            deprecated_value=cloud_particles_number_density_grid,
+            canonical_value=cloud_particle_number_density_grid,
+        ),
+    }
+
+
+def _normalize_deprecated_cloud_particle_parameter_keys(
+    cloud_parameters: dict[str, Any],
+) -> dict[str, Any]:
+    normalized_cloud_parameters = dict(cloud_parameters)
+
+    for deprecated_name, canonical_name in _DEPRECATED_CLOUD_PARTICLE_ARGUMENTS.items():
+        if deprecated_name not in normalized_cloud_parameters:
+            continue
+
+        _warn_deprecated_cloud_particle_argument(deprecated_name, canonical_name)
+
+        if canonical_name in normalized_cloud_parameters:
+            raise ValueError(
+                f"received both deprecated cloud parameter '{deprecated_name}' and canonical "
+                f"parameter '{canonical_name}'; use only '{canonical_name}'"
+            )
+
+        normalized_cloud_parameters[canonical_name] = normalized_cloud_parameters.pop(
+            deprecated_name
+        )
+
+    return normalized_cloud_parameters
 
 
 class Radtrans:
@@ -524,25 +627,12 @@ class Radtrans:
             output, lambda: _clouds_have_effect_internal(mass_fractions), lambda: False
         )
 
-    def _get_complete_coverage_cloud_species(self, complete_coverage_clouds):
-        if complete_coverage_clouds is None:
-            return ()
+    def _get_patchy_cloud_species(self, patchy_clouds):
+        if patchy_clouds is None:
+            return tuple(self._cloud_species)
 
         return tuple(
-            species
-            for species in self._cloud_species
-            if species in complete_coverage_clouds
-        )
-
-    def _get_partial_coverage_cloud_species(self, complete_coverage_clouds):
-        complete_coverage_cloud_species = set(
-            self._get_complete_coverage_cloud_species(complete_coverage_clouds)
-        )
-
-        return tuple(
-            species
-            for species in self._cloud_species
-            if species not in complete_coverage_cloud_species
+            species for species in self._cloud_species if species in patchy_clouds
         )
 
     @staticmethod
@@ -605,7 +695,7 @@ class Radtrans:
         self,
         is_emission,
         reference_gravity,
-        complete_coverage_clouds,
+        patchy_clouds,
         return_clear_spectrum,
         mass_fractions,
         cloud_fraction,
@@ -621,10 +711,12 @@ class Radtrans:
 
         debug.callback(handle_invalid_reference_gravity, reference_gravity)
 
-        if complete_coverage_clouds is None:
-            complete_coverage_clouds = ()
+        if patchy_clouds is None:
+            patchy_clouds = tuple(self._cloud_species)
+        elif isinstance(patchy_clouds, (str, bytes)):
+            patchy_clouds = (patchy_clouds,)
         else:
-            complete_coverage_clouds = tuple(complete_coverage_clouds)
+            patchy_clouds = tuple(patchy_clouds)
 
         spectrum_clear = None
 
@@ -662,7 +754,7 @@ class Radtrans:
 
         return (
             anisotropic_cloud_scattering,
-            complete_coverage_clouds,
+            patchy_clouds,
             spectrum_clear,
             sum_opacities,
         )
@@ -1090,7 +1182,7 @@ class Radtrans:
         static_argnames=[
             "self",
             "cloud_particle_radius_distribution",
-            "complete_coverage_clouds",
+            "patchy_clouds",
             "additional_absorption_opacities_function",
             "additional_scattering_opacities_function",
             "sum_opacities",
@@ -1120,7 +1212,7 @@ class Radtrans:
         gray_opacity=None,
         cloud_photosphere_median_optical_depth=None,
         cloud_fraction=1.0,
-        complete_coverage_clouds=None,
+        patchy_clouds=None,
         return_cloud_contribution=False,
         additional_absorption_opacities_function=None,
         additional_scattering_opacities_function=None,
@@ -1178,8 +1270,8 @@ class Radtrans:
                 Optional target median cloud optical depth near the photosphere.
             cloud_fraction:
                 Cloud coverage fraction for mixed cloudy and clear columns.
-            complete_coverage_clouds:
-                Cloud species that should always be treated as fully covering.
+            patchy_clouds:
+                Cloud species affected by ``cloud_fraction``.
             return_cloud_contribution:
                 If ``True``, propagate cloud contribution products required by
                 downstream diagnostics.
@@ -1215,9 +1307,7 @@ class Radtrans:
 
         # if cloud_fraction < 0 or cloud_fraction > 1:
         #    raise ValueError(f"cloud coverage fraction must be between 0 and 1, but was {cloud_fraction}")
-        if complete_coverage_clouds is None:
-            complete_coverage_clouds = ()
-        complete_coverage_clouds = tuple(complete_coverage_clouds)
+        patchy_cloud_species = self._get_patchy_cloud_species(patchy_clouds)
 
         if sum_opacities is None:
             sum_opacities = self.__sum_opacities
@@ -1287,10 +1377,6 @@ class Radtrans:
             )
         )
 
-        complete_coverage_cloud_species = self._get_complete_coverage_cloud_species(
-            complete_coverage_clouds
-        )
-
         (
             cloudy_cloud_continuum_opacities,
             cloudy_cloud_continuum_opacities_scattering,
@@ -1329,7 +1415,7 @@ class Radtrans:
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
-            complete_coverage_clouds=complete_coverage_cloud_species,
+            patchy_clouds=patchy_cloud_species,
             return_cloud_contribution=return_cloud_contribution,
             compute_clear_opacities=compute_clear_opacities,
             target_particle_radii=target_particle_radii,
@@ -2146,7 +2232,7 @@ class Radtrans:
         cloud_photosphere_wavelength_boundaries: ArrayLike = None,
         cloud_photosphere_median_optical_depth: float = None,
         cloud_fraction: float = 1.0,
-        complete_coverage_clouds: list[str] = None,
+        patchy_clouds: list[str] = None,
         irradiation_geometry: str = "dayside_ave",
         stellar_intensities: ArrayLike = None,
         star_effective_temperature: float = None,
@@ -2172,6 +2258,11 @@ class Radtrans:
         return_particle_radii: bool = False,
         target_particle_radii: ArrayLike = None,
         target_pressure: ArrayLike = None,
+        *,
+        cloud_particles_mean_radii: Any = _UNSET,
+        cloud_particles_radius_distribution_std: Any = _UNSET,
+        cloud_particles_radius_distribution: Any = _UNSET,
+        cloud_particles_number_density_grid: Any = _UNSET,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's emitted flux (emission spectrum).
 
@@ -2240,8 +2331,8 @@ class Radtrans:
             cloud_fraction:
                 Mix a column without cloud with a column with cloud to the requested fraction
                 (0 = clear, 1 = full cloud cover). By default, assume a full cloud cover.
-            complete_coverage_clouds:
-                List of clouds that have full coverage, regardless of the value of cloud_fraction.
+            patchy_clouds:
+                Tuple or list of clouds affected by ``cloud_fraction``.
             irradiation_geometry (Optional[string]):
                 if equal to ``'dayside_ave'``: use the dayside average geometry.
                 If equal to ``'planetary_ave'``: use the planetary average geometry.
@@ -2316,15 +2407,40 @@ class Radtrans:
                 ``target_particle_radii`` when cloud properties are
                 requested on a custom grid.
         """
+        normalized_cloud_particle_arguments = (
+            _normalize_deprecated_cloud_particle_arguments(
+                cloud_particle_mean_radii=cloud_particle_mean_radii,
+                cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+                cloud_particle_radius_distribution=cloud_particle_radius_distribution,
+                cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+                cloud_particles_mean_radii=cloud_particles_mean_radii,
+                cloud_particles_radius_distribution_std=cloud_particles_radius_distribution_std,
+                cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+                cloud_particles_number_density_grid=cloud_particles_number_density_grid,
+            )
+        )
+        cloud_particle_mean_radii = normalized_cloud_particle_arguments[
+            "cloud_particle_mean_radii"
+        ]
+        cloud_particle_radius_distribution_std = normalized_cloud_particle_arguments[
+            "cloud_particle_radius_distribution_std"
+        ]
+        cloud_particle_radius_distribution = normalized_cloud_particle_arguments[
+            "cloud_particle_radius_distribution"
+        ]
+        cloud_particle_number_density_grid = normalized_cloud_particle_arguments[
+            "cloud_particle_number_density_grid"
+        ]
+
         (
             anisotropic_cloud_scattering,
-            complete_coverage_clouds,
+            patchy_clouds,
             _,
             sum_opacities,
         ) = self._init_spectral_function(
             is_emission=True,
             reference_gravity=reference_gravity,
-            complete_coverage_clouds=complete_coverage_clouds,
+            patchy_clouds=patchy_clouds,
             return_clear_spectrum=return_clear_spectrum,
             mass_fractions=mass_fractions,
             cloud_fraction=cloud_fraction,
@@ -2360,7 +2476,7 @@ class Radtrans:
             cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
             cloud_fraction=cloud_fraction,
-            complete_coverage_clouds=complete_coverage_clouds,
+            patchy_clouds=patchy_clouds,
             irradiation_geometry=irradiation_geometry,
             stellar_intensities=stellar_intensities,
             star_effective_temperature=star_effective_temperature,
@@ -2398,7 +2514,7 @@ class Radtrans:
             "chunk_feautrier",
             "feautrier_chunk_size",
             "frequencies_to_wavelengths",
-            "complete_coverage_clouds",
+            "patchy_clouds",
             "sum_opacities",
             "anisotropic_cloud_scattering",
             "return_contribution",
@@ -2435,7 +2551,7 @@ class Radtrans:
         cloud_photosphere_wavelength_boundaries=None,
         cloud_photosphere_median_optical_depth=None,
         cloud_fraction=1.0,
-        complete_coverage_clouds=None,
+        patchy_clouds=None,
         irradiation_geometry="dayside_ave",
         stellar_intensities=None,
         star_effective_temperature=None,
@@ -2482,7 +2598,7 @@ class Radtrans:
             emissivities=emissivities,
         )
         sanitized_inputs = _sanitize_flux_opacity_inputs(
-            complete_coverage_clouds=complete_coverage_clouds,
+            patchy_clouds=patchy_clouds,
             cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
@@ -2505,17 +2621,15 @@ class Radtrans:
             missing_neg_inf=_MISSING_NEG_INF,
             noop_opacity_fn=_noop_opacity_fn,
         )
-        partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
-            sanitized_inputs["complete_coverage_clouds"]
-        )
+        patchy_cloud_species = sanitized_inputs["patchy_clouds"]
 
         # Determine whether clear opacities are needed.
-        # len(partial_coverage_cloud_species) and return_clear_spectrum are static;
+        # len(patchy_cloud_species) and return_clear_spectrum are static;
         # cloud_fraction is traced.  compute_clear_opacities must be a static
         # Python bool so that the clear branch is never compiled when unneeded.
-        # When partial-coverage species exist, we always compile the clear
+        # When patchy species exist, we always compile the clear
         # branch; the actual blending is gated by lax.cond on cloud_fraction.
-        if len(partial_coverage_cloud_species) > 0:
+        if len(patchy_cloud_species) > 0:
             should_compute_clear_opacities = True
         else:
             should_compute_clear_opacities = False
@@ -2563,7 +2677,7 @@ class Radtrans:
                 "cloud_photosphere_median_optical_depth"
             ],
             cloud_fraction=cloud_fraction,
-            complete_coverage_clouds=sanitized_inputs["complete_coverage_clouds"],
+            patchy_clouds=sanitized_inputs["patchy_clouds"],
             return_cloud_contribution=return_cloud_contribution,
             additional_absorption_opacities_function=sanitized_inputs[
                 "additional_absorption_opacities_function"
@@ -2606,9 +2720,9 @@ class Radtrans:
             feautrier_chunk_size=feautrier_chunk_size,
         )
 
-        # --- Cloud blending for partial coverage ---
-        flux_clear = flux  # default: clear == cloudy when no partial-coverage clouds
-        if len(partial_coverage_cloud_species) > 0:
+        # --- Cloud blending for patchy coverage ---
+        flux_clear = flux  # default: clear == cloudy when no patchy clouds
+        if len(patchy_cloud_species) > 0:
             if return_clear_spectrum:
                 # Always compute clear flux when the caller requested it.
                 flux_clear, _, _, _, _ = self._calculate_flux(
@@ -2831,6 +2945,7 @@ class Radtrans:
             "cloud_particle_mean_radii",
             "cloud_particle_radius_distribution_std",
             "cloud_particle_radius_distribution",
+            "cloud_particle_number_density_grid",
             "cloud_hansen_a",
             "cloud_hansen_b",
             "clouds_particle_porosity_factor",
@@ -2843,10 +2958,13 @@ class Radtrans:
             "cloud_photosphere_wavelength_boundaries",
             "cloud_photosphere_median_optical_depth",
             "cloud_fraction",
-            "complete_coverage_clouds",
+            "patchy_clouds",
             "adaptive_feautrier_iterations",
         }
         cloud_parameters = {} if cloud_parameters is None else dict(cloud_parameters)
+        cloud_parameters = _normalize_deprecated_cloud_particle_parameter_keys(
+            cloud_parameters
+        )
         unsupported_cloud_parameters = sorted(
             set(cloud_parameters) - allowed_cloud_parameters
         )
@@ -2985,6 +3103,10 @@ class Radtrans:
         power_law_opacity_350nm: float = None,
         power_law_opacity_coefficient: float = None,
         gray_opacity: float = None,
+        *,
+        cloud_particles_mean_radii: Any = _UNSET,
+        cloud_particles_radius_distribution_std: Any = _UNSET,
+        cloud_particles_radius_distribution: Any = _UNSET,
     ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
         """Method to calculate the atmosphere's Rosseland and Planck mean opacities.
 
@@ -3050,6 +3172,27 @@ class Radtrans:
                 Gray opacity value, to be added to the opacity at all
                 pressures and wavelengths (units :math:`\\rm cm^2/g`)
         """
+        normalized_cloud_particle_arguments = (
+            _normalize_deprecated_cloud_particle_arguments(
+                cloud_particle_mean_radii=cloud_particle_mean_radii,
+                cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+                cloud_particle_radius_distribution=cloud_particle_radius_distribution,
+                cloud_particle_number_density_grid=None,
+                cloud_particles_mean_radii=cloud_particles_mean_radii,
+                cloud_particles_radius_distribution_std=cloud_particles_radius_distribution_std,
+                cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            )
+        )
+        cloud_particle_mean_radii = normalized_cloud_particle_arguments[
+            "cloud_particle_mean_radii"
+        ]
+        cloud_particle_radius_distribution_std = normalized_cloud_particle_arguments[
+            "cloud_particle_radius_distribution_std"
+        ]
+        cloud_particle_radius_distribution = normalized_cloud_particle_arguments[
+            "cloud_particle_radius_distribution"
+        ]
+
         if not self._scattering_in_emission:
             raise ValueError(
                 "pRT must run in scattering_in_emission = True mode to calculate kappa_Rosseland and kappa_Planck'"
@@ -3068,7 +3211,7 @@ class Radtrans:
             )
 
         sanitized_inputs = _sanitize_flux_opacity_inputs(
-            complete_coverage_clouds=(),
+            patchy_clouds=(),
             cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
@@ -3136,7 +3279,7 @@ class Radtrans:
                 "cloud_photosphere_median_optical_depth"
             ],
             cloud_fraction=1.0,
-            complete_coverage_clouds=sanitized_inputs["complete_coverage_clouds"],
+            patchy_clouds=sanitized_inputs["patchy_clouds"],
             return_cloud_contribution=False,
             additional_absorption_opacities_function=sanitized_inputs[
                 "additional_absorption_opacities_function"
@@ -3197,7 +3340,7 @@ class Radtrans:
         power_law_opacity_coefficient: float = None,
         gray_opacity: float = None,
         cloud_fraction: float = 1.0,
-        complete_coverage_clouds: list[str] = None,
+        patchy_clouds: list[str] = None,
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
         frequencies_to_wavelengths: bool = True,
@@ -3212,6 +3355,11 @@ class Radtrans:
         return_particle_densities: bool = False,
         target_particle_radii: ArrayLike = None,
         target_pressure: ArrayLike = None,
+        *,
+        cloud_particles_mean_radii: Any = _UNSET,
+        cloud_particles_radius_distribution_std: Any = _UNSET,
+        cloud_particles_radius_distribution: Any = _UNSET,
+        cloud_particles_number_density_grid: Any = _UNSET,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's transmission radius
         (for the transmission spectrum).
@@ -3293,8 +3441,8 @@ class Radtrans:
                 cloud_fraction:
                     Mix a column without cloud with a column with cloud to the requested fraction
                     (0 = clear, 1 = full cloud cover). By default, assume a full cloud cover.
-                complete_coverage_clouds:
-                    List of clouds that have full coverage, regardless of the value of cloud_fraction.
+                patchy_clouds:
+                    Tuple or list of clouds affected by ``cloud_fraction``.
                 additional_absorption_opacities_function (Optional[function]):
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an absorption opacity matrix in units of cm^2/g, in the shape of
@@ -3340,15 +3488,40 @@ class Radtrans:
                     Optional pressure grid associated with
                     ``target_particle_radii``.
         """
+        normalized_cloud_particle_arguments = (
+            _normalize_deprecated_cloud_particle_arguments(
+                cloud_particle_mean_radii=cloud_particle_mean_radii,
+                cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+                cloud_particle_radius_distribution=cloud_particle_radius_distribution,
+                cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+                cloud_particles_mean_radii=cloud_particles_mean_radii,
+                cloud_particles_radius_distribution_std=cloud_particles_radius_distribution_std,
+                cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+                cloud_particles_number_density_grid=cloud_particles_number_density_grid,
+            )
+        )
+        cloud_particle_mean_radii = normalized_cloud_particle_arguments[
+            "cloud_particle_mean_radii"
+        ]
+        cloud_particle_radius_distribution_std = normalized_cloud_particle_arguments[
+            "cloud_particle_radius_distribution_std"
+        ]
+        cloud_particle_radius_distribution = normalized_cloud_particle_arguments[
+            "cloud_particle_radius_distribution"
+        ]
+        cloud_particle_number_density_grid = normalized_cloud_particle_arguments[
+            "cloud_particle_number_density_grid"
+        ]
+
         (
             anisotropic_cloud_scattering,
-            complete_coverage_clouds,
+            patchy_clouds,
             _,
             sum_opacities,
         ) = self._init_spectral_function(
             is_emission=False,
             reference_gravity=reference_gravity,
-            complete_coverage_clouds=complete_coverage_clouds,
+            patchy_clouds=patchy_clouds,
             return_clear_spectrum=return_clear_spectrum,
             mass_fractions=mass_fractions,
             cloud_fraction=cloud_fraction,
@@ -3378,7 +3551,7 @@ class Radtrans:
             power_law_opacity_coefficient=power_law_opacity_coefficient,
             gray_opacity=gray_opacity,
             cloud_fraction=cloud_fraction,
-            complete_coverage_clouds=complete_coverage_clouds,
+            patchy_clouds=patchy_clouds,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function,
             frequencies_to_wavelengths=frequencies_to_wavelengths,
@@ -3403,7 +3576,7 @@ class Radtrans:
             "cloud_particle_radius_distribution",
             "variable_gravity",
             "frequencies_to_wavelengths",
-            "complete_coverage_clouds",
+            "patchy_clouds",
             "sum_opacities",
             "anisotropic_cloud_scattering",
             "return_contribution",
@@ -3442,7 +3615,7 @@ class Radtrans:
         gray_opacity=None,
         cloud_photosphere_median_optical_depth=None,
         cloud_fraction=1.0,
-        complete_coverage_clouds=None,
+        patchy_clouds=None,
         additional_absorption_opacities_function=None,
         additional_scattering_opacities_function=None,
         frequencies_to_wavelengths=True,
@@ -3464,7 +3637,7 @@ class Radtrans:
         sum_opacities = sum_opacities or return_contribution
 
         sanitized_inputs = _sanitize_flux_opacity_inputs(
-            complete_coverage_clouds=complete_coverage_clouds,
+            patchy_clouds=patchy_clouds,
             cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
@@ -3487,14 +3660,12 @@ class Radtrans:
             missing_neg_inf=_MISSING_NEG_INF,
             noop_opacity_fn=_noop_opacity_fn,
         )
-        partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
-            sanitized_inputs["complete_coverage_clouds"]
-        )
+        patchy_cloud_species = sanitized_inputs["patchy_clouds"]
 
         # Determine whether clear opacities are needed.
         # compute_clear_opacities must be a static Python bool so that the
         # clear branch is never compiled when unneeded.
-        if len(partial_coverage_cloud_species) > 0:
+        if len(patchy_cloud_species) > 0:
             should_compute_clear_opacities = True
         else:
             should_compute_clear_opacities = False
@@ -3542,7 +3713,7 @@ class Radtrans:
                 "cloud_photosphere_median_optical_depth"
             ],
             cloud_fraction=cloud_fraction,
-            complete_coverage_clouds=sanitized_inputs["complete_coverage_clouds"],
+            patchy_clouds=sanitized_inputs["patchy_clouds"],
             return_cloud_contribution=return_cloud_contribution,
             additional_absorption_opacities_function=sanitized_inputs[
                 "additional_absorption_opacities_function"
@@ -3573,9 +3744,9 @@ class Radtrans:
             )
         )
 
-        # --- Cloud blending for partial coverage ---
+        # --- Cloud blending for patchy coverage ---
         transit_radii_clear = transit_radii
-        if len(partial_coverage_cloud_species) > 0:
+        if len(patchy_cloud_species) > 0:
             if return_clear_spectrum:
                 # Always compute clear radii when the caller requested it.
                 transit_radii_clear, _, _ = self._calculate_transit_radii(
@@ -3758,9 +3929,12 @@ class Radtrans:
             "power_law_opacity_coefficient",
             "gray_opacity",
             "cloud_fraction",
-            "complete_coverage_clouds",
+            "patchy_clouds",
         }
         cloud_parameters = {} if cloud_parameters is None else dict(cloud_parameters)
+        cloud_parameters = _normalize_deprecated_cloud_particle_parameter_keys(
+            cloud_parameters
+        )
         unsupported_cloud_parameters = sorted(
             set(cloud_parameters) - allowed_cloud_parameters
         )

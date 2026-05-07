@@ -1424,7 +1424,7 @@ def legacy_molliere_2020_emission(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
 
@@ -1443,7 +1443,7 @@ def legacy_molliere_2020_emission(
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         distribution=distribution,
     )
 
@@ -1620,7 +1620,7 @@ def legacy_molliere_2020_two_column(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
 
@@ -1787,7 +1787,7 @@ def legacy_guillot_emission(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
 
@@ -1806,7 +1806,7 @@ def legacy_guillot_emission(
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         distribution=distribution,
     )
 
@@ -1934,7 +1934,7 @@ def legacy_guillot_emission_add_gaussian_temperature(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
 
@@ -1953,7 +1953,7 @@ def legacy_guillot_emission_add_gaussian_temperature(
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         distribution=distribution,
     )
 
@@ -2082,7 +2082,7 @@ def legacy_interpolated_profile_emission(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
 
@@ -2101,7 +2101,7 @@ def legacy_interpolated_profile_emission(
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         distribution=distribution,
     )
 
@@ -2230,7 +2230,7 @@ def legacy_gradient_profile_emission(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
 
@@ -2249,7 +2249,7 @@ def legacy_gradient_profile_emission(
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         distribution=distribution,
     )
 
@@ -2364,7 +2364,7 @@ def legacy_power_law_profile_emission(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
 
@@ -2383,7 +2383,7 @@ def legacy_power_law_profile_emission(
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         distribution=distribution,
     )
 
@@ -2510,7 +2510,7 @@ def legacy_guillot_transmission(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
     # Calculate the spectrum.
@@ -2533,7 +2533,7 @@ def legacy_guillot_transmission(
         power_law_opacity_350nm=power_law_opacity_350nm,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         distribution=distribution,
     )
 
@@ -2684,7 +2684,7 @@ def legacy_madhushudhan_seager_emission(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
     # Calculate the spectrum.
@@ -2702,7 +2702,7 @@ def legacy_madhushudhan_seager_emission(
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         distribution=distribution,
     )
 
@@ -2848,7 +2848,7 @@ def legacy_madhushudhan_seager_transmission(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
     # Calculate the spectrum.
@@ -2871,7 +2871,7 @@ def legacy_madhushudhan_seager_transmission(
         power_law_opacity_350nm=power_law_opacity_350nm,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         distribution=distribution,
     )
 
@@ -2999,7 +2999,7 @@ def legacy_isothermal_transmission(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
     # Calculate the spectrum.
@@ -3022,7 +3022,7 @@ def legacy_isothermal_transmission(
         power_law_opacity_350nm=power_law_opacity_350nm,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         distribution=distribution,
     )
 
@@ -3136,7 +3136,7 @@ def legacy_power_law_profile_transmission(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
     # Calculate the spectrum.
@@ -3159,7 +3159,7 @@ def legacy_power_law_profile_transmission(
         power_law_opacity_350nm=power_law_opacity_350nm,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         distribution=distribution,
     )
 
@@ -3640,7 +3640,7 @@ def _build_runtime_emission_model_inputs(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
 
@@ -3657,7 +3657,7 @@ def _build_runtime_emission_model_inputs(
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         cloud_particle_radius_distribution=distribution,
         distance_to_system=physical_params["distance_to_system"],
         disk_blackbody_temperature=(
@@ -3703,7 +3703,7 @@ def _build_runtime_transmission_model_inputs(
         cloud_hansen_b,
         cloud_particle_mean_radii,
         cloud_fraction,
-        complete_coverage_clouds,
+        patchy_clouds,
         distribution,
     ) = cloud_properties
 
@@ -3725,7 +3725,7 @@ def _build_runtime_transmission_model_inputs(
         power_law_opacity_350nm=power_law_opacity_350nm,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         cloud_particle_radius_distribution=distribution,
         stellar_radius=physical_params["stellar_radius"],
     )
@@ -3746,7 +3746,7 @@ def calculate_emission_spectrum_runtime(
         cloud_hansen_b=model_inputs.cloud_hansen_b,
         cloud_particle_mean_radii=model_inputs.cloud_particle_mean_radii,
         cloud_fraction=model_inputs.cloud_fraction,
-        complete_coverage_clouds=model_inputs.complete_coverage_clouds,
+        patchy_clouds=model_inputs.patchy_clouds,
         cloud_particle_radius_distribution=model_inputs.cloud_particle_radius_distribution,
     )
 
@@ -3850,7 +3850,7 @@ def calculate_transmission_spectrum_runtime(
         power_law_opacity_350nm=model_inputs.power_law_opacity_350nm,
         cloud_hansen_b=model_inputs.cloud_hansen_b,
         cloud_fraction=model_inputs.cloud_fraction,
-        complete_coverage_clouds=model_inputs.complete_coverage_clouds,
+        patchy_clouds=model_inputs.patchy_clouds,
         cloud_particle_radius_distribution=model_inputs.cloud_particle_radius_distribution,
         return_contribution=model_context.return_contribution,
         return_cloud_contribution=model_context.return_cloud_contribution,
@@ -3891,7 +3891,7 @@ def calculate_emission_spectrum(
     eddy_diffusion_coefficients,
     cloud_hansen_b,
     cloud_fraction,
-    complete_coverage_clouds,
+    patchy_clouds,
     distribution,
 ):
     """
@@ -3916,7 +3916,7 @@ def calculate_emission_spectrum(
         eddy_diffusion_coefficients (ArrayLike): Vertical mixing strength (Kzz)
         cloud_hansen_b (ArrayLike): Cloud particle distribution width, hansen distsribution
         cloud_fraction (float) : fraction of planet covered by clouds
-        complete_coverage_clouds (list(str)) : Which clouds are NOT patchy
+        patchy_clouds (list(str)) : Which clouds are patchy
         distribution (string): Which cloud particle size distribution to use
     """
     model_context = _build_model_context_from_parameters(
@@ -3938,7 +3938,7 @@ def calculate_emission_spectrum(
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         cloud_particle_radius_distribution=distribution,
         distance_to_system=parameters["distance_to_system"].value,
         disk_blackbody_temperature=(
@@ -3987,7 +3987,7 @@ def calculate_transmission_spectrum(
     power_law_opacity_350nm,
     cloud_hansen_b,
     cloud_fraction,
-    complete_coverage_clouds,
+    patchy_clouds,
     distribution,
 ):
     """_summary_
@@ -4011,7 +4011,7 @@ def calculate_transmission_spectrum(
         power_law_opacity_350nm (float): Strength of the power law scattering at 350nm
         cloud_hansen_b (ArrayLike): Cloud particle distribution width, hansen distsribution
         cloud_fraction (float) : fraction of planet covered by clouds
-        complete_coverage_clouds (list(str)) : Which clouds are NOT patchy
+        patchy_clouds (list(str)) : Which clouds are patchy
         distribution (string): Log normal or hansen particle size distribution
     Returns:
         _type_: _description_
@@ -4040,7 +4040,7 @@ def calculate_transmission_spectrum(
         power_law_opacity_350nm=power_law_opacity_350nm,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
+        patchy_clouds=patchy_clouds,
         cloud_particle_radius_distribution=distribution,
         stellar_radius=parameters["stellar_radius"].value,
     )

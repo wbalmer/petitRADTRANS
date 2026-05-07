@@ -186,8 +186,8 @@ def test_line_by_line_spectral_model_transmission_full_matches_direct_radtrans()
         ),
         gray_opacity=spectral_model.model_parameters.get("gray_opacity"),
         cloud_fraction=spectral_model.model_parameters.get("cloud_fraction", 1.0),
-        complete_coverage_clouds=spectral_model.model_parameters.get(
-            "complete_coverage_clouds"
+        patchy_clouds=spectral_model.model_parameters.get(
+            "patchy_clouds"
         ),
         additional_absorption_opacities_function=spectral_model.model_parameters.get(
             "additional_absorption_opacities_function"
@@ -364,9 +364,13 @@ def test_line_by_line_spectral_model_transmission_full_all_with_complete_coverag
     )
     mass_fractions_clear = copy.deepcopy(test_parameters["mass_fractions_line_by_line"])
 
-    for complete_coverage_cloud in test_parameters["cloud_parameters"][
-        "complete_coverage_clouds"
-    ]:
+    for complete_coverage_cloud in (
+        species
+        for species in test_parameters["cloud_parameters"]["cloud_species"]
+        if species not in test_parameters["cloud_parameters"][
+        "patchy_clouds"
+        ]
+    ):
         mass_fractions_clear[complete_coverage_cloud] = mass_fractions[
             complete_coverage_cloud
         ]
@@ -400,9 +404,9 @@ def test_line_by_line_spectral_model_transmission_full_all_with_complete_coverag
 
     # Test flux cloudy
     spectral_model.model_parameters["cloud_fraction"] = 1
-    spectral_model.model_parameters["complete_coverage_clouds"] = test_parameters[
+    spectral_model.model_parameters["patchy_clouds"] = test_parameters[
         "cloud_parameters"
-    ]["complete_coverage_clouds"]
+    ]["patchy_clouds"]
     spectral_model.model_parameters["imposed_mass_fractions"] = mass_fractions
 
     _, flux_coverage1, _, _, _ = calculate_spectrum(
@@ -411,9 +415,9 @@ def test_line_by_line_spectral_model_transmission_full_all_with_complete_coverag
 
     # Test flux clear
     spectral_model.model_parameters["cloud_fraction"] = 0
-    spectral_model.model_parameters["complete_coverage_clouds"] = test_parameters[
+    spectral_model.model_parameters["patchy_clouds"] = test_parameters[
         "cloud_parameters"
-    ]["complete_coverage_clouds"]
+    ]["patchy_clouds"]
     for species in spectral_model.cloud_species:
         spectral_model.model_parameters["imposed_mass_fractions"][species] = (
             mass_fractions_clear[species]

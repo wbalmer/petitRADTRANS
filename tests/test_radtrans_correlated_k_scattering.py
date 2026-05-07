@@ -304,9 +304,13 @@ def test_correlated_k_emission_spectrum_complete_coverage_calculated_radius_stel
     )
     mass_fractions_clear = copy.deepcopy(test_parameters["mass_fractions_correlated_k"])
 
-    for complete_coverage_cloud in test_parameters["cloud_parameters"][
-        "complete_coverage_clouds"
-    ]:
+    for complete_coverage_cloud in (
+        species
+        for species in test_parameters["cloud_parameters"]["cloud_species"]
+        if species not in test_parameters["cloud_parameters"][
+        "patchy_clouds"
+        ]
+    ):
         mass_fractions_clear[complete_coverage_cloud] = mass_fractions[
             complete_coverage_cloud
         ]
@@ -323,8 +327,8 @@ def test_correlated_k_emission_spectrum_complete_coverage_calculated_radius_stel
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
         cloud_fraction=test_parameters["cloud_parameters"]["cloud_fraction"],
-        complete_coverage_clouds=test_parameters["cloud_parameters"][
-            "complete_coverage_clouds"
+        patchy_clouds=test_parameters["cloud_parameters"][
+            "patchy_clouds"
         ],
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
@@ -431,9 +435,13 @@ def test_correlated_k_transmission_spectrum_complete_coverage_calculated_radius_
     )
     mass_fractions_clear = copy.deepcopy(test_parameters["mass_fractions_correlated_k"])
 
-    for complete_coverage_cloud in test_parameters["cloud_parameters"][
-        "complete_coverage_clouds"
-    ]:
+    for complete_coverage_cloud in (
+        species
+        for species in test_parameters["cloud_parameters"]["cloud_species"]
+        if species not in test_parameters["cloud_parameters"][
+        "patchy_clouds"
+        ]
+    ):
         mass_fractions_clear[complete_coverage_cloud] = mass_fractions[
             complete_coverage_cloud
         ]
@@ -448,8 +456,8 @@ def test_correlated_k_transmission_spectrum_complete_coverage_calculated_radius_
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
         cloud_fraction=test_parameters["cloud_parameters"]["cloud_fraction"],
-        complete_coverage_clouds=test_parameters["cloud_parameters"][
-            "complete_coverage_clouds"
+        patchy_clouds=test_parameters["cloud_parameters"][
+            "patchy_clouds"
         ],
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
