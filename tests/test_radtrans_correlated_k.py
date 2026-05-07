@@ -39,6 +39,7 @@ def init_radtrans_correlated_k():
             "wavelength_range_correlated_k"
         ],
         line_opacity_mode="c-k",
+        scattering_in_emission=False,
     )
 
     return atmosphere

@@ -1367,12 +1367,10 @@ class Radtrans:
                 + cloudy_cloud_continuum_opacities_scattering
             )
         else:
-            # Non-scattering emission ignores the scattering channel downstream,
-            # so cloud extinction must be folded into the absorptive continuum.
+            # Legacy non-scattering emission ignores continuum scattering entirely,
+            # including cloud scattering extinction.
             cloudy_continuum_opacities = (
-                continuum_opacities
-                + cloudy_cloud_continuum_opacities
-                + cloudy_cloud_continuum_opacities_scattering
+                continuum_opacities + cloudy_cloud_continuum_opacities
             )
             cloudy_continuum_opacities_scattering = continuum_opacities_scattering
 
@@ -1405,9 +1403,7 @@ class Radtrans:
                 )
             else:
                 clear_continuum_opacities = (
-                    continuum_opacities
-                    + clear_cloud_continuum_opacities
-                    + clear_cloud_continuum_opacities_scattering
+                    continuum_opacities + clear_cloud_continuum_opacities
                 )
                 clear_continuum_opacities_scattering = continuum_opacities_scattering
             clear_opacities = continuum.compute_combined_opacities(

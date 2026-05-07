@@ -1091,13 +1091,33 @@ def _compute_feautrier_radiative_transfer_chunk(
         return J_bol_gfl, I_H_top, new_I_plus_surface
 
     # ------------------------------------------------------------------
-    # 13. Scattering iteration loop with a fixed scan budget.
+    # 13. Scattering iteration control.
     #
     # Reverse-mode autodiff cannot differentiate the original data-dependent
-    # while-loop. Run a static number of scan steps and skip the whole-grid
-    # solve once every (g, f) pair has satisfied both the minimum iteration
-    # gate and the convergence threshold.
+    # while-loop. Keep the adaptive path on a static scan budget, but split
+    # out a dedicated fixed-iteration kernel and a conservative direct solve
+    # for columns with no atmospheric scattering and a non-reflective lower
+    # boundary.
     # ------------------------------------------------------------------
+
+    zero_source_gfl = jnp.zeros((n_g, n_freq_bins, n_layers))
+    initial_I_plus_surface_gfa = jnp.zeros((n_g, n_freq_bins, n_angles))
+    initial_flux_gf = jnp.zeros((n_g, n_freq_bins))
+    initial_I_H_top = jnp.zeros((n_g, n_freq_bins, n_angles))
+    initial_I_minus_gf = (
+        jnp.zeros((n_g, n_freq_bins))
+        if return_contribution
+        else jnp.zeros((1,), dtype=planck_broadcast_gfl.dtype)
+    )
+    configured_iter_budget = jnp.array(iter_scat_max + 1, dtype=jnp.int32)
+    fixed_iteration_count = min(iter_scat_max + 1, 9)
+
+    no_scattering_pdp_tol = _pdp_floor
+    no_atmospheric_scattering = jnp.all(one_minus_pdp_gfl <= no_scattering_pdp_tol)
+    non_reflective_lower_boundary = jnp.all(jnp.abs(reflectances) <= TINIEST)
+    use_direct_no_scattering_solve = (
+        no_atmospheric_scattering & non_reflective_lower_boundary
+    )
 
     def _surface_reflection(I_plus_gfa: ArrayLike) -> ArrayLike:
         return surf_refl_2[None, :] * jnp.sum(
@@ -1254,6 +1274,109 @@ def _compute_feautrier_radiative_transfer_chunk(
         )
         return next_state, conv_val_gf
 
+    initial_carry = (
+        planck_broadcast_gfl,
+        initial_I_plus_surface_gfa,
+        initial_flux_gf,
+        initial_I_minus_gf,
+        initial_I_H_top,
+        zero_source_gfl,
+        zero_source_gfl,
+        zero_source_gfl,
+        zero_source_gfl,
+        jnp.array(False, dtype=jnp.bool_),
+        jnp.array(0, dtype=jnp.int32),
+        jnp.array(0, dtype=jnp.int32),
+    )
+
+    def _run_no_scattering_direct(
+        _: None,
+    ) -> tuple[
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+    ]:
+        direct_I_minus_gf = I_surface_no_scatter_gf
+        _, direct_I_H_top, _ = _feautrier_solve(
+            planck_broadcast_gfl,
+            initial_I_plus_surface_gfa,
+            direct_I_minus_gf,
+        )
+        flux_gf_direct = -jnp.einsum("gfa,a->gf", direct_I_H_top, mu_weight_a)
+        final_I_minus_gf = (
+            direct_I_minus_gf if return_contribution else initial_I_minus_gf
+        )
+
+        return (
+            planck_broadcast_gfl,
+            flux_gf_direct,
+            final_I_minus_gf,
+            direct_I_H_top,
+            jnp.array(True, dtype=jnp.bool_),
+            jnp.array(1, dtype=jnp.int32),
+            jnp.array(0, dtype=jnp.int32),
+            jnp.array(1, dtype=jnp.int32),
+            configured_iter_budget,
+        )
+
+    def _run_fixed_iterations(
+        _: None,
+    ) -> tuple[
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+    ]:
+        def _fixed_loop_body(
+            iter_idx: int,
+            state: tuple[ArrayLike, ...],
+        ) -> tuple[ArrayLike, ...]:
+            next_state, _ = _advance_state(state, jnp.asarray(iter_idx, dtype=jnp.int32))
+            return (
+                next_state[0],
+                next_state[1],
+                next_state[2],
+                next_state[3],
+                next_state[4],
+                next_state[5],
+                next_state[6],
+                next_state[7],
+                next_state[8],
+                jnp.array(False, dtype=jnp.bool_),
+                state[10] + jnp.array(1, dtype=jnp.int32),
+                state[11],
+            )
+
+        final_carry = lax.fori_loop(
+            0,
+            fixed_iteration_count,
+            _fixed_loop_body,
+            initial_carry,
+        )
+
+        return (
+            final_carry[0],
+            final_carry[2],
+            final_carry[3],
+            final_carry[4],
+            jnp.array(fixed_iteration_count == 9, dtype=jnp.bool_),
+            final_carry[10],
+            final_carry[11],
+            jnp.array(fixed_iteration_count, dtype=jnp.int32),
+            configured_iter_budget,
+        )
+
     def _adaptive_scan_step(
         carry: tuple[ArrayLike, ...],
         iter_idx: ArrayLike,
@@ -1304,48 +1427,56 @@ def _compute_feautrier_radiative_transfer_chunk(
         )
         return next_carry, None
 
-    zero_source_gfl = jnp.zeros((n_g, n_freq_bins, n_layers))
-    initial_I_minus_gf = (
-        jnp.zeros((n_g, n_freq_bins))
-        if return_contribution
-        else jnp.zeros((1,), dtype=planck_broadcast_gfl.dtype)
-    )
+    def _run_adaptive_iterations(
+        _: None,
+    ) -> tuple[
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+        ArrayLike,
+    ]:
+        final_carry, _ = lax.scan(
+            _adaptive_scan_step,
+            initial_carry,
+            jnp.arange(iter_scat_max + 1, dtype=jnp.int32),
+        )
 
-    initial_carry = (
-        planck_broadcast_gfl,
-        jnp.zeros((n_g, n_freq_bins, n_angles)),
-        jnp.zeros((n_g, n_freq_bins)),
-        initial_I_minus_gf,
-        jnp.zeros((n_g, n_freq_bins, n_angles)),
-        zero_source_gfl,
-        zero_source_gfl,
-        zero_source_gfl,
-        zero_source_gfl,
-        jnp.array(False, dtype=jnp.bool_),
-        jnp.array(0, dtype=jnp.int32),
-        jnp.array(0, dtype=jnp.int32),
-    )
+        return (
+            final_carry[0],
+            final_carry[2],
+            final_carry[3],
+            final_carry[4],
+            final_carry[9],
+            final_carry[10],
+            final_carry[11],
+            configured_iter_budget,
+            configured_iter_budget,
+        )
 
-    final_carry, _ = lax.scan(
-        _adaptive_scan_step,
-        initial_carry,
-        jnp.arange(iter_scat_max + 1, dtype=jnp.int32),
+    loop_runner = (
+        _run_adaptive_iterations if adaptive_feautrier_iterations else _run_fixed_iterations
     )
-
     (
         final_source_gfl,
-        _,
         flux_gf_final,
         I_minus_gf_final,
         I_H_top,
-        _,
-        _,
-        _,
-        _,
         final_all_converged,
         solve_count,
         noop_count,
-    ) = final_carry
+        iter_budget,
+        configured_iter_budget_out,
+    ) = lax.cond(
+        use_direct_no_scattering_solve,
+        _run_no_scattering_direct,
+        loop_runner,
+        operand=None,
+    )
 
     # ------------------------------------------------------------------
     # 14. Flux  (n_freq_bins,)
@@ -1408,8 +1539,8 @@ def _compute_feautrier_radiative_transfer_chunk(
     solver_diagnostics = {
         "total_solve_count": solve_count,
         "total_noop_count": noop_count,
-        "iter_scat_budget": jnp.array(iter_scat_max + 1, dtype=jnp.int32),
-        "configured_iter_scat_budget": jnp.array(iter_scat_max + 1, dtype=jnp.int32),
+        "iter_scat_budget": iter_budget,
+        "configured_iter_scat_budget": configured_iter_budget_out,
         "converged_before_cap": final_all_converged,
     }
 

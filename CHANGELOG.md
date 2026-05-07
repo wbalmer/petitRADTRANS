@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a26] - 2026-05-01
+## [4.0.0a27] - 2026-05-04
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -48,6 +48,9 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: correlated-k binning.
 
 ### Changed
+- a27: tests updated to be compatible with new default value for scattering_in_emission
+- a27: SBI module now based on autoregressive flows to match Vasist+ 2023
+- a27: feautrier now skips scattering if there is no scattering opacity
 - a26: fixed chemistry nan bugs and fill atmosphere edge cases
 - a26: reference files now match v4 petitRADTRANS argument naming
 - a25: bug fix for patchy grey cloud deck
