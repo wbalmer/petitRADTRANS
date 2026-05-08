@@ -586,7 +586,9 @@ class Radtrans:
         if patchy_clouds is None:
             return tuple(self._cloud_species)
 
-        return tuple(species for species in self._cloud_species if species in patchy_clouds)
+        return tuple(
+            species for species in self._cloud_species if species in patchy_clouds
+        )
 
     @staticmethod
     def _compute_additional_continuum_opacities(

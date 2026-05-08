@@ -1342,7 +1342,9 @@ def _compute_feautrier_radiative_transfer_chunk(
             iter_idx: int,
             state: tuple[ArrayLike, ...],
         ) -> tuple[ArrayLike, ...]:
-            next_state, _ = _advance_state(state, jnp.asarray(iter_idx, dtype=jnp.int32))
+            next_state, _ = _advance_state(
+                state, jnp.asarray(iter_idx, dtype=jnp.int32)
+            )
             return (
                 next_state[0],
                 next_state[1],
@@ -1459,7 +1461,9 @@ def _compute_feautrier_radiative_transfer_chunk(
         )
 
     loop_runner = (
-        _run_adaptive_iterations if adaptive_feautrier_iterations else _run_fixed_iterations
+        _run_adaptive_iterations
+        if adaptive_feautrier_iterations
+        else _run_fixed_iterations
     )
     (
         final_source_gfl,
