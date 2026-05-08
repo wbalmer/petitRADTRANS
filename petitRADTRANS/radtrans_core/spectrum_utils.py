@@ -367,9 +367,13 @@ def convolve_and_sample_variable_resolution_breads(
     )  # model wavelengths we want
     lsf = jnp.exp(-(filter_coords**2) / 2) / jnp.sqrt(2 * jnp.pi)
 
+    # interpax expects 1D query points for 1D interpolation values.
     filter_model = interp1d(
-        filter_wv_coords, model_wavelengths, model_fluxes, method="cubic"
-    )
+        filter_wv_coords.reshape(-1),
+        model_wavelengths,
+        model_fluxes,
+        method="cubic",
+    ).reshape(filter_wv_coords.shape)
 
     output_model = jnp.nansum(filter_model * lsf, axis=1) / jnp.sum(lsf, axis=1)
 
