@@ -11,6 +11,9 @@ JAX Implementation of fortran_convolve and fortran_rebin
 """
 
 
+DEFAULT_BREADS_FILTER_SIZE = 201
+
+
 def compute_bins_edges(middle_bin_points: ArrayLike) -> ArrayLike:
     """Calculate bin edges for middle bin points.
 
