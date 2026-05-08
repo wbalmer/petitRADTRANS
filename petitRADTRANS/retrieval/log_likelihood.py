@@ -60,6 +60,8 @@ class LogLikelihood:
         data_spectrum: ArrayLike,
         data_uncertainties: ArrayLike = None,
         data_covariance: ArrayLike = None,
+        covariance_cholesky_factor: ArrayLike = None,
+        log_likelihood_normalization: ArrayLike = None,
         n_free_parameters: int = 0,
     ):
         """
@@ -70,13 +72,19 @@ class LogLikelihood:
             data_spectrum: The observed data spectrum, already appropriately scaled.
             n_free_parameters: Number of free parameters in the model for DoF calculation.
             data_uncertainties: 1D array of uncertainties for the data points.
-                                Required if data_covariance is None.
+                                Required if both data_covariance and covariance_cholesky_factor are None.
             data_covariance: 2D covariance matrix for the data points.
-                             Required if data_uncertainties is None.
+                             Required if both data_uncertainties and covariance_cholesky_factor are None.
+            covariance_cholesky_factor: Optional lower-triangular Cholesky factor for a fixed covariance.
+            log_likelihood_normalization: Optional cached normalization constant for fixed noise models.
         """
-        if data_uncertainties is None and data_covariance is None:
+        if (
+            data_uncertainties is None
+            and data_covariance is None
+            and covariance_cholesky_factor is None
+        ):
             raise ValueError(
-                "Either data_uncertainties or data_covariance must be provided."
+                "Either data_uncertainties, data_covariance, or covariance_cholesky_factor must be provided."
             )
         if data_spectrum.shape != model_spectrum.shape:
             raise ValueError("The data and model model must have the same shape.")
@@ -88,7 +96,6 @@ class LogLikelihood:
 
         self.n_free_parameters = n_free_parameters
         self.cholesky_factor = None
-        self.inv_covariance = None
         self.log_det_covariance = None
 
         if data_uncertainties is not None:
@@ -115,7 +122,23 @@ class LogLikelihood:
             self.data_covariance = None
 
         # Precompute terms for likelihood calculation
-        if data_covariance is not None:
+        if covariance_cholesky_factor is not None:
+            self.cholesky_factor = jnp.asarray(covariance_cholesky_factor)
+            if self.cholesky_factor.shape != (self.n_data_points, self.n_data_points):
+                raise ValueError(
+                    f"Shape of covariance_cholesky_factor ({self.cholesky_factor.shape}) "
+                    f"is not ({self.n_data_points}, {self.n_data_points})"
+                )
+            self.log_det_covariance = 2.0 * jnp.sum(
+                jnp.log(jnp.diagonal(self.cholesky_factor))
+            )
+            if log_likelihood_normalization is not None:
+                self._log_norm_constant = jnp.asarray(log_likelihood_normalization)
+            else:
+                self._log_norm_constant = -0.5 * (
+                    self.n_data_points * jnp.log(2.0 * jnp.pi) + self.log_det_covariance
+                )
+        elif data_covariance is not None:
             # TODO: This assumes 1D spectrum. Need to extend to ND data.
             self.cholesky_factor = jnp.linalg.cholesky(self.data_covariance)
             self.log_det_covariance = 2.0 * jnp.sum(
@@ -125,11 +148,10 @@ class LogLikelihood:
                 self.n_data_points * jnp.log(2.0 * jnp.pi) + self.log_det_covariance
             )
         else:
-            self.data_covariance = jnp.diag(self.data_uncertainties**2)
-            _sign, self.log_det_covariance = jnp.linalg.slogdet(self.data_covariance)
             self._log_norm_constant = -0.5 * jnp.sum(
                 jnp.log(2.0 * jnp.pi * self.data_uncertainties**2)
             )
+            self.log_det_covariance = jnp.sum(jnp.log(self.data_uncertainties**2))
 
     def get_chi_squared(self) -> float:
         if self.cholesky_factor is not None:

@@ -2,6 +2,7 @@
 Used to test functions and compare the results with saved reference results.
 Does not test for performances.
 """
+
 import datetime
 import importlib.util
 import inspect
@@ -39,7 +40,9 @@ def _align_output_to_reference(test_output, reference_output):
         elif key in test_output:
             value = test_output[key]
         else:
-            raise KeyError(f"reference output key '{string_key}' not in test output dict")
+            raise KeyError(
+                f"reference output key '{string_key}' not in test output dict"
+            )
 
         aligned_output[string_key] = _align_output_to_reference(value, reference_value)
 
@@ -54,7 +57,10 @@ class TestFile:
         absolute_tolerance: absolute tolerance of the test
         relative_tolerance: relative tolerance of the test
     """
-    def __init__(self, absolute_tolerance: float = None, relative_tolerance: float = None):
+
+    def __init__(
+        self, absolute_tolerance: float = None, relative_tolerance: float = None
+    ):
         self.prt_version = petitRADTRANS.__version__
         self.date = None
         self.absolute_tolerance = absolute_tolerance
@@ -71,15 +77,16 @@ class TestFile:
         attributes = list(attributes.keys())
 
         missing_attributes = [
-            attribute for attribute in attributes
-            if attribute not in loaded_attributes
+            attribute for attribute in attributes if attribute not in loaded_attributes
         ]
 
         if len(missing_attributes) > 0:
             n_missing_attributes = len(missing_attributes)
             missing_attributes = "'" + ", ".join(missing_attributes) + "'"
 
-            raise KeyError(f"loaded file is missing {n_missing_attributes} attributes: {missing_attributes}")
+            raise KeyError(
+                f"loaded file is missing {n_missing_attributes} attributes: {missing_attributes}"
+            )
 
     def __get_attributes(self) -> dict:
         """Get the public non-callable attributes of the TestFile.
@@ -91,7 +98,8 @@ class TestFile:
         attributes = inspect.getmembers(self, lambda a: not inspect.isroutine(a))
         attributes = {
             a[0]: self.__getattribute__(a[0])
-            for a in attributes if not a[0].startswith('_')
+            for a in attributes
+            if not a[0].startswith("_")
         }
 
         return attributes
@@ -147,21 +155,27 @@ class TestFile:
 
         # Write the save file
         if os.path.isfile(file) and not rewrite:
-            raise FileExistsError(f"file '{file}' already exists; set rewrite to True to overwrite this file")
+            raise FileExistsError(
+                f"file '{file}' already exists; set rewrite to True to overwrite this file"
+            )
 
         with h5py.File(file, "w") as f:
-            petitRADTRANS.utils.dict2hdf5(
-                dictionary=output_dict,
-                hdf5_file=f
-            )
+            petitRADTRANS.utils.dict2hdf5(dictionary=output_dict, hdf5_file=f)
 
 
 class ReferenceFile(TestFile):
-    parameters_absolute_tolerance = 0.
-    parameters_relative_tolerance = 10 ** (-sys.float_info.dig + 1)  # +1 to account for OS-induced errors (Paul's PC)
+    parameters_absolute_tolerance = 0.0
+    parameters_relative_tolerance = 10 ** (
+        -sys.float_info.dig + 1
+    )  # +1 to account for OS-induced errors (Paul's PC)
 
-    def __init__(self, parameters: dict = None, outputs: dict = None,
-                 absolute_tolerance: float = None, relative_tolerance: float = None):
+    def __init__(
+        self,
+        parameters: dict = None,
+        outputs: dict = None,
+        absolute_tolerance: float = None,
+        relative_tolerance: float = None,
+    ):
         """Class for reference files.
         Intended to store the outputs of a tested function and the parameters used to obtain this output.
         The absolute and relative tolerances for the parameters are stored as well.
@@ -172,7 +186,9 @@ class ReferenceFile(TestFile):
             absolute_tolerance: absolute tolerance for testing the outputs
             relative_tolerance: relative tolerance for testing the outputs
         """
-        super().__init__(absolute_tolerance=absolute_tolerance, relative_tolerance=relative_tolerance)
+        super().__init__(
+            absolute_tolerance=absolute_tolerance, relative_tolerance=relative_tolerance
+        )
         self.parameters = parameters
         self.outputs = outputs
 
@@ -193,10 +209,17 @@ class Benchmark:
     _make_reference_file = False
     _reference_file_rewrite = False
 
-    def __init__(self, function: Callable, absolute_tolerance: float = 0., relative_tolerance: float = 1e-6,
-                 name: str = None):
+    def __init__(
+        self,
+        function: Callable,
+        absolute_tolerance: float = 0.0,
+        relative_tolerance: float = 1e-6,
+        name: str = None,
+    ):
         if name is None:
-            name = inspect.currentframe().f_back.f_code.co_name  # the name of the function that instantiated Benchmark
+            name = (
+                inspect.currentframe().f_back.f_code.co_name
+            )  # the name of the function that instantiated Benchmark
 
         self._name = name
         self._function = function
@@ -219,7 +242,9 @@ class Benchmark:
     def relative_tolerance(self) -> float:
         return self._relative_tolerance
 
-    def _check_parameters(self, reference_file: ReferenceFile, test_parameters: dict) -> None:
+    def _check_parameters(
+        self, reference_file: ReferenceFile, test_parameters: dict
+    ) -> None:
         """Check if the ReferenceFile parameters are the same as the test parameters.
 
         Args:
@@ -244,14 +269,16 @@ class Benchmark:
                     # comparison enforce behavioral equivalence instead.
                     continue
 
-                raise KeyError(f"reference file parameter '{parameter}' not in test parameters dict")
+                raise KeyError(
+                    f"reference file parameter '{parameter}' not in test parameters dict"
+                )
 
             try:
                 petitRADTRANS.utils.check_all_close(
                     value,
                     test_parameters[parameter],
                     atol=reference_file.parameters_absolute_tolerance,
-                    rtol=reference_file.parameters_relative_tolerance
+                    rtol=reference_file.parameters_relative_tolerance,
                 )
             except AssertionError as error:
                 invalid_parameters[parameter] = value
@@ -259,22 +286,22 @@ class Benchmark:
 
         if len(invalid_parameters) > 0:
             self._write_error_file(
-                file_suffix='invalid_parameters',
+                file_suffix="invalid_parameters",
                 error_dict={
-                    'invalid_test_parameters': {
+                    "invalid_test_parameters": {
                         parameter: value
-                        for parameter, value in test_parameters.items() if parameter in invalid_parameters
+                        for parameter, value in test_parameters.items()
+                        if parameter in invalid_parameters
                     },
-                    'reference_parameters': invalid_parameters
+                    "reference_parameters": invalid_parameters,
                 },
                 absolute_tolerance=reference_file.parameters_absolute_tolerance,
-                relative_tolerance=reference_file.parameters_relative_tolerance
+                relative_tolerance=reference_file.parameters_relative_tolerance,
             )
 
             invalid_parameters: str = "'" + '", "'.join(invalid_parameters) + "'"
             error_messages: tuple = tuple(
-                f"\n> {key}: {value}"
-                for key, value in error_messages.items()
+                f"\n> {key}: {value}" for key, value in error_messages.items()
             )
             error_messages: str = "".join(error_messages)
 
@@ -304,7 +331,8 @@ class Benchmark:
 
         # Check for missing arguments
         missing_arguments = [
-            argument_name for argument_name in arguments_names
+            argument_name
+            for argument_name in arguments_names
             if argument_name not in parameters
         ]
 
@@ -312,19 +340,19 @@ class Benchmark:
             n_missing_arguments = len(missing_arguments)
             missing_arguments = "'" + ", ".join(missing_arguments) + "'"
 
-            raise ValueError(f"test function is missing {n_missing_arguments} arguments: {missing_arguments}")
+            raise ValueError(
+                f"test function is missing {n_missing_arguments} arguments: {missing_arguments}"
+            )
 
         return {
-            parameter: value for parameter, value in parameters
+            parameter: value
+            for parameter, value in parameters
             if parameter in arguments_names
         }
 
     def _get_reference_file(self) -> str:
         """Automatically get the benchmark reference file name from the Benchmark's name."""
-        return os.path.join(
-            tests_references_directory,
-            str(self._name) + '_ref.h5'
-        )
+        return os.path.join(tests_references_directory, str(self._name) + "_ref.h5")
 
     def _load_reference_file(self, reference_file=None) -> ReferenceFile:
         """Automatically get the benchmark reference file. Intended to be used within test functions."""
@@ -332,10 +360,12 @@ class Benchmark:
             reference_file = self._get_reference_file()
 
         if not os.path.isfile(reference_file):
-            raise FileNotFoundError(f"reference file '{reference_file}' does not exist, "
-                                    f"are you in a test function?\n"
-                                    f"If yes, generate the reference file first to run the test.\n"
-                                    f"If not, give the targeted reference file name in argument.")
+            raise FileNotFoundError(
+                f"reference file '{reference_file}' does not exist, "
+                f"are you in a test function?\n"
+                f"If yes, generate the reference file first to run the test.\n"
+                f"If not, give the targeted reference file name in argument."
+            )
 
         return ReferenceFile.load(reference_file)
 
@@ -356,8 +386,13 @@ class Benchmark:
 
         return {f"{i}": output for i, output in enumerate(outputs)}
 
-    def _write_error_file(self, file_suffix: str, error_dict: dict,
-                          absolute_tolerance: float, relative_tolerance: float) -> None:
+    def _write_error_file(
+        self,
+        file_suffix: str,
+        error_dict: dict,
+        absolute_tolerance: float,
+        relative_tolerance: float,
+    ) -> None:
         """Write an error file if the test did not run properly.
 
         Args:
@@ -372,8 +407,7 @@ class Benchmark:
         )
 
         error_filename = os.path.join(
-            tests_error_directory,
-            str(self._name) + '_' + file_suffix + '.h5'
+            tests_error_directory, str(self._name) + "_" + file_suffix + ".h5"
         )
 
         print(f"Saving error file '{error_filename}'...")
@@ -381,11 +415,7 @@ class Benchmark:
         if not os.path.isdir(tests_error_directory):
             os.mkdir(tests_error_directory)
 
-        error_file.save(
-            file=error_filename,
-            rewrite=True,
-            **error_dict
-        )
+        error_file.save(file=error_filename, rewrite=True, **error_dict)
 
     @staticmethod
     def activate_reference_file_generation() -> None:
@@ -416,20 +446,21 @@ class Benchmark:
         reference_file = self._get_reference_file()
 
         if not os.path.isfile(reference_file):
-            raise FileNotFoundError(f"reference file '{reference_file}' does not exist, "
-                                    f"generate it first to run the test")
+            raise FileNotFoundError(
+                f"reference file '{reference_file}' does not exist, "
+                f"generate it first to run the test"
+            )
 
         reference_file = ReferenceFile.load(reference_file)
 
-        print(f"Comparing '{self._name}' results "
-              f"from petitRADTRANS-{reference_file.prt_version} ({reference_file.date}) "
-              f"and petitRADTRANS-{petitRADTRANS.__version__}...")
+        print(
+            f"Comparing '{self._name}' results "
+            f"from petitRADTRANS-{reference_file.prt_version} ({reference_file.date}) "
+            f"and petitRADTRANS-{petitRADTRANS.__version__}..."
+        )
 
         # Check if the parameters used in the current test are identical to the parameters used to make the reference
-        self._check_parameters(
-            reference_file=reference_file,
-            test_parameters=kwargs
-        )
+        self._check_parameters(reference_file=reference_file, test_parameters=kwargs)
 
         # Run the function
         test_outputs = self._run(**kwargs)
@@ -439,7 +470,9 @@ class Benchmark:
         # Check if the outputs are close enough to those from the reference file
         for output_id, reference_output in reference_file.outputs.items():
             if output_id not in test_outputs:
-                raise KeyError(f"reference file output '{output_id}' not in test output dict")
+                raise KeyError(
+                    f"reference file output '{output_id}' not in test output dict"
+                )
 
             try:
                 comparison_output = _align_output_to_reference(
@@ -452,7 +485,7 @@ class Benchmark:
                     comparison_output,
                     reference_output,
                     atol=self._absolute_tolerance,
-                    rtol=self._relative_tolerance
+                    rtol=self._relative_tolerance,
                 )
             except AssertionError as error_message:
                 invalid_outputs.append(output_id)
@@ -461,19 +494,18 @@ class Benchmark:
         if len(invalid_outputs) > 0:
             # Write an error file if the assertion failed
             self._write_error_file(
-                file_suffix='invalid_outputs',
+                file_suffix="invalid_outputs",
                 error_dict={
-                    'test_outputs': test_outputs,
-                    'reference_outputs': reference_file.outputs
+                    "test_outputs": test_outputs,
+                    "reference_outputs": reference_file.outputs,
                 },
                 absolute_tolerance=self._absolute_tolerance,
-                relative_tolerance=self._relative_tolerance
+                relative_tolerance=self._relative_tolerance,
             )
 
             invalid_outputs: str = "'" + '", "'.join(invalid_outputs) + "'"
             error_messages: tuple = tuple(
-                f"\n> {key}: {value}"
-                for key, value in error_messages.items()
+                f"\n> {key}: {value}" for key, value in error_messages.items()
             )
             error_messages: str = "".join(error_messages)
 
@@ -488,8 +520,10 @@ class Benchmark:
                 f"{error_messages}"
             )
 
-        print(f"Test successful "
-              f"(absolute and relative tolerances: {self._absolute_tolerance}, {self._relative_tolerance})")
+        print(
+            f"Test successful "
+            f"(absolute and relative tolerances: {self._absolute_tolerance}, {self._relative_tolerance})"
+        )
 
     @staticmethod
     def write_all_reference_files(test_directory=None) -> None:
@@ -516,16 +550,21 @@ class Benchmark:
             test_files = [
                 test_file
                 for test_file in test_files
-                if os.path.basename(test_file).startswith('test_') and os.path.basename(test_file).endswith('.py')
+                if os.path.basename(test_file).startswith("test_")
+                and os.path.basename(test_file).endswith(".py")
             ]
 
             for i, test_file in enumerate(test_files):
                 # Get the test file module name
-                module_name = os.path.basename(test_file).rsplit('.py', 1)[0]  # remove extension
+                module_name = os.path.basename(test_file).rsplit(".py", 1)[
+                    0
+                ]  # remove extension
                 module_name = "tests." + module_name
 
                 # Import the test module
-                print(f"Importing test module from file '{test_file}' ({i + 1}/{len(test_files)})...")
+                print(
+                    f"Importing test module from file '{test_file}' ({i + 1}/{len(test_files)})..."
+                )
                 spec = importlib.util.spec_from_file_location(module_name, test_file)
                 test_module = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = test_module
@@ -538,7 +577,9 @@ class Benchmark:
                     test_function = test_module.__getattribute__(test_function_name)
 
                     # Execute the test function
-                    if test_function_name.startswith('test_') and callable(test_function):
+                    if test_function_name.startswith("test_") and callable(
+                        test_function
+                    ):
                         print(f" Running '{module_name}.{test_function_name}'...")
                         test_function()
                     else:
@@ -560,13 +601,16 @@ class Benchmark:
             parameters=kwargs,
             outputs=outputs,
             absolute_tolerance=self._absolute_tolerance,
-            relative_tolerance=self._relative_tolerance
+            relative_tolerance=self._relative_tolerance,
         )
 
         reference_file_name = self._get_reference_file()
 
         # Make the user go through a checklist to prevent accidental overwrite
-        if os.path.isfile(reference_file_name) and not Benchmark._reference_file_rewrite:
+        if (
+            os.path.isfile(reference_file_name)
+            and not Benchmark._reference_file_rewrite
+        ):
             answer = input(
                 f"You are about to rewrite existing test reference files.\n"
                 f"You should *not* do this if:\n"
@@ -578,7 +622,7 @@ class Benchmark:
                 f"Do you want to proceed? (Yes/N)"
             )
 
-            if answer != 'Yes':
+            if answer != "Yes":
                 print("Aborting test reference file rewrite")
                 return
 
@@ -592,8 +636,10 @@ class Benchmark:
                 f"(Yes, I have documented this change/N)"
             )
 
-            if answer != 'Yes, I have documented this change':
-                print("Please take the time to properly document this change before proceeding")
+            if answer != "Yes, I have documented this change":
+                print(
+                    "Please take the time to properly document this change before proceeding"
+                )
                 return
 
             answer = input(
@@ -601,8 +647,10 @@ class Benchmark:
                 f"(Yes, the other developers agree with the change/N)"
             )
 
-            if answer != 'Yes, the other developers agree with the change':
-                print("Please inform the other developers of the change and wait for their approval")
+            if answer != "Yes, the other developers agree with the change":
+                print(
+                    "Please inform the other developers of the change and wait for their approval"
+                )
                 return
 
             print(f"Checklist done. Proceeding to test reference file overwrite...")

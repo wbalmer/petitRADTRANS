@@ -253,8 +253,9 @@ class Data:
                 )
 
         # Optional, covariance and scaling
-        self.covariance: ArrayLike | None = covariance
+        self.covariance: ArrayLike | None = None
         self.inv_cov: ArrayLike | None = None
+        self.covariance_cholesky_factor: ArrayLike | None = None
         self.log_covariance_determinant: float | None = None
         self.fit_covariance: bool = fit_covariance
         self.covariance_mode: str = normalize_covariance_mode(covariance_mode)
@@ -268,13 +269,11 @@ class Data:
         self.covariance_jitter: float = float(covariance_jitter)
 
         if covariance is not None:
-            self.inv_cov = jnp.linalg.inv(covariance)
-            sign, self.log_covariance_determinant = jnp.linalg.slogdet(
-                2.0 * jnp.pi * covariance
-            )
+            self.covariance = jnp.asarray(covariance, dtype=JAX_DTYPE)
+            self._cache_covariance_factorization()
 
         if covariance is not None and uncertainties is None:
-            self.uncertainties = jnp.sqrt(jnp.diagonal(covariance))
+            self.uncertainties = jnp.sqrt(jnp.diagonal(self.covariance))
 
         self.scale_flux: bool = scale_flux
         self.scale_uncertainties: bool = scale_uncertainties
@@ -489,18 +488,17 @@ class Data:
 
             if "COVARIANCE" in column_names:
                 self.covariance = jnp.asarray(data.field("COVARIANCE"), dtype=JAX_DTYPE)
-                self.inv_cov = jnp.linalg.inv(self.covariance)
-                sign, self.log_covariance_determinant = jnp.linalg.slogdet(
-                    2.0 * jnp.pi * self.covariance
-                )
+                self._cache_covariance_factorization()
                 self.uncertainties = jnp.sqrt(self.covariance.diagonal())
             elif "ERROR" in column_names:
                 # Note that this will only be the uncorrelated error.
                 # Dot with the correlation matrix (if available) to get
                 # the full error.
                 self.uncertainties = jnp.asarray(data.field("ERROR"), dtype=JAX_DTYPE)
-                self.covariance = jnp.diag(self.uncertainties**2)
-                self.inv_cov = jnp.linalg.inv(self.covariance)
+                self.covariance = None
+                self.inv_cov = None
+                self.covariance_cholesky_factor = None
+                self.log_covariance_determinant = None
         else:
             hdul = fits.open(path)
             self.wavelengths = jnp.asarray(hdul[1].data["WAVELENGTH"], dtype=JAX_DTYPE)
@@ -523,14 +521,10 @@ class Data:
                 )
 
             if self.covariance is not None:
-                self.inv_cov = jnp.linalg.inv(self.covariance)
+                self._cache_covariance_factorization()
 
         if self.uncertainties is None and self.covariance is not None:
             self.uncertainties = jnp.sqrt(self.covariance.diagonal())
-
-        sign, self.log_covariance_determinant = jnp.linalg.slogdet(
-            2.0 * jnp.pi * self.covariance
-        )
 
     def initialise_data_resolution(self, wavelengths_model: ArrayLike) -> None:
         # TODO [4.0.0] this function should raise an error when the interpolation is not possible
@@ -673,19 +667,66 @@ class Data:
             },
         )
 
-    def to_likelihood_state(self, n_free_parameters: int = 0) -> LikelihoodState:
+    def _cache_covariance_factorization(self) -> None:
+        self.inv_cov = None
+        self.covariance_cholesky_factor = None
+        self.log_covariance_determinant = None
+
+        if self.covariance is None:
+            return
+
+        covariance_np = np.asarray(self.covariance)
+        cholesky_factor = np.linalg.cholesky(covariance_np)
+
+        self.covariance_cholesky_factor = jnp.asarray(cholesky_factor, dtype=JAX_DTYPE)
+        self.log_covariance_determinant = self.covariance.shape[0] * jnp.log(
+            2.0 * jnp.pi
+        ) + 2.0 * jnp.sum(jnp.log(jnp.diagonal(self.covariance_cholesky_factor)))
+
+    def to_likelihood_state(
+        self,
+        n_free_parameters: int = 0,
+        parameter_names: tuple[str, ...] = (),
+    ) -> LikelihoodState:
+        parameter_names = set(parameter_names)
+        has_parameter_dependent_noise = (
+            self.fit_covariance
+            or self.scale_uncertainties
+            or f"{self.name}_b" in parameter_names
+            or "uncertainty_scaling_b" in parameter_names
+        )
+
+        data_covariance = self.covariance if has_parameter_dependent_noise else None
+        covariance_cholesky_factor = (
+            self.covariance_cholesky_factor
+            if self.covariance is not None and not has_parameter_dependent_noise
+            else None
+        )
+        log_likelihood_normalization = None
+
+        if not has_parameter_dependent_noise:
+            if covariance_cholesky_factor is not None:
+                log_likelihood_normalization = -0.5 * self.log_covariance_determinant
+            elif self.uncertainties is not None:
+                log_likelihood_normalization = -0.5 * jnp.sum(
+                    jnp.log(2.0 * jnp.pi * self.uncertainties**2)
+                )
+
         return LikelihoodState(
             data_uncertainties=self.uncertainties,
-            data_covariance=self.covariance,
+            data_covariance=data_covariance,
             mask=self.mask,
-            inv_covariance=self.inv_cov,
+            inv_covariance=None,
+            covariance_cholesky_factor=covariance_cholesky_factor,
             log_covariance_determinant=self.log_covariance_determinant,
+            log_likelihood_normalization=log_likelihood_normalization,
             n_free_parameters=n_free_parameters,
             metadata={
                 "name": self.name,
                 "has_covariance": self.covariance is not None,
                 "fit_covariance": self.fit_covariance,
                 "covariance_mode": self.covariance_mode,
+                "has_parameter_dependent_noise": has_parameter_dependent_noise,
                 "photometry": self.photometry,
                 "data_resolution": self.data_resolution,
             },

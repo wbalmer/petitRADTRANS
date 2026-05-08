@@ -99,10 +99,15 @@ def load_hdf5_line_opacity_table(
     line_by_line_opacity_sampling=1,
     return_radtrans_opacities=True,
 ):
-    """Load opacities (cm2.g-1) tables in HDF5 format, based on petitRADTRANS pseudo-ExoMol setup."""
+    """Load LBL opacities into a host-side ``(g, frequency, temperature-pressure)`` table.
+
+    The returned array stays on the host as a NumPy array so callers can build
+    the final stacked runtime layout first and only convert to JAX once.
+    """
     frequencies_relative_tolerance = (
         1e-12  # allow for a small relative deviation from the wavenumber grid
     )
+    host_dtype = np.dtype(JAX_DTYPE)
 
     with h5py.File(file_path_hdf5, "r") as f:
         if not return_radtrans_opacities:
@@ -117,28 +122,44 @@ def load_hdf5_line_opacity_table(
             )
 
         frequency_grid = cst.c * f["bin_edges"][:]  # cm-1 to s-1
+        frequencies = np.asarray(frequencies)
 
-        selection = jnp.nonzero(
-            jnp.logical_and(
-                jnp.greater_equal(
+        selection = np.nonzero(
+            np.logical_and(
+                np.greater_equal(
                     frequency_grid,
-                    jnp.min(frequencies) * (1 - frequencies_relative_tolerance),
+                    np.min(frequencies) * (1 - frequencies_relative_tolerance),
                 ),
-                jnp.less_equal(
+                np.less_equal(
                     frequency_grid,
-                    jnp.max(frequencies) * (1 + frequencies_relative_tolerance),
+                    np.max(frequencies) * (1 + frequencies_relative_tolerance),
                 ),
             )
         )[0]
-        selection = jnp.array([selection[0], selection[-1]])
+        selection_start = int(selection[0])
+        selection_stop = int(selection[-1]) + 1
 
         if line_by_line_opacity_sampling > 1:
-            # Ensure that down-sampled wavelength upper bound >= requested wavelength upper bound
-            selection = selection.at[0].subtract(
-                line_by_line_opacity_sampling - 1
-            )  # array is ordered by increasing wavenumber
+            # Expand the low-frequency edge so the down-sampled, reversed grid
+            # still covers the requested wavelength upper bound, then align the
+            # positive-step slice so that it lands on the same samples as the
+            # historical "reverse then stride" implementation.
+            expanded_start = max(
+                0,
+                selection_start - (line_by_line_opacity_sampling - 1),
+            )
+            selection_start = expanded_start + (
+                (selection_stop - 1 - expanded_start) % line_by_line_opacity_sampling
+            )
 
-        line_opacities_grid = f["xsecarr"][:, :, selection[0] : selection[-1] + 1]
+        line_opacities_grid = np.asarray(
+            f["xsecarr"][
+                :,
+                :,
+                selection_start:selection_stop:line_by_line_opacity_sampling,
+            ],
+            dtype=host_dtype,
+        )
 
         # Divide by mass to convert cross-sections to opacities
         mol_mass_inv = 1 / (f["mol_mass"][()] * cst.amu)
@@ -146,15 +167,10 @@ def load_hdf5_line_opacity_table(
 
     line_opacities_grid = line_opacities_grid[:, :, ::-1]
 
-    if line_by_line_opacity_sampling > 1:
-        line_opacities_grid = line_opacities_grid[:, :, ::line_by_line_opacity_sampling]
-
     if line_opacities_grid.shape[-1] != frequencies.size:
-        frequency_grid = frequency_grid[selection[0] : selection[-1] + 1]
-        frequency_grid = frequency_grid[::-1]
-
-        if line_by_line_opacity_sampling > 1:
-            frequency_grid = frequency_grid[::line_by_line_opacity_sampling]
+        frequency_grid = frequency_grid[
+            selection_start:selection_stop:line_by_line_opacity_sampling
+        ][::-1]
 
         if (
             frequency_grid[-1] == frequency_grid[-2]
@@ -169,32 +185,29 @@ def load_hdf5_line_opacity_table(
         )
 
         # Fill opacity array
-        _line_opacities_grid = jnp.zeros(
+        _line_opacities_grid = np.zeros(
             (
                 line_opacities_grid.shape[0],
                 line_opacities_grid.shape[1],
                 frequencies.size,
             ),
-            dtype=JAX_DTYPE,
+            dtype=host_dtype,
         )
-        _line_opacities_grid = _line_opacities_grid.at[:, :, indices_opacities].set(
-            line_opacities_grid[:, :, indices_file]
-        )
-        del line_opacities_grid
+        _line_opacities_grid[:, :, indices_opacities] = line_opacities_grid[
+            :, :, indices_file
+        ]
     else:
         _line_opacities_grid = line_opacities_grid
 
-    _line_opacities_grid = jnp.swapaxes(_line_opacities_grid, 0, 1)  # (t, p, wvl)
+    _line_opacities_grid = np.swapaxes(_line_opacities_grid, 0, 1)  # (t, p, wvl)
     _line_opacities_grid = _line_opacities_grid.reshape(
         (
             _line_opacities_grid.shape[0] * _line_opacities_grid.shape[1],
             _line_opacities_grid.shape[2],
         )
     )  # (tp, wvl)
-    _line_opacities_grid = jnp.swapaxes(_line_opacities_grid, 0, 1)  # (wvl, tp)
-    _line_opacities_grid = _line_opacities_grid[
-        jnp.newaxis, :, jnp.newaxis, :
-    ]  # (g, wvl, species, tp)
+    _line_opacities_grid = np.swapaxes(_line_opacities_grid, 0, 1)  # (wvl, tp)
+    _line_opacities_grid = _line_opacities_grid[np.newaxis, :, :]  # (g, wvl, tp)
 
     return _line_opacities_grid
 
@@ -311,20 +324,19 @@ def load_line_opacities_pressure_temperature_grid(hdf5_file):
         pressure_grid = f["p"][:]
         temperature_grid = f["t"][:]
 
-    ret_val = jnp.zeros(
-        (temperature_grid.size * pressure_grid.size, 2), dtype=JAX_DTYPE
+    temperature_mesh, pressure_mesh = np.meshgrid(
+        temperature_grid,
+        pressure_grid * 1e6,
+        indexing="ij",
     )
-
-    for i_t in range(temperature_grid.size):
-        for i_p in range(pressure_grid.size):
-            ret_val = ret_val.at[i_t * pressure_grid.size + i_p, 1].set(
-                pressure_grid[i_p] * 1e6
-            )  # bar to cgs
-            ret_val = ret_val.at[i_t * pressure_grid.size + i_p, 0].set(
-                temperature_grid[i_t]
-            )
-
-    line_opacities_temperature_pressure_grid = ret_val
+    line_opacities_temperature_pressure_grid = (
+        np.stack(
+            (temperature_mesh, pressure_mesh),
+            axis=-1,
+        )
+        .reshape(-1, 2)
+        .astype(np.dtype(JAX_DTYPE), copy=False)
+    )
     line_opacities_temperature_grid_size = temperature_grid.size
     line_opacities_pressure_grid_size = pressure_grid.size
 

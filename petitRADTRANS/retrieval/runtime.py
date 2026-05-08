@@ -218,7 +218,9 @@ class LikelihoodState:
     data_covariance: Any = None
     mask: Any = None
     inv_covariance: Any = None
+    covariance_cholesky_factor: Any = None
     log_covariance_determinant: Any = None
+    log_likelihood_normalization: Any = None
     n_free_parameters: int = 0
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
@@ -273,7 +275,7 @@ class ModelInputs:
     power_law_opacity_350nm: Any = None
     cloud_hansen_b: Any = None
     cloud_fraction: Any = 1.0
-    patchy_clouds: tuple[str, ...] | None = None
+    complete_coverage_clouds: tuple[str, ...] = ()
     cloud_particle_radius_distribution: str | None = None
     distance_to_system: Any = None
     stellar_radius: Any = None
@@ -284,19 +286,19 @@ class ModelInputs:
     additional_inputs: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.patchy_clouds is None:
-            normalized_patchy_clouds = None
-        elif isinstance(self.patchy_clouds, tuple):
-            normalized_patchy_clouds = self.patchy_clouds
-        elif isinstance(self.patchy_clouds, (str, bytes)):
-            normalized_patchy_clouds = (self.patchy_clouds,)
+        if self.complete_coverage_clouds is None:
+            normalized_complete_coverage_clouds = ()
+        elif isinstance(self.complete_coverage_clouds, tuple):
+            normalized_complete_coverage_clouds = self.complete_coverage_clouds
+        elif isinstance(self.complete_coverage_clouds, (str, bytes)):
+            normalized_complete_coverage_clouds = (self.complete_coverage_clouds,)
         else:
-            normalized_patchy_clouds = tuple(self.patchy_clouds)
+            normalized_complete_coverage_clouds = tuple(self.complete_coverage_clouds)
 
         object.__setattr__(
             self,
-            "patchy_clouds",
-            normalized_patchy_clouds,
+            "complete_coverage_clouds",
+            normalized_complete_coverage_clouds,
         )
 
     def tree_flatten(self):
@@ -327,7 +329,7 @@ class ModelInputs:
             self.v_band_reddening,
         )
         aux_data = {
-            "patchy_clouds": self.patchy_clouds,
+            "complete_coverage_clouds": self.complete_coverage_clouds,
             "cloud_particle_radius_distribution": self.cloud_particle_radius_distribution,
             "additional_inputs": self.additional_inputs,
         }
@@ -360,7 +362,7 @@ class ModelInputs:
             disk_radius=children[20],
             v_band_extinction=children[21],
             v_band_reddening=children[22],
-            patchy_clouds=aux_data["patchy_clouds"],
+            complete_coverage_clouds=aux_data["complete_coverage_clouds"],
             cloud_particle_radius_distribution=aux_data[
                 "cloud_particle_radius_distribution"
             ],
@@ -534,7 +536,8 @@ class RetrievalRuntime:
 
         likelihoods = {
             data_name: data_object.to_likelihood_state(
-                n_free_parameters=n_free_parameters
+                n_free_parameters=n_free_parameters,
+                parameter_names=parameter_layout.parameter_names,
             )
             for data_name, data_object in data.items()
         }
@@ -705,7 +708,8 @@ class RetrievalRuntime:
         before invoking the same composable primitives.
         """
         observation = self.observations[data_name]
-        n_free = self.parameter_layout.n_free_parameters
+        likelihood_state = self.likelihoods[data_name]
+        n_free = likelihood_state.n_free_parameters
 
         # --- Stage 1: prepare observation data ---
         data_spectrum = observation.spectrum
@@ -714,6 +718,11 @@ class RetrievalRuntime:
         data_uncertainties, data_covariance = _scale_and_inflate_uncertainties(
             observation, parameters
         )
+        covariance_cholesky_factor = likelihood_state.covariance_cholesky_factor
+        log_likelihood_normalization = likelihood_state.log_likelihood_normalization
+
+        if covariance_cholesky_factor is not None:
+            data_covariance = None
 
         if isinstance(spectrum_model, np.ma.MaskedArray):
             spectrum_model = spectrum_model.filled(0)
@@ -773,6 +782,8 @@ class RetrievalRuntime:
                 data_uncertainties,
                 data_covariance,
                 n_free,
+                covariance_cholesky_factor=covariance_cholesky_factor,
+                log_likelihood_normalization=log_likelihood_normalization,
             )
             return jnp.where(
                 ll <= INVALID_LOG_LIKELIHOOD,
@@ -788,6 +799,8 @@ class RetrievalRuntime:
                 data_uncertainties,
                 data_covariance,
                 n_free,
+                covariance_cholesky_factor=covariance_cholesky_factor,
+                log_likelihood_normalization=log_likelihood_normalization,
             )
             return jnp.where(
                 ll <= INVALID_LOG_LIKELIHOOD,
@@ -802,6 +815,8 @@ class RetrievalRuntime:
                 data_uncertainties,
                 data_covariance,
                 n_free,
+                covariance_cholesky_factor=covariance_cholesky_factor,
+                log_likelihood_normalization=log_likelihood_normalization,
             )
             return jnp.where(
                 ll <= INVALID_LOG_LIKELIHOOD,
@@ -1891,6 +1906,8 @@ def compute_observation_log_likelihood(
     data_uncertainties: Any | None,
     data_covariance: Any | None,
     n_free_parameters: int,
+    covariance_cholesky_factor: Any | None = None,
+    log_likelihood_normalization: Any | None = None,
 ) -> Any:
     """Compute the log-likelihood for a single 1-D observation slice.
 
@@ -1907,6 +1924,8 @@ def compute_observation_log_likelihood(
             data_spectrum=data_spectrum,
             data_uncertainties=data_uncertainties,
             data_covariance=data_covariance,
+            covariance_cholesky_factor=covariance_cholesky_factor,
+            log_likelihood_normalization=log_likelihood_normalization,
             n_free_parameters=n_free_parameters,
         ).calculate_log_likelihood(),
         operand=None,

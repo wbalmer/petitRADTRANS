@@ -34,6 +34,9 @@ from petitRADTRANS.plotlib.style import (
     update_figure_font_size,
 )
 from petitRADTRANS.radtrans import Radtrans
+from petitRADTRANS.radtrans_core.interpolate_line_opacities import (
+    interpolate_species_opacities,
+)
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.retrieval.data import PhotometryData
 from petitRADTRANS.spectral_model import SpectralModel
@@ -2043,23 +2046,42 @@ def plot_radtrans_opacities(
 
         """
 
-        # Function to calc flux, called from outside
-        # TODO [4.0.0] _interpolate_species_opacities should not be private if it is used here
-        _opacities = radtrans._interpolate_species_opacities(
+        if radtrans.lines_loaded_opacities["opacity_grid"]:
+            line_opacities_grid = radtrans.lines_loaded_opacities["opacity_grid"]
+            line_opacities_temperature_pressure_grid = radtrans.lines_loaded_opacities[
+                "temperature_pressure_grid"
+            ]
+            line_opacities_temperature_grid_size = radtrans.lines_loaded_opacities[
+                "temperature_grid_size"
+            ]
+            line_opacities_pressure_grid_size = radtrans.lines_loaded_opacities[
+                "pressure_grid_size"
+            ]
+        else:
+            line_opacities_grid = radtrans.lines_loaded_opacities[
+                "opacity_grid_stacked"
+            ]
+            line_opacities_temperature_pressure_grid = radtrans.lines_loaded_opacities[
+                "temperature_pressure_grid_stacked"
+            ]
+            line_opacities_temperature_grid_size = radtrans.lines_loaded_opacities[
+                "temperature_grid_size_array"
+            ]
+            line_opacities_pressure_grid_size = radtrans.lines_loaded_opacities[
+                "pressure_grid_size_array"
+            ]
+
+        _opacities = interpolate_species_opacities(
             pressures=_pressures,
             temperatures=_temperatures,
             n_g=radtrans.lines_loaded_opacities["g_gauss"].size,
             n_frequencies=radtrans.frequencies.size,
-            line_opacities_grid=radtrans.lines_loaded_opacities["opacity_grid"],
-            line_opacities_temperature_pressure_grid=radtrans.lines_loaded_opacities[
-                "temperature_pressure_grid"
-            ],
-            line_opacities_temperature_grid_size=radtrans.lines_loaded_opacities[
-                "temperature_grid_size"
-            ],
-            line_opacities_pressure_grid_size=radtrans.lines_loaded_opacities[
-                "pressure_grid_size"
-            ],
+            line_opacities_grid=line_opacities_grid,
+            line_opacities_temperature_pressure_grid=(
+                line_opacities_temperature_pressure_grid
+            ),
+            line_opacities_temperature_grid_size=line_opacities_temperature_grid_size,
+            line_opacities_pressure_grid_size=line_opacities_pressure_grid_size,
         )
 
         _opacities_dict = {}

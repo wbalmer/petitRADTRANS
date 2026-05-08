@@ -104,6 +104,10 @@ class Radtrans:
             If False, isotropic cloud scattering opacities are used for the spectral calculations.
             If 'auto' (recommended), anisotropic_cloud_scattering is set to True for emission spectrum
             calculations, and to False for transmission spectrum calculations.
+        retain_line_opacities_for_plotting (Optional[bool]):
+            If True, keep per-species unstacked line opacity tables after the
+            stacked runtime layout has been built. This is intended for plotting
+            and debugging only and increases memory usage.
         path_input_data (Optional[str]):
             Path to the input_data folder, containing the files to be loaded by petitRADTRANS.
     """
@@ -135,17 +139,18 @@ class Radtrans:
 
     def __init__(
         self,
-        pressures: ArrayLike = None,  # NOTE: How many layers
+        pressures: ArrayLike = None,
         wavelength_boundaries: ArrayLike = None,
         line_species: list[str] | tuple[str] = None,
         gas_continuum_contributors: list[str] | tuple[str] = None,
         rayleigh_species: list[str] | tuple[str] = None,
         cloud_species: list[str] | tuple[str] = None,
         line_opacity_mode: str = "c-k",
-        line_by_line_opacity_sampling: int = 1,  # TODO: Replace with generic spectral resolution parameter.
-        scattering_in_emission: bool = True,  # TODO; double check if clouds are present
+        line_by_line_opacity_sampling: int = 1,
+        scattering_in_emission: bool = True,
         emission_angle_grid: ArrayLike = None,
         anisotropic_cloud_scattering: bool = "auto",  # NOTE: Probably doesn't need to be a main parameter
+        retain_line_opacities_for_plotting: bool = False,
         path_input_data: str = None,
     ):
         # Inputs checks
@@ -170,6 +175,7 @@ class Radtrans:
         self._line_opacity_mode = line_opacity_mode
         self._line_by_line_opacity_sampling = line_by_line_opacity_sampling
         self._scattering_in_emission = scattering_in_emission
+        self._retain_line_opacities_for_plotting = retain_line_opacities_for_plotting
 
         if wavelength_boundaries is None:
             self._wavelength_boundaries = jnp.array(
@@ -718,8 +724,27 @@ class Radtrans:
             sum_opacities,
         )
 
-    def _stack_loaded_line_opacities(self):
+    def _stack_loaded_line_opacities(
+        self,
+        temperature_pressure_grids=None,
+        temperature_grid_sizes_map=None,
+        pressure_grid_sizes_map=None,
+        opacity_grids=None,
+    ):
         n_line_species = len(self._line_species)
+
+        if temperature_pressure_grids is None:
+            temperature_pressure_grids = self._lines_loaded_opacities[
+                "temperature_pressure_grid"
+            ]
+        if temperature_grid_sizes_map is None:
+            temperature_grid_sizes_map = self._lines_loaded_opacities[
+                "temperature_grid_size"
+            ]
+        if pressure_grid_sizes_map is None:
+            pressure_grid_sizes_map = self._lines_loaded_opacities["pressure_grid_size"]
+        if opacity_grids is None:
+            opacity_grids = self._lines_loaded_opacities["opacity_grid"]
 
         (
             self._lines_loaded_opacities["ck_g_combination_weights"],
@@ -744,17 +769,11 @@ class Radtrans:
             return
 
         temperature_grid_sizes = np.array(
-            [
-                self._lines_loaded_opacities["temperature_grid_size"][species]
-                for species in self._line_species
-            ],
+            [temperature_grid_sizes_map[species] for species in self._line_species],
             dtype=np.int32,
         )
         pressure_grid_sizes = np.array(
-            [
-                self._lines_loaded_opacities["pressure_grid_size"][species]
-                for species in self._line_species
-            ],
+            [pressure_grid_sizes_map[species] for species in self._line_species],
             dtype=np.int32,
         )
         max_temperature_grid_size = int(np.max(temperature_grid_sizes))
@@ -786,11 +805,9 @@ class Radtrans:
             temperature_grid_size = int(temperature_grid_sizes[i_species])
             pressure_grid_size = int(pressure_grid_sizes[i_species])
             temperature_pressure_grid = np.asarray(
-                self._lines_loaded_opacities["temperature_pressure_grid"][species]
+                temperature_pressure_grids[species]
             ).reshape(temperature_grid_size, pressure_grid_size, 2)
-            opacity_grid = np.asarray(
-                self._lines_loaded_opacities["opacity_grid"][species]
-            )
+            opacity_grid = np.asarray(opacity_grids[species])
 
             if (
                 temperature_grid_size < max_temperature_grid_size
@@ -848,6 +865,30 @@ class Radtrans:
             opacity_grid_stacked,
             dtype=JAX_DTYPE,
         )
+
+    def _set_unstacked_line_opacity_debug_data(
+        self,
+        temperature_pressure_grids,
+        temperature_grid_sizes,
+        pressure_grid_sizes,
+        opacity_grids,
+    ):
+        self._lines_loaded_opacities["temperature_pressure_grid"].clear()
+        self._lines_loaded_opacities["temperature_grid_size"].clear()
+        self._lines_loaded_opacities["pressure_grid_size"].clear()
+        self._lines_loaded_opacities["opacity_grid"].clear()
+
+        if not self._retain_line_opacities_for_plotting:
+            return
+
+        self._lines_loaded_opacities["temperature_pressure_grid"].update(
+            temperature_pressure_grids
+        )
+        self._lines_loaded_opacities["temperature_grid_size"].update(
+            temperature_grid_sizes
+        )
+        self._lines_loaded_opacities["pressure_grid_size"].update(pressure_grid_sizes)
+        self._lines_loaded_opacities["opacity_grid"].update(opacity_grids)
 
     @staticmethod
     def _set_sum_opacities(emission, line_opacity_mode, scattering_in_emission):
@@ -1848,6 +1889,7 @@ class Radtrans:
             "line_by_line_opacity_sampling": self._line_by_line_opacity_sampling,
             "scattering_in_emission": self._scattering_in_emission,
             "anisotropic_cloud_scattering": self._anisotropic_cloud_scattering,
+            "retain_line_opacities_for_plotting": self._retain_line_opacities_for_plotting,
             "path_input_data": self._path_input_data,
             "scattering_in_transmission": self.__scattering_in_transmission,
             "sum_opacities": self.__sum_opacities,
@@ -1881,6 +1923,9 @@ class Radtrans:
         instance._scattering_in_emission = aux_data["scattering_in_emission"]
         instance._anisotropic_cloud_scattering = aux_data[
             "anisotropic_cloud_scattering"
+        ]
+        instance._retain_line_opacities_for_plotting = aux_data[
+            "retain_line_opacities_for_plotting"
         ]
         instance._path_input_data = aux_data["path_input_data"]
         instance._Radtrans__scattering_in_transmission = aux_data[
@@ -4161,6 +4206,14 @@ class Radtrans:
                 f"invalid line opacity mode: '{self._line_opacity_mode}' (must be 'c-k'|'lbl')"
             )
 
+        host_dtype = np.dtype(JAX_DTYPE)
+        temperature_pressure_grids = {}
+        temperature_grid_sizes = {}
+        pressure_grid_sizes = {}
+        opacity_grids = {}
+        g_gauss = None
+        weights_gauss = None
+
         # Read opacities grid
         if len(self._line_species) > 0:
             for i, species in enumerate(self._line_species):
@@ -4171,22 +4224,14 @@ class Radtrans:
                 # Load g grid for correlated-k
                 if self._line_opacity_mode == "c-k" and i == 0:
                     with h5py.File(hdf5_file, "r") as f:
-                        self._lines_loaded_opacities["g_gauss"] = f["samples"][:]
-                        self._lines_loaded_opacities["weights_gauss"] = f["weights"][:]
-
-                    # Convert into F-ordered array for more efficient processing in the Fortran modules
-                    self._lines_loaded_opacities["g_gauss"] = jnp.array(
-                        self._lines_loaded_opacities["g_gauss"], dtype=JAX_DTYPE
-                    )
-                    self._lines_loaded_opacities["weights_gauss"] = jnp.array(
-                        self._lines_loaded_opacities["weights_gauss"], dtype=JAX_DTYPE
-                    )
+                        g_gauss = f["samples"][:]
+                        weights_gauss = f["weights"][:]
 
                 # Load temperature-pressure grid
                 (
-                    self._lines_loaded_opacities["temperature_pressure_grid"][species],
-                    self._lines_loaded_opacities["temperature_grid_size"][species],
-                    self._lines_loaded_opacities["pressure_grid_size"][species],
+                    temperature_pressure_grids[species],
+                    temperature_grid_sizes[species],
+                    pressure_grid_sizes[species],
                 ) = load.load_line_opacities_pressure_temperature_grid(
                     hdf5_file=hdf5_file
                 )
@@ -4197,34 +4242,48 @@ class Radtrans:
                 )
 
                 if self._line_opacity_mode == "c-k":
-                    self._lines_loaded_opacities["opacity_grid"][species] = (
+                    opacity_grids[species] = np.asarray(
                         self.load_hdf5_ktables(
                             file_path_hdf5=hdf5_file,
                             frequencies=self._frequencies,
-                            g_size=self._lines_loaded_opacities["g_gauss"].size,
-                            temperature_pressure_grid_size=self._lines_loaded_opacities[
-                                "temperature_pressure_grid"
-                            ][species].shape[0],
-                        )
+                            g_size=g_gauss.size,
+                            temperature_pressure_grid_size=temperature_pressure_grids[
+                                species
+                            ].shape[0],
+                        )[:, :, 0, :],
+                        dtype=host_dtype,
                     )
                 elif self._line_opacity_mode == "lbl":
-                    self._lines_loaded_opacities["opacity_grid"][species] = (
-                        load.load_hdf5_line_opacity_table(
-                            file_path_hdf5=hdf5_file,
-                            frequencies=self._frequencies,
-                            line_by_line_opacity_sampling=self._line_by_line_opacity_sampling,
-                        )
+                    opacity_grids[species] = load.load_hdf5_line_opacity_table(
+                        file_path_hdf5=hdf5_file,
+                        frequencies=self._frequencies,
+                        line_by_line_opacity_sampling=self._line_by_line_opacity_sampling,
                     )
 
                 print(" Done.")
 
-                # Convert into F-ordered array for more efficient processing in the Fortran modules
-                self._lines_loaded_opacities["opacity_grid"][species] = jnp.array(
-                    self._lines_loaded_opacities["opacity_grid"][species][:, :, 0, :],
+            if g_gauss is not None:
+                self._lines_loaded_opacities["g_gauss"] = jnp.array(
+                    g_gauss,
+                    dtype=JAX_DTYPE,
+                )
+                self._lines_loaded_opacities["weights_gauss"] = jnp.array(
+                    weights_gauss,
                     dtype=JAX_DTYPE,
                 )
 
-            self._stack_loaded_line_opacities()
+            self._stack_loaded_line_opacities(
+                temperature_pressure_grids=temperature_pressure_grids,
+                temperature_grid_sizes_map=temperature_grid_sizes,
+                pressure_grid_sizes_map=pressure_grid_sizes,
+                opacity_grids=opacity_grids,
+            )
+            self._set_unstacked_line_opacity_debug_data(
+                temperature_pressure_grids=temperature_pressure_grids,
+                temperature_grid_sizes=temperature_grid_sizes,
+                pressure_grid_sizes=pressure_grid_sizes,
+                opacity_grids=opacity_grids,
+            )
 
             print(" Successfully loaded all line opacities")
 
