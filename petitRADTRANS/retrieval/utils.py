@@ -334,7 +334,10 @@ def process_spectrum_pipeline(
                 data.wavelengths * resolution_slope
             ) + resolution_intersect
             model_spectrum_rebinned = convolve_and_sample_variable_resolution_breads(
-                data.wavelengths, resolution_array, data.wavelengths, spectrum_model
+                data.wavelengths,
+                resolution_array,
+                wavelengths_model,
+                spectrum_model,
             )
         else:
             model_spectrum_rebinned = spectrum_model
