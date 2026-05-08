@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a28] - 2026-05-07
+## [4.0.0a29] - 2026-05-08
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -48,6 +48,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: correlated-k binning.
 
 ### Changed
+- a29: Improved memory management - smarter loading of lbl opacities, delaying JAX conversion, cholesky decomposition for large covariance matrix inversion.
 - a28: `condensation_curves.py` is now `vapour_pressures.py` for consistency
 - a28: `complete_coverage_clouds` is no longer available, instead use patchy clouds to set which clouds ARE patchy.
 - a27: tests updated to be compatible with new default value for scattering_in_emission
