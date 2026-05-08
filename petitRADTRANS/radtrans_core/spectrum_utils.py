@@ -307,6 +307,7 @@ def _convolve_running(input_spectrum, sigma_lsf_gauss_filter, **kwargs):
     return convolved_spectrum
 
 
+@jit(static_argnames=("filter_size",))
 def convolve_and_sample_variable_resolution_breads(
     wavelengths,
     resolutions,
@@ -334,8 +335,8 @@ def convolve_and_sample_variable_resolution_breads(
             number of +/- sigmas to evaluate the LSF to.
         filter_size: int or None
             Number of points in the LSF filter. Must be provided as a static Python int
-            when this function is JIT-compiled (declare it via static_argnums/static_argnames).
-            If None, computed automatically from the data; this path is not JIT-compatible.
+            when this function is JIT-compiled. If None, a conservative static default
+            is used so the function remains JIT-compatible.
 
     Returns:
         output_model: np.ndarray
@@ -346,16 +347,8 @@ def convolve_and_sample_variable_resolution_breads(
         resolutions * 2 * jnp.sqrt(2 * jnp.log(2))
     )  # corrected a math error here, July 15 2024
 
-    in_range_mask = jnp.logical_and(
-        model_wavelengths >= jnp.min(wavelengths),
-        model_wavelengths < jnp.max(wavelengths),
-    )
-    dwv_model = jnp.abs(model_wavelengths - jnp.roll(model_wavelengths, 1))
-    dwv_model = dwv_model.at[0].set(dwv_model[1])
-    dwv_model_min = jnp.min(jnp.where(in_range_mask, dwv_model, jnp.inf))
-
     if filter_size is None:
-        filter_size = int(jnp.ceil(jnp.max(2 * num_sigma * sigmas_wvs) / dwv_model_min))
+        filter_size = DEFAULT_BREADS_FILTER_SIZE
     filter_coords = jnp.linspace(-num_sigma, num_sigma, filter_size)
 
     filter_coords = jnp.tile(
