@@ -84,7 +84,7 @@ def _partial_nan_runtime_model(prt_object, parameters, pt_plot_mode=False, adapt
 
 def _dummy_photometric_transform(wavelengths, spectrum):
     del wavelengths
-    return jnp.mean(jnp.asarray(spectrum))
+    return jnp.asarray([jnp.mean(jnp.asarray(spectrum))])
 
 
 def _build_runtime_task(
@@ -228,7 +228,7 @@ def test_sbi_task_from_retrieval_config_materializes_runtime_metadata():
     assert task.observation_schema.dataset_names == ('synthetic_spectrum',)
     assert task.observation_schema.modalities['synthetic_spectrum'] == 'spectrum'
     assert task.task_version == '0.1.0'
-    assert task.preprocessing_version == '0.1.0'
+    assert task.preprocessing_version == '0.5.0'
     assert '_dummy_model' in task.forward_model_family
     assert task.task_fingerprint.digest
 
@@ -364,8 +364,14 @@ def test_amortized_retrieval_normalizes_raw_observations_but_reports_raw_scale(t
     )
     manual_encoded = posterior.encode_observation(normalized_blocks)
     manual_posterior = posterior.sample_posterior(manual_encoded, n_samples=48, seed=47)
+    manual_physical_posterior = task.parameter_layout.transform_unconstrained_batch(
+        manual_posterior.samples
+    )
 
-    np.testing.assert_allclose(np.asarray(result.posterior.samples), np.asarray(manual_posterior.samples))
+    np.testing.assert_allclose(
+        np.asarray(result.posterior.samples),
+        np.asarray(manual_physical_posterior),
+    )
     np.testing.assert_allclose(
         result.posterior_predictive.observed_values['synthetic_spectrum'],
         np.asarray(raw_blocks[0][0].values),
@@ -376,6 +382,7 @@ def test_amortized_retrieval_normalizes_raw_observations_but_reports_raw_scale(t
     )
     assert result.metadata['preprocessing_applied'] is True
     assert result.metadata['preprocessing_version'] == generated.preprocessing_metadata.version
+    assert result.metadata['parameter_space'] == 'physical'
 
 
 def test_amortized_retrieval_uses_posterior_preprocessing_metadata_by_default(tmp_path):

@@ -1,5 +1,7 @@
 """Test petitRADTRANS chemistry module."""
 
+import inspect
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -10,6 +12,26 @@ from .benchmark import Benchmark
 from .utils import test_parameters, temperature_guillot_2010
 
 relative_tolerance = 1e-6
+
+
+def test_cloud_vapour_pressure_functions_reference_vapour_pressures_module():
+    import petitRADTRANS.chemistry.clouds as chemistry_clouds
+    import petitRADTRANS.chemistry.vapour_pressures as vapour_pressures
+
+    vapour_pressure_functions = (
+        chemistry_clouds.vapour_pressure_fe_solid,
+        chemistry_clouds.vapour_pressure_mg2sio4,
+        chemistry_clouds.vapour_pressure_h2o,
+    )
+
+    for vapour_pressure_function in vapour_pressure_functions:
+        assert vapour_pressure_function.__module__ == vapour_pressures.__name__
+
+        source_file = inspect.getsourcefile(vapour_pressure_function)
+
+        assert source_file is not None
+        assert source_file.endswith("vapour_pressures.py")
+        assert not source_file.endswith("condensation_curves.py")
 
 
 def test_chemistry_atmosphere():

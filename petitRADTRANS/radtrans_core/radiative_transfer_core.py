@@ -2794,33 +2794,17 @@ def compute_transmission_spectrum_contribution(
     def loop_body_leave_out_layer(i_leave_str_idx: int, _: Any) -> ArrayLike:
         current_opacities = opacities.at[..., i_leave_str_idx].set(0.0)
 
-        # --- Conditionally set current_continuum_scattering for the left-out layer ---
-        def set_continuum_scattering_true_branch(
-            operands: tuple[ArrayLike, int],
-        ) -> ArrayLike:
-            _cos, _idx = operands
-            return _cos.at[:, _idx].set(0.0)
-
-        def set_continuum_scattering_false_branch(
-            operands: tuple[ArrayLike, int],
-        ) -> ArrayLike:
-            _cos, _ = operands
-            return _cos  # Return original if no scattering
-
         current_continuum_scattering_eff = lax.cond(
             scattering_in_transmission,
-            set_continuum_scattering_true_branch,
-            set_continuum_scattering_false_branch,
-            (continuum_opacities_scattering, i_leave_str_idx),
+            lambda cos_in: cos_in.at[:, i_leave_str_idx].set(0.0),
+            lambda cos_in: cos_in,
+            continuum_opacities_scattering,
         )
-        # If not scattering_in_transmission, continuum_opacities_scattering might not be used
-        # or could be zeros. If it's zeros, the above is fine.
-        # If it's non-zero but scattering_in_transmission is False, we should ensure it's effectively zeroed.
-        # A safer approach if continuum_opacities_scattering might be non-zero when flag is False:
+
         current_continuum_scattering_for_calc = lax.cond(
             scattering_in_transmission,
             lambda cos_in: cos_in.at[:, i_leave_str_idx].set(0.0),
-            lambda cos_in: jnp.zeros_like(cos_in),  # Ensure it's zero if flag is false
+            lambda cos_in: jnp.zeros_like(cos_in),
             continuum_opacities_scattering,
         )
 
@@ -2830,7 +2814,6 @@ def compute_transmission_spectrum_contribution(
             + current_opacities[..., 1:] * rho_exp[..., 1:]
         )
 
-        # --- Conditionally calculate alpha_t2_scat_current ---
         alpha_t2_scat_operands = (
             rho,
             current_continuum_scattering_for_calc,
@@ -2851,8 +2834,8 @@ def compute_transmission_spectrum_contribution(
         def false_alpha_t2_scat_branch(
             ops: tuple[ArrayLike, ArrayLike, int, int],
         ) -> ArrayLike:
-            # _, _, _n_freq, _n_layers_ops = ops  # Renamed to avoid conflict
-            return jnp.zeros((n_frequencies, n_layers - 1))
+            _, _, _n_freq, _n_layers_ops = ops
+            return jnp.zeros((_n_freq, _n_layers_ops - 1))
 
         alpha_t2_scat_current = lax.cond(
             scattering_in_transmission,
@@ -2895,7 +2878,6 @@ def compute_transmission_spectrum_contribution(
 
                 t_graze_sum_gas += alpha_t2_current[..., idx_j_alpha] * path_in_shell
 
-                # --- Conditionally update t_graze_scat_sum ---
                 def update_t_graze_scat_sum_true(
                     ops: tuple[ArrayLike, ArrayLike, ArrayLike],
                 ) -> ArrayLike:
@@ -2922,9 +2904,7 @@ def compute_transmission_spectrum_contribution(
                 return t_graze_sum_gas, t_graze_sum_scat
 
             initial_sums_for_i_str_gas = jnp.zeros_like(alpha_t2_current[..., 0])
-            initial_sums_for_i_str_scat = jnp.zeros_like(
-                alpha_t2_scat_current[:, 0]
-            )  # Always init, even if not used
+            initial_sums_for_i_str_scat = jnp.zeros_like(alpha_t2_scat_current[:, 0])
 
             final_t_graze_sum_gas, final_t_graze_sum_scat = lax.fori_loop(
                 0,
@@ -2937,7 +2917,6 @@ def compute_transmission_spectrum_contribution(
                 final_t_graze_sum_gas
             )
 
-            # --- Conditionally update current_t_graze_scat_accum ---
             def update_scat_accum_true(
                 ops: tuple[ArrayLike, ArrayLike, int],
             ) -> ArrayLike:
@@ -2976,9 +2955,6 @@ def compute_transmission_spectrum_contribution(
         )
         T_gas_total = jnp.prod(T_gas_spec_contrib, axis=1)
 
-        # --- Conditionally calculate T_scat_eff ---
-        # T_gas_total is shape (n_frequencies, n_layers)
-        # t_graze_scat_current is shape (n_frequencies, n_layers)
         def compute_T_scat_eff_true(ops: tuple[ArrayLike, ArrayLike]) -> ArrayLike:
             _t_graze_scat, _ = ops
             return jnp.exp(-_t_graze_scat)

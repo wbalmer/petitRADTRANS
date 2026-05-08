@@ -6,7 +6,7 @@ import warnings
 import jax.numpy as jnp
 from petitRADTRANS.opacities.opacities import CloudOpacity
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
-from petitRADTRANS.chemistry.condensation_curves import (
+from petitRADTRANS.chemistry.vapour_pressures import (
     vapour_pressure_fe_solid,
     vapour_pressure_fe_liquid,
     vapour_pressure_mgsio3,
@@ -732,7 +732,7 @@ def calculate_mass_fraction_sio2(metallicity, co_ratio):
 
 
 # ============================================================================
-# Vapor pressure functions are imported from condensation_curves.py
+# Vapor pressure functions are imported from vapour_pressures.py
 # ============================================================================
 
 

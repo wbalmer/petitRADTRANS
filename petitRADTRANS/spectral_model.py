@@ -42,7 +42,14 @@ from petitRADTRANS.radtrans_core.spectrum_utils import (
     _convolve_running as _su_convolve_running,
 )
 from petitRADTRANS.planet import Planet
-from petitRADTRANS.radtrans import Radtrans
+from petitRADTRANS.radtrans import (
+    Radtrans,
+)
+from petitRADTRANS.validation import (
+    _UNSET,
+    _normalize_deprecated_cloud_particle_arguments,
+    _normalize_deprecated_cloud_particle_parameter_keys,
+)
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import RetrievalParameter
 from petitRADTRANS.retrieval.preparing import polyfit
@@ -422,6 +429,10 @@ class SpectralModel(Radtrans):
         spectral_modification_functions_map=None,
         **model_parameters,
     ):
+        model_parameters = _normalize_deprecated_cloud_particle_parameter_keys(
+            model_parameters
+        )
+
         if radial_velocity_semi_amplitude_function is None:
             radial_velocity_semi_amplitude_function = (
                 self.compute_radial_velocity_semi_amplitude
@@ -1343,6 +1354,7 @@ class SpectralModel(Radtrans):
                         isinstance(value.default, bool) and remove_flag
                     )  # remove flag parameters
                     or (isinstance(value.default, str) and remove_branching)
+                    or value.default is _UNSET
                 ):  # remove branching parameters
                     continue
 
@@ -1476,6 +1488,7 @@ class SpectralModel(Radtrans):
         cloud_photosphere_wavelength_boundaries: float = None,
         cloud_fraction: float = 1.0,
         patchy_clouds: list[str] = None,
+        complete_coverage_clouds: list[str] = None,
         irradiation_geometry: str = "dayside_ave",
         stellar_intensities: npt.NDArray[np.floating] = None,
         star_effective_temperature: float = None,
@@ -1500,7 +1513,36 @@ class SpectralModel(Radtrans):
         **kwargs,
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_flux function."""
-        _ = kwargs  # kwargs is not used in this function, this is intended
+        normalized_cloud_particle_arguments = _normalize_deprecated_cloud_particle_arguments(
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
+            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+            cloud_particles_mean_radii=kwargs.get("cloud_particles_mean_radii", _UNSET),
+            cloud_particles_radius_distribution_std=kwargs.get(
+                "cloud_particles_radius_distribution_std", _UNSET
+            ),
+            cloud_particles_radius_distribution=kwargs.get(
+                "cloud_particles_radius_distribution", _UNSET
+            ),
+            cloud_particles_number_density_grid=kwargs.get(
+                "cloud_particles_number_density_grid", _UNSET
+            ),
+        )
+        cloud_particle_mean_radii = normalized_cloud_particle_arguments[
+            "cloud_particle_mean_radii"
+        ]
+        cloud_particle_radius_distribution_std = normalized_cloud_particle_arguments[
+            "cloud_particle_radius_distribution_std"
+        ]
+        cloud_particle_radius_distribution = normalized_cloud_particle_arguments[
+            "cloud_particle_radius_distribution"
+        ]
+        cloud_particle_number_density_grid = normalized_cloud_particle_arguments[
+            "cloud_particle_number_density_grid"
+        ]
+
+        _ = kwargs  # kwargs is not otherwise used in this function, this is intended
 
         self.wavelengths, self.fluxes, additional_outputs = self.calculate_flux(
             temperatures=self.temperatures,
@@ -1525,6 +1567,7 @@ class SpectralModel(Radtrans):
             cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
             cloud_fraction=cloud_fraction,
             patchy_clouds=patchy_clouds,
+            complete_coverage_clouds=complete_coverage_clouds,
             irradiation_geometry=irradiation_geometry,
             stellar_intensities=stellar_intensities,
             star_effective_temperature=star_effective_temperature,
@@ -1867,6 +1910,7 @@ class SpectralModel(Radtrans):
         gray_opacity: float = None,
         cloud_fraction: float = 1.0,
         patchy_clouds: list[str] = None,
+        complete_coverage_clouds: list[str] = None,
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
         frequencies_to_wavelengths: bool = True,
@@ -1879,7 +1923,36 @@ class SpectralModel(Radtrans):
         **kwargs,
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_transit_radii function."""
-        _ = kwargs  # kwargs is not used in this function, this is intended
+        normalized_cloud_particle_arguments = _normalize_deprecated_cloud_particle_arguments(
+            cloud_particle_mean_radii=cloud_particle_mean_radii,
+            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+            cloud_particles_mean_radii=kwargs.get("cloud_particles_mean_radii", _UNSET),
+            cloud_particles_radius_distribution_std=kwargs.get(
+                "cloud_particles_radius_distribution_std", _UNSET
+            ),
+            cloud_particles_radius_distribution=kwargs.get(
+                "cloud_particles_radius_distribution", _UNSET
+            ),
+            cloud_particles_number_density_grid=kwargs.get(
+                "cloud_particles_number_density_grid", _UNSET
+            ),
+        )
+        cloud_particle_mean_radii = normalized_cloud_particle_arguments[
+            "cloud_particle_mean_radii"
+        ]
+        cloud_particle_radius_distribution_std = normalized_cloud_particle_arguments[
+            "cloud_particle_radius_distribution_std"
+        ]
+        cloud_particle_radius_distribution = normalized_cloud_particle_arguments[
+            "cloud_particle_radius_distribution"
+        ]
+        cloud_particle_number_density_grid = normalized_cloud_particle_arguments[
+            "cloud_particle_number_density_grid"
+        ]
+
+        _ = kwargs  # kwargs is not otherwise used in this function, this is intended
 
         self.wavelengths, self.transit_radii, additional_outputs = (
             self.calculate_transit_radii(
@@ -1905,6 +1978,7 @@ class SpectralModel(Radtrans):
                 gray_opacity=gray_opacity,
                 cloud_fraction=cloud_fraction,
                 patchy_clouds=patchy_clouds,
+                complete_coverage_clouds=complete_coverage_clouds,
                 additional_absorption_opacities_function=additional_absorption_opacities_function,
                 additional_scattering_opacities_function=additional_scattering_opacities_function,
                 frequencies_to_wavelengths=frequencies_to_wavelengths,
@@ -1965,6 +2039,15 @@ class SpectralModel(Radtrans):
         _ = kwargs  # kwargs is not used in this function, this is intended
 
         return cloud_f_sed
+
+    @staticmethod
+    def compute_complete_coverage_clouds(
+        complete_coverage_clouds: list[str] = None, **kwargs
+    ):
+        """Get the complete_coverage_clouds parameter. No calculation performed."""
+        _ = kwargs  # kwargs is not used in this function, this is intended
+
+        return complete_coverage_clouds
 
     @staticmethod
     def compute_cloud_particle_mean_radii(
@@ -3259,6 +3342,10 @@ class SpectralModel(Radtrans):
         if self.model_parameters is not None:
             for parameter in self.model_parameters:
                 model_parameters[parameter] = self.model_parameters[parameter]
+
+        model_parameters = _normalize_deprecated_cloud_particle_parameter_keys(
+            model_parameters
+        )
 
         # Initialize the modification parameters dict
         model_parameters["modification_arguments"] = {}

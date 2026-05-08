@@ -242,7 +242,7 @@ def test_correlated_k_spectral_model_transmission_save_load():
         loaded_spectral_model = petitRADTRANS.spectral_model.SpectralModel.load(f)
 
     loaded_wavelengths, loaded_spectrum = loaded_spectral_model.calculate_spectrum(
-        **loaded_spectral_model.model_parameters["modification_parameters"]
+        **loaded_spectral_model.model_parameters["modification_arguments"]
     )
 
     assert np.allclose(wavelengths, loaded_wavelengths, atol=0, rtol=relative_tolerance)
