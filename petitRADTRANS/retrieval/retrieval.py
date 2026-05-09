@@ -94,25 +94,17 @@ SAMPLER_DISPATCH: dict[str, type[Sampler]] = {
     "jaxnsshardedstaticsestedsampler": JAXNSShardedStaticNestedSampler,
 }
 
-prt_emcee_mode = os.environ.get("pRT_emcee_mode")
-load_mpi = True
-if prt_emcee_mode == "True":
-    load_mpi = False
-
 MPI = None
 rank = 0
 comm = None
+try:
+    from mpi4py import MPI
 
-if load_mpi:
-    # MPI Multiprocessing
-    try:
-        from mpi4py import MPI
-
-        comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
-    except ImportError:
-        MPI = None
-        pass
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+except ImportError:
+    MPI = None
+    pass
 
 
 class Retrieval:
@@ -165,7 +157,6 @@ class Retrieval:
         self,
         configuration: RetrievalConfig,
         output_directory: str = os.getcwd(),
-        use_mpi: bool = False,
         evaluate_sample_spectra: bool = False,
         corner_plot_names: list[str] = None,
         reference_data_name: str = None,
@@ -192,7 +183,6 @@ class Retrieval:
                     break
 
         # Could actually be merged with RetrievalConfig
-        self.use_mpi = use_mpi
         self.rank = rank
         self.comm = comm
         self.uncertainties_mode = uncertainties_mode
@@ -718,7 +708,6 @@ class Retrieval:
         run_mode: str = "retrieval",
         adaptive_mesh_refinement: bool = False,
         output_directory: str = "",
-        use_mpi: bool = False,
         evaluate_sample_spectra: bool = False,
         corner_plot_names: list[str] = None,
         reference_data_name: str = None,
@@ -754,8 +743,6 @@ class Retrieval:
                 in the setup_pres function.
             output_directory : Str
                 The directory in which the output folders should be written
-            use_mpi : bool
-                # TODO complete docstring
             evaluate_sample_spectra : Bool
                 Produce plots and data files for random samples drawn from the outputs of pymultinest.
             corner_plot_names : List(Str)
@@ -825,7 +812,6 @@ class Retrieval:
         return cls(
             configuration=retrieval_configuration,
             output_directory=output_directory,
-            use_mpi=use_mpi,
             evaluate_sample_spectra=evaluate_sample_spectra,
             corner_plot_names=corner_plot_names,
             reference_data_name=reference_data_name,
