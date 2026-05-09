@@ -87,12 +87,14 @@ Model = None
 NestedSampler = None
 save_results = None
 load_results = None
+jaxns_resample = None
 ShardedStaticNestedSampler = None
 UniformSampler = None
 
 
 def _require_jaxns():
-    global jaxns, Model, NestedSampler, save_results, load_results, ShardedStaticNestedSampler, UniformSampler
+    global jaxns, Model, NestedSampler, save_results, load_results, jaxns_resample
+    global ShardedStaticNestedSampler, UniformSampler
 
     if jaxns is not None:
         return
@@ -107,6 +109,7 @@ def _require_jaxns():
             ShardedStaticNestedSampler as jaxns_sharded_static_nested_sampler,
         )
         from jaxns.samplers import UniformSampler as jaxns_uniform_sampler
+        from jaxns.utils import resample as jaxns_utils_resample
     except Exception as error:
         raise ImportError(
             "JAXNS module or its JAX dependencies are not installed. This sampler cannot be used."
@@ -117,6 +120,7 @@ def _require_jaxns():
     NestedSampler = jaxns_nested_sampler
     save_results = jaxns_save_results
     load_results = jaxns_load_results
+    jaxns_resample = jaxns_utils_resample
     ShardedStaticNestedSampler = jaxns_sharded_static_nested_sampler
     UniformSampler = jaxns_uniform_sampler
 
@@ -144,6 +148,8 @@ numpyro = None
 NumPyroHMC = None
 NumPyroNUTS = None
 NumPyroMCMC = None
+az = None
+plt = None
 
 
 def _require_numpyro():
@@ -168,6 +174,38 @@ def _require_numpyro():
     NumPyroMCMC = _mcmc
 
 
+def _require_arviz():
+    global az
+
+    if az is not None:
+        return
+
+    try:
+        import arviz as _az
+    except ImportError as error:
+        raise ImportError(
+            "ArviZ is required to plot NumPyro diagnostics but is not installed."
+        ) from error
+
+    az = _az
+
+
+def _require_matplotlib_pyplot():
+    global plt
+
+    if plt is not None:
+        return
+
+    try:
+        import matplotlib.pyplot as _plt
+    except ImportError as error:
+        raise ImportError(
+            "matplotlib is required to save sampler diagnostics plots but is not installed."
+        ) from error
+
+    plt = _plt
+
+
 pymultinest = None
 
 
@@ -190,6 +228,10 @@ def _require_pymultinest():
 ultranest = None
 MLFriends = None
 RobustEllipsoidRegion = None
+dynesty = None
+DynamicNestedSampler = None
+dyplot = None
+dyfunc = None
 
 
 def _require_ultranest():
@@ -210,6 +252,28 @@ def _require_ultranest():
     ultranest = _ultranest
     MLFriends = _MLFriends
     RobustEllipsoidRegion = _RobustEllipsoidRegion
+
+
+def _require_dynesty():
+    global dynesty, DynamicNestedSampler, dyplot, dyfunc
+
+    if dynesty is not None:
+        return
+
+    try:
+        import dynesty as _dynesty
+        from dynesty import DynamicNestedSampler as _DynamicNestedSampler
+        from dynesty import plotting as _dyplot
+        from dynesty import utils as _dyfunc
+    except ImportError as error:
+        raise ImportError(
+            "Dynesty is not installed. This sampler cannot be used."
+        ) from error
+
+    dynesty = _dynesty
+    DynamicNestedSampler = _DynamicNestedSampler
+    dyplot = _dyplot
+    dyfunc = _dyfunc
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +427,48 @@ class Sampler(abc.ABC):
         ):
             self.pretty_print_results()
         return results, {}
+
+    def plot_diagnostics(self, results=None):
+        """Optional hook to persist sampler-specific diagnostics plots."""
+        return {}
+
+    @staticmethod
+    def _extract_figure(plot_output):
+        if plot_output is None:
+            return None
+
+        if hasattr(plot_output, "savefig"):
+            return plot_output
+
+        if hasattr(plot_output, "figure"):
+            return plot_output.figure
+
+        if isinstance(plot_output, np.ndarray):
+            for entry in plot_output.reshape(-1):
+                figure = Sampler._extract_figure(entry)
+                if figure is not None:
+                    return figure
+
+        if isinstance(plot_output, (list, tuple)):
+            for entry in plot_output:
+                figure = Sampler._extract_figure(entry)
+                if figure is not None:
+                    return figure
+
+        return None
+
+    @classmethod
+    def _save_plot_figure(cls, plot_output, output_file):
+        _require_matplotlib_pyplot()
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        figure = cls._extract_figure(plot_output)
+
+        if figure is None:
+            figure = plt.gcf()
+
+        figure.savefig(output_file, bbox_inches="tight")
+        plt.close(figure)
+        return output_file
 
     @staticmethod
     def _summary_scalar(value):
@@ -893,6 +999,7 @@ class NumPyroSampler(Sampler):
         os.makedirs(os.path.join(self.output_directory, "out_NumPyro"), exist_ok=True)
         self.results = None
         self.mcmc = None
+        self.parameter_names = None
 
     @classmethod
     def _prepare_numpyro(
@@ -1097,6 +1204,7 @@ class NumPyroSampler(Sampler):
         chain_method="vectorized",
         **numpyro_kwargs,
     ):
+        self.parameter_names = list(parameter_names)
         kernel_kwargs = self._prepare_kernel_kwargs(
             algorithm_name=self.algorithm_name,
             log_likelihood_func=self.log_likelihood_func,
@@ -1283,6 +1391,8 @@ class NumPyroSampler(Sampler):
             metadata_file=metadata_file,
         )
 
+        self.plot_diagnostics(self.results)
+
         return self.results
 
     def get_results(self):
@@ -1301,6 +1411,76 @@ class NumPyroSampler(Sampler):
             )
         if self.results.is_divergent is not None:
             print(f"  Divergences: {int(np.sum(self.results.is_divergent))}")
+
+    def plot_diagnostics(self, results=None):
+        if results is None:
+            results = self.results
+
+        if results is None:
+            return {}
+
+        try:
+            _require_arviz()
+            _require_matplotlib_pyplot()
+        except ImportError as error:
+            warnings.warn(str(error), RuntimeWarning)
+            return {}
+
+        inference_data = None
+        if self.mcmc is not None:
+            try:
+                inference_data = az.from_numpyro(self.mcmc)
+            except Exception:
+                inference_data = None
+
+        parameter_names = list(self.parameter_names or [])
+        samples = np.asarray(results.samples) if results.samples is not None else None
+
+        if inference_data is None:
+            if samples is None or samples.ndim != 2:
+                warnings.warn(
+                    "Unable to build NumPyro diagnostics plot because posterior samples are unavailable.",
+                    RuntimeWarning,
+                )
+                return {}
+
+            if not parameter_names:
+                parameter_names = [
+                    f"parameter_{index}" for index in range(samples.shape[1])
+                ]
+
+            if samples.shape[1] != len(parameter_names):
+                warnings.warn(
+                    "Unable to build NumPyro diagnostics plot because parameter names do not match the sample matrix.",
+                    RuntimeWarning,
+                )
+                return {}
+
+            inference_data = az.from_dict(
+                posterior={
+                    name: samples[:, index][np.newaxis, :]
+                    for index, name in enumerate(parameter_names)
+                }
+            )
+
+        trace_output = os.path.join(
+            self.output_directory,
+            "out_NumPyro",
+            f"{self.retrieval_name}_trace.pdf",
+        )
+
+        try:
+            plot_output = az.plot_trace(
+                inference_data,
+                compact=True,
+                figsize=(15, max(5, 2 * max(1, len(parameter_names)))),
+            )
+            return {"trace": self._save_plot_figure(plot_output, trace_output)}
+        except Exception as error:
+            warnings.warn(
+                f"NumPyro diagnostics plotting failed: {error}", RuntimeWarning
+            )
+            return {}
 
     def get_summary(self, free_parameter_names=None):
         summary = super().get_summary(free_parameter_names=free_parameter_names)
@@ -1808,6 +1988,494 @@ class UltranestSampler(Sampler):
         return summary
 
 
+class DynestySampler(Sampler):
+    def __init__(
+        self,
+        log_likelihood_func,
+        prior_func,
+        output_directory,
+        retrieval_name,
+    ):
+        super().__init__(
+            log_likelihood_func, prior_func, output_directory, retrieval_name
+        )
+        _require_dynesty()
+        os.makedirs(os.path.join(self.output_directory, "out_Dynesty"), exist_ok=True)
+        self.sampler = None
+        self.results = None
+        self.raw_results = None
+        self.parameter_names = []
+        self._run_summary = {}
+
+    @classmethod
+    def _build_dynesty_interface(
+        cls, context: SamplerContext, *, use_jit: bool = True
+    ):
+        prior_transform = context.prior_ultranest_func
+        log_likelihood_func = context.log_likelihood_func
+
+        if not use_jit:
+            return log_likelihood_func, prior_transform, False
+
+        try:
+            _require_jax()
+            from petitRADTRANS.retrieval.parameter import JAX_DTYPE
+        except ImportError:
+            warnings.warn(
+                "JAX is unavailable; Dynesty will use the non-jitted scalar likelihood.",
+                RuntimeWarning,
+            )
+            return log_likelihood_func, prior_transform, False
+
+        if any(
+            group.model_contract != "differentiable"
+            for group in context.runtime.model_groups
+        ):
+            warnings.warn(
+                "Dynesty JIT likelihood disabled because the retrieval contains legacy model groups.",
+                RuntimeWarning,
+            )
+            return log_likelihood_func, prior_transform, False
+
+        parameter_layout = context.parameter_layout
+        runtime = context.runtime
+        uncertainties_mode = context.uncertainties_mode
+        print_log_likelihood = context.print_log_likelihood_for_debugging
+
+        @jit
+        def jitted_log_likelihood(physical_position):
+            physical_params = parameter_layout.physical_params_from_vector(
+                physical_position
+            )
+            return runtime.evaluate_jax(
+                physical_params=physical_params,
+                uncertainties_mode=uncertainties_mode,
+                print_log_likelihood_for_debugging=print_log_likelihood,
+            )
+
+        def dynesty_log_likelihood(physical_position):
+            return float(
+                np.asarray(
+                    jitted_log_likelihood(
+                        jnp.asarray(physical_position, dtype=JAX_DTYPE)
+                    )
+                )
+            )
+
+        return dynesty_log_likelihood, prior_transform, True
+
+    @classmethod
+    def prepare(cls, context: SamplerContext, **sampler_kwargs):
+        _require_dynesty()
+
+        use_jit = sampler_kwargs.pop("use_jit", True)
+        log_likelihood_func, prior_func, jit_enabled = cls._build_dynesty_interface(
+            context, use_jit=use_jit
+        )
+        seed = sampler_kwargs.pop("seed", 42654)
+
+        init_kwargs = {
+            "ndim": context.n_free_parameters,
+            "nlive": sampler_kwargs.pop("nlive", 500),
+            "bound": sampler_kwargs.pop("bound", "multi"),
+            "sample": sampler_kwargs.pop("sample", "auto"),
+            "periodic": sampler_kwargs.pop("periodic", None),
+            "reflective": sampler_kwargs.pop("reflective", None),
+            "update_interval": sampler_kwargs.pop("update_interval", None),
+            "first_update": sampler_kwargs.pop("first_update", None),
+            "rstate": sampler_kwargs.pop("rstate", np.random.default_rng(seed)),
+            "queue_size": sampler_kwargs.pop("queue_size", None),
+            "pool": sampler_kwargs.pop("pool", None),
+            "use_pool": sampler_kwargs.pop("use_pool", None),
+            "enlarge": sampler_kwargs.pop("enlarge", None),
+            "bootstrap": sampler_kwargs.pop("bootstrap", None),
+            "walks": sampler_kwargs.pop("walks", None),
+            "facc": sampler_kwargs.pop("facc", 0.5),
+            "slices": sampler_kwargs.pop("slices", None),
+            "ncdim": sampler_kwargs.pop("ncdim", None),
+            "history_filename": sampler_kwargs.pop("history_filename", None),
+            "save_evaluation_history": sampler_kwargs.pop(
+                "save_evaluation_history", False
+            ),
+        }
+
+        run_kwargs = {
+            "seed": seed,
+            "nlive_init": sampler_kwargs.pop("nlive_init", None),
+            "maxiter_init": sampler_kwargs.pop("maxiter_init", None),
+            "maxcall_init": sampler_kwargs.pop("maxcall_init", None),
+            "dlogz_init": sampler_kwargs.pop("dlogz_init", 0.01),
+            "logl_max_init": sampler_kwargs.pop("logl_max_init", np.inf),
+            "nlive_batch": sampler_kwargs.pop("nlive_batch", None),
+            "wt_function": sampler_kwargs.pop("wt_function", None),
+            "wt_kwargs": sampler_kwargs.pop("wt_kwargs", None),
+            "maxiter_batch": sampler_kwargs.pop("maxiter_batch", None),
+            "maxcall_batch": sampler_kwargs.pop("maxcall_batch", None),
+            "maxiter": sampler_kwargs.pop("maxiter", None),
+            "maxcall": sampler_kwargs.pop("maxcall", None),
+            "maxbatch": sampler_kwargs.pop("maxbatch", None),
+            "n_effective": sampler_kwargs.pop("n_effective", None),
+            "stop_function": sampler_kwargs.pop("stop_function", None),
+            "stop_kwargs": sampler_kwargs.pop("stop_kwargs", None),
+            "use_stop": sampler_kwargs.pop("use_stop", True),
+            "save_bounds": sampler_kwargs.pop("save_bounds", True),
+            "print_progress": sampler_kwargs.pop("print_progress", True),
+            "live_points": sampler_kwargs.pop("live_points", None),
+            "resume": sampler_kwargs.pop("resume", False),
+            "checkpoint_file": sampler_kwargs.pop("checkpoint_file", None),
+            "checkpoint_every": sampler_kwargs.pop("checkpoint_every", 60),
+        }
+        run_kwargs.update(sampler_kwargs)
+
+        sampler = cls(
+            log_likelihood_func=log_likelihood_func,
+            prior_func=prior_func,
+            output_directory=context.output_directory,
+            retrieval_name=context.retrieval_name,
+        )
+        sampler.parameter_names = list(context.free_parameter_names)
+
+        summary_parameters = {
+            "sampler_type": "dynesty",
+            "parameter_names": list(context.free_parameter_names),
+            "seed": seed,
+            "use_jit": jit_enabled,
+            "nlive": init_kwargs["nlive"],
+            "bound": init_kwargs["bound"],
+            "sample": init_kwargs["sample"],
+        }
+        for key in (
+            "nlive_init",
+            "nlive_batch",
+            "dlogz_init",
+            "maxiter",
+            "maxcall",
+            "maxbatch",
+            "n_effective",
+            "use_stop",
+        ):
+            if run_kwargs.get(key) is not None:
+                summary_parameters[key] = run_kwargs[key]
+
+        return sampler, {"init_kwargs": init_kwargs, **run_kwargs}, summary_parameters
+
+    def post_run(self, results):
+        return self.get_results(), {}
+
+    @staticmethod
+    def _normalize_weights(weights):
+        weights = np.asarray(weights, dtype=float).reshape(-1)
+        if weights.size == 0:
+            return weights
+
+        weight_sum = np.sum(weights)
+        if not np.isfinite(weight_sum) or weight_sum <= 0:
+            return np.full(weights.shape, 1.0 / weights.size, dtype=float)
+
+        return weights / weight_sum
+
+    def _get_output_prefix(self):
+        return os.path.join(self.output_directory, "out_Dynesty", self.retrieval_name)
+
+    def _save_results(
+        self,
+        parameter_names,
+        samples,
+        log_likelihood,
+        weighted_samples,
+        weighted_log_likelihood,
+        weighted_log_weights,
+        metadata,
+    ):
+        output_prefix = self._get_output_prefix()
+        samples_file = f"{output_prefix}_samples.npz"
+        params_file = f"{output_prefix}_params.json"
+        metadata_file = f"{output_prefix}_metadata.json"
+
+        np.savez(
+            samples_file,
+            samples=samples,
+            log_likelihood=log_likelihood,
+            weighted_samples=weighted_samples,
+            weighted_log_likelihood=weighted_log_likelihood,
+            weighted_log_weights=weighted_log_weights,
+        )
+
+        with open(params_file, "w") as handle:
+            json.dump(parameter_names, handle, indent=4)
+
+        with open(metadata_file, "w") as handle:
+            json.dump(metadata, handle, indent=4)
+
+        return samples_file, metadata_file
+
+    def _build_equal_weight_posterior(self, raw_results, seed):
+        weighted_samples = np.asarray(raw_results.samples, dtype=float)
+        weighted_log_likelihood = np.asarray(raw_results.logl, dtype=float).reshape(-1)
+        weights = self._normalize_weights(raw_results.importance_weights())
+        weighted_log_weights = np.log(np.clip(weights, np.finfo(float).tiny, None))
+
+        combined = np.column_stack((weighted_samples, weighted_log_likelihood))
+        equal_weight = np.asarray(
+            dyfunc.resample_equal(combined, weights, rstate=np.random.default_rng(seed)),
+            dtype=float,
+        )
+
+        if equal_weight.shape[0] > 0:
+            max_index = int(np.argmax(weighted_log_likelihood))
+            equal_weight[0, :-1] = weighted_samples[max_index]
+            equal_weight[0, -1] = weighted_log_likelihood[max_index]
+
+        sample_count = equal_weight.shape[0]
+        if sample_count > 0:
+            posterior_log_weights = np.full(sample_count, -np.log(sample_count))
+        else:
+            posterior_log_weights = np.array([], dtype=float)
+
+        return {
+            "samples": equal_weight[:, :-1],
+            "log_likelihood": equal_weight[:, -1],
+            "log_weights": posterior_log_weights,
+            "weighted_samples": {
+                "points": weighted_samples,
+                "logl": weighted_log_likelihood,
+                "log_weights": weighted_log_weights,
+            },
+        }
+
+    def run_sampler(self, init_kwargs, **run_kwargs):
+        _require_dynesty()
+
+        init_kwargs = dict(init_kwargs)
+        run_kwargs = dict(run_kwargs)
+        seed = run_kwargs.pop("seed", 42654)
+        checkpoint_file = run_kwargs.get("checkpoint_file")
+
+        if checkpoint_file is None:
+            checkpoint_file = os.path.join(
+                self.output_directory,
+                "out_Dynesty",
+                f"{self.retrieval_name}_checkpoint.save",
+            )
+            run_kwargs["checkpoint_file"] = checkpoint_file
+
+        resume = bool(run_kwargs.get("resume", False))
+        pool = init_kwargs.get("pool")
+
+        if resume and checkpoint_file and os.path.exists(checkpoint_file):
+            self.sampler = DynamicNestedSampler.restore(checkpoint_file, pool=pool)
+        else:
+            self.sampler = DynamicNestedSampler(
+                self.log_likelihood_func,
+                self.prior_func,
+                **init_kwargs,
+            )
+
+        print(f"Starting Dynesty retrieval: {self.retrieval_name}")
+        self.sampler.run_nested(**run_kwargs)
+        self.raw_results = self.sampler.results
+
+        derived_results = self._build_equal_weight_posterior(
+            self.raw_results,
+            seed=seed,
+        )
+
+        self._run_summary = {
+            "niter": int(getattr(self.raw_results, "niter", 0)),
+            "ncall": int(getattr(self.raw_results, "ncall", 0)),
+            "eff": float(getattr(self.raw_results, "eff", 0.0)),
+            "n_effective": float(getattr(self.sampler, "n_effective", 0.0)),
+            "logz": float(np.asarray(self.raw_results.logz)[-1]),
+            "logzerr": float(np.asarray(self.raw_results.logzerr)[-1]),
+        }
+        metadata = {
+            "algorithm": "dynesty_dynamic",
+            "parameter_names": list(self.parameter_names),
+            **self._run_summary,
+        }
+
+        samples_file, metadata_file = self._save_results(
+            parameter_names=self.parameter_names,
+            samples=derived_results["samples"],
+            log_likelihood=derived_results["log_likelihood"],
+            weighted_samples=derived_results["weighted_samples"]["points"],
+            weighted_log_likelihood=derived_results["weighted_samples"]["logl"],
+            weighted_log_weights=derived_results["weighted_samples"]["log_weights"],
+            metadata=metadata,
+        )
+
+        self.results = {
+            **derived_results,
+            "output_file": samples_file,
+            "metadata_file": metadata_file,
+            "niter": self._run_summary["niter"],
+            "ncall": self._run_summary["ncall"],
+            "eff": self._run_summary["eff"],
+            "n_effective": self._run_summary["n_effective"],
+            "logz": self._run_summary["logz"],
+            "logzerr": self._run_summary["logzerr"],
+        }
+
+        self.pretty_print_results()
+        self.plot_diagnostics(self.results)
+        return self.results
+
+    def get_results(self):
+        return self.results
+
+    def load_results(self):
+        samples_file = self._get_output_prefix() + "_samples.npz"
+        params_file = self._get_output_prefix() + "_params.json"
+        metadata_file = self._get_output_prefix() + "_metadata.json"
+
+        if not os.path.exists(samples_file) or not os.path.exists(params_file):
+            return None
+
+        with open(params_file, "r") as handle:
+            self.parameter_names = list(json.load(handle))
+
+        with np.load(samples_file, allow_pickle=False) as archive:
+            samples = np.asarray(archive["samples"], dtype=float)
+            log_likelihood = np.asarray(archive["log_likelihood"], dtype=float).reshape(
+                -1
+            )
+            sample_count = samples.shape[0]
+            if sample_count > 0:
+                posterior_log_weights = np.full(sample_count, -np.log(sample_count))
+            else:
+                posterior_log_weights = np.array([], dtype=float)
+
+            self.results = {
+                "samples": samples,
+                "log_likelihood": log_likelihood,
+                "log_weights": posterior_log_weights,
+                "weighted_samples": {
+                    "points": np.asarray(archive["weighted_samples"], dtype=float),
+                    "logl": np.asarray(
+                        archive["weighted_log_likelihood"], dtype=float
+                    ).reshape(-1),
+                    "log_weights": np.asarray(
+                        archive["weighted_log_weights"], dtype=float
+                    ).reshape(-1),
+                },
+                "output_file": samples_file,
+                "metadata_file": metadata_file,
+            }
+
+        if os.path.exists(metadata_file):
+            with open(metadata_file, "r") as handle:
+                metadata = json.load(handle)
+            for key in ("niter", "ncall", "eff", "n_effective", "logz", "logzerr"):
+                if key in metadata:
+                    self.results[key] = metadata[key]
+
+        return self.results
+
+    def pretty_print_results(self):
+        if self.raw_results is not None and hasattr(self.raw_results, "summary"):
+            print(self.raw_results.summary())
+            return
+
+        if not self.results:
+            return
+
+        print(
+            f"Dynesty completed: {self.results['samples'].shape[0]} posterior samples"
+        )
+        if self.results.get("logz") is not None:
+            print(
+                f"  ln Z: {self.results['logz']:.3f} +- {self.results.get('logzerr', 0.0):.3f}"
+            )
+
+    def plot_diagnostics(self, results=None):
+        if results is None:
+            results = self.results
+
+        if results is None or self.raw_results is None:
+            return {}
+
+        try:
+            _require_dynesty()
+            _require_matplotlib_pyplot()
+        except ImportError as error:
+            warnings.warn(str(error), RuntimeWarning)
+            return {}
+
+        output_directory = os.path.join(self.output_directory, "out_Dynesty")
+        labels = list(self.parameter_names or [])
+        plot_files = {}
+
+        try:
+            runplot_output = dyplot.runplot(self.raw_results, logplot=True)
+            plot_files["runplot"] = self._save_plot_figure(
+                runplot_output,
+                os.path.join(output_directory, f"{self.retrieval_name}_runplot.pdf"),
+            )
+        except Exception as error:
+            warnings.warn(
+                f"Dynesty runplot generation failed: {error}", RuntimeWarning
+            )
+
+        try:
+            traceplot_output = dyplot.traceplot(
+                self.raw_results,
+                labels=labels if labels else None,
+                show_titles=True,
+            )
+            plot_files["traceplot"] = self._save_plot_figure(
+                traceplot_output,
+                os.path.join(
+                    output_directory,
+                    f"{self.retrieval_name}_traceplot.pdf",
+                ),
+            )
+        except Exception as error:
+            warnings.warn(
+                f"Dynesty traceplot generation failed: {error}", RuntimeWarning
+            )
+
+        try:
+            cornerpoints_output = dyplot.cornerpoints(
+                self.raw_results,
+                labels=labels if labels else None,
+            )
+            plot_files["cornerpoints"] = self._save_plot_figure(
+                cornerpoints_output,
+                os.path.join(
+                    output_directory,
+                    f"{self.retrieval_name}_cornerpoints.pdf",
+                ),
+            )
+        except Exception as error:
+            warnings.warn(
+                f"Dynesty cornerpoints generation failed: {error}",
+                RuntimeWarning,
+            )
+
+        return plot_files
+
+    def get_summary(self, free_parameter_names=None):
+        summary = super().get_summary(free_parameter_names=free_parameter_names)
+        if not self.results:
+            return summary
+
+        summary["evidence"] = {
+            "ln_z": self._summary_scalar(self.results.get("logz")),
+            "ln_z_err": self._summary_scalar(self.results.get("logzerr")),
+        }
+        summary["diagnostics"] = {
+            "niter": self._summary_scalar(self.results.get("niter")),
+            "ncall": self._summary_scalar(self.results.get("ncall")),
+            "efficiency": self._summary_scalar(self.results.get("eff")),
+            "n_effective": self._summary_scalar(self.results.get("n_effective")),
+        }
+        summary["posterior"] = self._posterior_summary_from_matrix(
+            self.results.get("samples"),
+            list(free_parameter_names or self.parameter_names),
+        )
+        return summary
+
+
 class JAXNSSampler(Sampler):
     """
     Sampler class for JAXNS.
@@ -1831,6 +2499,8 @@ class JAXNSSampler(Sampler):
         self.seed = -1
         self.sampler = None
         self.results = None
+        self.raw_results = None
+        self.parameter_names = []
 
     @classmethod
     def _build_jaxns_interface(cls, context: SamplerContext):
@@ -1911,6 +2581,7 @@ class JAXNSSampler(Sampler):
             output_directory=context.output_directory,
             retrieval_name=context.retrieval_name,
         )
+        sampler.parameter_names = list(free_parameter_names)
 
         run_kwargs = {"use_jit": use_jit, **jaxns_kwargs}
         summary_parameters = {
@@ -1919,6 +2590,201 @@ class JAXNSSampler(Sampler):
             "parameter_names": free_parameter_names,
         }
         return sampler, run_kwargs, summary_parameters
+
+    def _get_output_prefix(self):
+        return os.path.join(self.output_directory, "out_JAXNS", self.retrieval_name)
+
+    def _get_raw_results_path(self):
+        return self._get_output_prefix() + "_jaxns_results.json"
+
+    def _get_equal_weight_samples_path(self):
+        return self._get_output_prefix() + "_samples.npz"
+
+    def _get_parameter_names_path(self):
+        return self._get_output_prefix() + "_params.json"
+
+    @staticmethod
+    def _samples_mapping_to_matrix(samples_by_parameter, parameter_names=None):
+        if not isinstance(samples_by_parameter, dict):
+            return None, list(parameter_names or [])
+
+        ordered_names = list(parameter_names or [])
+        if ordered_names:
+            ordered_names = [
+                name for name in ordered_names if name in samples_by_parameter
+            ]
+
+        if not ordered_names:
+            ordered_names = list(samples_by_parameter.keys())
+
+        if not ordered_names:
+            return None, []
+
+        matrix = np.column_stack(
+            [
+                np.asarray(samples_by_parameter[name], dtype=float).reshape(-1)
+                for name in ordered_names
+            ]
+        )
+        return matrix, ordered_names
+
+    def _save_equal_weight_samples(self, parameter_names, samples, log_likelihood):
+        samples_file = self._get_equal_weight_samples_path()
+        params_file = self._get_parameter_names_path()
+
+        np.savez(
+            samples_file,
+            parameter_names=np.asarray(parameter_names, dtype=str),
+            sample_matrix=np.asarray(samples, dtype=float),
+            log_likelihood=np.asarray(log_likelihood, dtype=float),
+        )
+
+        with open(params_file, "w") as handle:
+            json.dump(list(parameter_names), handle, indent=4)
+
+        return samples_file, params_file
+
+    def _build_processed_results(
+        self,
+        raw_results,
+        *,
+        equal_weight_samples=None,
+        equal_weight_log_likelihood=None,
+        output_file=None,
+        params_file=None,
+        raw_results_file=None,
+    ):
+        weighted_matrix, parameter_names = self._samples_mapping_to_matrix(
+            getattr(raw_results, "parametrised_samples", None),
+            self.parameter_names,
+        )
+        self.parameter_names = list(parameter_names)
+
+        weighted_log_likelihood = np.asarray(
+            getattr(raw_results, "log_L_samples", np.array([], dtype=float)),
+            dtype=float,
+        ).reshape(-1)
+        weighted_log_weights = np.asarray(
+            getattr(raw_results, "log_dp_mean", np.array([], dtype=float)),
+            dtype=float,
+        ).reshape(-1)
+
+        if equal_weight_samples is None or equal_weight_log_likelihood is None:
+            samples = weighted_matrix
+            log_likelihood = weighted_log_likelihood
+            log_weights = weighted_log_weights
+        else:
+            samples = np.asarray(equal_weight_samples, dtype=float)
+            if samples.ndim == 1:
+                if len(self.parameter_names) != 1:
+                    samples = samples.reshape(0, len(self.parameter_names))
+                else:
+                    samples = samples.reshape(-1, 1)
+
+            log_likelihood = np.asarray(
+                equal_weight_log_likelihood,
+                dtype=float,
+            ).reshape(-1)
+            sample_count = samples.shape[0]
+            if sample_count > 0:
+                log_weights = np.full(sample_count, -np.log(sample_count), dtype=float)
+            else:
+                log_weights = np.array([], dtype=float)
+
+        processed_results = {
+            "samples": samples,
+            "log_likelihood": log_likelihood,
+            "log_weights": log_weights,
+            "weighted_samples": {
+                "points": weighted_matrix,
+                "logl": weighted_log_likelihood,
+                "log_weights": weighted_log_weights,
+            },
+        }
+
+        if output_file is not None:
+            processed_results["output_file"] = output_file
+        if params_file is not None:
+            processed_results["params_file"] = params_file
+        if raw_results_file is not None:
+            processed_results["raw_results_file"] = raw_results_file
+
+        for key in (
+            "log_Z_mean",
+            "log_Z_uncert",
+            "ESS",
+            "H_mean",
+            "total_num_samples",
+            "total_num_likelihood_evaluations",
+            "log_efficiency",
+        ):
+            value = getattr(raw_results, key, None)
+            if value is None:
+                continue
+
+            value = np.asarray(value)
+            if value.size == 1:
+                processed_results[key] = value.item()
+            else:
+                processed_results[key] = value
+
+        return processed_results
+
+    def _build_equal_weight_results(self, raw_results):
+        posterior_payload = {
+            "samples": getattr(raw_results, "parametrised_samples", {}),
+            "log_likelihood": getattr(raw_results, "log_L_samples", np.array([])),
+        }
+        resampled_payload = jaxns_resample(
+            random.PRNGKey(self.seed),
+            posterior_payload,
+            getattr(raw_results, "log_dp_mean"),
+        )
+        resampled_payload = tree.map(np.asarray, resampled_payload)
+
+        equal_weight_samples, parameter_names = self._samples_mapping_to_matrix(
+            resampled_payload["samples"],
+            self.parameter_names,
+        )
+        self.parameter_names = list(parameter_names)
+        equal_weight_log_likelihood = np.asarray(
+            resampled_payload["log_likelihood"],
+            dtype=float,
+        ).reshape(-1)
+
+        weighted_matrix, _ = self._samples_mapping_to_matrix(
+            getattr(raw_results, "parametrised_samples", None),
+            self.parameter_names,
+        )
+        weighted_log_likelihood = np.asarray(
+            getattr(raw_results, "log_L_samples", np.array([], dtype=float)),
+            dtype=float,
+        ).reshape(-1)
+
+        if (
+            equal_weight_samples is not None
+            and equal_weight_samples.shape[0] > 0
+            and weighted_matrix is not None
+            and weighted_log_likelihood.shape[0] == weighted_matrix.shape[0]
+        ):
+            best_index = int(np.argmax(weighted_log_likelihood))
+            equal_weight_samples[0, :] = weighted_matrix[best_index, :]
+            equal_weight_log_likelihood[0] = weighted_log_likelihood[best_index]
+
+        samples_file, params_file = self._save_equal_weight_samples(
+            self.parameter_names,
+            equal_weight_samples,
+            equal_weight_log_likelihood,
+        )
+
+        return self._build_processed_results(
+            raw_results,
+            equal_weight_samples=equal_weight_samples,
+            equal_weight_log_likelihood=equal_weight_log_likelihood,
+            output_file=samples_file,
+            params_file=params_file,
+            raw_results_file=self._get_raw_results_path(),
+        )
 
     def post_run(self, results):
         """JAXNS post-run: get_results is already called in run_sampler, pass stats=results."""
@@ -1966,21 +2832,20 @@ class JAXNSSampler(Sampler):
         else:
             termination_reason, state = self.sampler(jax_random_key)
 
-        self.results = self.sampler.to_results(
+        self.raw_results = self.sampler.to_results(
             state=state, termination_reason=termination_reason
         )
 
-        results_out = tree.map(np.asarray, self.results)
+        results_out = tree.map(np.asarray, self.raw_results)
         save_results(
             results=results_out,
-            save_file=os.path.join(
-                self.output_directory,
-                "out_JAXNS",
-                self.retrieval_name + "_jaxns_results.json",
-            ),
+            save_file=self._get_raw_results_path(),
         )
 
+        self.results = self._build_equal_weight_results(self.raw_results)
+
         self.pretty_print_results()
+        self.plot_diagnostics(self.results)
         return self.results
 
     def get_results(self):
@@ -1988,21 +2853,140 @@ class JAXNSSampler(Sampler):
 
     def load_results(self):
         _require_jaxns()
-        self.results = load_results(
-            os.path.join(
-                self.output_directory,
-                "out_JAXNS/",
-                self.retrieval_name + "_jaxns_results.json",
+        self.raw_results = load_results(self._get_raw_results_path())
+
+        parameter_names_path = self._get_parameter_names_path()
+        if os.path.exists(parameter_names_path):
+            with open(parameter_names_path, "r") as handle:
+                self.parameter_names = list(json.load(handle))
+        else:
+            self.parameter_names = list(
+                getattr(self.raw_results, "parametrised_samples", {}).keys()
             )
+
+        samples_path = self._get_equal_weight_samples_path()
+        if os.path.exists(samples_path):
+            with np.load(samples_path, allow_pickle=False) as archive:
+                if "parameter_names" in archive.files:
+                    self.parameter_names = [
+                        str(name) for name in archive["parameter_names"].tolist()
+                    ]
+
+                equal_weight_samples = np.asarray(
+                    archive["sample_matrix"],
+                    dtype=float,
+                )
+                equal_weight_log_likelihood = np.asarray(
+                    archive["log_likelihood"],
+                    dtype=float,
+                ).reshape(-1)
+
+            self.results = self._build_processed_results(
+                self.raw_results,
+                equal_weight_samples=equal_weight_samples,
+                equal_weight_log_likelihood=equal_weight_log_likelihood,
+                output_file=samples_path,
+                params_file=parameter_names_path if os.path.exists(parameter_names_path) else None,
+                raw_results_file=self._get_raw_results_path(),
+            )
+            return self.results
+
+        self.results = self._build_processed_results(
+            self.raw_results,
+            output_file=samples_path if os.path.exists(samples_path) else None,
+            params_file=parameter_names_path if os.path.exists(parameter_names_path) else None,
+            raw_results_file=self._get_raw_results_path(),
         )
         return self.results
 
     def pretty_print_results(self):
-        self.sampler.summary(self.results)
+        if self.raw_results is not None and self.sampler is not None:
+            self.sampler.summary(self.raw_results)
+            return
+
+        if self.results is None:
+            return
+
+        sample_count = np.asarray(self.results.get("samples", np.array([]))).shape[0]
+        print(f"JAXNS completed: {sample_count} posterior samples")
+
+    def plot_diagnostics(self, results=None):
+        if results is None:
+            results = self.results
+
+        diagnostics_results = self.raw_results if self.raw_results is not None else results
+
+        if diagnostics_results is None or self.sampler is None:
+            return {}
+
+        try:
+            _require_matplotlib_pyplot()
+        except ImportError as error:
+            warnings.warn(str(error), RuntimeWarning)
+            return {}
+
+        output_directory = os.path.join(self.output_directory, "out_JAXNS")
+        plot_files = {}
+
+        try:
+            diagnostics_output = self.sampler.plot_diagnostics(diagnostics_results)
+            plot_files["diagnostics"] = self._save_plot_figure(
+                diagnostics_output,
+                os.path.join(
+                    output_directory,
+                    f"{self.retrieval_name}_diagnostics.pdf",
+                ),
+            )
+        except Exception as error:
+            warnings.warn(f"JAXNS diagnostics plotting failed: {error}", RuntimeWarning)
+
+        try:
+            corner_output = self.sampler.plot_cornerplot(diagnostics_results)
+            plot_files["cornerplot"] = self._save_plot_figure(
+                corner_output,
+                os.path.join(
+                    output_directory,
+                    f"{self.retrieval_name}_cornerplot.pdf",
+                ),
+            )
+        except Exception as error:
+            warnings.warn(
+                f"JAXNS corner plot generation failed: {error}", RuntimeWarning
+            )
+
+        return plot_files
 
     def get_summary(self, free_parameter_names=None):
         summary = super().get_summary(free_parameter_names=free_parameter_names)
         if self.results is None:
+            return summary
+
+        if isinstance(self.results, dict):
+            summary["evidence"] = {
+                "ln_z": self._summary_scalar(self.results.get("log_Z_mean")),
+                "ln_z_err": self._summary_scalar(self.results.get("log_Z_uncert")),
+            }
+            summary["diagnostics"] = {
+                "ess": self._summary_scalar(self.results.get("ESS")),
+                "h_mean": self._summary_scalar(self.results.get("H_mean")),
+                "total_num_samples": self._summary_scalar(
+                    self.results.get("total_num_samples")
+                ),
+                "total_num_likelihood_evaluations": self._summary_scalar(
+                    self.results.get("total_num_likelihood_evaluations")
+                ),
+            }
+            summary["posterior"] = self._posterior_summary_from_matrix(
+                self.results.get("samples"),
+                list(free_parameter_names or self.parameter_names),
+            )
+            if not summary["posterior"] and isinstance(
+                self.results.get("weighted_samples"), dict
+            ):
+                summary["posterior"] = self._posterior_summary_from_matrix(
+                    self.results["weighted_samples"].get("points"),
+                    list(free_parameter_names or self.parameter_names),
+                )
             return summary
 
         posterior_sources = []
@@ -2119,21 +3103,20 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
         else:
             termination_reason, state = self.sampler(jax_random_key)
 
-        self.results = self.sampler.to_results(
+        self.raw_results = self.sampler.to_results(
             state=state, termination_reason=termination_reason
         )
 
-        results_out = tree.map(np.asarray, self.results)
+        results_out = tree.map(np.asarray, self.raw_results)
         save_results(
             results=results_out,
-            save_file=os.path.join(
-                self.output_directory,
-                "out_JAXNS",
-                self.retrieval_name + "_jaxns_results.json",
-            ),
+            save_file=self._get_raw_results_path(),
         )
 
+        self.results = self._build_equal_weight_results(self.raw_results)
+
         self.pretty_print_results()
+        self.plot_diagnostics(self.results)
         return self.results
 
     def get_results(self):
@@ -2141,14 +3124,7 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
 
     def load_results(self):
         _require_jaxns()
-        self.results = load_results(
-            os.path.join(
-                self.output_directory,
-                "out_JAXNS/",
-                self.retrieval_name + "_jaxns_results.json",
-            )
-        )
-        return self.results
+        return super().load_results()
 
     def pretty_print_results(self):
-        self.sampler.summary(self.results)
+        super().pretty_print_results()

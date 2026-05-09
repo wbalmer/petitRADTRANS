@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a29] - 2026-05-08
+## [4.0.0a30] - 2026-05-09
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -22,17 +22,12 @@ Ready for beta testing with version 4.0.0.a16.
 - Feature completion: Re-implement `additional_absorption_opacities_function`
 - Optimisation: profile code for new bottlenecks.
 - Optimisation: Ensure imports are optimised.
-- Testing: ensure compatibility of spectral_model.
-- Testing: write unit tests for new JAX functions.
-- Testing: resolve remaining compatibility issues with unit tests.
 - Testing: generate new reference files where necessary, once commited to changes (e.g. chemistry update).
 - Testing: Optimise Feautrier chunk size hyper parameters for GPU.
 - Testing: Further testing on AMD GPUs, possibly TPUs.
-- Architecture: Set stricter dependency version limits.
 - Architecture: Optional: include ability to use FORTRAN backend, or fully deprecate legacy code.
 - Documentation: Add docstrings to all new JAX functions.
 - Documentation: Verify tutorials to be v4 compatible.
-- Documentation: Reintroduce error checking where removed.
 - Documentation: Add typing throughout
 - Documentation: Add further example scripts (ready-to-use) to examples directory.
 - Documentation: Update installation instructions.
@@ -100,6 +95,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Minimum supported Python version is 3.12.
 
 ### Added
+- a30: Added dynesty sampler.
 - a26: isotopologues in chemistry
 - a25: JAX version of exo-k c-k binning
 - a23: feautrier now also outputs angle dependent intensities

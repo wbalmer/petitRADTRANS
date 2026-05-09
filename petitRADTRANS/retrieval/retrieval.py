@@ -5,6 +5,7 @@ import json
 import traceback
 import warnings
 import dill
+from jaxns.utils import summary
 import numpy as np
 import numpy.typing as npt
 from typing import Callable
@@ -54,6 +55,7 @@ from petitRADTRANS.retrieval.sampler import (
     SamplerContext,
     PymultinestSampler,
     UltranestSampler,
+    DynestySampler,
     BlackJAXHMCSampler,
     BlackJAXNUTSSampler,
     NumPyroHMCSampler,
@@ -76,6 +78,7 @@ from petitRADTRANS.jax_dtype import JAX_DTYPE
 SAMPLER_DISPATCH: dict[str, type[Sampler]] = {
     "pymultinest": PymultinestSampler,
     "ultranest": UltranestSampler,
+    "dynesty": DynestySampler,
     "blackjaxhmc": BlackJAXHMCSampler,
     "blackjax_hmc": BlackJAXHMCSampler,
     "hmc": BlackJAXHMCSampler,
@@ -859,10 +862,15 @@ class Retrieval:
             "w+",
         ) as summary:
             from datetime import datetime
+            from importlib.metadata import version, PackageNotFoundError
 
             summary.write(self.configuration.retrieval_name + "\n")
             summary.write(datetime.now().strftime("%Y-%m-%d, %H:%M:%S") + "\n")
-            summary.write(f"pRT v{petitRADTRANS.__version__}\n")
+            try:
+                prt_version = version("petitRADTRANS")
+            except PackageNotFoundError:
+                prt_version = petitRADTRANS.__version__
+            summary.write(f"pRT v{prt_version}\n")
             summary.write(self.output_directory + "\n")
 
             summary.write("\n")
@@ -966,8 +974,10 @@ class Retrieval:
 
             best_fit_summary = self._collect_best_fit_summary()
             if best_fit_summary is not None:
-                summary.write("Best Fit Parameters\n")
-
+                evidence_approximations = best_fit_summary.get(
+                    "evidence_approximations", {}
+                )
+                summary.write("Model Comparison Statistics\n")
                 summary.write(
                     f"    log_likelihood = {best_fit_summary['log_likelihood']:.6g}\n"
                 )
@@ -975,20 +985,16 @@ class Retrieval:
                     f"    𝛘^2/n_wlen = {best_fit_summary['chi2_wavelengths']:.2f}\n"
                 )
                 summary.write(f"    𝛘^2/DoF = {best_fit_summary['chi2_d_o_f']:.2f}\n")
-
-                evidence_approximations = best_fit_summary.get(
-                    "evidence_approximations", {}
-                )
                 if evidence_approximations:
-                    summary.write("    Evidence Approximations\n")
                     for metric_name in ("bic", "aic", "bpics"):
                         metric_value = evidence_approximations.get(metric_name)
                         if metric_value is None:
                             continue
                         summary.write(
-                            f"        {metric_name.upper()} = {metric_value:.6g}\n"
+                            f"    {metric_name.upper()} = {metric_value:.6g}\n"
                         )
-
+                summary.write("\n")
+                summary.write("Best Fit Parameters\n")
                 for key, value in best_fit_summary["parameters"].items():
                     if key in [
                         "pressure_simple",
@@ -1233,6 +1239,7 @@ class Retrieval:
 
         evidence = sampler_summary.get("evidence", {})
         if evidence:
+
             summary.write("Posterior Summary\n")
             if evidence.get("ln_z") is not None:
                 ln_z = evidence["ln_z"]
@@ -1248,7 +1255,7 @@ class Retrieval:
         if sampler_summary.get("posterior"):
             if not evidence:
                 summary.write("Posterior Summary\n")
-            summary.write("    Statistical Fit Parameters\n")
+            summary.write("Statistical Fit Parameters\n")
             for posterior_entry in sampler_summary["posterior"]:
                 name = posterior_entry["name"]
                 median = posterior_entry.get("median")
@@ -2526,6 +2533,39 @@ class Retrieval:
                 )
                 samples[name] = np.vstack(
                     (chain["samples"].T, log_values[np.newaxis, :])
+                )
+                param_dict[name] = parameters_read
+
+            return samples, param_dict
+
+        if sampler_type in {"dynesty"}:
+            for name in names:
+                if name == current_ret_name and current_sampler_samples is not None:
+                    samples[name] = current_sampler_samples
+                    param_dict[name] = list(current_parameter_names)
+                    continue
+
+                if _add_archived_samples_if_available(name):
+                    continue
+
+                params_file = os.path.join(
+                    output_directory, "out_Dynesty", name + "_params.json"
+                )
+                samples_file = os.path.join(
+                    output_directory, "out_Dynesty", name + "_samples.npz"
+                )
+
+                with open(params_file, "r") as handle:
+                    parameters_read = json.load(handle)
+
+                chain = np.load(samples_file)
+                log_values = (
+                    chain["log_likelihood"]
+                    if "log_likelihood" in chain.files
+                    else chain["weighted_log_likelihood"]
+                )
+                samples[name] = np.vstack(
+                    (chain["samples"].T, np.asarray(log_values)[np.newaxis, :])
                 )
                 param_dict[name] = parameters_read
 
@@ -3930,6 +3970,7 @@ class Retrieval:
             sampler_type : str
                 The type of sampler to use. Can be one of the following:
                     pymultinest - requires Multinest installation.
+                    dynesty - requires Dynesty and runs dynamic nested sampling.
                     blackjaxnuts - requires BlackJAX and runs NUTS with window adaptation.
                     blackjaxhmc - requires BlackJAX and runs HMC with window adaptation.
                     numpyronuts - requires NumPyro and runs NUTS with warmup adaptation.

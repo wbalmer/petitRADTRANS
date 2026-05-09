@@ -11,7 +11,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "4.0.0a29"
+version = "4.0.0a30"
 description = "Exopanet spectral synthesis tool for retrievals"
 authors = [
     {name = "Paul Mollière", email = "molliere@mpia.de"},
@@ -65,8 +65,10 @@ full = [
     "requests",
     "skycalc-cli",
     "matplotlib",
+    "arviz",
     "corner",
     "seaborn",  # only used in nice_corner
+    "dynesty",
     "pymultinest",
     "blackjax",
     "numpyro",
@@ -84,7 +86,9 @@ retrieval = [
     "requests",
     "skycalc-cli",
     "matplotlib",
+    "arviz",
     "corner",
+    "dynesty",
     "pymultinest",
     "blackjax",
     "numpyro",
@@ -109,8 +113,10 @@ test = [
     "requests",
     "skycalc-cli",
     "matplotlib",
+    "arviz",
     "corner",
     "seaborn",
+    "dynesty",
     "pymultinest",
     "blackjax",
     "numpyro",
