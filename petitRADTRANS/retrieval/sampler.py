@@ -2676,10 +2676,8 @@ class JAXNSSampler(Sampler):
         else:
             samples = np.asarray(equal_weight_samples, dtype=float)
             if samples.ndim == 1:
-                if len(self.parameter_names) != 1:
-                    samples = samples.reshape(0, len(self.parameter_names))
-                else:
-                    samples = samples.reshape(-1, 1)
+                target_width = 1 if len(self.parameter_names) <= 1 else len(self.parameter_names)
+                samples = samples.reshape(-1, target_width)
 
             log_likelihood = np.asarray(
                 equal_weight_log_likelihood,
