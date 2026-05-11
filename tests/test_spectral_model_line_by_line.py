@@ -186,9 +186,7 @@ def test_line_by_line_spectral_model_transmission_full_matches_direct_radtrans()
         ),
         gray_opacity=spectral_model.model_parameters.get("gray_opacity"),
         cloud_fraction=spectral_model.model_parameters.get("cloud_fraction", 1.0),
-        patchy_clouds=spectral_model.model_parameters.get(
-            "patchy_clouds"
-        ),
+        patchy_clouds=spectral_model.model_parameters.get("patchy_clouds"),
         additional_absorption_opacities_function=spectral_model.model_parameters.get(
             "additional_absorption_opacities_function"
         ),
@@ -367,9 +365,7 @@ def test_line_by_line_spectral_model_transmission_full_all_with_complete_coverag
     for complete_coverage_cloud in (
         species
         for species in test_parameters["cloud_parameters"]["cloud_species"]
-        if species not in test_parameters["cloud_parameters"][
-        "patchy_clouds"
-        ]
+        if species not in test_parameters["cloud_parameters"]["patchy_clouds"]
     ):
         mass_fractions_clear[complete_coverage_cloud] = mass_fractions[
             complete_coverage_cloud

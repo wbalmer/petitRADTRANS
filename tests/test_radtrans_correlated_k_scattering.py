@@ -23,7 +23,7 @@ from .utils import (
     temperature_guillot_2010,
 )
 
-relative_tolerance = 1e-2  # relative tolerance when comparing with older spectra
+relative_tolerance = 1e-4  # relative tolerance when comparing with older spectra
 
 
 # Initializations
@@ -307,9 +307,7 @@ def test_correlated_k_emission_spectrum_complete_coverage_calculated_radius_stel
     for complete_coverage_cloud in (
         species
         for species in test_parameters["cloud_parameters"]["cloud_species"]
-        if species not in test_parameters["cloud_parameters"][
-        "patchy_clouds"
-        ]
+        if species not in test_parameters["cloud_parameters"]["patchy_clouds"]
     ):
         mass_fractions_clear[complete_coverage_cloud] = mass_fractions[
             complete_coverage_cloud
@@ -327,9 +325,7 @@ def test_correlated_k_emission_spectrum_complete_coverage_calculated_radius_stel
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
         cloud_fraction=test_parameters["cloud_parameters"]["cloud_fraction"],
-        patchy_clouds=test_parameters["cloud_parameters"][
-            "patchy_clouds"
-        ],
+        patchy_clouds=test_parameters["cloud_parameters"]["patchy_clouds"],
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         opaque_cloud_top_pressure=None,
@@ -438,9 +434,7 @@ def test_correlated_k_transmission_spectrum_complete_coverage_calculated_radius_
     for complete_coverage_cloud in (
         species
         for species in test_parameters["cloud_parameters"]["cloud_species"]
-        if species not in test_parameters["cloud_parameters"][
-        "patchy_clouds"
-        ]
+        if species not in test_parameters["cloud_parameters"]["patchy_clouds"]
     ):
         mass_fractions_clear[complete_coverage_cloud] = mass_fractions[
             complete_coverage_cloud
@@ -456,9 +450,7 @@ def test_correlated_k_transmission_spectrum_complete_coverage_calculated_radius_
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
         cloud_fraction=test_parameters["cloud_parameters"]["cloud_fraction"],
-        patchy_clouds=test_parameters["cloud_parameters"][
-            "patchy_clouds"
-        ],
+        patchy_clouds=test_parameters["cloud_parameters"]["patchy_clouds"],
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         opaque_cloud_top_pressure=None,

@@ -20,7 +20,7 @@ from .utils import (
     temperature_isothermal,
 )
 
-relative_tolerance = 1e-2  # relative tolerance when comparing with older results
+relative_tolerance = 1e-4  # relative tolerance when comparing with older results
 
 
 # Initializations
