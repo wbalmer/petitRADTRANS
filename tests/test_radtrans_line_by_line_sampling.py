@@ -10,7 +10,7 @@ from .benchmark import Benchmark
 from petitRADTRANS.plotlib.plotlib import plot_radtrans_opacities
 from .utils import test_parameters, temperature_guillot_2010, temperature_isothermal
 
-relative_tolerance = 1e-2  # relative tolerance when comparing with older results
+relative_tolerance = 1e-4  # relative tolerance when comparing with older results
 
 
 # Initializations

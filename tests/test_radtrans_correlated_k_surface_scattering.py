@@ -12,7 +12,7 @@ from .context import petitRADTRANS
 from .benchmark import Benchmark
 from .utils import test_parameters, temperature_guillot_2010
 
-relative_tolerance = 1e-2  # relative tolerance when comparing with older spectra
+relative_tolerance = 1e-4  # relative tolerance when comparing with older spectra
 
 
 # Initializations

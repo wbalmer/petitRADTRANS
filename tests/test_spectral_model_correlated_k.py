@@ -8,7 +8,7 @@ from .context import petitRADTRANS
 from .benchmark import Benchmark
 from .utils import get_main_model_parameters, test_parameters
 
-relative_tolerance = 1e-2  # relative tolerance when comparing with older results
+relative_tolerance = 1e-4  # relative tolerance when comparing with older results
 
 
 def init_spectral_model_correlated_k():
