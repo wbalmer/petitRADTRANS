@@ -91,6 +91,7 @@ SAMPLER_DISPATCH: dict[str, type[Sampler]] = {
     "numpyro_nuts": NumPyroNUTSSampler,
     "jaxnestedsampler": JAXNSSampler,
     "jaxns": JAXNSSampler,
+    "jaxnsshardedstaticnestedsampler": JAXNSShardedStaticNestedSampler,
     "jaxnsshardedstaticsestedsampler": JAXNSShardedStaticNestedSampler,
 }
 
@@ -2561,6 +2562,7 @@ class Retrieval:
             "ultranest",
             "jaxnestedsampler",
             "jaxns",
+            "jaxnsshardedstaticnestedsampler",
             "jaxnsshardedstaticsestedsampler",
         }:
             for name in names:
@@ -2572,9 +2574,45 @@ class Retrieval:
                 if _add_archived_samples_if_available(name):
                     continue
 
-                raise FileNotFoundError(
-                    f"Sampler outputs for '{name}' are not available in memory for sampler '{sampler_type}'."
+                params_file = os.path.join(
+                    output_directory, "out_JAXNS", name + "_params.json"
                 )
+                samples_file = os.path.join(
+                    output_directory, "out_JAXNS", name + "_samples.npz"
+                )
+
+                if not os.path.exists(params_file) or not os.path.exists(samples_file):
+                    raise FileNotFoundError(
+                        f"Sampler outputs for '{name}' are not available in memory for sampler '{sampler_type}'."
+                    )
+
+                with open(params_file, "r") as handle:
+                    parameters_read = json.load(handle)
+
+                with np.load(samples_file, allow_pickle=False) as chain:
+                    if "sample_matrix" in chain.files:
+                        sample_matrix = np.asarray(chain["sample_matrix"], dtype=float)
+                    elif "samples" in chain.files:
+                        sample_matrix = np.asarray(chain["samples"], dtype=float)
+                    else:
+                        raise FileNotFoundError(
+                            f"JAXNS sample file '{samples_file}' does not contain posterior samples."
+                        )
+
+                    if "log_likelihood" in chain.files:
+                        log_values = np.asarray(chain["log_likelihood"], dtype=float)
+                    elif "weighted_log_likelihood" in chain.files:
+                        log_values = np.asarray(
+                            chain["weighted_log_likelihood"], dtype=float
+                        )
+                    else:
+                        raise FileNotFoundError(
+                            f"JAXNS sample file '{samples_file}' does not contain log likelihood values."
+                        )
+
+                samples[name] = np.vstack((sample_matrix.T, log_values[np.newaxis, :]))
+                param_dict[name] = parameters_read
+                continue
 
             return samples, param_dict
 
@@ -3962,7 +4000,7 @@ class Retrieval:
                     numpyronuts - requires NumPyro and runs NUTS with warmup adaptation.
                     numpyrohmc - requires NumPyro and runs HMC with warmup adaptation.
                     jaxns - Requires JAXNS. Default choice for JAXNS
-                    jaxnsshardedstaticsestedsampler - Requires JAXNS. Advanced option for JAXNS
+                    jaxnsshardedstaticnestedsampler - Requires JAXNS. Advanced option for JAXNS
                     ultranest - Requires ultranest. Implements.
         """
         sampler_type = self.configuration.sampler_type

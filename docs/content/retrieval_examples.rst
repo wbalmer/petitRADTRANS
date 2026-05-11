@@ -12,6 +12,7 @@ They also include the runtime-native JAX retrieval path and covariance-aware wor
 .. toctree::
     :maxdepth: 2
 
+    retrieval_samplers.rst
     notebooks/retrieval_basic
     notebooks/retrieval_jax_runtime_tutorial
     notebooks/retrieval_jax_runtime_emission_tutorial
