@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 import os
 import json
 from typing import Any, TYPE_CHECKING
+from uuid import uuid4
 import warnings
 import numpy as np
 
@@ -230,8 +231,46 @@ MLFriends = None
 RobustEllipsoidRegion = None
 dynesty = None
 DynamicNestedSampler = None
+DynestyPool = None
 dyplot = None
 dyfunc = None
+_DYNESTY_POOL_CALLABLES: dict[str, dict[str, Any]] = {}
+
+
+@dataclass(frozen=True)
+class _DynestyPoolFunction:
+    token: str
+    kind: str
+
+    def __call__(self, values):
+        try:
+            function = _DYNESTY_POOL_CALLABLES[self.token][self.kind]
+        except KeyError as error:
+            raise RuntimeError(
+                "Dynesty pool callable state is unavailable in this process."
+            ) from error
+
+        return function(values)
+
+
+def _register_dynesty_pool_callables(loglike, prior_transform):
+    token = uuid4().hex
+    _DYNESTY_POOL_CALLABLES[token] = {
+        "loglike": loglike,
+        "prior_transform": prior_transform,
+    }
+    return (
+        token,
+        _DynestyPoolFunction(token=token, kind="loglike"),
+        _DynestyPoolFunction(token=token, kind="prior_transform"),
+    )
+
+
+def _unregister_dynesty_pool_callables(token: str | None):
+    if token is None:
+        return
+
+    _DYNESTY_POOL_CALLABLES.pop(token, None)
 
 
 def _require_ultranest():
@@ -255,7 +294,7 @@ def _require_ultranest():
 
 
 def _require_dynesty():
-    global dynesty, DynamicNestedSampler, dyplot, dyfunc
+    global dynesty, DynamicNestedSampler, DynestyPool, dyplot, dyfunc
 
     if dynesty is not None:
         return
@@ -263,6 +302,7 @@ def _require_dynesty():
     try:
         import dynesty as _dynesty
         from dynesty import DynamicNestedSampler as _DynamicNestedSampler
+        from dynesty.pool import Pool as _DynestyPool
         from dynesty import plotting as _dyplot
         from dynesty import utils as _dyfunc
     except ImportError as error:
@@ -272,6 +312,7 @@ def _require_dynesty():
 
     dynesty = _dynesty
     DynamicNestedSampler = _DynamicNestedSampler
+    DynestyPool = _DynestyPool
     dyplot = _dyplot
     dyfunc = _dyfunc
 
@@ -2006,6 +2047,84 @@ class DynestySampler(Sampler):
         self.raw_results = None
         self.parameter_names = []
         self._run_summary = {}
+        self._dynesty_pool = None
+        self._dynesty_pool_token = None
+        self._owns_dynesty_pool = False
+
+    @staticmethod
+    def _default_use_pool() -> dict[str, bool]:
+        return {
+            "prior_transform": False,
+            "loglikelihood": True,
+            "propose_point": True,
+            "update_bound": True,
+        }
+
+    @classmethod
+    def _configure_dynesty_pool(
+        cls,
+        log_likelihood_func,
+        prior_func,
+        *,
+        pool,
+        pool_njobs,
+    ):
+        if pool is not None and pool_njobs is not None:
+            raise ValueError("Pass either 'pool' or 'pool_njobs' for dynesty, not both.")
+
+        if pool is not None:
+            return log_likelihood_func, prior_func, pool, None
+
+        if pool_njobs is None:
+            return log_likelihood_func, prior_func, None, None
+
+        pool_size = max(1, int(pool_njobs))
+        if pool_size < 2:
+            return log_likelihood_func, prior_func, None, None
+
+        token, pool_loglike, pool_prior = _register_dynesty_pool_callables(
+            log_likelihood_func,
+            prior_func,
+        )
+        try:
+            dynesty_pool = DynestyPool(pool_size, pool_loglike, pool_prior)
+        except Exception:
+            _unregister_dynesty_pool_callables(token)
+            raise
+
+        return (
+            dynesty_pool.loglike,
+            dynesty_pool.prior_transform,
+            dynesty_pool,
+            token,
+        )
+
+    def _close_dynesty_pool(self):
+        close_error = None
+
+        try:
+            if self._owns_dynesty_pool and self._dynesty_pool is not None:
+                try:
+                    self._dynesty_pool.close()
+                except Exception as error:
+                    close_error = error
+
+                try:
+                    self._dynesty_pool.join()
+                except Exception as error:
+                    if close_error is None:
+                        close_error = error
+        finally:
+            _unregister_dynesty_pool_callables(self._dynesty_pool_token)
+            self._dynesty_pool = None
+            self._dynesty_pool_token = None
+            self._owns_dynesty_pool = False
+
+        if close_error is not None:
+            warnings.warn(
+                f"Failed to close Dynesty pool cleanly: {close_error}",
+                RuntimeWarning,
+            )
 
     @classmethod
     def _build_dynesty_interface(
@@ -2073,6 +2192,28 @@ class DynestySampler(Sampler):
             context, use_jit=use_jit
         )
         seed = sampler_kwargs.pop("seed", 42654)
+        pool = sampler_kwargs.pop("pool", None)
+        pool_njobs = sampler_kwargs.pop("pool_njobs", None)
+        queue_size = sampler_kwargs.pop("queue_size", None)
+        use_pool = sampler_kwargs.pop("use_pool", None)
+
+        (
+            log_likelihood_func,
+            prior_func,
+            dynesty_pool,
+            dynesty_pool_token,
+        ) = cls._configure_dynesty_pool(
+            log_likelihood_func,
+            prior_func,
+            pool=pool,
+            pool_njobs=pool_njobs,
+        )
+
+        if dynesty_pool is not None and queue_size is None:
+            queue_size = dynesty_pool.size
+
+        if use_pool is None and (dynesty_pool is not None or pool is not None):
+            use_pool = cls._default_use_pool()
 
         init_kwargs = {
             "ndim": context.n_free_parameters,
@@ -2084,9 +2225,9 @@ class DynestySampler(Sampler):
             "update_interval": sampler_kwargs.pop("update_interval", None),
             "first_update": sampler_kwargs.pop("first_update", None),
             "rstate": sampler_kwargs.pop("rstate", np.random.default_rng(seed)),
-            "queue_size": sampler_kwargs.pop("queue_size", None),
-            "pool": sampler_kwargs.pop("pool", None),
-            "use_pool": sampler_kwargs.pop("use_pool", None),
+            "queue_size": queue_size,
+            "pool": dynesty_pool if dynesty_pool is not None else pool,
+            "use_pool": use_pool,
             "enlarge": sampler_kwargs.pop("enlarge", None),
             "bootstrap": sampler_kwargs.pop("bootstrap", None),
             "walks": sampler_kwargs.pop("walks", None),
@@ -2134,6 +2275,9 @@ class DynestySampler(Sampler):
             retrieval_name=context.retrieval_name,
         )
         sampler.parameter_names = list(context.free_parameter_names)
+        sampler._dynesty_pool = dynesty_pool
+        sampler._dynesty_pool_token = dynesty_pool_token
+        sampler._owns_dynesty_pool = dynesty_pool is not None
 
         summary_parameters = {
             "sampler_type": "dynesty",
@@ -2144,6 +2288,12 @@ class DynestySampler(Sampler):
             "bound": init_kwargs["bound"],
             "sample": init_kwargs["sample"],
         }
+        if pool_njobs is not None:
+            summary_parameters["pool_njobs"] = int(pool_njobs)
+        if init_kwargs["queue_size"] is not None:
+            summary_parameters["queue_size"] = init_kwargs["queue_size"]
+        if init_kwargs["use_pool"] is not None:
+            summary_parameters["use_pool"] = init_kwargs["use_pool"]
         for key in (
             "nlive_init",
             "nlive_batch",
@@ -2251,74 +2401,77 @@ class DynestySampler(Sampler):
         seed = run_kwargs.pop("seed", 42654)
         checkpoint_file = run_kwargs.get("checkpoint_file")
 
-        if checkpoint_file is None:
-            checkpoint_file = os.path.join(
-                self.output_directory,
-                "out_Dynesty",
-                f"{self.retrieval_name}_checkpoint.save",
+        try:
+            if checkpoint_file is None:
+                checkpoint_file = os.path.join(
+                    self.output_directory,
+                    "out_Dynesty",
+                    f"{self.retrieval_name}_checkpoint.save",
+                )
+                run_kwargs["checkpoint_file"] = checkpoint_file
+
+            resume = bool(run_kwargs.get("resume", False))
+            pool = init_kwargs.get("pool")
+
+            if resume and checkpoint_file and os.path.exists(checkpoint_file):
+                self.sampler = DynamicNestedSampler.restore(checkpoint_file, pool=pool)
+            else:
+                self.sampler = DynamicNestedSampler(
+                    self.log_likelihood_func,
+                    self.prior_func,
+                    **init_kwargs,
+                )
+
+            print(f"Starting Dynesty retrieval: {self.retrieval_name}")
+            self.sampler.run_nested(**run_kwargs)
+            self.raw_results = self.sampler.results
+
+            derived_results = self._build_equal_weight_posterior(
+                self.raw_results,
+                seed=seed,
             )
-            run_kwargs["checkpoint_file"] = checkpoint_file
 
-        resume = bool(run_kwargs.get("resume", False))
-        pool = init_kwargs.get("pool")
+            self._run_summary = {
+                "niter": int(getattr(self.raw_results, "niter", 0)),
+                "ncall": int(getattr(self.raw_results, "ncall", 0)),
+                "eff": float(getattr(self.raw_results, "eff", 0.0)),
+                "n_effective": float(getattr(self.sampler, "n_effective", 0.0)),
+                "logz": float(np.asarray(self.raw_results.logz)[-1]),
+                "logzerr": float(np.asarray(self.raw_results.logzerr)[-1]),
+            }
+            metadata = {
+                "algorithm": "dynesty_dynamic",
+                "parameter_names": list(self.parameter_names),
+                **self._run_summary,
+            }
 
-        if resume and checkpoint_file and os.path.exists(checkpoint_file):
-            self.sampler = DynamicNestedSampler.restore(checkpoint_file, pool=pool)
-        else:
-            self.sampler = DynamicNestedSampler(
-                self.log_likelihood_func,
-                self.prior_func,
-                **init_kwargs,
+            samples_file, metadata_file = self._save_results(
+                parameter_names=self.parameter_names,
+                samples=derived_results["samples"],
+                log_likelihood=derived_results["log_likelihood"],
+                weighted_samples=derived_results["weighted_samples"]["points"],
+                weighted_log_likelihood=derived_results["weighted_samples"]["logl"],
+                weighted_log_weights=derived_results["weighted_samples"]["log_weights"],
+                metadata=metadata,
             )
 
-        print(f"Starting Dynesty retrieval: {self.retrieval_name}")
-        self.sampler.run_nested(**run_kwargs)
-        self.raw_results = self.sampler.results
+            self.results = {
+                **derived_results,
+                "output_file": samples_file,
+                "metadata_file": metadata_file,
+                "niter": self._run_summary["niter"],
+                "ncall": self._run_summary["ncall"],
+                "eff": self._run_summary["eff"],
+                "n_effective": self._run_summary["n_effective"],
+                "logz": self._run_summary["logz"],
+                "logzerr": self._run_summary["logzerr"],
+            }
 
-        derived_results = self._build_equal_weight_posterior(
-            self.raw_results,
-            seed=seed,
-        )
-
-        self._run_summary = {
-            "niter": int(getattr(self.raw_results, "niter", 0)),
-            "ncall": int(getattr(self.raw_results, "ncall", 0)),
-            "eff": float(getattr(self.raw_results, "eff", 0.0)),
-            "n_effective": float(getattr(self.sampler, "n_effective", 0.0)),
-            "logz": float(np.asarray(self.raw_results.logz)[-1]),
-            "logzerr": float(np.asarray(self.raw_results.logzerr)[-1]),
-        }
-        metadata = {
-            "algorithm": "dynesty_dynamic",
-            "parameter_names": list(self.parameter_names),
-            **self._run_summary,
-        }
-
-        samples_file, metadata_file = self._save_results(
-            parameter_names=self.parameter_names,
-            samples=derived_results["samples"],
-            log_likelihood=derived_results["log_likelihood"],
-            weighted_samples=derived_results["weighted_samples"]["points"],
-            weighted_log_likelihood=derived_results["weighted_samples"]["logl"],
-            weighted_log_weights=derived_results["weighted_samples"]["log_weights"],
-            metadata=metadata,
-        )
-
-        self.results = {
-            **derived_results,
-            "output_file": samples_file,
-            "metadata_file": metadata_file,
-            "niter": self._run_summary["niter"],
-            "ncall": self._run_summary["ncall"],
-            "eff": self._run_summary["eff"],
-            "n_effective": self._run_summary["n_effective"],
-            "logz": self._run_summary["logz"],
-            "logzerr": self._run_summary["logzerr"],
-        }
-
-        self.pretty_print_results()
-        self.plot_diagnostics(self.results)
-        return self.results
+            self.pretty_print_results()
+            self.plot_diagnostics(self.results)
+            return self.results
+        finally:
+            self._close_dynesty_pool()
 
     def get_results(self):
         return self.results

@@ -135,12 +135,37 @@ Key parameters:
 * ``sample``: proposal strategy.
 * ``walks`` / ``slices`` / ``facc``: proposal-tuning parameters.
 * ``periodic`` / ``reflective``: periodic or reflective dimensions.
+* ``pool``: pass an existing Dynesty-compatible worker pool object.
+* ``pool_njobs``: convenience option that asks pRT to build an internal ``dynesty.pool.Pool`` with this many worker processes.
+* ``queue_size``: number of queued proposals. When pRT creates the pool internally, this defaults to the pool size if you do not pass it explicitly.
+* ``use_pool``: Dynesty per-stage pool switches such as ``loglikelihood`` and ``propose_point``. If a pool is active and this is omitted, pRT defaults to using the pool for likelihood evaluation, point proposals, and bound updates, but not for the prior transform.
 * ``dlogz_init``: initial evidence stopping threshold.
 * ``nlive_init`` / ``nlive_batch``: live-point settings for the initial and follow-up batches.
 * ``n_effective``: stop once an effective posterior sample target is reached.
 * ``resume`` / ``checkpoint_file`` / ``checkpoint_every``: checkpoint and resume controls.
 
 Dynesty is useful when you want dynamic nested sampling but prefer a Python-native backend while still reusing the pRT likelihood and prior wiring.
+For parallel CPU runs, pRT can now construct ``dynesty.pool.Pool`` internally via ``pool_njobs`` and will wrap the retrieval likelihood/prior functions in pool-safe proxy callables before handing them to Dynesty.
+
+For example, a parallel Dynesty run can be configured as:
+
+.. code-block:: python
+
+   retrieval.run(
+     nlive=800,
+     dlogz_init=0.05,
+     use_jit=True,
+     pool_njobs=8,
+     queue_size=8,
+     use_pool={
+       "prior_transform": False,
+       "loglikelihood": True,
+       "propose_point": True,
+       "update_bound": True,
+     },
+   )
+
+In practice, ``queue_size`` should usually match the number of worker processes, and ``pool`` and ``pool_njobs`` should not be passed together.
 
 JAXNS
 ~~~~~
