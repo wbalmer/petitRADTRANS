@@ -33,31 +33,9 @@ from petitRADTRANS.opacities.opacities import (
     CorrelatedKOpacity,
     LineByLineOpacity,
     Opacity,
+    _get_mpi_context,
 )
 from petitRADTRANS.utils import LockedDict
-
-# MPI Multiprocessing
-prt_emcee_mode = os.environ.get("pRT_emcee_mode")
-load_mpi = True
-
-if prt_emcee_mode == "True":
-    load_mpi = False
-
-MPI = None
-rank = 0
-comm = None
-
-if load_mpi:
-    # MPI Multiprocessing
-    try:
-        from mpi4py import MPI
-
-        comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
-    except ImportError:
-        MPI = None
-        comm = None
-        rank = 0
 
 
 def __get_prt2_input_data_subpaths() -> LockedDict[str, str]:
@@ -4462,6 +4440,8 @@ def load_exocross(
 def rebin_ck_line_opacities(
     input_file, target_resolving_power, wavenumber_grid=None, rewrite=False
 ):
+    _, comm, rank = _get_mpi_context()
+
     from .correlated_k_binning import Ktable
 
     if (

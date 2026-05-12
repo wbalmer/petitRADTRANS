@@ -35,6 +35,7 @@ from petitRADTRANS.retrieval.models import (
     coerce_model_generating_function,
     run_runtime_model_adapter,
 )
+from petitRADTRANS.retrieval._mpi import get_mpi_context
 from petitRADTRANS.retrieval.plotting import RetrievalPlotter
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.runtime import (
@@ -94,18 +95,6 @@ SAMPLER_DISPATCH: dict[str, type[Sampler]] = {
     "jaxnsshardedstaticnestedsampler": JAXNSShardedStaticNestedSampler,
     "jaxnsshardedstaticsestedsampler": JAXNSShardedStaticNestedSampler,
 }
-
-MPI = None
-rank = 0
-comm = None
-try:
-    from mpi4py import MPI
-
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-except ImportError:
-    MPI = None
-    pass
 
 
 class Retrieval:
@@ -184,8 +173,7 @@ class Retrieval:
                     break
 
         # Could actually be merged with RetrievalConfig
-        self.rank = rank
-        self.comm = comm
+        _, self.comm, self.rank = get_mpi_context()
         self.uncertainties_mode = uncertainties_mode
         self.print_log_likelihood_for_debugging = print_log_likelihood_for_debugging
         self.generate_mock_data = generate_mock_data
@@ -398,13 +386,13 @@ class Retrieval:
 
         # If not, setup low-res c-k tables
         if len(species) > 0:
-            if rank == 0:
+            if self.rank == 0:
                 CorrelatedKOpacity.exo_k_multiple_rebin_from_species(
                     species=species, resolving_power=resolution
                 )
 
-            if comm is not None:
-                comm.barrier()
+            if self.comm is not None:
+                self.comm.barrier()
 
     def build_param_dict(
         self, sample: npt.NDArray[float], free_param_names: list[str]
@@ -1525,7 +1513,7 @@ class Retrieval:
         self.sampler = sampler
         self.latest_sampler_results = results
 
-        if rank == 0:
+        if self.rank == 0:
             try:
                 self._save_samples_archive()
             except (FileNotFoundError, OSError, ValueError) as error:
@@ -4008,7 +3996,9 @@ class Retrieval:
         print(
             f"Starting retrieval {self.configuration.retrieval_name} with {sampler_type}"
         )
-        if MPI is None and sampler_type_normalized == "pymultinest":
+        mpi, comm, rank = get_mpi_context()
+
+        if mpi is None and sampler_type_normalized == "pymultinest":
             print(
                 "Unable to import mpi4py, using slow (single process) mode for pymultinest."
             )
@@ -4021,7 +4011,7 @@ class Retrieval:
         # %if MPI is not None and comm is not None else error_checking
 
         if error_checking:
-            if force_serial_error_checking and MPI is not None and comm is not None:
+            if force_serial_error_checking and mpi is not None and comm is not None:
                 for i in range(comm.Get_size()):
                     if rank == i:
                         self._check_errors()

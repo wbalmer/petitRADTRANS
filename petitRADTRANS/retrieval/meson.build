@@ -1,6 +1,8 @@
 py.install_sources([
+    '_mpi.py',
     'covariance.py',
     'data.py',
+    'dynesty_pool_helpers.py',
     'runtime.py',
     'models.py',
     'parameter.py',

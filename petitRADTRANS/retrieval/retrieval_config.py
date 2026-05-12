@@ -9,6 +9,7 @@ from jax.typing import ArrayLike
 
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
+from petitRADTRANS.retrieval._mpi import get_mpi_context
 from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity
 from petitRADTRANS.retrieval.parameter import Parameter
 from petitRADTRANS.retrieval.utils import uniform_prior
@@ -21,16 +22,6 @@ tfpd = tfp.distributions
 
 # MPI Multiprocessing
 _UNSET = object()  # Sentinel for deprecated argument detection
-rank = 0
-comm = None
-
-try:
-    from mpi4py import MPI
-
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-except ImportError:
-    MPI = None
 
 
 class RetrievalConfig:
@@ -1352,6 +1343,7 @@ class RetrievalConfig:
                 uncertainties = float(columns[4])
 
                 if photometric_transformation_function is None:
+                    _, comm, rank = get_mpi_context()
                     if comm is not None and comm.Get_size() > 1:
                         if rank == 0:
                             transform = SyntheticPhotometry(name).spectrum_to_flux

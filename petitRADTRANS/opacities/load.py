@@ -6,27 +6,10 @@ from jax.typing import ArrayLike
 import h5py
 import warnings
 
-from petitRADTRANS.opacities.opacities import CorrelatedKOpacity, Opacity
+from petitRADTRANS.opacities.opacities import CorrelatedKOpacity, Opacity, _get_mpi_context
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.utils import intersection_indices
 from petitRADTRANS.utils import LockedDict
-
-MPI = None
-rank = 0
-comm = None
-load_mpi = True
-
-if load_mpi:
-    # MPI Multiprocessing
-    try:
-        from mpi4py import MPI
-
-        comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
-    except ImportError:
-        MPI = None
-        comm = None
-        rank = 0
 
 
 from petitRADTRANS.jax_dtype import JAX_DTYPE
@@ -426,6 +409,8 @@ def _get_default_rebinning_wavelength_range():
 def rebin_ck_line_opacities(
     input_file, target_resolving_power, wavenumber_grid=None, rewrite=False
 ):
+    _, comm, rank = _get_mpi_context()
+
     try:
         import exo_k
     except ImportError:

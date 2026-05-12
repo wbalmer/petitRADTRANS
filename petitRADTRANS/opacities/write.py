@@ -7,24 +7,6 @@ import petitRADTRANS
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 
 
-MPI = None
-rank = 0
-comm = None
-load_mpi = True
-
-if load_mpi:
-    # MPI Multiprocessing
-    try:
-        from mpi4py import MPI
-
-        comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
-    except ImportError:
-        MPI = None
-        comm = None
-        rank = 0
-
-
 from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 

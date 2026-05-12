@@ -3,22 +3,13 @@ from dataclasses import dataclass, field
 import os
 import json
 from typing import Any, TYPE_CHECKING
-from uuid import uuid4
 import warnings
 import numpy as np
 
+from petitRADTRANS.retrieval._mpi import get_mpi_context
+
 if TYPE_CHECKING:
     from petitRADTRANS.retrieval.runtime import ParameterLayout, RetrievalRuntime
-
-try:
-    from mpi4py import MPI
-
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-except ImportError:
-    MPI = None
-    comm = None
-    rank = 0
 
 lax = None
 random = None
@@ -234,43 +225,6 @@ DynamicNestedSampler = None
 DynestyPool = None
 dyplot = None
 dyfunc = None
-_DYNESTY_POOL_CALLABLES: dict[str, dict[str, Any]] = {}
-
-
-@dataclass(frozen=True)
-class _DynestyPoolFunction:
-    token: str
-    kind: str
-
-    def __call__(self, values):
-        try:
-            function = _DYNESTY_POOL_CALLABLES[self.token][self.kind]
-        except KeyError as error:
-            raise RuntimeError(
-                "Dynesty pool callable state is unavailable in this process."
-            ) from error
-
-        return function(values)
-
-
-def _register_dynesty_pool_callables(loglike, prior_transform):
-    token = uuid4().hex
-    _DYNESTY_POOL_CALLABLES[token] = {
-        "loglike": loglike,
-        "prior_transform": prior_transform,
-    }
-    return (
-        token,
-        _DynestyPoolFunction(token=token, kind="loglike"),
-        _DynestyPoolFunction(token=token, kind="prior_transform"),
-    )
-
-
-def _unregister_dynesty_pool_callables(token: str | None):
-    if token is None:
-        return
-
-    _DYNESTY_POOL_CALLABLES.pop(token, None)
 
 
 def _require_ultranest():
@@ -1623,6 +1577,8 @@ class PymultinestSampler(Sampler):
             "out_PMN",
             context.retrieval_name + "_",
         )
+        _, _, rank = get_mpi_context()
+
         if len(prefix) > 100 - 21 and rank == 0:
             warnings.warn(
                 "The path to the output files is very long. "
@@ -1741,6 +1697,8 @@ class PymultinestSampler(Sampler):
         Returns:
             analyzer
         """
+        _, _, rank = get_mpi_context()
+
         outputfiles_basename = kwargs.get(
             "outputfiles_basename", self.outputfiles_basename
         )
@@ -2048,7 +2006,6 @@ class DynestySampler(Sampler):
         self.parameter_names = []
         self._run_summary = {}
         self._dynesty_pool = None
-        self._dynesty_pool_token = None
         self._owns_dynesty_pool = False
 
     @staticmethod
@@ -2073,30 +2030,33 @@ class DynestySampler(Sampler):
             raise ValueError("Pass either 'pool' or 'pool_njobs' for dynesty, not both.")
 
         if pool is not None:
-            return log_likelihood_func, prior_func, pool, None
+            pool_loglike = getattr(pool, "loglike", log_likelihood_func)
+            pool_prior = getattr(pool, "prior_transform", prior_func)
+            return pool_loglike, pool_prior, pool
 
         if pool_njobs is None:
-            return log_likelihood_func, prior_func, None, None
+            return log_likelihood_func, prior_func, None
 
         pool_size = max(1, int(pool_njobs))
         if pool_size < 2:
-            return log_likelihood_func, prior_func, None, None
+            return log_likelihood_func, prior_func, None
 
-        token, pool_loglike, pool_prior = _register_dynesty_pool_callables(
-            log_likelihood_func,
-            prior_func,
-        )
+        dynesty_pool = None
         try:
-            dynesty_pool = DynestyPool(pool_size, pool_loglike, pool_prior)
+            dynesty_pool = DynestyPool(pool_size, log_likelihood_func, prior_func)
+            dynesty_pool.__enter__()
         except Exception:
-            _unregister_dynesty_pool_callables(token)
+            try:
+                if dynesty_pool is not None:
+                    dynesty_pool.__exit__(None, None, None)
+            except Exception:
+                pass
             raise
 
         return (
             dynesty_pool.loglike,
             dynesty_pool.prior_transform,
             dynesty_pool,
-            token,
         )
 
     def _close_dynesty_pool(self):
@@ -2105,19 +2065,11 @@ class DynestySampler(Sampler):
         try:
             if self._owns_dynesty_pool and self._dynesty_pool is not None:
                 try:
-                    self._dynesty_pool.close()
+                    self._dynesty_pool.__exit__(None, None, None)
                 except Exception as error:
                     close_error = error
-
-                try:
-                    self._dynesty_pool.join()
-                except Exception as error:
-                    if close_error is None:
-                        close_error = error
         finally:
-            _unregister_dynesty_pool_callables(self._dynesty_pool_token)
             self._dynesty_pool = None
-            self._dynesty_pool_token = None
             self._owns_dynesty_pool = False
 
         if close_error is not None:
@@ -2128,10 +2080,54 @@ class DynestySampler(Sampler):
 
     @classmethod
     def _build_dynesty_interface(
-        cls, context: SamplerContext, *, use_jit: bool = True
+        cls,
+        context: SamplerContext,
+        *,
+        use_jit: bool = True,
+        pool_safe: bool = False,
     ):
         prior_transform = context.prior_ultranest_func
         log_likelihood_func = context.log_likelihood_func
+
+        if pool_safe:
+            from petitRADTRANS.retrieval.dynesty_pool_helpers import (
+                DynestyPoolLogLikelihood,
+                DynestyPoolPriorTransform,
+            )
+
+            helper_use_jit = use_jit
+
+            if helper_use_jit:
+                try:
+                    _require_jax()
+                except ImportError:
+                    warnings.warn(
+                        "JAX is unavailable; Dynesty pool workers will use the non-jitted scalar likelihood.",
+                        RuntimeWarning,
+                    )
+                    helper_use_jit = False
+
+            if helper_use_jit and any(
+                group.model_contract != "differentiable"
+                for group in context.runtime.model_groups
+            ):
+                warnings.warn(
+                    "Dynesty JIT likelihood disabled because the retrieval contains legacy model groups.",
+                    RuntimeWarning,
+                )
+                helper_use_jit = False
+
+            return (
+                DynestyPoolLogLikelihood(
+                    parameter_layout=context.parameter_layout,
+                    runtime=context.runtime,
+                    uncertainties_mode=context.uncertainties_mode,
+                    print_log_likelihood_for_debugging=context.print_log_likelihood_for_debugging,
+                    use_jit=helper_use_jit,
+                ),
+                DynestyPoolPriorTransform(context.parameter_layout),
+                helper_use_jit,
+            )
 
         if not use_jit:
             return log_likelihood_func, prior_transform, False
@@ -2187,21 +2183,23 @@ class DynestySampler(Sampler):
     def prepare(cls, context: SamplerContext, **sampler_kwargs):
         _require_dynesty()
 
-        use_jit = sampler_kwargs.pop("use_jit", True)
-        log_likelihood_func, prior_func, jit_enabled = cls._build_dynesty_interface(
-            context, use_jit=use_jit
-        )
-        seed = sampler_kwargs.pop("seed", 42654)
         pool = sampler_kwargs.pop("pool", None)
         pool_njobs = sampler_kwargs.pop("pool_njobs", None)
         queue_size = sampler_kwargs.pop("queue_size", None)
         use_pool = sampler_kwargs.pop("use_pool", None)
+        use_jit = sampler_kwargs.pop("use_jit", True)
+        pool_safe = pool is not None or pool_njobs is not None
+        log_likelihood_func, prior_func, jit_enabled = cls._build_dynesty_interface(
+            context,
+            use_jit=use_jit,
+            pool_safe=pool_safe,
+        )
+        seed = sampler_kwargs.pop("seed", 42654)
 
         (
             log_likelihood_func,
             prior_func,
             dynesty_pool,
-            dynesty_pool_token,
         ) = cls._configure_dynesty_pool(
             log_likelihood_func,
             prior_func,
@@ -2276,7 +2274,6 @@ class DynestySampler(Sampler):
         )
         sampler.parameter_names = list(context.free_parameter_names)
         sampler._dynesty_pool = dynesty_pool
-        sampler._dynesty_pool_token = dynesty_pool_token
         sampler._owns_dynesty_pool = dynesty_pool is not None
 
         summary_parameters = {

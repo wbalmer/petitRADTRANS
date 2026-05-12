@@ -20,18 +20,33 @@ from petitRADTRANS.config.configuration import (
 )
 from petitRADTRANS.utils import LockedDict, list_str2str
 
+MPI = None
 comm = None
 rank = 0
+_mpi_checked = False
 
-if os.environ.get("pRT_emcee_mode") != "True":  # TODO make use of config_parser instead
-    # MPI Multiprocessing
-    try:
-        from mpi4py import MPI
 
-        comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
-    except ImportError:
-        MPI = None
+def _get_mpi_context():
+    global MPI, comm, rank, _mpi_checked
+
+    if os.environ.get("pRT_emcee_mode") == "True":
+        return None, None, 0
+
+    if not _mpi_checked:
+        _mpi_checked = True
+
+        try:
+            from mpi4py import MPI as imported_mpi
+        except ImportError:
+            MPI = None
+            comm = None
+            rank = 0
+        else:
+            MPI = imported_mpi
+            comm = MPI.COMM_WORLD
+            rank = comm.Get_rank()
+
+    return MPI, comm, rank
 
 
 class Opacity:
@@ -3771,6 +3786,8 @@ class CorrelatedKOpacity(Opacity):
                 f"but the sampling type flag was '{file_sampling_type}'\n"
                 f"Verify if the input file name flag is correct, or use an opacity sampled at constant resolving power."
             )
+
+        _, comm, rank = _get_mpi_context()
 
         if (
             rank == 0
