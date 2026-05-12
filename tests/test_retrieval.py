@@ -1320,6 +1320,43 @@ def test_isothermal_transmission_runs_through_runtime_helpers(monkeypatch):
             None,
         ),
     )
+def test_parameter_layout_physical_params_from_vector_accepts_jax_tracers():
+    parameters = {
+        "transform_parameter": Parameter(
+            name="transform_parameter",
+            is_free_parameter=True,
+            transform_prior_cube_coordinate=lambda x: 1.0 + 3.0 * x,
+        ),
+        "distribution_parameter": Parameter(
+            name="distribution_parameter",
+            is_free_parameter=True,
+            distribution=_DummyDistribution(),
+        ),
+        "fixed_numeric_parameter": Parameter(
+            name="fixed_numeric_parameter",
+            is_free_parameter=False,
+            value=7.0,
+        ),
+    }
+    layout = ParameterLayout.from_parameters(parameters)
+
+    @jax.jit
+    def extract_parameter_values(values):
+        physical_params = layout.physical_params_from_vector(values)
+        return jnp.stack(
+            (
+                jnp.asarray(physical_params["transform_parameter"], dtype=jnp.float64),
+                jnp.asarray(physical_params["distribution_parameter"], dtype=jnp.float64),
+                jnp.asarray(physical_params["fixed_numeric_parameter"], dtype=jnp.float64),
+            )
+        )
+
+    np.testing.assert_allclose(
+        np.asarray(extract_parameter_values(jnp.array([3.5, 4.5]))),
+        np.array([3.5, 4.5, 7.0]),
+    )
+
+
     monkeypatch.setattr(
         petitRADTRANS.retrieval.models.clouds,
         "setup_simple_clouds_hazes",

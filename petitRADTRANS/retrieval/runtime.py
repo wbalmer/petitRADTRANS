@@ -28,7 +28,7 @@ import warnings
 import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
-from jax import lax, vmap, nn, tree_util, debug
+from jax import Array, core as jax_core, lax, vmap, nn, tree_util, debug
 
 from petitRADTRANS.retrieval.parameter import JAX_DTYPE, Parameter
 from petitRADTRANS.retrieval.utils import _get_parameter_value
@@ -1550,12 +1550,25 @@ class ParameterLayout:
         }
 
 
+def _is_jax_parameter_values(values: Any) -> bool:
+    if isinstance(values, (Array, jax_core.Tracer)):
+        return True
+
+    if isinstance(values, (list, tuple)):
+        return any(_is_jax_parameter_values(item) for item in values)
+
+    return False
+
+
 def _flatten_parameter_values(
     values: npt.ArrayLike,
     expected_size: int | None = None,
-) -> np.ndarray:
+) -> npt.ArrayLike:
     if isinstance(values, np.ndarray):
         return values.reshape(-1)
+
+    if _is_jax_parameter_values(values):
+        return jnp.asarray(values, dtype=JAX_DTYPE).reshape(-1)
 
     if hasattr(values, "tolist"):
         converted_values = values.tolist()
