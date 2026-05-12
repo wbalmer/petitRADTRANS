@@ -4,136 +4,197 @@ petitRADTRANS 4: most notable changes
 
 Preface
 =======
-petitRADTRANS 3 comes with a lot of quality-of-life features, optimization, code rationalization, more standard opacities, but also with breaking changes. For more details, see the `detailed changelog <../_static/Radtrans_v3.0.0_detailed_changelog.html>`_.
+petitRADTRANS 4 is the first release series that replaces the legacy Fortran
+radiative-transfer backend with a JAX implementation. Compared to
+pRT3, this is a larger-than-usual upgrade: the numerical
+backend, the retrieval interface, the optional sampler stack, and several public
+parameter names all changed.
 
-Hereafter is a short summary of the most notables changes.
+The JAX backend enables JIT compilation, automatic differentiation, and
+execution on CPUs, GPUs, and TPUs through the JAX ecosystem. It also means that
+pRT 4 is not numerically identical to version 3: small numerical
+differences relative to pRT 3 are expected, and the 4.0.0a31 release should
+still be treated as experimental.
 
-Instructions to convert pRT2 opacities in the pRT3 format are given in the `conversion section <#converting-your-custom-prt2-opacities-to-prt3-format>`_.
+Hereafter is a summary of the most important additions, behavioural changes,
+and migration points between pRT 3.3.3 and pRT 4.0.0a31.
 
 Added
 =====
--  Full integration of ``SpectralModel``: a convenient and modular way to manage your models and run retrievals, both for low resolution and high resolution observations.
--  Full integration of ``Planet``: the latest NASA exoplanet archive data accessible as easily as ``Planet.get("<planet name>")``!
--  Automatic opacity files download: missing a file? Let petitRADTRANS download it for you! As a plus, now downloading the 12 GB default input_data folder at installation is no longer necessary!
--  Support for HDF5 opacity files: load opacities faster than ever!
-- More CIA and cloud opacities, see `Available opacities species <available_opacities.html>`_.
--  Helpful error and warning messages for the most common issues.
--  Possibility to retrieve or optimize uncertainties (use with caution).
--  Data preparation of high-resolution observations: remove telluric contaminations with SysRem or polynomial fitting.
--  Simple transit light loss modelling (ingress, egress) for ``SpectralModel``.
--  Useful built-in functions: convert from Bayes factor to sigma significance, calculate uncertainties, orbital phases, and more, with easy-to-use functions.
+-  A JAX-based radiative-transfer backend. The translated core kernels now live
+    in ``petitRADTRANS.radtrans_core``, and ``Radtrans``, chemistry, opacities,
+    and math routines now operate on JAX arrays.
+-  Native support for JIT compilation, automatic differentiation, and
+    accelerator execution through JAX. This is the main architectural change in
+    pRT 4 and is what enables GPU and TPU execution.
+-  Autodiff-oriented spectrum APIs with
+    ``Radtrans.calculate_flux_autodiff()`` and
+    ``Radtrans.calculate_transit_radii_autodiff()``.
+-  A new retrieval layer built around ``RetrievalRuntime``. Forward
+    models can now follow a JAX-friendly contract instead of relying
+    only on the legacy mutable ``Radtrans`` retrieval pattern.
+-  Built-in differentiable JAX retrieval models exported from
+    ``petitRADTRANS.retrieval.models``, together with dedicated tutorials for
+      emission, transmission, and time-series retrievals.
+-  New retrieval samplers: ``dynesty``, ``jaxns``, ``blackjax`` HMC and NUTS,
+    and ``numpyro`` HMC and NUTS, in addition to the existing PyMultiNest and
+    UltraNest workflows.
+-  A dedicated sampler layer that normalizes sampler selection, sample
+    archiving, and summary generation across backends.
+-  Covariance-aware retrievals, including Gaussian processes, automatic
+    covariance hyperparameters in ``RetrievalConfig``, and Cholesky-based
+    likelihood evaluation through ``LogLikelihood``.
+-  The ``RetrievalPlotter`` class, which separates retrieval plotting from the
+    core ``Retrieval`` object.
+-  A new ``petitRADTRANS.sbi`` package scaffold for simulation-based inference,
+    including simulators, training tasks, and normalising flow
+    based SBI workflows.
+-  Time-variable retrieval support through
+    ``RetrievalConfig.add_time_series_data()`` and time-series
+    model parameterizations.
+-  Additional physics and modelling options, including non-vertically
+    constant abundance profiles, isotope-ratio driven chemistry support for
+    isotopologues, a JAX reimplementation of the exo-k correlated-k binning
+    algorithm, Feautrier angle-dependent intensities, and JAX-compatible
+    contribution-function evaluation.
+-  Retrieval output summaries now include more sampler-native products, and the
+    retrieval pipeline can compute model-selection diagnostics such as BIC, AIC,
+    and BPIC.
+-  New tutorial and reference material covering the JAX runtime, sampler
+    choices, differentiable retrieval models, covariance-aware retrievals, and
+    SBI.
 
 Changed
 =======
--  Functions, arguments and attributes now have clearer names (e.g., ``calc_flux()`` was changed to ``calculate_flux()``).
--  Spectral functions of ``Radtrans`` (``calculate_flux`` and ``calculate_transit_radii``) now return wavelengths, spectrum, and a dictionary containing additional outputs, instead of nothing.
--  Function ``Radtrans.calculate_flux`` now output by default wavelengths in cm (instead of frequencies in Hz) and flux in erg.s-1.cm-2/cm instead of erg.s-1.cm-2/Hz. Setting the argument ``frequencies_to_wavelengths=False`` restores the previous behaviour.
--  Function ``Radtrans.calculate_transit_radii`` now output by default wavelengths in cm (instead of frequencies in Hz). Setting the argument ``frequencies_to_wavelengths=False`` restores the previous behaviour.
--  Object ``Radtrans`` is now imported using ``from petitRADTRANS.radtrans import Radtrans`` (was ``from petitRADTRANS import Radtrans``) for more stable installation.
--  Improved petitRADTRANS memory usage and performances.
--  Input data path is now stored in a config file within the folder <HOME>/.petitRADTRANS, generated when installing the package or using it for the first time.
+-  ``Radtrans`` now evaluates spectra through the JAX backend rather than the
+    legacy Fortran implementation. In practice, this is a backend replacement,
+    not just an optimization pass.
+-  ``radtrans.py`` has been substantially refactored. Many static helpers were
+    moved into dedicated modules, especially under
+    ``petitRADTRANS.radtrans_core``, to separate physics kernels from the
+    high-level API.
+-  Spectrum calculations sanitize and normalize inputs before evaluation so
+    they can be traced by JAX. This primarily affects users writing custom model
+    wrappers or composing pRT inside larger JAX programs.
+-  The retrieval workflow now supports both the legacy retrieval interface and
+    the newer interface. The scalar and JAX execution paths now
+    run through ``RetrievalRuntime`` when possible.
+-  Memory management for line-by-line opacities and covariance handling has
+    been reworked: pRT delays some JAX conversions, loads lbl data more
+    selectively, and uses Cholesky factorization for large covariance matrices.
+-  Transmission spectra and non-scattering emission calculations are now
+    compatible with 32-bit execution modes, which matters for accelerator
+    workflows where ``float32`` is often the default.
+-  Feautrier emission calculations can now skip the scattering solve when no
+    scattering opacity is present, and can optionally return angle-dependent
+    intensities.
+-  Partial cloud coverage is now expressed through the patchy-cloud interface.
+    This is the main cloud-coverage surface documented in pRT 4.
+-  The tutorial set, retrieval examples, and public documentation now assume
+    the current v4 dataset-control names, the differentiable model examples, and
+    the expanded sampler ecosystem.
+-  pRT 4 ships optional dependency groups for ``[retrieval]``, ``[sbi]``, and
+    ``[full]``, reflecting the broader runtime and inference stack introduced in
+    this release line.
+-  The installation and runtime expectations changed with the new backend: pRT
+    4 depends on JAX, newer NumPy and Astropy versions, and a newer Python
+    baseline.
+-  Because the numerical core was rewritten, small numerical differences
+    relative to the 3.x series are expected. The v4 documentation currently
+    describes differences on the order of about 0.1 percent relative to earlier
+    versions.
+
+Breaking changes
+================
+-  **Python requirement:** the minimum supported Python version is now 3.12.
+-  **Backend expectation:** custom code that relied on the old Fortran
+    execution model, mutable Fortran-side state, or NumPy-only execution
+    assumptions must be updated for a JAX-based backend.
+-  **Retrieval dataset controls renamed:** ``scale`` -> ``scale_flux``,
+    ``scale_err`` -> ``scale_uncertainties``, and ``offset_bool`` ->
+    ``fit_flux_offset``.
+-  **Emission geometry renamed:** ``emission_geometry`` is now
+    ``irradiation_geometry`` throughout the main radiative-transfer API.
+-  **Cloud particle argument names standardized:** canonical argument names now
+    use ``cloud_particle_...`` instead of ``cloud_particles_...``.
+-  **Patchy-cloud controls updated:** ``complete_coverage_clouds`` is no longer
+    part of the canonical API. Use ``patchy_clouds`` to specify which clouds are
+    patchy.
+-  **Chemistry module rename:** ``condensation_curves.py`` is now
+    ``vapour_pressures.py``.
+-  **SpectralModel key rename:** the canonical key in
+    ``SpectralModel.model_parameters`` is now ``modification_arguments`` instead
+    of ``modification_parameters``.
+-  **Retrieval chi-squared interface changed:** ``Data.get_chi2`` has been
+    removed; chi-squared and likelihood evaluation now live in ``LogLikelihood``.
+-  **Time-variable retrieval configuration moved:** legacy variability
+    arguments were removed from ``RetrievalConfig.add_data()``; time-variable
+    workflows must use ``add_time_series_data()``.
+-  **Sampler requirements changed:** JAX-based samplers such as ``jaxns``,
+    ``blackjax``, and ``numpyro`` require differentiable or otherwise
+    JAX-traceable model groups. A legacy model that only works through the old
+    mutable retrieval contract is not sufficient for every v4 sampler backend.
+-  **Experimental status:** pRT 4.0.0a31 is still an alpha release. Existing
+    pRT 3 production workflows should be revalidated after migration.
 
 Removed
 =======
--  Multiple ``Radtrans`` attributes, some are now function outputs.
+-  ``Data.get_chi2`` has been removed in favour of ``LogLikelihood``.
+-  Retrieval-time variability controls formerly passed through
+    ``RetrievalConfig.add_data()`` have been removed from that interface and
+    replaced by ``add_time_series_data()``.
+-  The pRT2 -> pRT3 opacity-conversion workflow is not part of the pRT4
+    migration story, because pRT4 does not introduce a new opacity file format.
 
+Installation and runtime
+------------------------
 
-Converting pRT2 opacities to pRT3 format
-========================================
+-  Upgrade to Python 3.12 or newer before migrating.
+-  Expect newer dependency floors, including NumPy 2.0+, Astropy 7.0+, and
+    JAX as a core dependency.
+-  Install a JAX build that matches your hardware target. CPU-only
+    installations work out of the box, while GPU or TPU execution depends on the
+    JAX wheel you install.
+-  Choose the optional extras that match your workflow:
+    ``petitRADTRANS[retrieval]`` for retrievals,
+    ``petitRADTRANS[sbi]`` for SBI, or ``petitRADTRANS[full]`` for the full
+    stack.
 
-.. note:: The conversion is necessary because we switched from Fortran binary tables to `HDF5 <https://en.wikipedia.org/wiki/Hierarchical_Data_Format>`_. Correlated-k opacity files you downloaded from ExoMol do not have to be converted, since we adopted their format. You still need to place them in differently called folders, however, see the instructions on "Importing opacity tables from the ExoMol website" `here <adding_opacities.html#importing-opacity-tables-from-the-exomol-website>`_.
+Updating forward models
+-----------------------
 
-- If you ever added custom opacities to pRT before pRT3 was released (May 2024) you need to convert them to pRT3 (HDF5) format before you can use them, this is explained below.
-- If you have a pRT2 ``input_data`` folder full of standard pRT2 opacities (those that we supplied through Keeper) you can convert those all in one go, this is also explained below. **Note that this will only work for pRT's standard opacities, not for species you added yourself.**
+-  If your custom code only calls ``Radtrans.calculate_flux()`` or
+    ``Radtrans.calculate_transit_radii()``, the high-level usage pattern remains
+    familiar, but the returned arrays now come from a JAX-based backend.
+-  If your forward model touches low-level internals, assumes NumPy-only
+    arrays, or depends on the old Fortran kernels, update it to be JAX-safe or
+    explicitly convert outputs with ``numpy.asarray(...)`` outside traced or JIT
+    sections.
+-  For differentiable retrievals and JAX-native samplers, prefer the
+    differentiable model contract exposed through ``RetrievalRuntime`` and the
+    built-in functions in ``petitRADTRANS.retrieval.models``.
 
-.. important:: **We recommend starting with the conversion of your custom opacity species**, because you need an ``input_data`` folder in the old pRT2 format for doing this (i.e., containing the ``opa_input_files`` directory). If you run ``convert_all(clean=True)``, old pRT2 opacity files will be removed after conversion, including the ``input_data/opa_input_files`` directory.
+Updating retrieval configurations
+---------------------------------
 
-.. caution:: If you convert all standard pRT2 opacities with ``convert_all()`` (see below) the ``input_data`` structure will be modified and can no longer be used with pRT2. If you still want to use pRT2, it is better to make a copy of the ``input_data`` directory before conversion.
+-  Rename dataset-control flags to ``scale_flux``, ``scale_uncertainties``, and
+    ``fit_flux_offset``.
+-  Replace ``Data.get_chi2`` usage with ``LogLikelihood`` or the higher-level
+    ``Retrieval`` helpers that now wrap it.
+-  Use ``add_time_series_data()`` instead of passing variability-specific
+    arguments through ``add_data()``.
+-  If you plan to use ``jaxns``, ``blackjax``, or ``numpyro``, ensure that at
+    least one model group is differentiable or otherwise fully JAX-traceable.
 
-Below are examples for how to do the conversion.
+Updating physics and parameter names
+------------------------------------
 
-Correlated-k opacities
-----------------------
+-  Rename ``emission_geometry`` to ``irradiation_geometry``.
+-  Rename ``cloud_particles_*`` arguments and parameter keys to
+    ``cloud_particle_*``.
+-  Replace ``complete_coverage_clouds`` with ``patchy_clouds``.
+-  Update imports from ``petitRADTRANS.chemistry.condensation_curves`` to
+    ``petitRADTRANS.chemistry.vapour_pressures``.
+-  In ``SpectralModel.model_parameters``, use ``modification_arguments`` rather
+    than ``modification_parameters``.
 
-To manually convert correlated-k opacities, you can use the following example:
-
-.. code-block:: python
-
-    from petitRADTRANS.opacities.file_conversion import _correlated_k_opacities_dat2h5_external_species
-    from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
-
-    _correlated_k_opacities_dat2h5_external_species(
-        path_to_species_opacity_folder='/Users/molliere/pRTv2/input_data/opacities/lines/corr_k/CH4_hargreaves',
-        path_prt2_input_data='/Users/molliere/pRTv2/input_data',
-        longname='12C-1H4__HITEMP.R1000_0.1-250mu',  # see c-k file naming convention
-        doi='10.3847/1538-4365/ab7a1a',
-        contributor='Your name',
-        description="Using HITRAN's air broadening prescription.",
-        molmass=get_species_molar_mass('CH4')
-    )
-
-.. caution:: Argument ``longname`` must be a valid pRT file name, otherwise it will be rejected. The correlated-k file naming is available in the :doc:`available opacities section <available_opacities>`.
-
-The function needs to following input parameters:
-
-- ``path_to_species_opacity_folder``: string that gives the absolute path of the folder that contains the correlated-k opacity files in the old pRT2 format (in the example above we are converting ``'CH4_hargreaves'``.
-- ``path_prt2_input_data``: absolute path of the pRT2 input data folder.
-- ``longname``: The species (unique) longname following the pRT3/Exomol format, which will also be the name of the HDF5 file (leave out the ``'.h5'`` extension).
-- ``doi``: DOI of the reference that describes the line list (``'10.3847/1538-4365/ab7a1a'`` points to `Hargreaves et al. 2020 <https://ui.adsabs.harvard.edu/abs/2020ApJS..247...55H/abstract>`_ in our case). Can be left empty for internal use.
-- ``contributor``: in case you want to share your HDF5 file with us (please :) ), this is the contributor name we will mention in the `available opacities section <available_opacities.html>`_.
-- ``description``: any additional information you think is useful to know for a user.
-- ``molmass``: the mass of the absorber in atomic mass units.
-
-After conversion the new HDF5 file will be placed into your pRT2 input data folder, in the above example in ``'/Users/molliere/pRTv2/input_data/opacities/lines/corr_k/'``. You then need to move the file ``12C-1H4__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5`` from there into the pRT3 folder, following the folder structure `described for adding Exomol opacities <adding_opacities.html#importing-opacity-tables-from-the-exomol-website>`_. In our example here, the new path of the file is is ``/Users/molliere/pRT3/input_data/opacities/lines/correlated_k/CH4/12C-1H4/``. Note the change in the path to the input folder of pRT3. Also do not forget to adapt your absolute paths accordingly (very likely you do not have a folder called ``molliere``, for example).
-
-Line-by-line opacities
-----------------------
-
-To manually convert line-by-line opacities, you can proceed as follow:
-
-First, move the folder containing your pRT2-formatted opacities of the species you want to convert to the pRT3 input data folder, using the folder structure `described for adding Exomol opacities <adding_opacities.html#importing-opacity-tables-from-the-exomol-website>`_. For :math:`\rm CH_4`'s main isotopologue, this would correspond to ``/path/to/input_data/opacities/lines/line_by_line/CH4/12C-1H4/pRT2_CH4_directory`` (here ``pRT2_CH4_directory`` is the directory you moved, you don't need to change its name). Then, execute the following in a Python console:
-
-.. code-block:: python
-
-    from petitRADTRANS.opacities.file_conversion import line_by_line_opacities_dat2h5
-    from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
-
-    line_by_line_opacities_dat2h5(
-        directory='/path/to/input_data/opacities/lines/line_by_line/species/isotopologue/old_directory',  # change accordingly
-        path_input_data='/path/to/old/pRT2/input_data', # path to old pRT input data folder
-        output_name='pRT_valid_opacity_filename',  # e.g., '12C-1H4__HITEMP.R1e6_0.3-28mu', see lbl file naming convention
-        molmass=get_species_molar_mass('SpeciesChemicalFormula'),  # change accordingly (e.g. '12C-1H4')
-        doi='doi of the opacity source',  # change accordingly, can be left empty for personal use
-        contributor='Your name',  # change accordingly, can be left empty for personal use
-        clean=True  # if True, automatically remove the old pRT2 opacity files stored in "directory"
-    )
-
-.. caution:: Argument ``output_name`` must be a valid pRT file name, otherwise it will be rejected. The line-by-line file naming convention is available in the :doc:`available opacities section <available_opacities>`.
-
-If you have put your old directory at the correct place, the resulting file should already be in the correct position (here, ``'/path/to/input_data/opacities/lines/line_by_line/species/isotopologue/pRT_valid_opacity_filename.xsec.petitRADTRANS.h5'``).
-
-Automatic conversion of the pRT2 input_data folder
---------------------------------------------------
-
-Once you have set the path to your input_data folder (see `"Getting started" <content/notebooks/getting_started.html>`_) The simplest way to convert you pRT2 opacities into the pRT3 format is to use the provided ``convert_all`` function:
-
-.. code-block:: python
-
-    from petitRADTRANS.opacities.file_conversion import convert_all
-
-    convert_all(clean=True)  # to not remove the old files automatically, set clean to False
-
-.. important:: If you want to keep the pRT2-formatted files, you should use ``clean=False``. Note that some of these files will be displaced, and hence will **no longer be usable as is by pRT2**. Running ``clean=True`` will minimize the impact of the conversion on your storage.
-
-Note that this will only convert the pRT2 **default** opacities. Custom-made opacities need to be converted manually (see above sections).
-
-Fixing out-of-memory errors during conversion
----------------------------------------------
-
-If you get out-of-memory errors while converting line-by-line opacity files, you can set the ``memory_map_mode`` argument to ``True``. For example:
-
-.. code-block:: python
-
-    from petitRADTRANS.opacities.file_conversion import convert_all
-
-    convert_all(memory_map_mode=True, clean=True)

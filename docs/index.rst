@@ -92,7 +92,7 @@ Former contributors and developers
    :caption: Guide
 
    content/installation
-   content/pRT3_changes_description
+   content/pRT4_changes_description
    content/tutorial
    content/retrieval_examples
    content/available_opacities
