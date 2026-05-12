@@ -210,7 +210,7 @@ class Retrieval:
         self.path = petitradtrans_config_parser.get_input_data_path()
 
         # Setup Directories
-        if "pymultinest" in self.configuration.sampler.lower():
+        if "pymultinest" in self.configuration.sampler_type.lower():
             os.makedirs(os.path.join(self.output_directory, "out_PMN"), exist_ok=True)
 
         os.makedirs(
