@@ -1149,8 +1149,6 @@ class Radtrans:
     ):
         from interpax import interp1d
 
-        # TODO replace interp1d
-        radius_interp = interp1d(self._pressures, radius_hydrostatic_equilibrium)
         photosphere_radius = jnp.zeros(self._frequencies.size, dtype=JAX_DTYPE)
         weights_gauss_reshape = self._lines_loaded_opacities["weights_gauss"].reshape(
             len(self._lines_loaded_opacities["weights_gauss"]), 1
@@ -1162,10 +1160,16 @@ class Radtrans:
             tau_p = jnp.sum(
                 weights_gauss_reshape * optical_depths[:, i_freq, 0, :], axis=0
             )
-            pressures_tau_p = interp1d(tau_p, self._pressures)
             if jnp.max(tau_p) > 2.0 / 3.0:
+                pressure_tau_23 = interp1d(
+                    jnp.asarray([2.0 / 3.0]), tau_p, self._pressures
+                )[0]
                 photosphere_radius = photosphere_radius.at[i_freq].set(
-                    radius_interp(pressures_tau_p(2 / 3))
+                    interp1d(
+                        jnp.asarray([pressure_tau_23]),
+                        self._pressures,
+                        radius_hydrostatic_equilibrium,
+                    )[0]
                 )
             else:
                 debug.print(

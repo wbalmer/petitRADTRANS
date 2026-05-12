@@ -162,31 +162,39 @@ def test_correlated_k_photospheric_radius_calculation():
     # atmosphere_ck_scattering._Radtrans.set_sum_opacities(emission=True)
     # atmosphere_ck_scattering._Radtrans.use_smart_clear_opacities = False
 
-    # TODO: update using updated outputs
-    """(opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-     cloud_opacities, cloud_particles_mean_radii) = (
-        atmosphere_ck_scattering._calculate_opacities(
-            temperatures=temperature_guillot_2010,
-            mass_fractions=mass_fractions,
-            mean_molar_masses=test_parameters['mean_molar_mass'],
-            reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
-            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std
-        )
+    (
+        opacities,
+        continuum_opacities_scattering,
+        cloud_anisotropic_scattering_opacities,
+        cloud_absorption_opacities,
+        cloud_opacities,
+        cloud_particles_mean_radii,
+    ) = atmosphere_ck_scattering._calculate_opacities(
+        temperatures=temperature_guillot_2010,
+        mass_fractions=mass_fractions,
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
     )
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        planet_radius=test_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup,
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        planet_radius=test_parameters["planetary_parameters"]["radius"]
+        * petitRADTRANS.physical_constants.r_jup,
         opacities=opacities,
         continuum_opacities_scattering=continuum_opacities_scattering,
-        cloud_f_sed=np.array(list(test_parameters['cloud_parameters']['cloud_species'].values())[0]['f_sed']),
+        cloud_f_sed=np.array(
+            list(test_parameters["cloud_parameters"]["cloud_species"].values())[0][
+                "f_sed"
+            ]
+        ),
         cloud_photosphere_median_optical_depth=None,
         cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
-        cloud_absorption_opacities=cloud_absorption_opacities
-    )"""
+        cloud_absorption_opacities=cloud_absorption_opacities,
+    )
 
     # Put back default parameter relative tolerance
     ReferenceFile.parameters_relative_tolerance = _parameters_relative_tolerance

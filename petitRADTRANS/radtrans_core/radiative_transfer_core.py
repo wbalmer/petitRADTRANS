@@ -2818,17 +2818,12 @@ def compute_transmission_spectrum_contribution(
             + current_opacities[..., 1:] * rho_exp[..., 1:]
         )
 
-        alpha_t2_scat_operands = (
-            rho,
-            current_continuum_scattering_for_calc,
-            n_frequencies,
-            n_layers,
-        )
+        alpha_t2_scat_operands = (rho, current_continuum_scattering_for_calc)
 
         def true_alpha_t2_scat_branch(
-            ops: tuple[ArrayLike, ArrayLike, int, int],
+            ops: tuple[ArrayLike, ArrayLike],
         ) -> ArrayLike:
-            _rho, _ccs, _, _ = ops
+            _rho, _ccs = ops
             _rho_exp_scat = _rho[None, :]
             return (
                 _ccs[:, :-1] * _rho_exp_scat[:, :-1]
@@ -2836,10 +2831,10 @@ def compute_transmission_spectrum_contribution(
             )
 
         def false_alpha_t2_scat_branch(
-            ops: tuple[ArrayLike, ArrayLike, int, int],
+            ops: tuple[ArrayLike, ArrayLike],
         ) -> ArrayLike:
-            _, _, _n_freq, _n_layers_ops = ops
-            return jnp.zeros((_n_freq, _n_layers_ops - 1))
+            _, _ccs = ops
+            return jnp.zeros_like(_ccs[:, :-1])
 
         alpha_t2_scat_current = lax.cond(
             scattering_in_transmission,
