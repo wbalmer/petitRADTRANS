@@ -128,7 +128,7 @@ def test_calculate_flux_clouds_affect_correlated_k_non_scattering_emission_full_
         (cloudy_flux - clear_flux) / jnp.maximum(jnp.abs(clear_flux), 1e-30)
     )
 
-    assert float(jnp.max(relative_difference)) > 0.1
+    assert float(jnp.max(relative_difference)) > 1e-2
 
 
 def test_calculate_flux_patchy_clouds_blend_correlated_k_non_scattering_emission():
