@@ -129,6 +129,13 @@ class RetrievalPlotter:
     def get_reference_radtrans_data(self):
         return self.configuration.data[self.get_reference_radtrans_name()]
 
+    def _is_plotting_root(self):
+        return self.comm is None or self.rank == 0
+
+    def _synchronize(self):
+        if self.comm is not None:
+            self.comm.barrier()
+
     def plot_abundances(
         self,
         samples_use,
@@ -184,7 +191,7 @@ class RetrievalPlotter:
         """
         import matplotlib.pyplot as plt
 
-        if not self.use_mpi or self.rank == 0:
+        if self._is_plotting_root():
             print("\nPlotting Abundances profiles")
 
             p_global_keep = self.configuration.pressures
@@ -402,8 +409,7 @@ class RetrievalPlotter:
             fig = None
             ax = None
 
-        if self.use_mpi and self.comm is not None:
-            self.comm.barrier()
+        self._synchronize()
 
         return fig, ax
 
@@ -421,7 +427,7 @@ class RetrievalPlotter:
         the best fit PT profile and a corner plot for parameters specified in the
         run definition.
         """
-        if not self.use_mpi or self.rank == 0:
+        if self._is_plotting_root():
             if ret_names is None:
                 ret_names = []
 
@@ -522,8 +528,7 @@ class RetrievalPlotter:
             )
             print("Finished generating all plots!")
 
-        if self.use_mpi and self.comm is not None:
-            self.comm.barrier()
+        self._synchronize()
         return
 
     def plot_contribution(
@@ -542,7 +547,7 @@ class RetrievalPlotter:
         """
         import matplotlib.pyplot as plt
 
-        if not self.use_mpi or self.rank == 0:
+        if self._is_plotting_root():
 
             self.evaluate_sample_spectra = False
             if not self.configuration.run_mode == "evaluate":
@@ -619,8 +624,7 @@ class RetrievalPlotter:
             fig = None
             ax = None
 
-        if self.use_mpi and self.comm is not None:
-            self.comm.barrier()
+        self._synchronize()
 
         return fig, ax
 
@@ -646,7 +650,7 @@ class RetrievalPlotter:
         if not parameter_dict:
             raise ValueError("cannot make a corner plot with no parameter to plot")
 
-        if not self.use_mpi or self.rank == 0:
+        if self._is_plotting_root():
             if not self.configuration.run_mode == "evaluate":
                 print("Not in evaluate mode. Changing run mode to evaluate.")
                 self.configuration.run_mode = "evaluate"
@@ -712,8 +716,7 @@ class RetrievalPlotter:
                 **kwargs,
             )
 
-        if self.use_mpi and self.comm is not None:
-            self.comm.barrier()
+        self._synchronize()
 
         return fig
 
@@ -723,7 +726,7 @@ class RetrievalPlotter:
         """
         import matplotlib.pyplot as plt
 
-        if not self.use_mpi or self.rank == 0:
+        if self._is_plotting_root():
             fig, ax = plt.subplots(figsize=(10, 6))
             for name, data in self.configuration.data.items():
                 if isinstance(data, PhotometryData):
@@ -756,8 +759,7 @@ class RetrievalPlotter:
 
             plt.savefig(self.get_base_figure_name() + "_Data.pdf")
 
-        if self.use_mpi and self.comm is not None:
-            self.comm.barrier()
+        self._synchronize()
 
     def plot_pt(
         self,
@@ -774,7 +776,7 @@ class RetrievalPlotter:
         """
         import matplotlib.pyplot as plt
 
-        if not self.use_mpi or self.rank == 0:
+        if self._is_plotting_root():
 
             print("\nPlotting PT profiles")
             if not self.configuration.run_mode == "evaluate":
@@ -970,8 +972,7 @@ class RetrievalPlotter:
             fig = None
             ax = None
 
-        if self.use_mpi and self.comm is not None:
-            self.comm.barrier()
+        self._synchronize()
 
         return fig, ax
 
@@ -992,7 +993,7 @@ class RetrievalPlotter:
         import matplotlib.pyplot as plt
         from petitRADTRANS.plotlib.plotlib import plot_data
 
-        if not self.use_mpi or self.rank == 0:
+        if self._is_plotting_root():
 
             if not self.configuration.run_mode == "evaluate":
                 print("Not in evaluate mode. Changing run mode to evaluate.")
@@ -1163,8 +1164,7 @@ class RetrievalPlotter:
             fig = None
             ax = None
 
-        if self.use_mpi and self.comm is not None:
-            self.comm.barrier()
+        self._synchronize()
 
         return fig, ax
 
@@ -1274,7 +1274,7 @@ class RetrievalPlotter:
         if marker_cmap is None:
             marker_cmap = plt.colormaps["bwr"]
 
-        if not self.use_mpi or self.rank == 0:
+        if self._is_plotting_root():
             check = self.evaluate_sample_spectra
             self.evaluate_sample_spectra = False
 
@@ -1709,7 +1709,6 @@ class RetrievalPlotter:
             ax = None
             ax_r = None
 
-        if self.use_mpi and self.comm is not None:
-            self.comm.barrier()
+        self._synchronize()
 
         return fig, ax, ax_r
