@@ -2390,6 +2390,23 @@ class DynestySampler(Sampler):
             },
         }
 
+    @staticmethod
+    def _summarize_ncall(raw_results):
+        ncall = getattr(raw_results, "ncall", 0)
+
+        if ncall is None:
+            return 0
+
+        ncall_array = np.asarray(ncall)
+
+        if ncall_array.size == 0:
+            return 0
+
+        if ncall_array.ndim == 0:
+            return int(ncall_array.item())
+
+        return int(np.sum(ncall_array, dtype=np.int64))
+
     def run_sampler(self, init_kwargs, **run_kwargs):
         _require_dynesty()
 
@@ -2430,7 +2447,7 @@ class DynestySampler(Sampler):
 
             self._run_summary = {
                 "niter": int(getattr(self.raw_results, "niter", 0)),
-                "ncall": int(getattr(self.raw_results, "ncall", 0)),
+                "ncall": self._summarize_ncall(self.raw_results),
                 "eff": float(getattr(self.raw_results, "eff", 0.0)),
                 "n_effective": float(getattr(self.sampler, "n_effective", 0.0)),
                 "logz": float(np.asarray(self.raw_results.logz)[-1]),
