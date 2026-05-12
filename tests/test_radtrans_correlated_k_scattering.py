@@ -142,7 +142,7 @@ def test_correlated_k_photospheric_radius_calculation():
 
     (
         mass_fractions,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         _,
         cloud_particle_radius_distribution_std,
         _,
@@ -168,13 +168,18 @@ def test_correlated_k_photospheric_radius_calculation():
         cloud_anisotropic_scattering_opacities,
         cloud_absorption_opacities,
         cloud_opacities,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
+        _,
+        _,
+        _,
+        _,
+        _,
     ) = atmosphere_ck_scattering._calculate_opacities(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         mean_molar_masses=test_parameters["mean_molar_mass"],
         reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
     )
 

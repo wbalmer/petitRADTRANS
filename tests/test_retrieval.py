@@ -262,6 +262,12 @@ def _mark_differentiable_model_function(model_function):
     return model_function
 
 
+def _seed_retrieval_mpi_state(retrieval):
+    retrieval.comm = None
+    retrieval.rank = 0
+    return retrieval
+
+
 def test_parameter_layout_supports_ordered_prior_transforms_and_legacy_adapter():
     parameters = {
         "transform_parameter": Parameter(
@@ -1320,6 +1326,38 @@ def test_isothermal_transmission_runs_through_runtime_helpers(monkeypatch):
             None,
         ),
     )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.models.clouds,
+        "setup_simple_clouds_hazes",
+        lambda parameters: (None, None, None, None),
+    )
+
+    radtrans = _DummyRadtrans()
+    radtrans.pressures = jnp.array([1e6])
+    radtrans.line_species = ()
+    radtrans.cloud_species = ()
+    model_context = ModelContext(
+        name="transmission",
+        mode="transmission",
+        radtrans=radtrans,
+        adaptive_mesh_refinement=False,
+    )
+    physical_params = PhysicalParams.from_mapping(
+        {
+            "temperature": 900.0,
+            "log_g": 3.0,
+            "planet_radius": 2.0,
+            "stellar_radius": 2.0,
+        }
+    )
+
+    result = isothermal_transmission(model_context, physical_params)
+
+    assert result.kind == "spectrum"
+    np.testing.assert_allclose(result.wavelengths, jnp.array([1.0, 2.0]))
+    assert result.auxiliary_outputs == {"source": "transmission"}
+
+
 def test_parameter_layout_physical_params_from_vector_accepts_jax_tracers():
     parameters = {
         "transform_parameter": Parameter(
@@ -1355,38 +1393,6 @@ def test_parameter_layout_physical_params_from_vector_accepts_jax_tracers():
         np.asarray(extract_parameter_values(jnp.array([3.5, 4.5]))),
         np.array([3.5, 4.5, 7.0]),
     )
-
-
-    monkeypatch.setattr(
-        petitRADTRANS.retrieval.models.clouds,
-        "setup_simple_clouds_hazes",
-        lambda parameters: (None, None, None, None),
-    )
-
-    radtrans = _DummyRadtrans()
-    radtrans.pressures = jnp.array([1e6])
-    radtrans.line_species = ()
-    radtrans.cloud_species = ()
-    model_context = ModelContext(
-        name="transmission",
-        mode="transmission",
-        radtrans=radtrans,
-        adaptive_mesh_refinement=False,
-    )
-    physical_params = PhysicalParams.from_mapping(
-        {
-            "temperature": 900.0,
-            "log_g": 3.0,
-            "planet_radius": 2.0,
-            "stellar_radius": 2.0,
-        }
-    )
-
-    result = isothermal_transmission(model_context, physical_params)
-
-    assert result.kind == "spectrum"
-    np.testing.assert_allclose(result.wavelengths, jnp.array([1.0, 2.0]))
-    assert result.auxiliary_outputs == {"source": "transmission"}
 
 
 def test_runtime_evaluation_adds_runtime_model_log_prior_weight_once():
@@ -1790,7 +1796,9 @@ def test_jax_sampler_interfaces_fail_clearly_on_legacy_only_models():
 def test_run_ultranest_vectorized_mode_stays_enabled_for_retrieval(
     monkeypatch,
 ):
-    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval = _seed_retrieval_mpi_state(
+        object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    )
 
     parameter = Parameter(
         name="amplitude",
@@ -1882,7 +1890,9 @@ def test_run_ultranest_vectorized_mode_stays_enabled_for_retrieval(
 def test_ultranest_vectorized_mode_is_disabled_for_unsupported_runtime_groups(
     monkeypatch, runtime, warning_text
 ):
-    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval = _seed_retrieval_mpi_state(
+        object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    )
     parameter = Parameter(
         name="amplitude",
         is_free_parameter=True,
@@ -1986,7 +1996,9 @@ def test_ultranest_vectorized_mode_is_disabled_for_unsupported_runtime_groups(
 
 
 def test_run_regenerates_summary_for_non_pymultinest_sampler(tmp_path):
-    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval = _seed_retrieval_mpi_state(
+        object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    )
     parameter = Parameter(
         name="amplitude",
         is_free_parameter=True,
@@ -2048,7 +2060,9 @@ def test_run_regenerates_summary_for_non_pymultinest_sampler(tmp_path):
 
 
 def test_run_saves_named_sample_archive_for_completed_retrieval(tmp_path):
-    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval = _seed_retrieval_mpi_state(
+        object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    )
     parameter = Parameter(
         name="amplitude",
         is_free_parameter=True,
@@ -2121,7 +2135,9 @@ def test_run_saves_named_sample_archive_for_completed_retrieval(tmp_path):
 
 
 def test_get_samples_loads_named_archive_for_non_pymultinest_sampler(tmp_path):
-    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval = _seed_retrieval_mpi_state(
+        object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    )
     parameter = Parameter(
         name="amplitude",
         is_free_parameter=True,
