@@ -8,6 +8,11 @@ import jax.numpy as jnp
 from jax.typing import ArrayLike
 
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
+from petitRADTRANS.retrieval.covariance import (
+    normalize_covariance_mode,
+    normalize_global_kernel_name,
+    normalize_local_kernel_name,
+)
 from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
 from petitRADTRANS.retrieval._mpi import get_mpi_context
 from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity
@@ -100,43 +105,9 @@ class RetrievalConfig:
         self.rayleigh_species = ()
         self.continuum_opacities = ()
 
-        self.add_parameter("pressure_scaling", False, value=1)
-        self.add_parameter("pressure_width", False, value=1)
-        self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
-
     def _setup_pres(self, scaling: int = 10, width: int = 3) -> ArrayLike:
-        """
-        This converts the standard pressure grid into the correct length
-        for the AMR pressure grid. The scaling adjusts the resolution of the
-        high resolution grid, while the width determines the size of the high
-        pressure region. This function is automatically called in
-        Retrieval.setupData().
-
-        Args:
-            scaling : int
-                A multiplicative factor that determines the size of the full high resolution pressure grid,
-                which will have length self.p_global.shape[0] * scaling.
-            width : int
-                The number of cells in the low pressure grid to replace with the high resolution grid.
-        """
-
-        print("Setting up AMR pressure grid.")
-        self.scaling = scaling
-        self.width = width
-        nclouds = len(self.cloud_species)
-        if nclouds == 0:
-            print(
-                "WARNING: there are no clouds in the retrieval, please add cloud species before setting up AMR"
-            )
-        new_len = self.pressures.shape[0] + nclouds * width * (scaling - 1)
-        self.adaptive_mesh_refinement_pressure = jnp.logspace(
-            jnp.log10(self.pressures[0]), jnp.log10(self.pressures[-1]), new_len
-        )
-        self.add_parameter("pressure_scaling", False, value=scaling)
-        self.add_parameter("pressure_width", False, value=width)
-        self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
-
-        return self.adaptive_mesh_refinement_pressure
+        del scaling, width
+        return self.pressures
 
     def add_parameter(
         self,
@@ -1105,39 +1076,107 @@ class RetrievalConfig:
                 stacklevel=2,
             )
 
-        data_object = Data(
-            name=name,
-            path_to_observations=path_to_observations,
-            model_generating_function=model_generating_function,
-            data_resolution=data_resolution,
-            model_resolution=model_resolution,
-            system_distance=system_distance,
-            scale_flux=scale_flux,
-            scale_uncertainties=scale_uncertainties,
-            fit_flux_offset=fit_flux_offset,
-            fit_instrumental_resolution=fit_instrumental_resolution,
-            subtract_continuum=subtract_continuum,
-            photometry=photometry,
-            photometric_transformation_function=photometric_transformation_function,
-            photometric_bin_edges=photometric_bin_edges,
-            wavelength_boundaries=wavelength_boundaries,
-            external_radtrans_reference=external_radtrans_reference,
-            line_opacity_mode=line_opacity_mode,
-            wavelength_bin_widths=wavelength_bin_widths,
-            radtrans_grid=radtrans_grid,
-            radtrans_object=radtrans_object,
-            wavelengths=wavelengths,
-            spectrum=spectrum,
-            uncertainties=uncertainties,
-            covariance=covariance,
-            fit_covariance=fit_covariance,
-            covariance_mode=covariance_mode,
-            global_covariance_kernel=global_covariance_kernel,
-            local_covariance_kernel=local_covariance_kernel,
-            n_local_covariance_kernels=n_local_covariance_kernels,
-            covariance_jitter=covariance_jitter,
-            mask=mask,
+        inferred_photometry = (
+            photometric_transformation_function is not None
+            or photometric_bin_edges is not None
         )
+
+        if photometry:
+            warnings.warn(
+                "The 'photometry' argument is deprecated; add_data() now infers PhotometryData from "
+                "'photometric_transformation_function' and 'photometric_bin_edges'.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        if inferred_photometry and (
+            photometric_transformation_function is None
+            or photometric_bin_edges is None
+        ):
+            raise ValueError(
+                "Photometric datasets require both 'photometric_transformation_function' and "
+                "'photometric_bin_edges'."
+            )
+
+        if photometry and not inferred_photometry:
+            raise ValueError(
+                "The deprecated 'photometry' flag no longer controls dataset type. Provide both "
+                "'photometric_transformation_function' and 'photometric_bin_edges' to configure photometric data."
+            )
+
+        if inferred_photometry:
+            data_object = PhotometryData(
+                name=name,
+                path_to_observations=path_to_observations,
+                model_generating_function=model_generating_function,
+                photometric_transformation_function=photometric_transformation_function,
+                photometric_bin_edges=photometric_bin_edges,
+                data_resolution=data_resolution,
+                model_resolution=model_resolution,
+                system_distance=system_distance,
+                wavelength_boundaries=wavelength_boundaries,
+                external_radtrans_reference=external_radtrans_reference,
+                scale_flux=scale_flux,
+                scale_uncertainties=scale_uncertainties,
+                fit_flux_offset=fit_flux_offset,
+                line_opacity_mode=line_opacity_mode,
+                radtrans_object=radtrans_object,
+                wavelengths=wavelengths,
+            )
+            if spectrum is not None:
+                data_object.spectrum = jnp.asarray(spectrum)
+            if uncertainties is not None:
+                data_object.uncertainties = jnp.asarray(uncertainties)
+            if covariance is not None:
+                data_object.covariance = jnp.asarray(covariance)
+            if mask is not None:
+                data_object.mask = mask
+            elif data_object.spectrum is not None:
+                data_object.mask = jnp.zeros(jnp.shape(data_object.spectrum), dtype=bool)
+            data_object.fit_instrumental_resolution = fit_instrumental_resolution
+            data_object.subtract_continuum = subtract_continuum
+            data_object.fit_covariance = fit_covariance
+            data_object.covariance_mode = normalize_covariance_mode(covariance_mode)
+            data_object.global_covariance_kernel = normalize_global_kernel_name(
+                global_covariance_kernel
+            )
+            data_object.local_covariance_kernel = normalize_local_kernel_name(
+                local_covariance_kernel
+            )
+            data_object.n_local_covariance_kernels = int(n_local_covariance_kernels)
+            data_object.covariance_jitter = float(covariance_jitter)
+            data_object.refresh_covariance_bookkeeping()
+        else:
+            data_object = Data(
+                name=name,
+                path_to_observations=path_to_observations,
+                model_generating_function=model_generating_function,
+                data_resolution=data_resolution,
+                model_resolution=model_resolution,
+                system_distance=system_distance,
+                scale_flux=scale_flux,
+                scale_uncertainties=scale_uncertainties,
+                fit_flux_offset=fit_flux_offset,
+                fit_instrumental_resolution=fit_instrumental_resolution,
+                subtract_continuum=subtract_continuum,
+                wavelength_boundaries=wavelength_boundaries,
+                external_radtrans_reference=external_radtrans_reference,
+                line_opacity_mode=line_opacity_mode,
+                wavelength_bin_widths=wavelength_bin_widths,
+                radtrans_grid=radtrans_grid,
+                radtrans_object=radtrans_object,
+                wavelengths=wavelengths,
+                spectrum=spectrum,
+                uncertainties=uncertainties,
+                covariance=covariance,
+                fit_covariance=fit_covariance,
+                covariance_mode=covariance_mode,
+                global_covariance_kernel=global_covariance_kernel,
+                local_covariance_kernel=local_covariance_kernel,
+                n_local_covariance_kernels=n_local_covariance_kernels,
+                covariance_jitter=covariance_jitter,
+                mask=mask,
+            )
         self.data[name] = data_object
 
         if fit_covariance:

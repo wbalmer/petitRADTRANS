@@ -1,9 +1,7 @@
 import copy
-import sys
 
 import jax.numpy as jnp
-from jax import lax, jit
-from jax.experimental import checkify
+from jax import jit
 from interpax import PchipInterpolator
 
 # TODO: Finish adding in error checking - difficult to make checkify work with JIT.
@@ -13,7 +11,7 @@ from jax.typing import ArrayLike
 
 # from scipy.interpolate import PchipInterpolator
 
-from functools import partial
+from functools import lru_cache, partial
 
 from petitRADTRANS.chemistry.prt_molmass import (
     element_symbol2element_number,
@@ -21,6 +19,94 @@ from petitRADTRANS.chemistry.prt_molmass import (
     get_species_molar_mass,
 )
 from petitRADTRANS.opacities.opacities import Opacity
+
+
+def build_adaptive_pressure_grid(
+    pressures: ArrayLike,
+    cloud_base_pressures: ArrayLike,
+    refinement_strength: float = 4.0,
+    refinement_width_in_cells: float = 3.0,
+):
+    """Redistribute a fixed number of pressure layers around cloud bases.
+
+    The returned pressure grid preserves both the number of layers and the
+    pressure bounds of the input grid. Instead of inserting extra layers, the
+    method smoothly compresses the log-pressure coordinate near the supplied
+    cloud-base pressures so more points land where cloud placement matters.
+
+    Args:
+        pressures:
+            Monotonic pressure grid in bar.
+        cloud_base_pressures:
+            Cloud-base pressures in bar. Invalid or out-of-range values are
+            ignored.
+        refinement_strength:
+            Dimensionless multiplier controlling how strongly the grid is
+            compressed near cloud bases.
+        refinement_width_in_cells:
+            Approximate width of the refinement region measured in units of the
+            original log-pressure cell width.
+
+    Returns:
+        Pressure grid in bar with the same shape as ``pressures``.
+    """
+    pressures = jnp.asarray(pressures)
+    cloud_base_pressures = jnp.asarray(cloud_base_pressures)
+
+    n_layers = pressures.shape[0]
+    if n_layers <= 2:
+        return pressures
+
+    log_pressures = jnp.log10(pressures)
+    log_pressure_min = log_pressures[0]
+    log_pressure_span = log_pressures[-1] - log_pressure_min
+
+    unit_coordinates = jnp.linspace(0.0, 1.0, n_layers, dtype=log_pressures.dtype)
+    cell_centers = 0.5 * (unit_coordinates[:-1] + unit_coordinates[1:])
+
+    normalized_cloud_positions = (
+        jnp.log10(cloud_base_pressures) - log_pressure_min
+    ) / log_pressure_span
+    valid_clouds = jnp.logical_and(
+        jnp.isfinite(cloud_base_pressures),
+        jnp.logical_and(cloud_base_pressures > 0, jnp.isfinite(normalized_cloud_positions)),
+    )
+    valid_clouds = jnp.logical_and(
+        valid_clouds,
+        jnp.logical_and(normalized_cloud_positions >= 0.0, normalized_cloud_positions <= 1.0),
+    )
+
+    if cloud_base_pressures.ndim == 0:
+        normalized_cloud_positions = normalized_cloud_positions[None]
+        valid_clouds = valid_clouds[None]
+
+    sigma = jnp.asarray(
+        refinement_width_in_cells / (n_layers - 1), dtype=log_pressures.dtype
+    )
+    sigma = jnp.maximum(sigma, jnp.asarray(1e-6, dtype=log_pressures.dtype))
+
+    cell_offsets = cell_centers[:, None] - normalized_cloud_positions[None, :]
+    gaussian_windows = jnp.exp(-0.5 * (cell_offsets / sigma) ** 2)
+    refinement_profile = jnp.sum(
+        gaussian_windows * valid_clouds[None, :], axis=1
+    )
+
+    # Lower cell weights compress local spacing and therefore place more
+    # pressure samples near the corresponding cloud base.
+    cell_weights = 1.0 / (1.0 + refinement_strength * refinement_profile)
+    cumulative = jnp.concatenate(
+        [
+            jnp.zeros((1,), dtype=log_pressures.dtype),
+            jnp.cumsum(cell_weights, dtype=log_pressures.dtype),
+        ]
+    )
+    normalized = cumulative / cumulative[-1]
+
+    refined_log_pressures = log_pressure_min + normalized * log_pressure_span
+    refined_log_pressures = refined_log_pressures.at[0].set(log_pressures[0])
+    refined_log_pressures = refined_log_pressures.at[-1].set(log_pressures[-1])
+
+    return jnp.power(10.0, refined_log_pressures)
 
 _solar_elemental_abundances = (  # Source: Lodders 2020 https://arxiv.org/abs/1912.00844
     # atomic number, log10 elemental abundance, uncertainty
@@ -249,6 +335,11 @@ def compute_pressure_nodes(pressure_array, mode="even", nnodes=0, points_list=No
 
 
 # @partial(jit, static_argnames=['mode'])
+@lru_cache(maxsize=None)
+def _get_cached_species_molar_mass(species: str) -> float:
+    return get_species_molar_mass(species.split(".R")[0])
+
+
 def compute_mean_molar_masses(abundances: dict[str, ArrayLike], mode: str = "mmr"):
     """Calculate the mean molecular weight in each layer, from mass fractions or volume mixing ratios.
 
@@ -266,77 +357,38 @@ def compute_mean_molar_masses(abundances: dict[str, ArrayLike], mode: str = "mmr
             Can be 'mmr' or 'vmr', to calculate the mean molar masses from mass fraction or volume mixing ratios,
             respectively.
     """
-
-    def _compute_mean_molar_masses_impl(
-        abundances_impl: dict[str, ArrayLike], mode_impl: str = "mmr"
-    ):
-        # Check for non-empty abundances dictionary
-        checkify.check(
-            len(abundances_impl) > 0,
-            "abundance dictionary must contains at least one species, but is empty",
+    if len(abundances) == 0:
+        raise ValueError(
+            "abundance dictionary must contains at least one species, but is empty"
         )
 
-        # Check for valid mode
-        checkify.check(
-            (mode_impl == "mmr") | (mode_impl == "vmr"),
-            f"'mode' can be 'mmr' or 'vmr', but was '{mode_impl}'",
+    if mode not in ("mmr", "vmr"):
+        raise ValueError(f"'mode' can be 'mmr' or 'vmr', but was '{mode}'")
+
+    first_abundance = next(iter(abundances.values()))
+    mean_molar_masses = jnp.zeros_like(first_abundance)
+    use_mass_fractions = mode == "mmr"
+
+    # Species names are static, so caching molar masses avoids reparsing them on every call.
+    for species, abundance in abundances.items():
+        if "(s)" in species or "(l)" in species:
+            continue
+
+        molar_mass = _get_cached_species_molar_mass(species)
+        if use_mass_fractions:
+            mean_molar_masses = mean_molar_masses + abundance / molar_mass
+        else:
+            mean_molar_masses = mean_molar_masses + abundance * molar_mass
+
+    if use_mass_fractions:
+        mean_molar_masses = jnp.where(
+            mean_molar_masses == 0,
+            jnp.finfo(mean_molar_masses.dtype).tiny,
+            mean_molar_masses,
         )
+        return 1.0 / mean_molar_masses
 
-        # Initialize mean_molar_masses
-        mean_molar_masses = jnp.zeros_like(list(abundances_impl.values())[0])
-
-        # This loop is unrolled by JAX's JIT compiler because the dictionary keys are static.
-        # This is the idiomatic way to handle static dictionaries in JAX,
-        # and is preferred over lax.fori_loop here.
-        for species, abundance in abundances_impl.items():
-            # Ignore clouds. String operations are on static values at compile time, so a Python if is fine.
-            if "(s)" not in species and "(l)" not in species:
-                _species = species.split(".R")[0]
-                molar_mass = get_species_molar_mass(_species)
-
-                # Use lax.cond for conditional computation based on mode
-                contribution = lax.cond(
-                    mode_impl == "mmr",
-                    lambda: abundance / molar_mass,
-                    lambda: abundance * molar_mass,
-                )
-                mean_molar_masses += contribution
-
-        # Check for negative values in mean_molar_masses
-        checkify.check(
-            jnp.all(mean_molar_masses >= 0),
-            f"negative value in mean molar mass detected in at least one level ({mean_molar_masses}); "
-            f"this may happen due to the presence of negative values in the abundance dictionary",
-        )
-
-        # Check if mean_molar_masses is always zero
-        checkify.check(
-            jnp.any(mean_molar_masses > 0),
-            "mean molar mass is always 0; "
-            "ensure that the abundance dictionary contains at least one gaseous species "
-            "with a strictly positive abundance",
-        )
-
-        # Final calculation based on mode
-        def mmr_final(mmm):
-            # Replace zeros to prevent division by 0
-            mmm_safe = jnp.where(mmm == 0, sys.float_info.min, mmm)
-            return 1 / mmm_safe
-
-        def vmr_final(mmm):
-            return mmm
-
-        mean_molar_masses = lax.cond(
-            mode_impl == "mmr", mmr_final, vmr_final, mean_molar_masses
-        )
-
-        return mean_molar_masses
-
-    err, result = checkify.checkify(_compute_mean_molar_masses_impl)(abundances, mode)
-    # TODO: functionalize checkify error
-    # checkify.check_error(err)
-
-    return result
+    return mean_molar_masses
 
 
 def compute_mean_molar_masses_from_volume_mixing_ratios(volume_mixing_ratios):
@@ -737,76 +789,6 @@ def fill_atmospheric_layer(
                         )
 
     return mass_fractions
-
-
-# @jit(static_argnames=('scaling', 'width'))
-def fixed_length_adaptive_mesh_refinement(
-    p_clouds: ArrayLike, pressures: ArrayLike, scaling=10, width=3
-):
-    r"""This function takes in the cloud base pressures for each cloud,
-    and returns an array of pressures with a high resolution mesh
-    in the region where the clouds are located.
-
-    Author:  Francois Rozet.
-
-    The output length is always
-        len(pressures[::scaling]) + len(p_clouds) * width * (scaling - 1)
-
-    Args:
-        p_clouds : numpy.ndarray
-            The cloud base pressures in bar
-        pressures : jnp.ndarray
-            The high resolution pressure array.
-        scaling : int
-            The factor by which the low resolution pressure array is scaled.
-            **This argument is treated as static for JIT compilation.**
-        width : int
-            The number of low resolution bins to be replaced for each cloud layer.
-            **This argument is treated as static for JIT compilation.**
-    """
-    length = pressures.shape[0]
-    n_clouds = p_clouds.shape[0]
-
-    # Calculate output size (static if shapes are static)
-    # len(pressures[::scaling]) is equivalent to ceil(length / scaling)
-    n_coarse = (length + scaling - 1) // scaling
-    output_size = n_coarse + n_clouds * width * (scaling - 1)
-
-    # Coarse indices
-    coarse_indices = jnp.arange(0, length, scaling)
-
-    # Cloud indices
-    # Find indices in pressures closest to p_clouds
-    cloud_centers = jnp.searchsorted(pressures, p_clouds)
-
-    window_width = width * scaling
-
-    # Calculate bounds for each cloud window
-    # We want a window of size window_width centered around cloud_centers
-    uppers = jnp.minimum(cloud_centers + window_width // 2, length)
-    lowers = jnp.maximum(uppers - window_width, 0)
-
-    # Generate indices for each cloud window
-    # shape (n_clouds, window_width)
-    window_offsets = jnp.arange(window_width)
-    # Use broadcasting to create indices
-    cloud_indices_matrix = lowers[:, None] + window_offsets[None, :]
-
-    # Flatten to 1D array
-    cloud_indices_flat = cloud_indices_matrix.ravel()
-
-    # Combine coarse and cloud indices
-    all_indices = jnp.concatenate([coarse_indices, cloud_indices_flat])
-
-    # Clip to ensure valid indices (in case window goes out of bounds)
-    all_indices = jnp.clip(all_indices, 0, length - 1)
-
-    # Unique and sort, padding with the last index to match fixed output size
-    # If there are overlaps, we will have fewer unique points than output_size,
-    # so we pad with the last index.
-    final_indices = jnp.unique(all_indices, size=output_size, fill_value=length - 1)
-
-    return pressures[final_indices], final_indices
 
 
 def get_solar_elemental_abundances(keep_list: list[int] = None) -> dict[int, float]:

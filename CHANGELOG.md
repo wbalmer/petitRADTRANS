@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a31] - 2026-05-12
+## [4.0.0a33] - 2026-05-14
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -15,34 +15,27 @@ Ready for beta testing with version 4.0.0.a16.
 
 ### TODO
 - Feature completion: Implement hansen cloud opacities in `cloud_core`.
-- Feature completion: Finish reimplementing contribution functions.
-- Feature completion: Implement adaptive mesh refinement with constant size pressure array.
 - Feature completion: New cloud opacities to be compatible with new condensation curves.
 - Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
 - Feature completion: Re-implement `additional_absorption_opacities_function`
-- Optimisation: profile code for new bottlenecks.
 - Optimisation: Ensure imports are optimised.
 - Testing: generate new reference files where necessary, once commited to changes (e.g. chemistry update).
 - Testing: Optimise Feautrier chunk size hyper parameters for GPU.
 - Testing: Further testing on AMD GPUs, possibly TPUs.
-- Architecture: Optional: include ability to use FORTRAN backend, or fully deprecate legacy code.
-- Documentation: Add docstrings to all new JAX functions.
-- Documentation: Verify tutorials to be v4 compatible.
 - Documentation: Add typing throughout
 - Documentation: Add further example scripts (ready-to-use) to examples directory.
-- Documentation: Update installation instructions.
 - Documentation: Update contribution section with JAX philosophy and links.
 - Housekeeping: Address all remaining TODOs in code.
-- Housekeeping: Clean up comment blocks.
 - Housekeeping: Ensure Flake8 compatibility and linting.
 - Future goals: JAXify EasyChem
 - Future goals: Incorporate next pRT developments (pRT orange, multi-dimensional retrievals etc.)
 - Future goals: Times series retrieval plotting
 - Future goals: Implement additional radiative transfer methods.
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
-- Future goals: correlated-k binning.
 
 ### Changed
+- a32: Bug fixes for photometric data input for retrievals.
+- a32: Major overhaul of documentation.
 - a29: Improved memory management - smarter loading of lbl opacities, delaying JAX conversion, cholesky decomposition for large covariance matrix inversion.
 - a28: `condensation_curves.py` is now `vapour_pressures.py` for consistency
 - a28: `complete_coverage_clouds` is no longer available, instead use patchy clouds to set which clouds ARE patchy.
@@ -95,6 +88,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Minimum supported Python version is 3.12.
 
 ### Added
+- a33: Adaptive mesh refinement for cloud bases
 - a30: Added dynesty sampler.
 - a26: isotopologues in chemistry
 - a25: JAX version of exo-k c-k binning

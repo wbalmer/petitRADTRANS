@@ -1,29 +1,33 @@
 """Interface between molmass and petitRADTRANS."""
+from functools import lru_cache
+
 from molmass import ELEMENTS, Formula
 
 from petitRADTRANS.physical_constants import e_molar_mass
 
+_ELEMENT_NUMBER_TO_SYMBOL = {element.number: element.symbol for element in ELEMENTS}
+_ELEMENT_SYMBOL_TO_NUMBER = {element.symbol: element.number for element in ELEMENTS}
+
 
 def element_number2element_symbol(atomic_number: int) -> str:
     """Convert an element's atomic number (e.g. 6) to its element symbol (e.g. 'C')."""
-    for element in ELEMENTS:
-        if element.number == atomic_number:
-            return element.symbol
+    if atomic_number in _ELEMENT_NUMBER_TO_SYMBOL:
+        return _ELEMENT_NUMBER_TO_SYMBOL[atomic_number]
 
     raise ValueError(f"atomic number '{atomic_number}' is not implemented")
 
 
 def element_symbol2element_number(symbol: str) -> int:
     """Convert an element symbol (e.g. 'C') to its atomic number (e.g. 6)."""
-    for element in ELEMENTS:
-        if element.symbol == symbol:
-            return element.number
+    if symbol in _ELEMENT_SYMBOL_TO_NUMBER:
+        return _ELEMENT_SYMBOL_TO_NUMBER[symbol]
 
     raise ValueError(f"symbol '{symbol}' is not an element symbol")
 
 
-def get_molmass_name(species: str):
-    """Convert a pRT species' name into a molmass-compatible name."""
+@lru_cache(maxsize=None)
+def _get_cached_molmass_name(species: str) -> tuple[str, ...]:
+    """Return the molmass tokens for a pRT species as an immutable cache entry."""
     from petitRADTRANS.opacities.opacities import Opacity
 
     species = Opacity.get_species_isotopologue_name(species, join=True)
@@ -34,11 +38,45 @@ def get_molmass_name(species: str):
     isotopes = name.split('-')
 
     if natural_abundance != '':
-        return [''.join(isotopes) + charge]
+        return (''.join(isotopes) + charge,)
 
-    isotopes.append(charge)
+    return (*isotopes, charge)
 
-    return isotopes
+
+def get_molmass_name(species: str):
+    """Convert a pRT species' name into a molmass-compatible name."""
+    return list(_get_cached_molmass_name(species))
+
+
+@lru_cache(maxsize=None)
+def _get_cached_species_elements(species: str) -> tuple[tuple[str, int], ...]:
+    """Return species elements as immutable key-value pairs for safe caching."""
+    elements = {}
+
+    names = _get_cached_molmass_name(species)
+
+    if len(names) == 1:
+        names = (*names, '')
+
+    for name in names[:-1]:
+        _elements = Formula(name)._elements
+
+        for _element, info_dict in _elements.items():
+            number = tuple(info_dict.values())
+
+            if len(number) > 1:
+                raise ValueError(
+                    f"molmass element dict for one isotope should have 1 value, but had {len(number)}"
+                )
+
+            number = number[0]
+
+            if _element not in elements:
+                elements[_element] = number
+            else:
+                elements[_element] += number
+
+    return tuple(elements.items())
 
 
 def get_species_elements(species: str) -> dict[str, int]:
@@ -54,32 +92,10 @@ def get_species_elements(species: str) -> dict[str, int]:
     Returns:
         A dictionary containing the element symbols of the species as keys and their amount as values.
     """
-    elements = {}
-
-    names = get_molmass_name(species)
-
-    if len(names) == 1:
-        names.append('')
-
-    for name in names[:-1]:
-        _elements = Formula(name)._elements
-
-        for _element, info_dict in _elements.items():
-            number = tuple(info_dict.values())
-
-            if len(number) > 1:
-                raise ValueError(f"molmass element dict for one isotope should have 1 value, but had {len(number)}")
-
-            number = number[0]
-
-            if _element not in elements:
-                elements[_element] = number
-            else:
-                elements[_element] += number
-
-    return elements
+    return dict(_get_cached_species_elements(species))
 
 
+@lru_cache(maxsize=None)
 def get_species_molar_mass(species: str) -> float:
     """
     Get the molecular mass of a given species.
@@ -101,7 +117,7 @@ def get_species_molar_mass(species: str) -> float:
     else:
         natural_abundance = False
 
-    names = get_molmass_name(species)
+    names = _get_cached_molmass_name(species)
 
     molar_mass = 0.0
 

@@ -1053,29 +1053,11 @@ via ``prior_type`` and ``prior_parameters``.
 Internal Infrastructure Parameters
 -------------------------------------
 
-These parameters are created automatically by ``RetrievalConfig`` and should not be modified
-by the user.
-
-.. list-table::
-   :widths: 25 15 10 50
-   :header-rows: 1
-
-   * - Key
-     - Type
-     - Free?
-     - Description
-   * - ``pressure_scaling``
-     - integer
-     - No
-     - Adaptive mesh refinement (AMR) pressure-level resolution multiplier.
-   * - ``pressure_width``
-     - integer
-     - No
-     - Number of base-grid pressure levels replaced by the AMR grid around the cloud base.
-   * - ``pressure_simple``
-     - integer
-     - No
-     - Number of pressure levels in the nominal (non-AMR) grid.
+``RetrievalConfig`` no longer creates internal pressure-grid tuning parameters.
+Adaptive mesh refinement is controlled only through the boolean
+``adaptive_mesh_refinement`` configuration flag, while the runtime path keeps
+the number of pressure levels fixed and redistributes them around cloud bases
+internally.
 
 ----
 

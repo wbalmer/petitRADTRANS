@@ -962,12 +962,6 @@ class RetrievalPlotter:
                 f"{self.get_base_figure_name()}_PT_envelopes.pdf", bbox_inches="tight"
             )
             self.configuration.adaptive_mesh_refinement = adaptive_mesh_refinement
-            if adaptive_mesh_refinement:
-                for name, data in self.configuration.data.items():
-                    if data.external_radtrans_reference is None:
-                        data.radtrans_object._pressures = (
-                            self.configuration.adaptive_mesh_refinement_pressure * 1e6
-                        )
         else:
             fig = None
             ax = None
@@ -1030,10 +1024,7 @@ class RetrievalPlotter:
                 if data.wavelength_boundaries[1] > wavelength_max:
                     wavelength_max = data.wavelength_boundaries[1]
 
-            if self.configuration.adaptive_mesh_refinement:
-                p = self.configuration._setup_pres()
-            else:
-                p = self.configuration.pressures
+            p = self.configuration.pressures
 
             species = copy.copy(
                 self.get_reference_radtrans_data().radtrans_object.line_species

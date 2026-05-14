@@ -51,9 +51,9 @@ class ReadFilter:
 
         config.init_filter_database()
 
-        self.database = config["filters"]["database"]
-        self.data_folder = config["filters"]["data_folder"]
-        self.vega_mag = config["filters"]["vega_mag"]
+        self.database = config["Filters"]["database"]
+        self.data_folder = config["Filters"]["data_folder"]
+        self.vega_mag = config["Filters"]["vega_mag"]
 
         with h5py.File(self.database, "r") as hdf5_file:
             # Check if the filter is found in 'r' mode
@@ -318,10 +318,11 @@ class SyntheticPhotometry:
         self.wavel_range = None
 
         config = petitradtrans_config_parser
+        config.init_filter_database()
 
-        self.database = config["filter"]["database"]
-        self.data_folder = config["filter"]["data_folder"]
-        self.vega_mag = float(config["filter"]["vega_mag"])
+        self.database = config["Filters"]["database"]
+        self.data_folder = config["Filters"]["data_folder"]
+        self.vega_mag = float(config["Filters"]["vega_mag"])
 
         read_filt = ReadFilter(self.filter_name)
         self.det_type = read_filt.detector_type()

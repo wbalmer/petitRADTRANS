@@ -185,7 +185,6 @@ class ObservationState:
     model_resolution: Any = None
     data_resolution: Any = None
     wavelength_bin_widths: Any = None
-    photometry: bool = False
     external_radtrans_reference: str | None = None
     line_opacity_mode: str | None = None
     model_contract: str = "legacy"
@@ -203,6 +202,11 @@ class ObservationState:
     covariance_jitter: float = 0.0
     variability_atmospheric_column_model_flux_return_mode: bool = False
     metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PhotometryObservationState(ObservationState):
+    """ObservationState subtype used for photometric datasets."""
 
 
 @dataclass(frozen=True)
@@ -1208,7 +1212,7 @@ class RetrievalRuntime:
 
         observation = self.observations[data_name]
 
-        if observation.photometry:
+        if isinstance(observation, PhotometryObservationState):
             projected = observation.photometric_transformation_function(
                 wavelengths_model, spectrum_model
             )
@@ -1899,8 +1903,17 @@ def project_model_to_observation_space(
     """
     from petitRADTRANS.retrieval.utils import (
         extract_spectrum_parameters,
+        ensure_jax_array,
         process_spectrum_pipeline,
     )
+
+    if isinstance(observation, PhotometryObservationState):
+        projected = observation.photometric_transformation_function(
+            wavelengths_model, spectrum_model
+        )
+        if isinstance(projected, (tuple, list)):
+            projected = projected[0]
+        return ensure_jax_array(projected)
 
     spectrum_params = extract_spectrum_parameters(parameters, data_name)
     return process_spectrum_pipeline(

@@ -401,7 +401,10 @@ class PreCalculatedEquilibriumChemistryTable:
             mean_molar_masses = f["mean_molar_masses"][()]
             nabla_adiabatic = f["nabla_adiabatic"][()]
 
-        # Change array ordering for more efficient fortran calculation (this takes time, so it is done during loading)
+        species_order = tuple(np.argsort(np.asarray(species, dtype=str), kind="stable"))
+        species = tuple(species[index] for index in species_order)
+        mass_fractions = mass_fractions[species_order, ...]
+
         mass_fractions = jnp.array(mass_fractions, dtype=JAX_DTYPE)
         mean_molar_masses = jnp.array(mean_molar_masses, dtype=JAX_DTYPE)
         nabla_adiabatic = jnp.array(nabla_adiabatic, dtype=JAX_DTYPE)

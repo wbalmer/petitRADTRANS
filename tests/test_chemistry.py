@@ -1,6 +1,7 @@
 """Test petitRADTRANS chemistry module."""
 
 import inspect
+import h5py
 
 import jax
 import jax.numpy as jnp
@@ -166,6 +167,114 @@ def test_mass_fractions2metallicities():
     )
 
     benchmark.run(mass_fractions=mass_fractions, mean_molar_masses=mean_molar_masses)
+
+
+def test_compute_mean_molar_masses_ignores_clouds_and_opacity_suffixes():
+    abundances = {
+        "H2": jnp.array([0.74, 0.74]),
+        "He": jnp.array([0.24, 0.24]),
+        "1H2-16O__HITEMP.R1000_0.9-1.2mu": jnp.array([0.02, 0.02]),
+        "Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.9-2.3mu": jnp.array(
+            [0.5, 0.5]
+        ),
+    }
+
+    expected = 1.0 / (
+        abundances["H2"]
+        / petitRADTRANS.chemistry.prt_molmass.get_species_molar_mass("H2")
+        + abundances["He"]
+        / petitRADTRANS.chemistry.prt_molmass.get_species_molar_mass("He")
+        + abundances["1H2-16O__HITEMP.R1000_0.9-1.2mu"]
+        / petitRADTRANS.chemistry.prt_molmass.get_species_molar_mass("1H2-16O__HITEMP")
+    )
+
+    result = petitRADTRANS.chemistry.utils.compute_mean_molar_masses(abundances)
+
+    np.testing.assert_allclose(np.asarray(result), np.asarray(expected))
+
+
+def test_prt_molmass_helpers_cache_and_return_fresh_results():
+    prt_molmass = petitRADTRANS.chemistry.prt_molmass
+
+    prt_molmass._get_cached_molmass_name.cache_clear()
+    prt_molmass._get_cached_species_elements.cache_clear()
+    prt_molmass.get_species_molar_mass.cache_clear()
+
+    expected_names = prt_molmass.get_molmass_name("H2O")
+    expected_elements = prt_molmass.get_species_elements("H2O")
+    expected_molar_mass = prt_molmass.get_species_molar_mass("H2O")
+
+    mutated_names = prt_molmass.get_molmass_name("H2O")
+    mutated_names.append("sentinel")
+
+    mutated_elements = prt_molmass.get_species_elements("H2O")
+    mutated_elements["X"] = 1
+
+    repeated_molar_mass = prt_molmass.get_species_molar_mass("H2O")
+
+    assert prt_molmass.get_molmass_name("H2O") == expected_names
+    assert prt_molmass.get_species_elements("H2O") == expected_elements
+    assert repeated_molar_mass == expected_molar_mass
+    assert prt_molmass._get_cached_molmass_name.cache_info().hits >= 1
+    assert prt_molmass._get_cached_species_elements.cache_info().hits >= 1
+    assert prt_molmass.get_species_molar_mass.cache_info().hits >= 1
+
+
+def test_build_cloud_metadata_caches_results(monkeypatch):
+    calls = {"cloud_opacity": 0}
+
+    class FakeCloudOpacity:
+        def __init__(self, *_args, **_kwargs):
+            calls["cloud_opacity"] += 1
+            self.species_full_name = "StubCloud_placeholder"
+
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        "CloudOpacity",
+        FakeCloudOpacity,
+    )
+    petitRADTRANS.chemistry.core._get_cached_cloud_metadata.cache_clear()
+
+    first = petitRADTRANS.chemistry.core._build_cloud_metadata(("dummy",))
+    second = petitRADTRANS.chemistry.core._build_cloud_metadata(["dummy"])
+
+    assert first == (("dummy", "StubCloud"),)
+    assert second == first
+    assert calls == {"cloud_opacity": 1}
+
+
+def test_precalculated_chemistry_loader_sorts_species_axis(tmp_path):
+    table_path = tmp_path / "equilibrium_chemistry.chemtable.petitRADTRANS.h5"
+
+    with h5py.File(table_path, "w") as handle:
+        handle.create_dataset("log10_metallicities", data=np.array([0.0]))
+        handle.create_dataset("co_ratios", data=np.array([0.5]))
+        handle.create_dataset("temperatures", data=np.array([1000.0]))
+        handle.create_dataset("pressures", data=np.array([1.0]))
+        handle.create_dataset("species", data=np.array([b"H2O", b"CO", b"CH4"]))
+        handle.create_dataset(
+            "mass_fractions",
+            data=np.array([10.0, 20.0, 30.0]).reshape(3, 1, 1, 1, 1),
+        )
+        handle.create_dataset(
+            "mean_molar_masses",
+            data=np.array([2.3]).reshape(1, 1, 1, 1),
+        )
+        handle.create_dataset(
+            "nabla_adiabatic",
+            data=np.array([0.2]).reshape(1, 1, 1, 1),
+        )
+
+    chemistry_table = (
+        petitRADTRANS.chemistry.pre_calculated_chemistry.PreCalculatedEquilibriumChemistryTable()
+    )
+    loaded_mass_fractions, *_rest, species = chemistry_table.load(file=str(table_path))
+
+    assert species == ("CH4", "CO", "H2O")
+    np.testing.assert_allclose(
+        np.asarray(loaded_mass_fractions).reshape(-1),
+        np.array([30.0, 20.0, 10.0]),
+    )
 
 
 def test_get_abundances_without_clouds_keeps_dict_p_bases_and_identity_indices(
@@ -824,3 +933,142 @@ def test_calculate_cloud_mass_fractions_accepts_traced_mean_molar_mass_with_expl
     np.testing.assert_allclose(np.asarray(cloud_base), np.array(10 ** -1.5))
     np.testing.assert_array_equal(np.asarray(pressure_indices), np.array([0, 1]))
     assert np.asarray(cloud_profile).shape == (2,)
+
+
+def test_resolve_cloud_base_pressures_skips_chemistry_when_cloud_bases_are_explicit(
+    monkeypatch,
+):
+    class FakeCloudOpacity:
+        def __init__(self, *_args, **_kwargs):
+            self.species_full_name = "StubCloud_placeholder"
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("gas chemistry should not run when cloud bases are explicit")
+
+    monkeypatch.setattr(petitRADTRANS.chemistry.core, "CloudOpacity", FakeCloudOpacity)
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        "calculate_gas_mass_fractions",
+        fail_if_called,
+    )
+
+    p_bases = petitRADTRANS.chemistry.core.resolve_cloud_base_pressures(
+        pressures=jnp.array([1.0, 10.0]),
+        temperatures=jnp.array([1000.0, 1100.0]),
+        parameters={"log_Pbase_StubCloud": -1.5},
+        line_species=("H2O",),
+        cloud_species=("dummy",),
+    )
+
+    np.testing.assert_allclose(np.asarray(p_bases["StubCloud"]), np.array(10 ** -1.5))
+
+
+def test_resolve_cloud_base_pressures_uses_cloud_base_only_chemistry_when_needed(
+    monkeypatch,
+):
+    calls = {"gas": 0, "mmw": 0, "metallicity": 0, "free": 0}
+
+    class FakeCloudOpacity:
+        def __init__(self, *_args, **_kwargs):
+            self.species_full_name = "StubCloud_placeholder"
+
+    def fake_gas_mass_fractions(**_kwargs):
+        calls["gas"] += 1
+        return {"H2": jnp.array([0.75, 0.75]), "He": jnp.array([0.25, 0.25])}, None
+
+    def fake_mean_molar_masses(_mass_fractions):
+        calls["mmw"] += 1
+        return jnp.array([2.3, 2.4])
+
+    def fake_mass_fractions2metallicity(_mass_fractions, _mean_molar_mass):
+        calls["metallicity"] += 1
+        return jnp.array([0.0, 0.0]), {}
+
+    def fake_free_case(*_args, **_kwargs):
+        calls["free"] += 1
+        return jnp.array(22.0)
+
+    monkeypatch.setattr(petitRADTRANS.chemistry.core, "CloudOpacity", FakeCloudOpacity)
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        "calculate_gas_mass_fractions",
+        fake_gas_mass_fractions,
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        "compute_mean_molar_masses",
+        fake_mean_molar_masses,
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core,
+        "mass_fractions2metallicity",
+        fake_mass_fractions2metallicity,
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core.fc,
+        "calculate_cloud_base_pressure_free",
+        fake_free_case,
+    )
+
+    p_bases = petitRADTRANS.chemistry.core.resolve_cloud_base_pressures(
+        pressures=jnp.array([1.0, 10.0]),
+        temperatures=jnp.array([1000.0, 1100.0]),
+        parameters={"log_X_cb_StubCloud": -5.0},
+        line_species=("H2O",),
+        cloud_species=("dummy",),
+    )
+
+    assert calls == {"gas": 1, "mmw": 1, "metallicity": 1, "free": 1}
+    np.testing.assert_allclose(np.asarray(p_bases["StubCloud"]), np.array(22.0))
+
+
+def test_build_adaptive_pressure_grid_preserves_shape_and_refines_near_cloud_base():
+    pressures = jnp.logspace(-6, 2, 16)
+    refined_pressures = petitRADTRANS.chemistry.utils.build_adaptive_pressure_grid(
+        pressures,
+        jnp.array([1e-2]),
+    )
+    refined_pressures_np = np.asarray(refined_pressures)
+    pressures_np = np.asarray(pressures)
+
+    assert refined_pressures.shape == pressures.shape
+    np.testing.assert_allclose(
+        refined_pressures_np[[0, -1]],
+        pressures_np[[0, -1]],
+    )
+    assert np.all(np.diff(refined_pressures_np) > 0)
+
+    base_log_pressures = np.log10(pressures_np)
+    refined_log_pressures = np.log10(refined_pressures_np)
+    center_index = int(np.argmin(np.abs(base_log_pressures - np.log10(1e-2))))
+
+    base_spacing = base_log_pressures[center_index + 1] - base_log_pressures[center_index]
+    refined_spacing = (
+        refined_log_pressures[center_index + 1]
+        - refined_log_pressures[center_index]
+    )
+    assert refined_spacing < base_spacing
+
+
+def test_build_adaptive_pressure_grid_is_jittable_and_differentiable():
+    pressures = jnp.logspace(-6, 2, 16)
+
+    @jax.jit
+    def compute_refined_grid(cloud_base_pressure):
+        return petitRADTRANS.chemistry.utils.build_adaptive_pressure_grid(
+            pressures,
+            jnp.array([cloud_base_pressure]),
+        )
+
+    refined_pressures = compute_refined_grid(jnp.asarray(1e-2))
+    assert refined_pressures.shape == pressures.shape
+
+    def objective(cloud_base_pressure):
+        refined = petitRADTRANS.chemistry.utils.build_adaptive_pressure_grid(
+            pressures,
+            jnp.array([cloud_base_pressure]),
+        )
+        return jnp.sum(refined)
+
+    gradient = jax.grad(objective)(jnp.asarray(1e-2))
+    assert np.isfinite(np.asarray(gradient))

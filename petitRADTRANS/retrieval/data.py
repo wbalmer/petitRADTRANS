@@ -18,6 +18,7 @@ from petitRADTRANS.retrieval.covariance import (
 from petitRADTRANS.retrieval.runtime import (
     LikelihoodState,
     ObservationState,
+    PhotometryObservationState,
     _apply_flux_scaling,
     _offset_flux,
     _line_b_uncertainty_scaling,
@@ -163,11 +164,6 @@ class Data:
         fit_instrumental_resolution: bool = False,
         subtract_continuum: bool = False,
         wavelength_bin_widths: ArrayLike | None = None,
-        photometry: bool = False,
-        photometric_transformation_function: (
-            Callable[[ArrayLike, ArrayLike], tuple[float, float]] | None
-        ) = None,
-        photometric_bin_edges: tuple[float, float] | None = None,
         line_opacity_mode: str = "c-k",
         radtrans_grid: bool = False,
         concatenate_flux_epochs_variability: bool = False,
@@ -287,26 +283,7 @@ class Data:
         # Bins and photometry
         self.wavelength_boundaries: tuple[float, float] | None = None
         self.wavelength_bin_widths: ArrayLike | float | None = wavelength_bin_widths
-        self.photometry = photometry
-        self.photometric_transformation_function = photometric_transformation_function
 
-        if photometry:
-            missing = []
-
-            if photometric_transformation_function is None:
-                missing.append("'photometric_transformation_function'")
-
-            if photometric_bin_edges is None:
-                missing.append("'photometric_bin_edges'")
-
-            if len(missing) > 0:
-                ", ".join(missing)
-                raise ValueError(
-                    f"missing photometric arguments for photometric data '{name}': {missing}"
-                )
-
-        self.photometry_range = wavelength_boundaries
-        self.photometric_bin_edges: tuple[float, float] | None = photometric_bin_edges
 
         self.radtrans_grid = radtrans_grid
         self.concatenate_flux_epochs_variability = concatenate_flux_epochs_variability
@@ -323,59 +300,32 @@ class Data:
                     f"data file '{path_to_observations}' does not exist"
                 )
 
-            if not photometry:
-                if path_to_observations.endswith("_x1d.fits"):
-                    self.load_x1d_fits(path_to_observations)
-                elif path_to_observations.endswith(".fits"):
-                    self.loadfits(path_to_observations)
-                else:
-                    self.loadtxt(path_to_observations)
-
-                if wavelength_boundaries is not None:
-                    self.wavelength_boundaries = wavelength_boundaries
-                else:
-                    self.wavelength_boundaries = (
-                        0.95 * self.wavelengths[0],
-                        1.05 * self.wavelengths[-1],
-                    )
-
-                if self.wavelength_bin_widths is None:
-                    if wavelength_bin_widths is not None:
-                        self.wavelength_bin_widths = wavelength_bin_widths
-                    else:
-                        self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
-                        self.wavelength_bin_widths = self.wavelength_bin_widths.at[
-                            :-1
-                        ].set(jnp.diff(self.wavelengths))
-                        self.wavelength_bin_widths = self.wavelength_bin_widths.at[
-                            -1
-                        ].set(self.wavelength_bin_widths[-2])
+            if path_to_observations.endswith("_x1d.fits"):
+                self.load_x1d_fits(path_to_observations)
+            elif path_to_observations.endswith(".fits"):
+                self.loadfits(path_to_observations)
             else:
-                if self.photometric_bin_edges is None:
-                    raise ValueError(
-                        f"'photometric_bin_edges' must be a tuple of two floats in photometric data ('{self.name}'), "
-                        f"but is None"
-                    )
+                self.loadtxt(path_to_observations)
 
-                if wavelength_boundaries is not None:
-                    self.wavelength_boundaries = wavelength_boundaries
-                else:
-                    self.wavelength_boundaries = (
-                        0.95 * self.photometric_bin_edges[0],
-                        1.05 * self.photometric_bin_edges[1],
-                    )
-
-                # For binning later
-                # TODO @Evert why using a float instead of an array of size 1? The attribute would be more predictable
-                self.wavelength_bin_widths = (
-                    self.photometric_bin_edges[1] - self.photometric_bin_edges[0]
+            if wavelength_boundaries is not None:
+                self.wavelength_boundaries = wavelength_boundaries
+            else:
+                self.wavelength_boundaries = (
+                    0.95 * self.wavelengths[0],
+                    1.05 * self.wavelengths[-1],
                 )
 
-                if self.data_resolution is None:
-                    self.data_resolution = (
-                        jnp.mean(self.photometric_bin_edges)
-                        / self.wavelength_bin_widths
-                    )
+            if self.wavelength_bin_widths is None:
+                if wavelength_bin_widths is not None:
+                    self.wavelength_bin_widths = wavelength_bin_widths
+                else:
+                    self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
+                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[
+                        :-1
+                    ].set(jnp.diff(self.wavelengths))
+                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[
+                        -1
+                    ].set(self.wavelength_bin_widths[-2])
 
             self._validate_covariance_configuration()
 
@@ -405,8 +355,6 @@ class Data:
                 All the characters occurring on a line after a comment are discarded
         """
 
-        if self.photometry:
-            return
         obs = np.genfromtxt(path, delimiter=delimiter, comments=comments)
         obs = jnp.array(obs)
         # Input sanity checks
@@ -475,9 +423,6 @@ class Data:
             path : str
                 Directory and filename of the data.
         """
-
-        if self.photometry:
-            return
 
         data = fits.getdata(path, "SPECTRUM")
 
@@ -597,11 +542,6 @@ class Data:
             self.n_local_covariance_kernels = 0
             return
 
-        if self.photometry:
-            raise NotImplementedError(
-                f"Covariance fitting is currently unsupported for photometric dataset '{self.name}'"
-            )
-
         if getattr(self.spectrum, "dtype", None) == "O":
             raise NotImplementedError(
                 f"Covariance fitting is currently unsupported for ragged dataset '{self.name}'"
@@ -638,7 +578,6 @@ class Data:
             model_resolution=self.model_resolution,
             data_resolution=self.data_resolution,
             wavelength_bin_widths=self.wavelength_bin_widths,
-            photometry=self.photometry,
             external_radtrans_reference=self.external_radtrans_reference,
             line_opacity_mode=self.line_opacity_mode,
             model_contract=model_contract,
@@ -647,7 +586,6 @@ class Data:
             fit_flux_offset=self.fit_flux_offset,
             fit_instrumental_resolution=self.fit_instrumental_resolution,
             subtract_continuum=self.subtract_continuum,
-            photometric_transformation_function=self.photometric_transformation_function,
             fit_covariance=self.fit_covariance,
             covariance_mode=self.covariance_mode,
             global_covariance_kernel=self.global_covariance_kernel,
@@ -660,7 +598,6 @@ class Data:
             metadata={
                 "system_distance": self.system_distance,
                 "radtrans_grid": self.radtrans_grid,
-                "photometric_bin_edges": self.photometric_bin_edges,
                 "wavelength_boundaries": self.wavelength_boundaries,
                 "atmospheric_column_flux_mixer": self.atmospheric_column_flux_mixer,
                 "concatenate_flux_epochs_variability": self.concatenate_flux_epochs_variability,
@@ -682,6 +619,14 @@ class Data:
         self.log_covariance_determinant = self.covariance.shape[0] * jnp.log(
             2.0 * jnp.pi
         ) + 2.0 * jnp.sum(jnp.log(jnp.diagonal(self.covariance_cholesky_factor)))
+
+    def refresh_covariance_bookkeeping(self) -> None:
+        self._cache_covariance_factorization()
+
+        if self.covariance is not None and self.uncertainties is None:
+            self.uncertainties = jnp.sqrt(jnp.diagonal(self.covariance))
+
+        self._validate_covariance_configuration()
 
     def to_likelihood_state(
         self,
@@ -727,7 +672,6 @@ class Data:
                 "fit_covariance": self.fit_covariance,
                 "covariance_mode": self.covariance_mode,
                 "has_parameter_dependent_noise": has_parameter_dependent_noise,
-                "photometry": self.photometry,
                 "data_resolution": self.data_resolution,
             },
         )
@@ -766,14 +710,14 @@ class PhotometryData(Data):
         self,
         name,
         photometric_transformation_function,
-        photometric_bin_edges,
+        model_generating_function,
+        photometric_bin_edges=None,
+        wavelength_boundaries=None,
         path_to_observations=None,
         data_resolution=None,
         model_resolution=None,
         system_distance=None,
         external_radtrans_reference=None,
-        model_generating_function=None,
-        wavelength_boundaries=None,
         scale_flux=False,
         scale_uncertainties=False,
         fit_flux_offset=False,
@@ -783,12 +727,19 @@ class PhotometryData(Data):
     ):
 
         self.photometric_transformation_function = photometric_transformation_function
-        self.photometric_bin_edges = jnp.asarray(photometric_bin_edges)
 
         if self.photometric_transformation_function is None:
             raise ValueError(
                 f"{name}: photometric_transformation_function must be provided for PhotometryData."
             )
+
+        # Edges of the data
+        if photometric_bin_edges is None:
+            raise ValueError(
+                f"{name}: photometric_bin_edges must be provided for PhotometryData."
+            )
+
+        self.photometric_bin_edges = jnp.asarray(photometric_bin_edges)
 
         # Handle shape of photometric_bin_edges (single band vs multiple bands)
         if self.photometric_bin_edges.ndim == 1:  # Single band [low, high]
@@ -806,6 +757,7 @@ class PhotometryData(Data):
         else:
             raise ValueError(f"{name}: photometric_bin_edges has invalid shape.")
 
+        # Edges of the model
         # Determine wavelength_boundaries for the base RadTrans object
         # If not provided, derive from the full range of photometric bins.
         derived_wavelength_boundaries = wavelength_boundaries
@@ -869,21 +821,91 @@ class PhotometryData(Data):
             wavelengths=calculated_effective_wavelengths,
         )
 
-        if wavelength_boundaries is not None:
-            self.wavelength_boundaries = wavelength_boundaries
-        else:
-            self.wavelength_boundaries = [
-                0.95 * self.photometric_bin_edges[0],
-                1.05 * self.photometric_bin_edges[1],
-            ]
-        # For binning later
-        self.wavelength_bin_widths = (
-            self.photometric_bin_edges[1] - self.photometric_bin_edges[0]
-        )
+        self.wavelength_boundaries = derived_wavelength_boundaries
+        self.wavelength_bin_widths = calculated_wavelength_bin_widths
+
         if self.data_resolution is None:
-            self.data_resolution = (
-                jnp.mean(self.photometric_bin_edges) / self.wavelength_bin_widths
+            inferred_data_resolution = jnp.asarray(
+                calculated_effective_wavelengths / calculated_wavelength_bin_widths
             )
+            self.data_resolution = (
+                float(inferred_data_resolution[0])
+                if inferred_data_resolution.size == 1
+                else inferred_data_resolution
+            )
+
+    def _build_photometry_metadata(self) -> dict[str, object]:
+        return {
+            "photometry": True,
+            "photometric_bin_edges": self.photometric_bin_edges,
+            "photometric_transformation_function_name": getattr(
+                self.photometric_transformation_function,
+                "__name__",
+                type(self.photometric_transformation_function).__name__,
+            ),
+        }
+
+    def to_observation_state(self, model_contract: str = "legacy") -> ObservationState:
+        obs = super().to_observation_state(model_contract=model_contract)
+        updated_metadata = dict(obs.metadata)
+        updated_metadata.update(self._build_photometry_metadata())
+        return PhotometryObservationState(
+            name=obs.name,
+            wavelengths=obs.wavelengths,
+            spectrum=obs.spectrum,
+            mask=obs.mask,
+            uncertainties=obs.uncertainties,
+            covariance=obs.covariance,
+            radtrans_object=obs.radtrans_object,
+            model_generating_function=obs.model_generating_function,
+            model_resolution=obs.model_resolution,
+            data_resolution=obs.data_resolution,
+            wavelength_bin_widths=obs.wavelength_bin_widths,
+            external_radtrans_reference=obs.external_radtrans_reference,
+            line_opacity_mode=obs.line_opacity_mode,
+            model_contract=obs.model_contract,
+            scale_flux=obs.scale_flux,
+            scale_uncertainties=obs.scale_uncertainties,
+            fit_flux_offset=obs.fit_flux_offset,
+            fit_instrumental_resolution=obs.fit_instrumental_resolution,
+            subtract_continuum=obs.subtract_continuum,
+            photometric_transformation_function=(
+                self.photometric_transformation_function
+            ),
+            fit_covariance=obs.fit_covariance,
+            covariance_mode=obs.covariance_mode,
+            global_covariance_kernel=obs.global_covariance_kernel,
+            local_covariance_kernel=obs.local_covariance_kernel,
+            n_local_covariance_kernels=obs.n_local_covariance_kernels,
+            covariance_jitter=obs.covariance_jitter,
+            variability_atmospheric_column_model_flux_return_mode=(
+                obs.variability_atmospheric_column_model_flux_return_mode
+            ),
+            metadata=updated_metadata,
+        )
+
+    def to_likelihood_state(
+        self,
+        n_free_parameters: int = 0,
+        parameter_names: tuple[str, ...] = (),
+    ) -> LikelihoodState:
+        likelihood = super().to_likelihood_state(
+            n_free_parameters=n_free_parameters,
+            parameter_names=parameter_names,
+        )
+        updated_metadata = dict(likelihood.metadata)
+        updated_metadata.update(self._build_photometry_metadata())
+        return LikelihoodState(
+            data_uncertainties=likelihood.data_uncertainties,
+            data_covariance=likelihood.data_covariance,
+            mask=likelihood.mask,
+            inv_covariance=likelihood.inv_covariance,
+            covariance_cholesky_factor=likelihood.covariance_cholesky_factor,
+            log_covariance_determinant=likelihood.log_covariance_determinant,
+            log_likelihood_normalization=likelihood.log_likelihood_normalization,
+            n_free_parameters=likelihood.n_free_parameters,
+            metadata=updated_metadata,
+        )
 
 
 class TimeSeriesData(Data):
@@ -973,7 +995,6 @@ class TimeSeriesData(Data):
             model_resolution=obs.model_resolution,
             data_resolution=obs.data_resolution,
             wavelength_bin_widths=obs.wavelength_bin_widths,
-            photometry=obs.photometry,
             external_radtrans_reference=obs.external_radtrans_reference,
             line_opacity_mode=obs.line_opacity_mode,
             model_contract=obs.model_contract,

@@ -15,7 +15,7 @@ from petitRADTRANS.sbi.compatibility import (
     TaskFingerprint,
     compare_named_mappings,
 )
-from petitRADTRANS.retrieval.data import Data
+from petitRADTRANS.retrieval.data import Data, PhotometryData
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.runtime import (
     ObservationState,
@@ -154,7 +154,7 @@ class SBITask:
             metadata={
                 name: {
                     "line_opacity_mode": data.line_opacity_mode,
-                    "photometry": data.photometry,
+                    "photometry": isinstance(data, PhotometryData),
                 }
                 for name, data in retrieval_config.data.items()
             },
@@ -333,7 +333,7 @@ class SBITask:
 
     @staticmethod
     def _infer_modality(data: Data) -> str:
-        if getattr(data, "photometry", False):
+        if isinstance(data, PhotometryData):
             return "photometry"
         if data.__class__.__name__ == "TimeSeriesData":
             return "time_series"

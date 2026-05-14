@@ -21,7 +21,7 @@ All models must take the same set of inputs:
         If this parameter is True, your model should allow for reshaping of the
         pressure and temperature arrays based on the position of the clouds or
         the location of the photosphere, increasing the resolution where required.
-        For example, using the fixed_length_adaptive_mesh_refinement function defined below.
+        The differentiable runtime path uses a fixed-size pressure-grid redistribution.
 """
 
 import re
@@ -38,7 +38,9 @@ from petitRADTRANS.chemistry.core import (
     _get_static_bool_parameter,
     get_abundances,
     get_abundances_from_legacy_dict,
+    resolve_cloud_base_pressures,
 )
+from petitRADTRANS.chemistry.utils import build_adaptive_pressure_grid
 from petitRADTRANS.physics import flux2irradiance, planck_function_cm, apply_ism_ext
 from petitRADTRANS.stellar_spectra.phoenix import (
     _PHOENIX_STAR_TABLE,
@@ -137,6 +139,35 @@ def _resolve_guillot_gamma(parameters):
     )
 
 
+def _clip_easychem_temperatures(physical_params, temperatures):
+    if _is_full_easychem_requested(physical_params):
+        return jnp.clip(temperatures, 40, 40000)
+
+    return temperatures
+
+
+def _wrap_runtime_temperature_builder(physical_params, temperature_builder):
+    def build_temperatures(pressures):
+        return _clip_easychem_temperatures(
+            physical_params,
+            temperature_builder(pressures),
+        )
+
+    return build_temperatures
+
+
+def _stack_runtime_cloud_base_pressures(p_bases, dtype):
+    if len(p_bases) == 0:
+        return jnp.zeros((0,), dtype=dtype)
+
+    return jnp.stack(
+        tuple(
+            jnp.asarray(cloud_base_pressure, dtype=dtype)
+            for cloud_base_pressure in p_bases.values()
+        )
+    )
+
+
 def molliere_2020_emission(
     model_context: ModelContext,
     physical_params: PhysicalParams,
@@ -162,21 +193,22 @@ def molliere_2020_emission(
     elif "C" in physical_params.keys():
         carbon_to_oxygen = physical_params["C"] / physical_params["O"]
 
-    temperatures = molliere_2020_temperature_profile(
-        (
-            temp_arr,
-            delta,
-            physical_params["alpha"],
-            physical_params["T_int"],
-            p_use,
-            physical_params["Fe/H"],
-            carbon_to_oxygen,
-            True,
-        )
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: molliere_2020_temperature_profile(
+            (
+                temp_arr,
+                delta,
+                physical_params["alpha"],
+                physical_params["T_int"],
+                pressures,
+                physical_params["Fe/H"],
+                carbon_to_oxygen,
+                True,
+            )
+        ),
     )
-
-    if _is_full_easychem_requested(physical_params):
-        temperatures = jnp.clip(temperatures, 40, 40000)
+    temperatures = temperature_builder(p_use)
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -184,18 +216,11 @@ def molliere_2020_emission(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
         return result
-
-    if (
-        abundance_state["pressures"].shape[0]
-        != model_context.radtrans.pressures.shape[0]
-    ):
-        return ModelResult.make_nan_result(
-            _radtrans_wavelength_grid(model_context.radtrans)
-        )
 
     cloud_properties = clouds.setup_clouds(
         abundance_state["pressures"],
@@ -240,18 +265,22 @@ def molliere_2020_two_column(
     ) ** (-physical_params["alpha_clear"])
     gravity, planet_radius = _compute_gravity(physical_params)
 
-    temperatures = molliere_2020_temperature_profile(
-        (
-            temp_arr,
-            delta,
-            physical_params["alpha"],
-            physical_params["T_int"],
-            p_use,
-            physical_params["Fe/H"],
-            physical_params["C/O"],
-            True,
-        )
+    cloudy_temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: molliere_2020_temperature_profile(
+            (
+                temp_arr,
+                delta,
+                physical_params["alpha"],
+                physical_params["T_int"],
+                pressures,
+                physical_params["Fe/H"],
+                physical_params["C/O"],
+                True,
+            )
+        ),
     )
+    temperatures = cloudy_temperature_builder(p_use)
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -259,26 +288,31 @@ def molliere_2020_two_column(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=cloudy_temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
         return result
 
-    t_clear = molliere_2020_temperature_profile(
-        (
-            temps_clear,
-            delta_clear,
-            physical_params["alpha_clear"],
-            physical_params["T_int"],
-            p_global[abundance_state["small_index"]],
-            physical_params["Fe/H"],
-            physical_params["C/O"],
-            True,
-        )
+    clear_temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: molliere_2020_temperature_profile(
+            (
+                temps_clear,
+                delta_clear,
+                physical_params["alpha_clear"],
+                physical_params["T_int"],
+                pressures,
+                physical_params["Fe/H"],
+                physical_params["C/O"],
+                True,
+            )
+        ),
     )
+    t_clear = clear_temperature_builder(abundance_state["pressures"])
     abundances_clear, mean_molar_masses_clear, _small_index_clear, _p_bases_clear = (
         get_abundances(
-            pressures=p_global[abundance_state["small_index"]],
+            pressures=abundance_state["pressures"],
             temperatures=t_clear,
             parameters=physical_params,
             line_species=model_context.radtrans.line_species,
@@ -288,14 +322,6 @@ def molliere_2020_two_column(
     )
 
     if abundances_clear is None:
-        return ModelResult.make_nan_result(
-            _radtrans_wavelength_grid(model_context.radtrans)
-        )
-
-    if (
-        abundance_state["pressures"].shape[0]
-        != model_context.radtrans.pressures.shape[0]
-    ):
         return ModelResult.make_nan_result(
             _radtrans_wavelength_grid(model_context.radtrans)
         )
@@ -322,7 +348,7 @@ def molliere_2020_two_column(
         clear_abundances[cname] = jnp.zeros_like(t_clear)
 
     clear_state = {
-        "pressures": p_global[abundance_state["small_index"]],
+        "pressures": abundance_state["pressures"],
         "temperatures": t_clear,
         "abundances": clear_abundances,
         "mean_molar_masses": mean_molar_masses_clear,
@@ -362,14 +388,18 @@ def guillot_emission(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     gamma = _resolve_guillot_gamma(physical_params)
-    temperatures = guillot_global_temperature_profile(
-        p_use,
-        10 ** physical_params["log_kappa_IR"],
-        gamma,
-        gravity,
-        physical_params["T_int"],
-        physical_params["T_equ"],
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: guillot_global_temperature_profile(
+            pressures,
+            10 ** physical_params["log_kappa_IR"],
+            gamma,
+            gravity,
+            physical_params["T_int"],
+            physical_params["T_equ"],
+        ),
     )
+    temperatures = temperature_builder(p_use)
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -377,6 +407,7 @@ def guillot_emission(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
@@ -434,14 +465,18 @@ def guillot_relative_emission(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     gamma = _resolve_guillot_gamma(physical_params)
-    temperatures = guillot_global_temperature_profile(
-        p_use,
-        10 ** physical_params["log_kappa_IR"],
-        gamma,
-        gravity,
-        physical_params["T_int"],
-        physical_params["T_equ"],
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: guillot_global_temperature_profile(
+            pressures,
+            10 ** physical_params["log_kappa_IR"],
+            gamma,
+            gravity,
+            physical_params["T_int"],
+            physical_params["T_equ"],
+        ),
     )
+    temperatures = temperature_builder(p_use)
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -449,6 +484,7 @@ def guillot_relative_emission(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
@@ -525,27 +561,33 @@ def guillot_emission_add_gaussian_temperature(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     gamma = _resolve_guillot_gamma(physical_params)
-    temperatures = guillot_global_temperature_profile(
-        p_use,
-        10 ** physical_params["log_kappa_IR"],
-        gamma,
-        gravity,
-        physical_params["T_int"],
-        physical_params["T_equ"],
-    )
-
     def gaussian(x, scale, mu, sig):
         return scale * jnp.exp(-jnp.power((x - mu) / sig, 2.0) / 2)
 
-    temperature_addition = gaussian(
-        jnp.log10(p_use),
-        physical_params["temperature_peak"],
-        physical_params["temperature_location_log_pressure"],
-        physical_params["temperature_width_log_pressure"],
+    def base_temperature_builder(pressures):
+        temperatures = guillot_global_temperature_profile(
+            pressures,
+            10 ** physical_params["log_kappa_IR"],
+            gamma,
+            gravity,
+            physical_params["T_int"],
+            physical_params["T_equ"],
+        )
+        temperature_addition = gaussian(
+            jnp.log10(pressures),
+            physical_params["temperature_peak"],
+            physical_params["temperature_location_log_pressure"],
+            physical_params["temperature_width_log_pressure"],
+        )
+        temperatures = temperatures + temperature_addition
+        safe_inds = jnp.where(temperatures < 1.0)
+        return temperatures.at[safe_inds].set(1.0)
+
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        base_temperature_builder,
     )
-    temperatures += temperature_addition
-    safe_inds = jnp.where(temperatures < 1.0)
-    temperatures = temperatures.at[safe_inds].set(1.0)
+    temperatures = temperature_builder(p_use)
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -553,6 +595,7 @@ def guillot_emission_add_gaussian_temperature(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
@@ -592,6 +635,23 @@ def interpolated_profile_emission(
     temp_arr = jnp.array(
         [physical_params[f"T{i}"] for i in range(int(physical_params["nnodes"]) + 2)]
     )
+
+    def build_temperature_profile(pressures):
+        if "linear" in physical_params.keys():
+            return linear_spline_temperature_profile(
+                pressures,
+                temp_arr,
+                physical_params["gamma"],
+                int(physical_params["nnodes"]),
+            )
+
+        return cubic_spline_temperature_profile(
+            pressures,
+            temp_arr,
+            physical_params["gamma"],
+            int(physical_params["nnodes"]),
+        )
+
     if "linear" in physical_params.keys():
         temperatures, log_prior_weight = linear_spline_temperature_profile(
             p_use,
@@ -607,12 +667,19 @@ def interpolated_profile_emission(
             int(physical_params["nnodes"]),
         )
 
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: build_temperature_profile(pressures)[0],
+    )
+    temperatures = _clip_easychem_temperatures(physical_params, temperatures)
+
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
         physical_params,
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
@@ -669,14 +736,18 @@ def gradient_profile_emission(
     if "bottom_of_atmosphere_pressure" in physical_params.keys():
         bottom_of_atmosphere_pressure = physical_params["bottom_of_atmosphere_pressure"]
 
-    temperatures = zhang_2023_temperature_profile(
-        p_use,
-        num_layer,
-        layer_pt_slopes,
-        physical_params["T_bottom"],
-        top_of_atmosphere_pressure=top_of_atmosphere_pressure,
-        bottom_of_atmosphere_pressure=bottom_of_atmosphere_pressure,
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: zhang_2023_temperature_profile(
+            pressures,
+            num_layer,
+            layer_pt_slopes,
+            physical_params["T_bottom"],
+            top_of_atmosphere_pressure=top_of_atmosphere_pressure,
+            bottom_of_atmosphere_pressure=bottom_of_atmosphere_pressure,
+        ),
     )
+    temperatures = temperature_builder(p_use)
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -684,6 +755,7 @@ def gradient_profile_emission(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
@@ -853,14 +925,18 @@ def time_series_gradient_emission(
                 snapshot[f"PTslope_{num_layer - k}"]
             )
 
-        temperatures = zhang_2023_temperature_profile(
-            p_use,
-            num_layer,
-            layer_pt_slopes,
-            snapshot["T_bottom"],
-            top_of_atmosphere_pressure=top_of_atmosphere_pressure,
-            bottom_of_atmosphere_pressure=bottom_of_atmosphere_pressure,
+        temperature_builder = _wrap_runtime_temperature_builder(
+            snapshot,
+            lambda pressures: zhang_2023_temperature_profile(
+                pressures,
+                num_layer,
+                layer_pt_slopes,
+                snapshot["T_bottom"],
+                top_of_atmosphere_pressure=top_of_atmosphere_pressure,
+                bottom_of_atmosphere_pressure=bottom_of_atmosphere_pressure,
+            ),
         )
+        temperatures = temperature_builder(p_use)
 
         if pt_plot_mode:
             model_temperatures.append(temperatures)
@@ -873,6 +949,7 @@ def time_series_gradient_emission(
             p_use,
             p_global,
             temperatures,
+            temperature_builder=temperature_builder,
             pt_plot_mode=False,
         )
         if result is not None:
@@ -935,11 +1012,15 @@ def power_law_profile_emission(
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(physical_params)
 
-    temperatures = power_law_temperature_profile(
-        p_use,
-        physical_params["alpha"],
-        physical_params["T_0"],
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: power_law_temperature_profile(
+            pressures,
+            physical_params["alpha"],
+            physical_params["T_0"],
+        ),
     )
+    temperatures = temperature_builder(p_use)
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -947,6 +1028,7 @@ def power_law_profile_emission(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
@@ -980,14 +1062,18 @@ def guillot_transmission(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     gamma = _resolve_guillot_gamma(physical_params)
-    temperatures = guillot_global_temperature_profile(
-        p_use,
-        10 ** physical_params["log_kappa_IR"],
-        gamma,
-        gravity,
-        physical_params["T_int"],
-        physical_params["T_equ"],
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: guillot_global_temperature_profile(
+            pressures,
+            10 ** physical_params["log_kappa_IR"],
+            gamma,
+            gravity,
+            physical_params["T_int"],
+            physical_params["T_equ"],
+        ),
     )
+    temperatures = temperature_builder(p_use)
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -995,6 +1081,7 @@ def guillot_transmission(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
@@ -1058,13 +1145,17 @@ def madhushudhan_seager_emission(
     if "beta" in physical_params.keys():
         beta_points = [physical_params["beta"], physical_params["beta"]]
 
-    temperatures = madhusudhan_seager_temperature_profile(
-        p_use,
-        pressure_points,
-        physical_params["T_set"],
-        alpha_points,
-        beta_points,
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: madhusudhan_seager_temperature_profile(
+            pressures,
+            pressure_points,
+            physical_params["T_set"],
+            alpha_points,
+            beta_points,
+        ),
     )
+    temperatures = temperature_builder(p_use)
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -1072,6 +1163,7 @@ def madhushudhan_seager_emission(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
@@ -1120,13 +1212,17 @@ def madhushudhan_seager_transmission(
     if "beta" in physical_params.keys():
         beta_points = [physical_params["beta"], physical_params["beta"]]
 
-    temperatures = madhusudhan_seager_temperature_profile(
-        p_use,
-        pressure_points,
-        physical_params["T_set"],
-        alpha_points,
-        beta_points,
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: madhusudhan_seager_temperature_profile(
+            pressures,
+            pressure_points,
+            physical_params["T_set"],
+            alpha_points,
+            beta_points,
+        ),
     )
+    temperatures = temperature_builder(p_use)
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -1134,6 +1230,7 @@ def madhushudhan_seager_transmission(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
@@ -1185,7 +1282,14 @@ def isothermal_transmission(
     if "reference_pressure" in physical_params.keys():
         reference_pressure = physical_params["reference_pressure"]
 
-    temperatures = isothermal_temperature_profile(p_use, physical_params["temperature"])
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: isothermal_temperature_profile(
+            pressures,
+            physical_params["temperature"],
+        ),
+    )
+    temperatures = temperature_builder(p_use)
     gravity, planet_radius = _compute_gravity(physical_params)
 
     result, abundance_state = _resolve_runtime_abundance_state(
@@ -1194,6 +1298,7 @@ def isothermal_transmission(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
@@ -1234,11 +1339,15 @@ def power_law_profile_transmission(
     if "reference_pressure" in physical_params.keys():
         reference_pressure = physical_params["reference_pressure"]
 
-    temperatures = power_law_temperature_profile(
-        p_use,
-        physical_params["alpha"],
-        physical_params["T_0"],
+    temperature_builder = _wrap_runtime_temperature_builder(
+        physical_params,
+        lambda pressures: power_law_temperature_profile(
+            pressures,
+            physical_params["alpha"],
+            physical_params["T_0"],
+        ),
     )
+    temperatures = temperature_builder(p_use)
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -1246,6 +1355,7 @@ def power_law_profile_transmission(
         p_use,
         p_global,
         temperatures,
+        temperature_builder=temperature_builder,
         pt_plot_mode=pt_plot_mode,
     )
     if result is not None:
@@ -3191,47 +3301,8 @@ def add_blackbody_cpd_model(parameters, wavelengths):
 
 
 def initialize_pressure(press, parameters, adaptive_mesh_refinement):
-    """
-    Provide the pressure array correctly sized to the prt_object in use, accounting for
-    the use of Adaptive Mesh Refinement around the location of clouds.
-
-    Args:
-        press : numpy.ndarray
-            Pressure array from a prt_object. Used to set the min and max values of PGLOBAL
-        parameters :
-            # TODO complete docstring
-        adaptive_mesh_refinement :
-            # TODO complete docstring
-    """
-    if adaptive_mesh_refinement:
-        PGLOBAL = set_pglobal(press, parameters)
-        p_use = PGLOBAL
-    else:
-        p_use = press
-        PGLOBAL = press
-    return p_use, PGLOBAL
-
-
-def set_pglobal(press, parameters):
-    """
-    Check to ensure that the global pressure array has the correct length.
-    Updates PGLOBAL.
-
-    Args:
-        press : numpy.ndarray
-            Pressure array from a prt_object. Used to set the min and max values of PGLOBAL
-        parameters : dict
-            Must include the 'pressure_simple' and 'pressure_scaling' parameters,
-            used to determine the size of the high resolution grid.
-    """
-    try:
-        pglobal_check(
-            press, parameters["pressure_simple"], parameters["pressure_scaling"]
-        )
-    except KeyError():
-        raise KeyError(
-            "missing parameters 'pressure_simple' and 'pressure_scaling parameters', required when using AMR"
-        )
+    del parameters, adaptive_mesh_refinement
+    return press, press
 
 
 def initialize_pressure_from_legacy_dict(press, parameters, adaptive_mesh_refinement):
@@ -3569,11 +3640,9 @@ def make_unified_model(fn, legacy_fn=None):
 
 
 def _initialize_runtime_pressure_grid(model_context: ModelContext, physical_params):
-    return initialize_pressure(
-        model_context.radtrans.pressures / 1e6,
-        physical_params,
-        model_context.adaptive_mesh_refinement,
-    )
+    del physical_params
+    base_pressures = model_context.radtrans.pressures / 1e6
+    return base_pressures, base_pressures
 
 
 def _resolve_runtime_abundance_state(
@@ -3583,16 +3652,43 @@ def _resolve_runtime_abundance_state(
     p_global,
     temperatures,
     *,
+    temperature_builder=None,
     pt_plot_mode: bool = False,
 ):
-    # get_abundances now accepts PhysicalParams directly (no .value accessors needed)
-    abundances, mean_molar_masses, small_index, _p_bases = get_abundances(
-        pressures=p_use,
+    del p_global
+
+    pressures = p_use
+
+    if model_context.adaptive_mesh_refinement:
+        if temperature_builder is None:
+            raise ValueError(
+                "temperature_builder is required when adaptive mesh refinement is enabled"
+            )
+
+        p_bases = resolve_cloud_base_pressures(
+            pressures=p_use,
+            temperatures=temperatures,
+            parameters=physical_params,
+            line_species=model_context.radtrans.line_species,
+            cloud_species=model_context.radtrans.cloud_species,
+        )
+        cloud_base_pressures = _stack_runtime_cloud_base_pressures(
+            p_bases,
+            p_use.dtype,
+        )
+        pressures = build_adaptive_pressure_grid(
+            p_use,
+            cloud_base_pressures,
+        )
+        temperatures = temperature_builder(pressures)
+
+    abundances, mean_molar_masses, small_index, _ = get_abundances(
+        pressures=pressures,
         temperatures=temperatures,
         parameters=physical_params,
         line_species=model_context.radtrans.line_species,
         cloud_species=model_context.radtrans.cloud_species,
-        adaptive_mesh_refinement=model_context.adaptive_mesh_refinement,
+        adaptive_mesh_refinement=False,
     )
 
     if abundances is None:
@@ -3603,19 +3699,11 @@ def _resolve_runtime_abundance_state(
         return (
             ModelResult(
                 kind="pt_profile",
-                pressures=p_use[small_index],
+                pressures=pressures[small_index],
                 temperatures=temperatures[small_index],
             ),
             None,
         )
-
-    if model_context.adaptive_mesh_refinement:
-        temperatures = temperatures[small_index]
-        pressures = p_global[small_index]
-        mean_molar_masses = mean_molar_masses[small_index]
-        model_context.radtrans.pressures = pressures * 1e6
-    else:
-        pressures = p_use
 
     return None, {
         "pressures": pressures,
@@ -3736,6 +3824,7 @@ def calculate_emission_spectrum_runtime(
     model_inputs: ModelInputs,
 ) -> ModelResult:
     results = model_context.radtrans.calculate_flux(
+        pressures=model_inputs.pressures,
         temperatures=model_inputs.temperatures,
         mass_fractions=model_inputs.abundances,
         reference_gravity=model_inputs.gravity,
@@ -3834,6 +3923,7 @@ def calculate_transmission_spectrum_runtime(
     model_inputs: ModelInputs,
 ) -> ModelResult:
     results = model_context.radtrans.calculate_transit_radii(
+        pressures=model_inputs.pressures,
         temperatures=model_inputs.temperatures,
         mass_fractions=model_inputs.abundances,
         reference_gravity=model_inputs.gravity,
@@ -4048,30 +4138,6 @@ def calculate_transmission_spectrum(
     return _model_result_to_legacy_output(
         calculate_transmission_spectrum_runtime(model_context, model_inputs)
     )
-
-
-def pglobal_check(press, shape, scaling):
-    """
-    Check to ensure that the global pressure array has the correct length.
-    Updates PGLOBAL.
-
-    Args:
-        press : numpy.ndarray
-            Pressure array from a prt_object. Used to set the min and max values of PGLOBAL
-        shape : int
-            the shape of the pressure array if no adaptive_mesh_refinement is used
-        scaling :
-            The factor by which the pressure array resolution should be scaled.
-    """
-    # global PGLOBAL
-    PGLOBAL = jnp.logspace(-6, 3, 1000)
-    if PGLOBAL.shape[0] != int(scaling * shape):
-        PGLOBAL = jnp.logspace(
-            jnp.log10(press[0]), jnp.log10(press[-1]), int(scaling * shape)
-        )
-    return PGLOBAL
-
-
 # ---------------------------------------------------------------------------
 # Unified entry-points
 # ---------------------------------------------------------------------------
