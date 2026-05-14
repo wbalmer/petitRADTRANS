@@ -272,6 +272,11 @@ def _build_isotopologue_ratio_mass_fractions(
     return ratio_mass_fractions
 
 
+def _simplify_species_in_original_order(line_species):
+    """Return simplified species names without reordering the input sequence."""
+    return tuple(simplify_species_list([species])[0] for species in line_species)
+
+
 def _resolve_chemistry_mode(parameters):
     """Resolve free, precalculated-equilibrium, and full-easyChem chemistry modes.
 
@@ -410,7 +415,7 @@ def _build_easychem_mass_fractions(
         for species, abundance in abundances_interp.items()
         if species != "MMW"
     }
-    line_species_simple = tuple(simplify_species_list(list(line_species)))
+    line_species_simple = _simplify_species_in_original_order(line_species)
 
     for i, simple_species in enumerate(line_species_simple):
         if simple_species in mass_fractions and simple_species != line_species[i]:
@@ -518,7 +523,7 @@ def calculate_gas_mass_fractions(
     else:
         imposed_mass_fractions = dict(imposed_mass_fractions)
 
-    line_species_simple = tuple(simplify_species_list(list(line_species)))
+    line_species_simple = _simplify_species_in_original_order(line_species)
     line_species_lookup = set(line_species)
     line_species_simple_lookup = set(line_species_simple)
 

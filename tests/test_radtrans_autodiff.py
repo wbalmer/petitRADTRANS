@@ -65,6 +65,25 @@ def _build_transit_inputs():
     }
 
 
+def _build_power_law_inputs():
+    return {
+        "mass_fractions": {
+            species: jnp.array(values)
+            for species, values in test_parameters["mass_fractions_correlated_k"].items()
+        },
+        "mean_molar_masses": jnp.array(test_parameters["mean_molar_mass"]),
+        "reference_gravity": test_parameters["planetary_parameters"][
+            "reference_gravity"
+        ],
+        "power_law_opacity_350nm": test_parameters["cloud_parameters"][
+            "kappa_zero"
+        ],
+        "power_law_opacity_coefficient": test_parameters["cloud_parameters"][
+            "gamma_scattering"
+        ],
+    }
+
+
 def _build_simple_flux_objective(atmosphere):
     flux_inputs = _build_flux_inputs()
 
@@ -98,6 +117,51 @@ def _calculate_non_scattering_cloud_flux(cloud_fraction):
     )
 
     return flux
+
+
+def _calculate_power_law_flux(cloud_fraction):
+    flux_inputs = _build_power_law_inputs()
+    base_temperatures = jnp.array(temperature_guillot_2010)
+
+    _, flux, _ = atmosphere_ck_scattering.calculate_flux(
+        temperatures=base_temperatures,
+        mass_fractions=flux_inputs["mass_fractions"],
+        mean_molar_masses=flux_inputs["mean_molar_masses"],
+        reference_gravity=flux_inputs["reference_gravity"],
+        power_law_opacity_350nm=flux_inputs["power_law_opacity_350nm"],
+        power_law_opacity_coefficient=flux_inputs[
+            "power_law_opacity_coefficient"
+        ],
+        cloud_fraction=cloud_fraction,
+        patchy_clouds=[],
+        frequencies_to_wavelengths=False,
+    )
+
+    return flux
+
+
+def _calculate_power_law_transit_radii(cloud_fraction):
+    transit_inputs = _build_transit_inputs()
+    power_law_inputs = _build_power_law_inputs()
+    base_temperatures = jnp.array(temperature_guillot_2010)
+
+    _, transit_radii, _ = atmosphere_ck.calculate_transit_radii(
+        temperatures=base_temperatures,
+        mass_fractions=power_law_inputs["mass_fractions"],
+        mean_molar_masses=power_law_inputs["mean_molar_masses"],
+        reference_gravity=power_law_inputs["reference_gravity"],
+        reference_pressure=transit_inputs["reference_pressure"],
+        planet_radius=transit_inputs["planet_radius"],
+        power_law_opacity_350nm=power_law_inputs["power_law_opacity_350nm"],
+        power_law_opacity_coefficient=power_law_inputs[
+            "power_law_opacity_coefficient"
+        ],
+        cloud_fraction=cloud_fraction,
+        patchy_clouds=[],
+        frequencies_to_wavelengths=False,
+    )
+
+    return transit_radii
 
 
 def test_calculate_flux_grad_correlated_k():
@@ -136,6 +200,28 @@ def test_calculate_flux_patchy_clouds_blend_correlated_k_non_scattering_emission
     cloudy_flux = _calculate_non_scattering_cloud_flux(1.0)
     clear_flux = _calculate_non_scattering_cloud_flux(0.0)
     patchy_flux = _calculate_non_scattering_cloud_flux(cloud_fraction)
+
+    expected_flux = cloud_fraction * cloudy_flux + (1 - cloud_fraction) * clear_flux
+
+    np.testing.assert_allclose(
+        np.asarray(patchy_flux),
+        np.asarray(expected_flux),
+        atol=0.0,
+        rtol=1e-6,
+    )
+    assert not np.allclose(
+        np.asarray(patchy_flux), np.asarray(cloudy_flux), atol=0.0, rtol=1e-6
+    )
+    assert not np.allclose(
+        np.asarray(patchy_flux), np.asarray(clear_flux), atol=0.0, rtol=1e-6
+    )
+
+
+def test_calculate_flux_power_law_clouds_respect_cloud_fraction():
+    cloud_fraction = 0.37
+    cloudy_flux = _calculate_power_law_flux(1.0)
+    clear_flux = _calculate_power_law_flux(0.0)
+    patchy_flux = _calculate_power_law_flux(cloud_fraction)
 
     expected_flux = cloud_fraction * cloudy_flux + (1 - cloud_fraction) * clear_flux
 
@@ -293,3 +379,25 @@ def test_calculate_transit_radii_autodiff_matches_calculate_transit_radii_scatte
 
     assert gradients.shape == base_temperatures.shape
     assert np.isfinite(np.asarray(gradients)).all()
+
+
+def test_calculate_transit_radii_power_law_clouds_respect_cloud_fraction():
+    cloud_fraction = 0.37
+    cloudy_radii = _calculate_power_law_transit_radii(1.0)
+    clear_radii = _calculate_power_law_transit_radii(0.0)
+    patchy_radii = _calculate_power_law_transit_radii(cloud_fraction)
+
+    expected_radii = cloud_fraction * cloudy_radii + (1 - cloud_fraction) * clear_radii
+
+    np.testing.assert_allclose(
+        np.asarray(patchy_radii),
+        np.asarray(expected_radii),
+        atol=0.0,
+        rtol=1e-6,
+    )
+    assert not np.allclose(
+        np.asarray(patchy_radii), np.asarray(cloudy_radii), atol=0.0, rtol=1e-6
+    )
+    assert not np.allclose(
+        np.asarray(patchy_radii), np.asarray(clear_radii), atol=0.0, rtol=1e-6
+    )

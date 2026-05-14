@@ -537,6 +537,18 @@ class Radtrans:
             output, lambda: _clouds_have_effect_internal(mass_fractions), lambda: False
         )
 
+    @staticmethod
+    def _has_partial_coverage_background_cloud(
+        opaque_cloud_top_pressure=None,
+        power_law_opacity_350nm=None,
+        power_law_opacity_coefficient=None,
+    ):
+        """Check whether runtime-only cloud opacities should participate in cloud_fraction mixing."""
+        return opaque_cloud_top_pressure is not None or (
+            power_law_opacity_350nm is not None
+            and power_law_opacity_coefficient is not None
+        )
+
     def _normalize_patchy_clouds(
         self, patchy_clouds=None, complete_coverage_clouds=None
     ):
@@ -660,6 +672,7 @@ class Radtrans:
         mass_fractions,
         cloud_fraction,
         opaque_cloud_top_pressure,
+        has_partial_coverage_background_cloud=False,
         patchy_clouds=None,
         complete_coverage_clouds=None,
     ):
@@ -681,14 +694,25 @@ class Radtrans:
         _warn_partial_cloud_coverage_without_patchy_clouds(
             cloud_fraction=cloud_fraction,
             patchy_clouds=patchy_clouds,
+            has_partial_coverage_background_cloud=(
+                has_partial_coverage_background_cloud
+            ),
         )
 
         spectrum_clear = None
 
+        background_clouds_have_effect = jnp.logical_and(
+            has_partial_coverage_background_cloud,
+            jnp.not_equal(cloud_fraction, 0),
+        )
+
         # Sanity checking and debugging messaging
         _check_return_clear_spectrum_relevance(
             return_clear_spectrum=return_clear_spectrum,
-            clouds_have_effect=self._clouds_have_effect(mass_fractions, cloud_fraction),
+            clouds_have_effect=jnp.logical_or(
+                self._clouds_have_effect(mass_fractions, cloud_fraction),
+                background_clouds_have_effect,
+            ),
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
             cloud_fraction=cloud_fraction,
         )
@@ -1450,23 +1474,14 @@ class Radtrans:
             output_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
         )
 
-        if self._scattering_in_emission:
-            # Feautrier path: route cloud scattering into the scattering channel so that
-            # the Feautrier solver receives total extinction (absorption + scattering).
-            cloudy_continuum_opacities = (
-                continuum_opacities + cloudy_cloud_continuum_opacities
-            )
-            cloudy_continuum_opacities_scattering = (
-                continuum_opacities_scattering
-                + cloudy_cloud_continuum_opacities_scattering
-            )
-        else:
-            # Legacy non-scattering emission ignores continuum scattering entirely,
-            # including cloud scattering extinction.
-            cloudy_continuum_opacities = (
-                continuum_opacities + cloudy_cloud_continuum_opacities
-            )
-            cloudy_continuum_opacities_scattering = continuum_opacities_scattering
+        cloudy_continuum_opacities = (
+            continuum_opacities + cloudy_cloud_continuum_opacities
+        )
+        # Always return the total scattering continuum so transmission and other
+        # callers can consume cloud scattering even when emission scattering is disabled.
+        cloudy_continuum_opacities_scattering = (
+            continuum_opacities_scattering + cloudy_cloud_continuum_opacities_scattering
+        )
 
         # Combine line opacities with continuum opacities, combined opacities are stored in the 1st species slot
         opacities = continuum.compute_combined_opacities(
@@ -1487,19 +1502,13 @@ class Radtrans:
             input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
         )
         if compute_clear_opacities:
-            if self._scattering_in_emission:
-                clear_continuum_opacities = (
-                    continuum_opacities + clear_cloud_continuum_opacities
-                )
-                clear_continuum_opacities_scattering = (
-                    continuum_opacities_scattering
-                    + clear_cloud_continuum_opacities_scattering
-                )
-            else:
-                clear_continuum_opacities = (
-                    continuum_opacities + clear_cloud_continuum_opacities
-                )
-                clear_continuum_opacities_scattering = continuum_opacities_scattering
+            clear_continuum_opacities = (
+                continuum_opacities + clear_cloud_continuum_opacities
+            )
+            clear_continuum_opacities_scattering = (
+                continuum_opacities_scattering
+                + clear_cloud_continuum_opacities_scattering
+            )
             clear_opacities = continuum.compute_combined_opacities(
                 opacities=line_opacities,
                 continuum_opacities=clear_continuum_opacities,
@@ -2175,21 +2184,19 @@ class Radtrans:
                         for key, value in opacity_value.items():
                             spectral_parameters[key] = copy.deepcopy(value)
 
-                        if jnp.any(jnp.equal(list(spectral_parameters.values()), None)):
-                            if not jnp.all(
-                                jnp.equal(list(spectral_parameters.values()), None)
-                            ):
-                                missing = []
+                        missing = [
+                            key
+                            for key, value in spectral_parameters.items()
+                            if value is None
+                        ]
 
-                                for k, v in spectral_parameters.items():
-                                    if v is None:
-                                        missing.append(k)
-
-                                missing = "'" + ", '".join(missing) + "'"
+                        if missing:
+                            if len(missing) != len(spectral_parameters):
+                                missing_names = "'" + "', '".join(missing) + "'"
 
                                 debug.print(
                                     f"opacity '{opacity}' requires {len(spectral_parameters)} parameters, "
-                                    f"but lacks value for parameters {missing}"
+                                    f"but lacks value for parameters {missing_names}"
                                 )
 
                             opacity_contributions[opacity] = None
@@ -2240,7 +2247,7 @@ class Radtrans:
         cloud_photosphere_wavelength_boundaries: ArrayLike = None,
         cloud_photosphere_median_optical_depth: float = None,
         cloud_fraction: float = 1.0,
-        patchy_clouds: list[str] = None,
+        patchy_clouds: list[str] | tuple[str] = None,
         complete_coverage_clouds: list[str] = None,
         irradiation_geometry: str = "dayside_ave",
         stellar_intensities: ArrayLike = None,
@@ -2334,9 +2341,13 @@ class Radtrans:
                 depth. By default, the whole spectral range is used.
             cloud_fraction:
                 Mix a column without cloud with a column with cloud to the requested fraction
-                (0 = clear, 1 = full cloud cover). By default, assume a full cloud cover.
+                (0 = clear, 1 = full cloud cover). Cloud sources such as
+                power-law clouds and opaque cloud decks follow the same mixing.
+                By default, assume a full cloud cover.
             patchy_clouds:
                 List of cloud species affected by ``cloud_fraction``.
+                Runtime-only cloud sources such as power-law clouds and opaque
+                cloud decks are always mixed by ``cloud_fraction``.
             complete_coverage_clouds:
                 Deprecated alias for the complement of ``patchy_clouds``.
             irradiation_geometry (Optional[string]):
@@ -2413,6 +2424,14 @@ class Radtrans:
                 ``target_particle_radii`` when cloud properties are
                 requested on a custom grid.
         """
+        has_partial_coverage_background_cloud = (
+            self._has_partial_coverage_background_cloud(
+                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+                power_law_opacity_350nm=power_law_opacity_350nm,
+                power_law_opacity_coefficient=power_law_opacity_coefficient,
+            )
+        )
+
         (
             anisotropic_cloud_scattering,
             patchy_clouds,
@@ -2427,6 +2446,9 @@ class Radtrans:
             mass_fractions=mass_fractions,
             cloud_fraction=cloud_fraction,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            has_partial_coverage_background_cloud=(
+                has_partial_coverage_background_cloud
+            ),
         )
 
         if return_rosseland_optical_depths:
@@ -2606,6 +2628,13 @@ class Radtrans:
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]
         )
+        has_partial_coverage_background_cloud = (
+            self._has_partial_coverage_background_cloud(
+                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+                power_law_opacity_350nm=power_law_opacity_350nm,
+                power_law_opacity_coefficient=power_law_opacity_coefficient,
+            )
+        )
 
         # Determine whether clear opacities are needed.
         # len(partial_coverage_cloud_species) and return_clear_spectrum are static;
@@ -2613,7 +2642,10 @@ class Radtrans:
         # Python bool so that the clear branch is never compiled when unneeded.
         # When partial-coverage species exist, we always compile the clear
         # branch; the actual blending is gated by lax.cond on cloud_fraction.
-        if len(partial_coverage_cloud_species) > 0:
+        if (
+            len(partial_coverage_cloud_species) > 0
+            or has_partial_coverage_background_cloud
+        ):
             should_compute_clear_opacities = True
         else:
             should_compute_clear_opacities = False
@@ -2705,8 +2737,8 @@ class Radtrans:
         )
 
         # --- Cloud blending for partial coverage ---
-        flux_clear = flux  # default: clear == cloudy when no partial-coverage clouds
-        if len(partial_coverage_cloud_species) > 0:
+        flux_clear = flux  # default: clear == cloudy when no partially covering cloud source is active
+        if should_compute_clear_opacities:
             if return_clear_spectrum:
                 # Always compute clear flux when the caller requested it.
                 flux_clear, _, _, _, _ = self._calculate_flux(
@@ -3303,7 +3335,7 @@ class Radtrans:
         power_law_opacity_coefficient: float = None,
         gray_opacity: float = None,
         cloud_fraction: float = 1.0,
-        patchy_clouds: list[str] = None,
+        patchy_clouds: list[str] | tuple[str] = None,
         complete_coverage_clouds: list[str] = None,
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
@@ -3399,9 +3431,13 @@ class Radtrans:
                     pressures and wavelengths (units :math:`\\rm cm^2/g`)
                 cloud_fraction:
                     Mix a column without cloud with a column with cloud to the requested fraction
-                    (0 = clear, 1 = full cloud cover). By default, assume a full cloud cover.
+                    (0 = clear, 1 = full cloud cover). Runtime-only cloud sources such as
+                    power-law clouds and opaque cloud decks follow the same mixing.
+                    By default, assume a full cloud cover.
                 patchy_clouds:
                     List of cloud species affected by ``cloud_fraction``.
+                    Runtime-only cloud sources such as power-law clouds and opaque
+                    cloud decks are always mixed by ``cloud_fraction``.
                 complete_coverage_clouds:
                     Deprecated alias for the complement of ``patchy_clouds``.
                 additional_absorption_opacities_function (Optional[function]):
@@ -3449,6 +3485,14 @@ class Radtrans:
                     Optional pressure grid associated with
                     ``target_particle_radii``.
         """
+        has_partial_coverage_background_cloud = (
+            self._has_partial_coverage_background_cloud(
+                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+                power_law_opacity_350nm=power_law_opacity_350nm,
+                power_law_opacity_coefficient=power_law_opacity_coefficient,
+            )
+        )
+
         (
             anisotropic_cloud_scattering,
             patchy_clouds,
@@ -3463,6 +3507,9 @@ class Radtrans:
             mass_fractions=mass_fractions,
             cloud_fraction=cloud_fraction,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            has_partial_coverage_background_cloud=(
+                has_partial_coverage_background_cloud
+            ),
         )
 
         return self._calculate_transit_radii_full_kernel(
@@ -3599,11 +3646,21 @@ class Radtrans:
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]
         )
+        has_partial_coverage_background_cloud = (
+            self._has_partial_coverage_background_cloud(
+                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+                power_law_opacity_350nm=power_law_opacity_350nm,
+                power_law_opacity_coefficient=power_law_opacity_coefficient,
+            )
+        )
 
         # Determine whether clear opacities are needed.
         # compute_clear_opacities must be a static Python bool so that the
         # clear branch is never compiled when unneeded.
-        if len(partial_coverage_cloud_species) > 0:
+        if (
+            len(partial_coverage_cloud_species) > 0
+            or has_partial_coverage_background_cloud
+        ):
             should_compute_clear_opacities = True
         else:
             should_compute_clear_opacities = False
@@ -3684,7 +3741,7 @@ class Radtrans:
 
         # --- Cloud blending for partial coverage ---
         transit_radii_clear = transit_radii
-        if len(partial_coverage_cloud_species) > 0:
+        if should_compute_clear_opacities:
             if return_clear_spectrum:
                 # Always compute clear radii when the caller requested it.
                 transit_radii_clear, _, _ = self._calculate_transit_radii(

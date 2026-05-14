@@ -72,3 +72,26 @@ def test_partial_cloud_fraction_with_patchy_clouds_does_not_warn():
         "there are no patchy clouds" in str(warning.message)
         for warning in caught
     )
+
+
+def test_partial_cloud_fraction_with_power_law_clouds_does_not_warn():
+    atmosphere = _make_minimal_radtrans(cloud_species=("Mg2SiO4",))
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _, patchy_clouds, _, _ = atmosphere._init_spectral_function(
+            is_emission=False,
+            reference_gravity=1.0,
+            patchy_clouds=[],
+            return_clear_spectrum=False,
+            mass_fractions={"Mg2SiO4": np.array([1e-6])},
+            cloud_fraction=0.5,
+            opaque_cloud_top_pressure=None,
+            has_partial_coverage_background_cloud=True,
+        )
+
+    assert patchy_clouds == ()
+    assert not any(
+        "there are no patchy clouds" in str(warning.message)
+        for warning in caught
+    )

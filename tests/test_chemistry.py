@@ -1,6 +1,7 @@
 """Test petitRADTRANS chemistry module."""
 
 import inspect
+import h5py
 
 import jax
 import jax.numpy as jnp
@@ -166,6 +167,40 @@ def test_mass_fractions2metallicities():
     )
 
     benchmark.run(mass_fractions=mass_fractions, mean_molar_masses=mean_molar_masses)
+
+
+def test_precalculated_chemistry_loader_sorts_species_axis(tmp_path):
+    table_path = tmp_path / "equilibrium_chemistry.chemtable.petitRADTRANS.h5"
+
+    with h5py.File(table_path, "w") as handle:
+        handle.create_dataset("log10_metallicities", data=np.array([0.0]))
+        handle.create_dataset("co_ratios", data=np.array([0.5]))
+        handle.create_dataset("temperatures", data=np.array([1000.0]))
+        handle.create_dataset("pressures", data=np.array([1.0]))
+        handle.create_dataset("species", data=np.array([b"H2O", b"CO", b"CH4"]))
+        handle.create_dataset(
+            "mass_fractions",
+            data=np.array([10.0, 20.0, 30.0]).reshape(3, 1, 1, 1, 1),
+        )
+        handle.create_dataset(
+            "mean_molar_masses",
+            data=np.array([2.3]).reshape(1, 1, 1, 1),
+        )
+        handle.create_dataset(
+            "nabla_adiabatic",
+            data=np.array([0.2]).reshape(1, 1, 1, 1),
+        )
+
+    chemistry_table = (
+        petitRADTRANS.chemistry.pre_calculated_chemistry.PreCalculatedEquilibriumChemistryTable()
+    )
+    loaded_mass_fractions, *_rest, species = chemistry_table.load(file=str(table_path))
+
+    assert species == ("CH4", "CO", "H2O")
+    np.testing.assert_allclose(
+        np.asarray(loaded_mass_fractions).reshape(-1),
+        np.array([30.0, 20.0, 10.0]),
+    )
 
 
 def test_get_abundances_without_clouds_keeps_dict_p_bases_and_identity_indices(

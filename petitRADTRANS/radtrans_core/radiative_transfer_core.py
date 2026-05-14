@@ -4,7 +4,7 @@ JAX implementation of fortran_core.core
 """
 
 from functools import partial
-from typing import Any, Literal, Optional, cast, overload
+from typing import Literal, Optional, cast, overload
 
 import jax
 import jax.numpy as jnp
@@ -509,7 +509,7 @@ def calculate_ck_emission_contribution(
     return flux, contr_em
 
 
-@jit
+@jit(static_argnames=("return_contribution",))
 def compute_ck_flux(
     frequencies: ArrayLike,
     temperatures: ArrayLike,
@@ -584,17 +584,25 @@ def compute_ck_flux(
         return flux * 4.0 * jnp.pi, contribution
 
     # Check if we should calculate the contribution function
-    flux, contribution = lax.cond(
-        return_contribution,
-        calculate_ck_emission_contribution,
-        calculate_flux,
-        frequencies,
-        temperatures,
-        weights_gauss,
-        emission_cos_angles,
-        emission_cos_angles_weights,
-        optical_depths,
-    )
+    if return_contribution:
+        flux, contribution = calculate_ck_emission_contribution(
+            frequencies,
+            temperatures,
+            weights_gauss,
+            emission_cos_angles,
+            emission_cos_angles_weights,
+            optical_depths,
+        )
+    else:
+        flux, contribution = calculate_flux(
+            frequencies,
+            temperatures,
+            weights_gauss,
+            emission_cos_angles,
+            emission_cos_angles_weights,
+            optical_depths,
+        )
+
     return flux, contribution
 
 
@@ -2781,10 +2789,16 @@ def compute_transmission_spectrum_contribution(
         ``(n_layers, n_frequencies)`` and the hydrostatic radius profile with shape
         ``(n_layers,)``.
     """
-    n_g = opacities.shape[0]
-    n_frequencies = opacities.shape[1]
-    n_species = opacities.shape[2]
     n_layers = opacities.shape[3]
+
+    def _safe_sqrt_positive(values: ArrayLike) -> ArrayLike:
+        positive_values = values > 0.0
+        safe_values = jnp.where(
+            positive_values,
+            values,
+            lax.stop_gradient(jnp.ones_like(values)),
+        )
+        return jnp.where(positive_values, jnp.sqrt(safe_values), 0.0)
 
     P0_cgs = reference_pressure * 1e6
     pressures_cgs = pressures * 1e6
@@ -2793,209 +2807,95 @@ def compute_transmission_spectrum_contribution(
     radius_hydrostatic_equilibrium = compute_radius_hydrostatic_equilibrium(
         pressures_cgs, reference_gravity, rho, P0_cgs, planet_radius, variable_gravity
     )
-    R_sq = radius_hydrostatic_equilibrium**2
+    radius_squared = radius_hydrostatic_equilibrium**2
 
-    def loop_body_leave_out_layer(i_leave_str_idx: int, _: Any) -> ArrayLike:
-        current_opacities = opacities.at[..., i_leave_str_idx].set(0.0)
+    opacity_times_rho = opacities * rho[None, None, None, :]
+    pair_opacity_times_rho = opacity_times_rho[..., :-1] + opacity_times_rho[..., 1:]
 
-        current_continuum_scattering_eff = lax.cond(
-            scattering_in_transmission,
-            lambda cos_in: cos_in.at[:, i_leave_str_idx].set(0.0),
-            lambda cos_in: cos_in,
-            continuum_opacities_scattering,
+    impact_radius_squared = radius_squared[1:, None]
+    upper_shell_boundaries = radius_squared[:-1][None, :]
+    lower_shell_boundaries = radius_squared[1:][None, :]
+    diff_s_active = _safe_sqrt_positive(
+        upper_shell_boundaries - impact_radius_squared
+    ) - _safe_sqrt_positive(lower_shell_boundaries - impact_radius_squared)
+
+    gas_optical_depths_active = jnp.einsum(
+        "gfsl,ml->gfsm", pair_opacity_times_rho, diff_s_active, optimize=True
+    )
+
+    if scattering_in_transmission:
+        continuum_times_rho = continuum_opacities_scattering * rho[None, :]
+        pair_continuum_times_rho = (
+            continuum_times_rho[:, :-1] + continuum_times_rho[:, 1:]
+        )
+        scattering_optical_depths_active = jnp.einsum(
+            "fl,ml->fm", pair_continuum_times_rho, diff_s_active, optimize=True
+        )
+        continuum_times_rho_by_layer = jnp.swapaxes(continuum_times_rho, 0, 1)
+    else:
+        scattering_optical_depths_active = jnp.zeros(
+            (opacities.shape[1], n_layers - 1), dtype=opacities.dtype
+        )
+        continuum_times_rho_by_layer = jnp.zeros(
+            (n_layers, opacities.shape[1]), dtype=opacities.dtype
         )
 
-        current_continuum_scattering_for_calc = lax.cond(
-            scattering_in_transmission,
-            lambda cos_in: cos_in.at[:, i_leave_str_idx].set(0.0),
-            lambda cos_in: jnp.zeros_like(cos_in),
-            continuum_opacities_scattering,
+    # Only the two shells adjacent to a removed layer change, so precompute the
+    # geometry once and apply a per-layer rank-1 optical-depth correction.
+    layer_path_weights = jnp.pad(diff_s_active, ((0, 0), (1, 0))) + jnp.pad(
+        diff_s_active, ((0, 0), (0, 1))
+    )
+    layer_path_weights_by_layer = jnp.swapaxes(layer_path_weights, 0, 1)
+    opacity_times_rho_by_layer = jnp.moveaxis(opacity_times_rho, -1, 0)
+    weights_gauss_expanded = weights_gauss[:, None, None, None]
+    annulus_radius_increments = (
+        radius_hydrostatic_equilibrium[:-1] - radius_hydrostatic_equilibrium[1:]
+    )
+    top_of_atmosphere_transmission = jnp.ones(
+        (opacities.shape[1], 1), dtype=opacities.dtype
+    )
+
+    def _leave_one_out_contribution(i_leave_str_idx: ArrayLike) -> ArrayLike:
+        path_by_layer = layer_path_weights_by_layer[i_leave_str_idx]
+        gas_optical_depths_leave_one_out = gas_optical_depths_active - (
+            opacity_times_rho_by_layer[i_leave_str_idx][..., None] * path_by_layer
         )
 
-        rho_exp = rho[None, None, None, :]
-        alpha_t2_current = (
-            current_opacities[..., :-1] * rho_exp[..., :-1]
-            + current_opacities[..., 1:] * rho_exp[..., 1:]
+        gas_transmission_active = jnp.exp(-gas_optical_depths_leave_one_out)
+        gas_transmission_by_species = jnp.sum(
+            gas_transmission_active * weights_gauss_expanded,
+            axis=0,
         )
+        total_transmission_active = jnp.prod(gas_transmission_by_species, axis=1)
 
-        alpha_t2_scat_operands = (rho, current_continuum_scattering_for_calc)
-
-        def true_alpha_t2_scat_branch(
-            ops: tuple[ArrayLike, ArrayLike],
-        ) -> ArrayLike:
-            _rho, _ccs = ops
-            _rho_exp_scat = _rho[None, :]
-            return (
-                _ccs[:, :-1] * _rho_exp_scat[:, :-1]
-                + _ccs[:, 1:] * _rho_exp_scat[:, 1:]
+        if scattering_in_transmission:
+            scattering_optical_depths_leave_one_out = (
+                scattering_optical_depths_active
+                - continuum_times_rho_by_layer[i_leave_str_idx][:, None] * path_by_layer
+            )
+            total_transmission_active = total_transmission_active * jnp.exp(
+                -scattering_optical_depths_leave_one_out
             )
 
-        def false_alpha_t2_scat_branch(
-            ops: tuple[ArrayLike, ArrayLike],
-        ) -> ArrayLike:
-            _, _ccs = ops
-            return jnp.zeros_like(_ccs[:, :-1])
-
-        alpha_t2_scat_current = lax.cond(
-            scattering_in_transmission,
-            true_alpha_t2_scat_branch,
-            false_alpha_t2_scat_branch,
-            alpha_t2_scat_operands,
+        total_transmission = jnp.concatenate(
+            (top_of_atmosphere_transmission, total_transmission_active),
+            axis=1,
         )
-
-        t_graze_current_init = jnp.zeros((n_g, n_frequencies, n_species, n_layers))
-        t_graze_scat_current_init = jnp.zeros((n_frequencies, n_layers))
-
-        def i_str_loop_body_for_t_graze(
-            i_str_f_minus_2: int,
-            current_t_grazes_tuple: tuple[ArrayLike, ArrayLike],
-        ) -> tuple[ArrayLike, ArrayLike]:
-            current_t_graze_accum, current_t_graze_scat_accum = current_t_grazes_tuple
-            i_str_f = i_str_f_minus_2 + 2
-            R_impact_sq_curr = R_sq[i_str_f - 1]
-
-            def j_str_loop_body_for_t_graze(
-                j_str_f_minus_1: int,
-                grazes_sum_for_i_str_tuple: tuple[ArrayLike, ArrayLike],
-            ) -> tuple[ArrayLike, ArrayLike]:
-                t_graze_sum_gas, t_graze_sum_scat = grazes_sum_for_i_str_tuple
-                j_str_f = j_str_f_minus_1 + 1
-                idx_j_alpha = j_str_f - 1
-
-                s_outer = jnp.sqrt(
-                    jnp.maximum(0.0, R_sq[j_str_f - 1] - R_impact_sq_curr)
-                )
-                s_inner = lax.cond(
-                    (j_str_f + 1) == i_str_f,
-                    lambda _: 0.0,
-                    lambda _: jnp.sqrt(
-                        jnp.maximum(0.0, R_sq[j_str_f] - R_impact_sq_curr)
-                    ),
-                    operand=None,
-                )
-                path_in_shell = s_outer - s_inner
-
-                t_graze_sum_gas += alpha_t2_current[..., idx_j_alpha] * path_in_shell
-
-                def update_t_graze_scat_sum_true(
-                    ops: tuple[ArrayLike, ArrayLike, ArrayLike],
-                ) -> ArrayLike:
-                    _tgs_sum, _alpha_val, _path = ops
-                    return _tgs_sum + _alpha_val * _path
-
-                def update_t_graze_scat_sum_false(
-                    ops: tuple[ArrayLike, ArrayLike, ArrayLike],
-                ) -> ArrayLike:
-                    _tgs_sum, _, _ = ops
-                    return _tgs_sum
-
-                t_graze_sum_scat_ops = (
-                    t_graze_sum_scat,
-                    alpha_t2_scat_current[:, idx_j_alpha],
-                    path_in_shell,
-                )
-                t_graze_sum_scat = lax.cond(
-                    scattering_in_transmission,
-                    update_t_graze_scat_sum_true,
-                    update_t_graze_scat_sum_false,
-                    t_graze_sum_scat_ops,
-                )
-                return t_graze_sum_gas, t_graze_sum_scat
-
-            initial_sums_for_i_str_gas = jnp.zeros_like(alpha_t2_current[..., 0])
-            initial_sums_for_i_str_scat = jnp.zeros_like(alpha_t2_scat_current[:, 0])
-
-            final_t_graze_sum_gas, final_t_graze_sum_scat = lax.fori_loop(
-                0,
-                i_str_f - 1,
-                j_str_loop_body_for_t_graze,
-                (initial_sums_for_i_str_gas, initial_sums_for_i_str_scat),
-            )
-
-            current_t_graze_accum = current_t_graze_accum.at[..., i_str_f - 1].set(
-                final_t_graze_sum_gas
-            )
-
-            def update_scat_accum_true(
-                ops: tuple[ArrayLike, ArrayLike, int],
-            ) -> ArrayLike:
-                _acc, _val, _idx = ops
-                return _acc.at[:, _idx].set(_val)
-
-            def update_scat_accum_false(
-                ops: tuple[ArrayLike, ArrayLike, int],
-            ) -> ArrayLike:
-                _acc, _, _ = ops
-                return _acc
-
-            current_t_graze_scat_accum_ops = (
-                current_t_graze_scat_accum,
-                final_t_graze_sum_scat,
-                i_str_f - 1,
-            )
-            current_t_graze_scat_accum = lax.cond(
-                scattering_in_transmission,
-                update_scat_accum_true,
-                update_scat_accum_false,
-                current_t_graze_scat_accum_ops,
-            )
-            return current_t_graze_accum, current_t_graze_scat_accum
-
-        t_graze_current, t_graze_scat_current = lax.fori_loop(
-            0,
-            n_layers - 1,
-            i_str_loop_body_for_t_graze,
-            (t_graze_current_init, t_graze_scat_current_init),
+        effective_area_fraction = 1.0 - total_transmission
+        annulus_terms = (
+            effective_area_fraction[:, 1:] * radius_hydrostatic_equilibrium[None, 1:]
+            + effective_area_fraction[:, :-1]
+            * radius_hydrostatic_equilibrium[None, :-1]
         )
-
-        exp_t_graze = jnp.exp(-t_graze_current)
-        T_gas_spec_contrib = jnp.sum(
-            exp_t_graze * weights_gauss[:, None, None, None], axis=0
+        transit_radii_leave_one_out_squared = (
+            jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1)
+            + radius_squared[-1]
         )
-        T_gas_total = jnp.prod(T_gas_spec_contrib, axis=1)
+        return transit_radii_squared - transit_radii_leave_one_out_squared
 
-        def compute_T_scat_eff_true(ops: tuple[ArrayLike, ArrayLike]) -> ArrayLike:
-            _t_graze_scat, _ = ops
-            return jnp.exp(-_t_graze_scat)
-
-        def compute_T_scat_eff_false(ops: tuple[ArrayLike, ArrayLike]) -> ArrayLike:
-            _, _T_gas_total_template = ops
-            return jnp.ones_like(_T_gas_total_template)
-
-        T_scat_eff_ops = (t_graze_scat_current, T_gas_total)
-        T_scat_eff = lax.cond(
-            scattering_in_transmission,
-            compute_T_scat_eff_true,
-            compute_T_scat_eff_false,
-            T_scat_eff_ops,
-        )
-
-        T_layer_freq = T_gas_total * T_scat_eff
-        t_graze_wlen_int_temp = T_layer_freq.T
-
-        y_val = (1.0 - t_graze_wlen_int_temp) * radius_hydrostatic_equilibrium[:, None]
-        delta_R = (
-            radius_hydrostatic_equilibrium[:-1] - radius_hydrostatic_equilibrium[1:]
-        )
-        integrand_terms = (y_val[:-1, :] + y_val[1:, :]) * delta_R[:, None]
-        integral_val = jnp.sum(integrand_terms, axis=0)
-        transit_radii_temp_sq = integral_val + R_sq[-1]
-
-        contrib_for_this_layer = transit_radii_squared - transit_radii_temp_sq
-        return contrib_for_this_layer
-
-    def accumulate_contributions_loop(
-        i_leave_str_idx: int, contributions_array: ArrayLike
-    ) -> ArrayLike:
-        contrib_for_this_layer = loop_body_leave_out_layer(i_leave_str_idx, None)
-        contributions_array = contributions_array.at[i_leave_str_idx, :].set(
-            contrib_for_this_layer
-        )
-        return contributions_array
-
-    initial_contributions_array = jnp.zeros((n_layers, n_frequencies))
-    transmission_contribution_raw = lax.fori_loop(
-        0, n_layers, accumulate_contributions_loop, initial_contributions_array
+    transmission_contribution_raw = lax.map(
+        _leave_one_out_contribution,
+        jnp.arange(n_layers, dtype=jnp.int32),
     )
 
     sum_contrib = jnp.sum(transmission_contribution_raw, axis=0, keepdims=True)

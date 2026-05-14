@@ -150,8 +150,9 @@ def _warn_scattering_in_emission_without_cloud_species(
 def _warn_partial_cloud_coverage_without_patchy_clouds(
     cloud_fraction: float,
     patchy_clouds: tuple[str, ...],
+    has_partial_coverage_background_cloud: bool = False,
 ):
-    if len(patchy_clouds) > 0:
+    if len(patchy_clouds) > 0 or has_partial_coverage_background_cloud:
         return
 
     try:

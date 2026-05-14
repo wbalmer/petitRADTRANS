@@ -1381,7 +1381,7 @@ def plot_opacity_contributions(
             for local_variable, value in local_variables.items():
                 if (
                     local_variable in radtrans_object.model_parameters
-                    and local_variable is not None
+                    and value is not None
                 ):
                     if _radtrans_object is radtrans_object:
                         _radtrans_object = copy.deepcopy(radtrans_object)
