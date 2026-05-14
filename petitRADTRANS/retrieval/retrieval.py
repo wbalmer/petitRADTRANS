@@ -859,8 +859,9 @@ class Retrieval:
             summary.write("Fixed Parameters\n")
 
             for key, value in self.configuration.parameters.items():
-                if key in ["pressure_simple", "pressure_width", "pressure_scaling"]:
-                    continue
+                if not value.is_free_parameter:
+                    if isinstance(value.value, float):
+                        summary.write(f"    {key} = {value.value:.3f}\n")
 
                 if not value.is_free_parameter:
                     if isinstance(value.value, float):
@@ -973,12 +974,7 @@ class Retrieval:
                 summary.write("\n")
                 summary.write("Best Fit Parameters\n")
                 for key, value in best_fit_summary["parameters"].items():
-                    if key in [
-                        "pressure_simple",
-                        "pressure_width",
-                        "pressure_scaling",
-                        "FstarWlenMicron",
-                    ]:
+                    if key in ["FstarWlenMicron"]:
                         continue
 
                     out = value.value
@@ -1694,20 +1690,6 @@ class Retrieval:
         parameters = self.build_param_dict(best_fit_params, parameters_read)
         self.best_fit_parameters = parameters
 
-        if self.configuration.adaptive_mesh_refinement:
-            _ = (
-                self.configuration._setup_pres()
-            )  # TODO this function should not be private
-            self.best_fit_parameters["pressure_scaling"] = (
-                self.configuration.parameters["pressure_scaling"]
-            )
-            self.best_fit_parameters["pressure_width"] = self.configuration.parameters[
-                "pressure_width"
-            ]
-            self.best_fit_parameters["pressure_simple"] = self.configuration.parameters[
-                "pressure_simple"
-            ]
-
         contribution_file = os.path.join(
             self.output_directory,
             f"evaluate_{self.configuration.retrieval_name}",
@@ -1996,19 +1978,7 @@ class Retrieval:
         )
 
         # Set up the pRT object
-        if self.configuration.adaptive_mesh_refinement:
-            p = self.configuration._setup_pres()
-            parameters["pressure_scaling"] = self.configuration.parameters[
-                "pressure_scaling"
-            ]
-            parameters["pressure_width"] = self.configuration.parameters[
-                "pressure_width"
-            ]
-            parameters["pressure_simple"] = self.configuration.parameters[
-                "pressure_simple"
-            ]
-        else:
-            p = self.configuration.pressures
+        p = self.configuration.pressures
 
         if prt_object is not None:
             atmosphere = prt_object
@@ -2054,17 +2024,6 @@ class Retrieval:
                 scattering_in_emission=self.configuration.scattering_in_emission,
                 line_by_line_opacity_sampling=line_by_line_sampling,
             )
-
-        if self.configuration.adaptive_mesh_refinement:
-            parameters["pressure_scaling"] = self.configuration.parameters[
-                "pressure_scaling"
-            ]
-            parameters["pressure_width"] = self.configuration.parameters[
-                "pressure_width"
-            ]
-            parameters["pressure_simple"] = self.configuration.parameters[
-                "pressure_simple"
-            ]
 
         # Check what model function we're using
         if model_generating_function is None:
@@ -4106,10 +4065,7 @@ class Retrieval:
                 ),
             )
 
-        if self.configuration.adaptive_mesh_refinement:
-            pressures = self.configuration._setup_pres()
-        else:
-            pressures = self.configuration.pressures
+        pressures = self.configuration.pressures
 
         radtrans_object = Radtrans(
             pressures=pressures,
@@ -4565,8 +4521,8 @@ class Retrieval:
         """
         Creates a pRT object for each data set that asks for a unique object.
         Checks if there are low resolution c-k models from exo-k, and creates them if necessary.
-        The scaling and width parameters adjust the AMR grid as described in RetrievalConfig.setup_pres
-        and models.fixed_length_adaptive_mesh_refinement. It is recommended to keep the defaults.
+        The scaling and width parameters are retained for API compatibility and
+        are ignored by the fixed-size adaptive mesh refinement path.
 
         Args:
             scaling : int
@@ -4626,12 +4582,7 @@ class Retrieval:
                     line_by_line_sampling = int(1e6 / data.model_resolution)
 
                 # Create random P-T profile to create RT arrays of the Radtrans object.
-                if self.configuration.adaptive_mesh_refinement:
-                    pressures = self.configuration._setup_pres(
-                        scaling, width
-                    )  # TODO this function shouldn't be protected  # noqa: E501
-                else:
-                    pressures = self.configuration.pressures
+                pressures = self.configuration.pressures
 
                 # Set up the pRT objects for the given dataset
                 radtrans = Radtrans(

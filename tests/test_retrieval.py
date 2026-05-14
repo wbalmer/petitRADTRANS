@@ -26,7 +26,10 @@ import numpy as np
 
 tfpd = tfp.distributions
 
-from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
+from petitRADTRANS.chemistry.utils import (
+    build_adaptive_pressure_grid,
+    compute_mean_molar_masses,
+)
 from petitRADTRANS.opacities.opacities import Opacity, CorrelatedKOpacity
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import Parameter
@@ -34,11 +37,13 @@ from petitRADTRANS.retrieval.plotting import RetrievalPlotter
 from petitRADTRANS.retrieval.models import (
     MODEL_CONTRACT_LEGACY_ADAPTER,
     MODEL_CONTRACT_DIFFERENTIABLE,
+    _resolve_runtime_abundance_state,
     calculate_emission_spectrum,
     calculate_emission_spectrum_runtime,
     calculate_transmission_spectrum,
     calculate_transmission_spectrum_runtime,
     coerce_model_generating_function,
+    initialize_pressure,
     mark_legacy_model_function,
     run_legacy_model_adapter,
     run_runtime_model_adapter,
@@ -88,7 +93,15 @@ class _DummyDistribution:
 
 
 class _DummyRadtrans:
+    def __init__(self):
+        self.pressures = jnp.logspace(-6, 2, 16) * 1e6
+        self.line_species = ("H2O",)
+        self.cloud_species = ("MgSiO3(c)",)
+        self.calculate_flux_kwargs = None
+        self.calculate_transit_radii_kwargs = None
+
     def calculate_flux(self, **kwargs):
+        self.calculate_flux_kwargs = kwargs
         return (
             jnp.array([1.0e-4, 2.0e-4]),
             jnp.array([2.0, 4.0]),
@@ -96,6 +109,7 @@ class _DummyRadtrans:
         )
 
     def calculate_transit_radii(self, **kwargs):
+        self.calculate_transit_radii_kwargs = kwargs
         return (
             jnp.array([1.0e-4, 2.0e-4]),
             jnp.array([3.0, 6.0]),
@@ -693,10 +707,11 @@ def test_run_runtime_model_adapter_accepts_model_result():
 
 
 def test_calculate_emission_spectrum_runtime_returns_model_result():
+    radtrans = _DummyRadtrans()
     model_context = ModelContext(
         name="emission",
         mode="emission",
-        radtrans=_DummyRadtrans(),
+        radtrans=radtrans,
         adaptive_mesh_refinement=False,
     )
     model_inputs = ModelInputs(
@@ -714,13 +729,18 @@ def test_calculate_emission_spectrum_runtime_returns_model_result():
     assert result.kind == "spectrum"
     np.testing.assert_allclose(result.wavelengths, jnp.array([1.0, 2.0]))
     assert result.auxiliary_outputs["source"] == "emission"
+    np.testing.assert_allclose(
+        np.asarray(radtrans.calculate_flux_kwargs["pressures"]),
+        np.asarray(model_inputs.pressures),
+    )
 
 
 def test_calculate_transmission_spectrum_runtime_returns_model_result():
+    radtrans = _DummyRadtrans()
     model_context = ModelContext(
         name="transmission",
         mode="transmission",
-        radtrans=_DummyRadtrans(),
+        radtrans=radtrans,
         adaptive_mesh_refinement=False,
         return_contribution=True,
     )
@@ -740,6 +760,157 @@ def test_calculate_transmission_spectrum_runtime_returns_model_result():
     np.testing.assert_allclose(result.wavelengths, jnp.array([1.0, 2.0]))
     np.testing.assert_allclose(result.spectrum, jnp.array([2.25, 9.0]))
     assert result.auxiliary_outputs["source"] == "transmission"
+    np.testing.assert_allclose(
+        np.asarray(radtrans.calculate_transit_radii_kwargs["pressures"]),
+        np.asarray(model_inputs.pressures),
+    )
+
+
+def test_resolve_runtime_abundance_state_rebuilds_amr_grid_without_mutating_radtrans(
+    monkeypatch,
+):
+    radtrans = _DummyRadtrans()
+    base_pressures = radtrans.pressures * 1e-6
+    base_temperatures = jnp.linspace(900.0, 1200.0, base_pressures.shape[0])
+    model_context = ModelContext(
+        name="adaptive",
+        mode="emission",
+        radtrans=radtrans,
+        adaptive_mesh_refinement=True,
+    )
+    physical_params = PhysicalParams.from_mapping({})
+
+    get_abundances_calls = []
+    cloud_base_resolver_calls = []
+    temperature_builder_calls = []
+
+    def fake_get_abundances(
+        pressures,
+        temperatures,
+        parameters,
+        line_species,
+        cloud_species,
+        adaptive_mesh_refinement,
+    ):
+        del parameters, line_species, cloud_species
+        get_abundances_calls.append(
+            {
+                "pressures": np.asarray(pressures),
+                "temperatures": np.asarray(temperatures),
+                "adaptive_mesh_refinement": adaptive_mesh_refinement,
+            }
+        )
+        return (
+            {"H2O": jnp.full_like(pressures, 1e-3)},
+            jnp.full_like(pressures, 2.3),
+            jnp.arange(pressures.shape[0]),
+            {"MgSiO3(c)": jnp.asarray(1e-2)},
+        )
+
+    def temperature_builder(pressures):
+        temperature_builder_calls.append(np.asarray(pressures))
+        return 900.0 + 30.0 * jnp.log10(pressures / pressures[0])
+
+    def fake_resolve_cloud_base_pressures(
+        pressures,
+        temperatures,
+        parameters,
+        line_species,
+        cloud_species,
+    ):
+        del parameters, line_species, cloud_species
+        cloud_base_resolver_calls.append(
+            {
+                "pressures": np.asarray(pressures),
+                "temperatures": np.asarray(temperatures),
+            }
+        )
+        return {"MgSiO3(c)": jnp.asarray(1e-2)}
+
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.models,
+        "get_abundances",
+        fake_get_abundances,
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.models,
+        "resolve_cloud_base_pressures",
+        fake_resolve_cloud_base_pressures,
+    )
+
+    result, abundance_state = _resolve_runtime_abundance_state(
+        model_context,
+        physical_params,
+        base_pressures,
+        base_pressures,
+        base_temperatures,
+        temperature_builder=temperature_builder,
+    )
+
+    expected_pressures = build_adaptive_pressure_grid(
+        base_pressures,
+        jnp.array([1e-2]),
+    )
+
+    assert result is None
+    assert len(cloud_base_resolver_calls) == 1
+    assert len(get_abundances_calls) == 1
+    assert len(temperature_builder_calls) == 1
+    assert get_abundances_calls[0]["adaptive_mesh_refinement"] is False
+    np.testing.assert_allclose(
+        np.asarray(temperature_builder_calls[0]),
+        np.asarray(expected_pressures),
+    )
+    np.testing.assert_allclose(
+        np.asarray(abundance_state["pressures"]),
+        np.asarray(expected_pressures),
+    )
+    np.testing.assert_allclose(
+        np.asarray(get_abundances_calls[0]["pressures"]),
+        np.asarray(expected_pressures),
+    )
+    np.testing.assert_allclose(
+        np.asarray(cloud_base_resolver_calls[0]["pressures"]),
+        np.asarray(base_pressures),
+    )
+    np.testing.assert_allclose(
+        np.asarray(cloud_base_resolver_calls[0]["temperatures"]),
+        np.asarray(base_temperatures),
+    )
+    np.testing.assert_allclose(
+        np.asarray(radtrans.pressures),
+        np.asarray(base_pressures * 1e6),
+    )
+
+
+def test_initialize_pressure_returns_base_grid_when_legacy_amr_is_requested():
+    pressures = jnp.logspace(-6, 2, 16)
+
+    p_use, p_global = initialize_pressure(
+        pressures,
+        {"pressure_scaling": 10, "pressure_simple": pressures.shape[0]},
+        adaptive_mesh_refinement=True,
+    )
+
+    np.testing.assert_allclose(np.asarray(p_use), np.asarray(pressures))
+    np.testing.assert_allclose(np.asarray(p_global), np.asarray(pressures))
+
+
+def test_retrieval_config_setup_pres_returns_base_grid_without_legacy_amr_parameters():
+    config = petitRADTRANS.retrieval.RetrievalConfig(
+        adaptive_mesh_refinement=True,
+        pressures=jnp.logspace(-6, 2, 16),
+    )
+
+    returned_pressures = config._setup_pres(scaling=10, width=3)
+
+    np.testing.assert_allclose(
+        np.asarray(returned_pressures),
+        np.asarray(config.pressures),
+    )
+    assert "pressure_scaling" not in config.parameters
+    assert "pressure_width" not in config.parameters
+    assert "pressure_simple" not in config.parameters
 
 
 def test_log_likelihood_routes_normal_scalar_path_through_runtime():

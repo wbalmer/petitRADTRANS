@@ -1,6 +1,7 @@
-import sys
 import copy
 import re
+import sys
+from functools import lru_cache
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -24,7 +25,6 @@ from petitRADTRANS.chemistry.pre_calculated_chemistry import (
 from petitRADTRANS.chemistry.utils import (
     build_abundance_profile,
     compute_mean_molar_masses,
-    fixed_length_adaptive_mesh_refinement,
     linear_spline_profile,
     stepped_profile,
     cubic_spline_profile,
@@ -171,6 +171,278 @@ def _has_truthy_parameter(parameters, *names):
             return True
 
     return False
+
+
+@lru_cache(maxsize=None)
+def _get_cached_cloud_metadata(cloud_species):
+    """Return cached ``(opacity_name, base_name)`` pairs for cloud species."""
+    return tuple(
+        (
+            cloud,
+            CloudOpacity([cloud], natural_abundance=False).species_full_name.split("_")[
+                0
+            ],
+        )
+        for cloud in cloud_species
+    )
+
+
+def _build_cloud_metadata(cloud_species):
+    """Return ``(opacity_name, base_name)`` pairs for cloud species."""
+    return _get_cached_cloud_metadata(tuple(cloud_species))
+
+
+def _has_explicit_cloud_base(parameter_keys, cloud_name):
+    return (
+        f"log_Pbase_{cloud_name}" in parameter_keys
+        or f"Pbase_{cloud_name}" in parameter_keys
+    )
+
+
+def _resolve_cloud_base_pressure(
+    cloud_name,
+    *,
+    pressures,
+    temperatures,
+    metallicity,
+    co_ratio,
+    parameters,
+    parameter_keys,
+    mean_molar_mass,
+    has_equilibrium_cloud_base,
+):
+    log_pbase_key = f"log_Pbase_{cloud_name}"
+    if log_pbase_key in parameter_keys:
+        return jnp.asarray(10 ** parameters[log_pbase_key], dtype=JAX_DTYPE)
+
+    pbase_key = f"Pbase_{cloud_name}"
+    if pbase_key in parameter_keys:
+        return jnp.asarray(parameters[pbase_key], dtype=JAX_DTYPE)
+
+    log_x_cb_key = f"log_X_cb_{cloud_name}"
+    mean_molar_mass_array = None
+    if mean_molar_mass is not None:
+        mean_molar_mass_array = jnp.ravel(
+            jnp.asarray(mean_molar_mass, dtype=JAX_DTYPE)
+        )
+
+    if not has_equilibrium_cloud_base and log_x_cb_key in parameter_keys:
+        if mean_molar_mass_array is None:
+            raise ValueError(
+                "mean_molar_mass is required to derive free cloud-base pressures"
+            )
+
+        return jnp.asarray(
+            fc.calculate_cloud_base_pressure_free(
+                cloud_name,
+                pressures,
+                temperatures,
+                10 ** parameters[log_x_cb_key],
+                cast(Any, mean_molar_mass_array[0]),
+            ),
+            dtype=JAX_DTYPE,
+        )
+
+    if has_equilibrium_cloud_base:
+        if mean_molar_mass_array is None:
+            raise ValueError(
+                "mean_molar_mass is required to derive equilibrium cloud-base pressures"
+            )
+
+        return jnp.asarray(
+            fc.calculate_cloud_base_pressure(
+                name=cloud_name,
+                press=pressures,
+                temp=temperatures,
+                metallicity=metallicity,
+                co_ratio=co_ratio,
+                mmw=cast(
+                    Any,
+                    jnp.asarray(jnp.mean(mean_molar_mass_array), dtype=JAX_DTYPE),
+                ),
+            ),
+            dtype=JAX_DTYPE,
+        )
+
+    return INVALID_VALUE
+
+
+def _resolve_cloud_fsed(cloud_name, parameters, parameter_keys):
+    cloud_fsed_key = f"fsed_{cloud_name}"
+    if cloud_fsed_key in parameter_keys:
+        return jnp.asarray(parameters[cloud_fsed_key], dtype=JAX_DTYPE)
+    if "fsed" in parameter_keys:
+        return jnp.asarray(parameters["fsed"], dtype=JAX_DTYPE)
+    return INVALID_VALUE
+
+
+def _resolve_cloud_abundance(
+    cloud,
+    cloud_name,
+    *,
+    metallicity,
+    co_ratio,
+    parameters,
+    parameter_keys,
+    mass_fractions,
+    use_easychem,
+    zero_profile,
+    one_profile,
+):
+    if use_easychem:
+        return mass_fractions.get(cloud_name, zero_profile)
+
+    eq_scaling_key = f"eq_scaling_{cloud_name}"
+    if eq_scaling_key in parameter_keys:
+        x_cloud = fc.return_cloud_mass_fraction(cloud, metallicity, co_ratio)
+        return (10 ** parameters[eq_scaling_key]) * x_cloud
+
+    log_x_cb_key = f"log_X_cb_{cloud_name}"
+    if log_x_cb_key in parameter_keys:
+        return (10 ** parameters[log_x_cb_key]) * one_profile
+
+    return zero_profile
+
+
+def resolve_cloud_base_pressures(
+    pressures: typing.ArrayLike,
+    temperatures: typing.ArrayLike,
+    parameters: dict,
+    line_species: tuple,
+    cloud_species: tuple,
+    filling_species: tuple | dict | None = None,
+    **kwargs,
+):
+    """Resolve cloud-base pressures without constructing full cloud profiles.
+
+    This helper is intended for adaptive pressure-grid setup. When cloud-base
+    pressures are explicitly parameterized, it returns them directly without
+    running chemistry. Otherwise it computes only the gas-composition state
+    needed to derive mean molar masses and then resolves the cloud bases.
+    """
+    if len(cloud_species) == 0:
+        return {}
+
+    plain_parameters = _normalize_parameter_mapping(parameters)
+    parameter_keys = set(plain_parameters)
+    cloud_metadata = _build_cloud_metadata(tuple(cloud_species))
+    has_equilibrium_cloud_base = any(
+        key in parameter_keys for key in ("Fe/H", "M/H", "metallicity")
+    )
+
+    if all(
+        _has_explicit_cloud_base(parameter_keys, cloud_name)
+        for _cloud, cloud_name in cloud_metadata
+    ):
+        return {
+            cloud_name: _resolve_cloud_base_pressure(
+                cloud_name,
+                pressures=pressures,
+                temperatures=temperatures,
+                metallicity=None,
+                co_ratio=None,
+                parameters=plain_parameters,
+                parameter_keys=parameter_keys,
+                mean_molar_mass=None,
+                has_equilibrium_cloud_base=has_equilibrium_cloud_base,
+            )
+            for _cloud, cloud_name in cloud_metadata
+        }
+
+    if filling_species is None:
+        filling_species = {
+            "H2": 0.74 * jnp.ones(pressures.size),
+            "He": 0.24 * jnp.ones(pressures.size),
+        }
+
+    line_species_no_resolution = tuple(
+        [species.split(".R")[0] for species in line_species]
+    )
+    chemistry_mode = _resolve_chemistry_mode(plain_parameters)
+    metallicity = chemistry_mode["metallicity"]
+    co_ratio = chemistry_mode["co_ratio"]
+    carbon_quench_pressure = chemistry_mode["carbon_quench_pressure"]
+    use_full_easychem = chemistry_mode["use_full_easychem"]
+    use_precalculated_equilibrium_chemistry = chemistry_mode[
+        "use_precalculated_equilibrium_chemistry"
+    ]
+    exo_atmos = chemistry_mode["exo_atmos"]
+    atomic_mass_fractions = chemistry_mode["atomic_mass_fractions"]
+
+    imposed_mass_fractions = {}
+    for species in line_species:
+        species_opacity = Opacity([species])
+        species_full_name = species_opacity.get_full_name().split(".R")[0]
+        species_basename = Opacity.get_species_base_name(species)
+
+        if species_full_name in plain_parameters:
+            imposed_mass_fractions[species_full_name] = plain_parameters[
+                species_full_name
+            ]
+        elif species_basename in plain_parameters:
+            imposed_mass_fractions[species_basename] = plain_parameters[
+                species_basename
+            ]
+
+    if use_full_easychem:
+        mass_fractions, mean_molar_mass = _build_easychem_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            parameters=plain_parameters,
+            line_species=line_species_no_resolution,
+            cloud_species=tuple(cloud_species),
+            metallicity=metallicity,
+            co_ratio=co_ratio,
+            carbon_quench_pressure=carbon_quench_pressure,
+            use_full_easychem=use_full_easychem,
+            exo_atmos=exo_atmos,
+            atomic_mass_fractions=atomic_mass_fractions,
+            adaptive_mesh_refinement=False,
+        )
+    else:
+        mass_fractions, _ = calculate_gas_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            line_species=line_species_no_resolution,
+            imposed_mass_fractions=imposed_mass_fractions,
+            cloud_species=cloud_species,
+            filling_species=filling_species,
+            metallicity=metallicity,
+            co_ratio=co_ratio,
+            carbon_quench_pressure=carbon_quench_pressure,
+            use_equilibrium_chemistry=use_precalculated_equilibrium_chemistry,
+            exo_atmos=exo_atmos,
+            atomic_mass_fractions=atomic_mass_fractions,
+            parameters=plain_parameters,
+            **kwargs,
+        )
+        mean_molar_mass = compute_mean_molar_masses(mass_fractions)
+
+    if metallicity is None:
+        metallicity, elemental_ratios = mass_fractions2metallicity(
+            cast(dict[str, typing.ArrayLike], mass_fractions),
+            mean_molar_mass,
+        )
+        metallicity = jnp.mean(jnp.array(metallicity))
+        if 6 in elemental_ratios and 8 in elemental_ratios:
+            co_ratio = jnp.mean(
+                elemental_ratios[6]["local"] / elemental_ratios[8]["local"]
+            )
+
+    return {
+        cloud_name: _resolve_cloud_base_pressure(
+            cloud_name,
+            pressures=pressures,
+            temperatures=temperatures,
+            metallicity=metallicity,
+            co_ratio=co_ratio,
+            parameters=plain_parameters,
+            parameter_keys=parameter_keys,
+            mean_molar_mass=mean_molar_mass,
+            has_equilibrium_cloud_base=has_equilibrium_cloud_base,
+        )
+        for _cloud, cloud_name in cloud_metadata
+    }
 
 
 def _contains_isotope(isotopologue_name: str, isotope: str) -> bool:
@@ -887,81 +1159,37 @@ def calculate_cloud_mass_fractions(
         key in parameter_keys for key in ("Fe/H", "M/H", "metallicity")
     )
 
-    cloud_metadata = []
-    for cloud in cloud_species:
-        cloud_name = CloudOpacity(
-            [cloud], natural_abundance=False
-        ).species_full_name.split("_")[0]
-        cloud_metadata.append((cloud, cloud_name))
-
-    def get_cloud_abundance(cloud, cloud_name):
-        if use_easychem:
-            return mass_fractions.get(cloud_name, zero_profile)
-
-        eq_scaling_key = f"eq_scaling_{cloud_name}"
-        if eq_scaling_key in parameter_keys:
-            x_cloud = fc.return_cloud_mass_fraction(cloud, metallicity, co_ratio)
-            return (10 ** parameters[eq_scaling_key]) * x_cloud
-
-        log_x_cb_key = f"log_X_cb_{cloud_name}"
-        if log_x_cb_key in parameter_keys:
-            return (10 ** parameters[log_x_cb_key]) * one_profile
-
-        return zero_profile
-
-    def get_cloud_base(cloud_name):
-        log_pbase_key = f"log_Pbase_{cloud_name}"
-        if log_pbase_key in parameter_keys:
-            return jnp.asarray(10 ** parameters[log_pbase_key], dtype=JAX_DTYPE)
-
-        pbase_key = f"Pbase_{cloud_name}"
-        if pbase_key in parameter_keys:
-            return jnp.asarray(parameters[pbase_key], dtype=JAX_DTYPE)
-
-        log_x_cb_key = f"log_X_cb_{cloud_name}"
-        if not has_equilibrium_cloud_base and log_x_cb_key in parameter_keys:
-            return jnp.asarray(
-                fc.calculate_cloud_base_pressure_free(
-                    cloud_name,
-                    pressures,
-                    temperatures,
-                    10 ** parameters[log_x_cb_key],
-                    jnp.asarray(mean_molar_mass[0], dtype=JAX_DTYPE),
-                ),
-                dtype=JAX_DTYPE,
-            )
-
-        if has_equilibrium_cloud_base:
-            return jnp.asarray(
-                fc.calculate_cloud_base_pressure(
-                    name=cloud_name,
-                    press=pressures,
-                    temp=temperatures,
-                    metallicity=metallicity,
-                    co_ratio=co_ratio,
-                    mmw=jnp.asarray(jnp.mean(mean_molar_mass), dtype=JAX_DTYPE),
-                ),
-                dtype=JAX_DTYPE,
-            )
-
-        return INVALID_VALUE
-
-    def get_fsed(cloud_name):
-        cloud_fsed_key = f"fsed_{cloud_name}"
-        if cloud_fsed_key in parameter_keys:
-            return jnp.asarray(parameters[cloud_fsed_key], dtype=JAX_DTYPE)
-        if "fsed" in parameter_keys:
-            return jnp.asarray(parameters["fsed"], dtype=JAX_DTYPE)
-        return INVALID_VALUE
+    cloud_metadata = _build_cloud_metadata(tuple(cloud_species))
 
     # AMR currently returns the identity grid until the pressure-remeshing path is restored.
     pressure_indices = jnp.arange(pressures.shape[0], dtype=int)
     fseds = {}
 
     for cloud, cloud_name in cloud_metadata:
-        cloud_abundance = get_cloud_abundance(cloud, cloud_name)
-        cloud_base = get_cloud_base(cloud_name)
-        cloud_fsed = get_fsed(cloud_name)
+        cloud_abundance = _resolve_cloud_abundance(
+            cloud,
+            cloud_name,
+            metallicity=metallicity,
+            co_ratio=co_ratio,
+            parameters=parameters,
+            parameter_keys=parameter_keys,
+            mass_fractions=mass_fractions,
+            use_easychem=use_easychem,
+            zero_profile=zero_profile,
+            one_profile=one_profile,
+        )
+        cloud_base = _resolve_cloud_base_pressure(
+            cloud_name,
+            pressures=pressures,
+            temperatures=temperatures,
+            metallicity=metallicity,
+            co_ratio=co_ratio,
+            parameters=parameters,
+            parameter_keys=parameter_keys,
+            mean_molar_mass=mean_molar_mass,
+            has_equilibrium_cloud_base=has_equilibrium_cloud_base,
+        )
+        cloud_fsed = _resolve_cloud_fsed(cloud_name, parameters, parameter_keys)
 
         clouds[cloud_name] = cloud_abundance
         p_bases[cloud_name] = cloud_base
@@ -1118,8 +1346,8 @@ def get_abundances(
             mass_fractions, mean_molar_mass
         )
         metallicity = jnp.mean(jnp.array(metallicity))
-        # TODO: Test if elemental_ratios[6] and elemental_ratios[8] exist
-        co_ratio = jnp.mean(elemental_ratios[6]["local"] / elemental_ratios[8]["local"])
+        if 6 in elemental_ratios and 8 in elemental_ratios:
+            co_ratio = jnp.mean(elemental_ratios[6]["local"] / elemental_ratios[8]["local"])
 
     p_bases = {}
     pressure_indices = jnp.linspace(
@@ -1230,8 +1458,10 @@ def get_abundances_legacy(
             Legacy parameter mapping whose values are accessed via ``.value``.
             Supported keys depend on the selected legacy chemistry and cloud mode.
         adaptive_mesh_refinement:
-            Whether to derive adaptive pressure-grid indices with
-            ``fixed_length_adaptive_mesh_refinement``.
+            Retained for API compatibility. Legacy adaptive pressure-grid
+            expansion has been removed and the input grid is always used.
+
+    # Find high resolution pressure grid and indices
 
     Returns:
         A tuple ``(abundances, mmw, pressure_indices, p_bases)`` containing the
@@ -1423,16 +1653,7 @@ def get_abundances_legacy(
                 mmw[0],
             )
 
-    # Find high resolution pressure grid and indices
-    if adaptive_mesh_refinement:
-        press_use, pressure_indices = fixed_length_adaptive_mesh_refinement(
-            jnp.array(list(p_bases.values())),
-            pressures,
-            parameters["pressure_scaling"].value,
-            parameters["pressure_width"].value,
-        )
-    else:
-        pressure_indices = jnp.array(list(range(pressures.shape[0])))
+    pressure_indices = jnp.arange(pressures.shape[0])
 
     fseds = {}
 

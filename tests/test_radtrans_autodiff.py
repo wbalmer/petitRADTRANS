@@ -164,6 +164,68 @@ def _calculate_power_law_transit_radii(cloud_fraction):
     return transit_radii
 
 
+def test_calculate_flux_matches_explicit_pressure_override():
+    flux_inputs = _build_flux_inputs()
+    base_temperatures = jnp.array(temperature_guillot_2010)
+    pressure_grid = jnp.array(test_parameters["pressures"])
+
+    _, default_flux, _ = atmosphere_ck.calculate_flux(
+        temperatures=base_temperatures,
+        mass_fractions=flux_inputs["mass_fractions"],
+        mean_molar_masses=flux_inputs["mean_molar_masses"],
+        reference_gravity=flux_inputs["reference_gravity"],
+        **flux_inputs["cloud_parameters"],
+        frequencies_to_wavelengths=False,
+    )
+    _, explicit_pressure_flux, _ = atmosphere_ck.calculate_flux(
+        temperatures=base_temperatures,
+        mass_fractions=flux_inputs["mass_fractions"],
+        mean_molar_masses=flux_inputs["mean_molar_masses"],
+        reference_gravity=flux_inputs["reference_gravity"],
+        pressures=pressure_grid,
+        **flux_inputs["cloud_parameters"],
+        frequencies_to_wavelengths=False,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(explicit_pressure_flux),
+        np.asarray(default_flux),
+    )
+
+
+def test_calculate_transit_radii_matches_explicit_pressure_override():
+    transit_inputs = _build_transit_inputs()
+    base_temperatures = jnp.array(temperature_guillot_2010)
+    pressure_grid = jnp.array(test_parameters["pressures"])
+
+    _, default_radii, _ = atmosphere_ck.calculate_transit_radii(
+        temperatures=base_temperatures,
+        mass_fractions=transit_inputs["mass_fractions"],
+        mean_molar_masses=transit_inputs["mean_molar_masses"],
+        reference_gravity=transit_inputs["reference_gravity"],
+        reference_pressure=transit_inputs["reference_pressure"],
+        planet_radius=transit_inputs["planet_radius"],
+        **transit_inputs["cloud_parameters"],
+        frequencies_to_wavelengths=False,
+    )
+    _, explicit_pressure_radii, _ = atmosphere_ck.calculate_transit_radii(
+        temperatures=base_temperatures,
+        mass_fractions=transit_inputs["mass_fractions"],
+        mean_molar_masses=transit_inputs["mean_molar_masses"],
+        reference_gravity=transit_inputs["reference_gravity"],
+        reference_pressure=transit_inputs["reference_pressure"],
+        planet_radius=transit_inputs["planet_radius"],
+        pressures=pressure_grid,
+        **transit_inputs["cloud_parameters"],
+        frequencies_to_wavelengths=False,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(explicit_pressure_radii),
+        np.asarray(default_radii),
+    )
+
+
 def test_calculate_flux_grad_correlated_k():
     objective, base_temperatures = _build_simple_flux_objective(atmosphere_ck)
 

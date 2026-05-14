@@ -105,43 +105,9 @@ class RetrievalConfig:
         self.rayleigh_species = ()
         self.continuum_opacities = ()
 
-        self.add_parameter("pressure_scaling", False, value=1)
-        self.add_parameter("pressure_width", False, value=1)
-        self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
-
     def _setup_pres(self, scaling: int = 10, width: int = 3) -> ArrayLike:
-        """
-        This converts the standard pressure grid into the correct length
-        for the AMR pressure grid. The scaling adjusts the resolution of the
-        high resolution grid, while the width determines the size of the high
-        pressure region. This function is automatically called in
-        Retrieval.setupData().
-
-        Args:
-            scaling : int
-                A multiplicative factor that determines the size of the full high resolution pressure grid,
-                which will have length self.p_global.shape[0] * scaling.
-            width : int
-                The number of cells in the low pressure grid to replace with the high resolution grid.
-        """
-
-        print("Setting up AMR pressure grid.")
-        self.scaling = scaling
-        self.width = width
-        nclouds = len(self.cloud_species)
-        if nclouds == 0:
-            print(
-                "WARNING: there are no clouds in the retrieval, please add cloud species before setting up AMR"
-            )
-        new_len = self.pressures.shape[0] + nclouds * width * (scaling - 1)
-        self.adaptive_mesh_refinement_pressure = jnp.logspace(
-            jnp.log10(self.pressures[0]), jnp.log10(self.pressures[-1]), new_len
-        )
-        self.add_parameter("pressure_scaling", False, value=scaling)
-        self.add_parameter("pressure_width", False, value=width)
-        self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
-
-        return self.adaptive_mesh_refinement_pressure
+        del scaling, width
+        return self.pressures
 
     def add_parameter(
         self,
