@@ -27,6 +27,10 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         },
         'URLs': {
             'pRT_input_data_url': 'https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0/?p='
+        },
+        'Filters': {
+            'vega_mag': "0.03",
+            'database':  os.path.join(str(Path.home()), 'petitRADTRANS', 'input_data', 'filters', 'filter_database.hdf5'),
         }
     }
 
@@ -216,7 +220,7 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         self, database_file: Optional[Union[str, PosixPath, WindowsPath]] = None
     ) -> None:
         working_folder = Path.cwd()
-        print(f"Working folder: {working_folder}")
+        #print(f"Working folder: {working_folder}")
 
         config = configparser.ConfigParser(allow_no_value=True)
         config_file = Path(self._config_file)
@@ -224,37 +228,45 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         config.read(config_file)
         config_update = False
 
-        data_folder = self._default_config['Paths']['pRT_input_data_path']
+        data_folder = self.get_input_data_path()
         data_folder = Path(os.path.join(data_folder, 'filters'))
 
+        if not config.has_section("Filters"):
+            config.add_section("Filters")
+            config_update = True
+
+        if not os.path.exists(data_folder):
+            print(f"Creating filters data folder at '{data_folder}'...")
+            data_folder.mkdir(parents=True, exist_ok=True)
+
         if database_file is None:
-            if "database" in config["filters"]:
-                database_file = Path(config["filters"]["database"])
+            if "database" in config["Filters"]:
+                database_file = Path(config["Filters"]["database"])
 
             else:
                 database_file = Path(f"{data_folder}/filter_database.hdf5")
-                config.set("filters", "database", "filter_database.hdf5")
+                config.set("Filters", "database", "filter_database.hdf5")
                 config_update = True
 
         else:
             if isinstance(database_file, str):
-                config.set("filters", "database", database_file)
+                config.set("Filters", "database", database_file)
                 database_file = Path(database_file)
             else:
-                config.set("filters", "database", str(database_file))
+                config.set("Filters", "database", str(database_file))
 
             config_update = True
 
-        if "data_folder" not in config["filters"]:
-            config.set("filters", "data_folder", str(data_folder))
+        if "data_folder" not in config["Filters"]:
+            config.set("Filters", "data_folder", str(data_folder))
             config_update = True
 
-        if "vega_mag" in config["filters"]:
-            vega_mag = config["filters"]["vega_mag"]
+        if "vega_mag" in config["Filters"]:
+            vega_mag = config["Filters"]["vega_mag"]
 
         else:
             vega_mag = 0.03
-            config.set("filters", "vega_mag", "0.03")
+            config.set("Filters", "vega_mag", "0.03")
             config_update = True
 
         if config_update:
@@ -264,27 +276,21 @@ class PetitradtransConfigParser(configparser.ConfigParser):
             with open(self._config_file, "w", encoding="utf-8") as file_obj:
                 config.write(file_obj)
 
-        if data_folder.exists():
-            print(f"Data folder: {data_folder}")
-
-        else:
+        if not data_folder.exists():
             print("Creating data folder...", end="", flush=True)
             data_folder.mkdir()
             print(" [DONE]")
 
-        if database_file.exists():
-            print(f"Database file: {database_file}")
-
-        else:
+        if not database_file.exists():
             print("Creating filter_database.hdf5...", end="", flush=True)
             h5_file = h5py.File(database_file, "w")
             h5_file.close()
             print(" [DONE]")
 
-        print("\nConfiguration settings:")
-        print(f"   - Database: {database_file}")
-        print(f"   - Data folder: {data_folder}")
-        print(f"   - Magnitude of Vega: {vega_mag}")
+        #print("\nConfiguration settings:")
+        #print(f"   - Database: {database_file}")
+        #print(f"   - Data folder: {data_folder}")
+        #print(f"   - Magnitude of Vega: {vega_mag}")
 
 
 def get_input_data_subpaths() -> LockedDict:

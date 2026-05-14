@@ -97,7 +97,6 @@ def build_feature_demo_task() -> SBITask:
         path_to_observations=None,
         model_generating_function=synthetic_spectrum_model,
         radtrans_object=object(),
-        photometry=True,
         photometric_transformation_function=synthetic_photometric_transform,
         photometric_bin_edges=(1.0, 2.0),
         wavelengths=jnp.array([1.5], dtype=jnp.float64),

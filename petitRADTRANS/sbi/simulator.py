@@ -14,6 +14,7 @@ import numpy as np
 
 from petitRADTRANS.retrieval.parameter import JAX_DTYPE
 from petitRADTRANS.retrieval.runtime import (
+    PhotometryObservationState,
     RetrievalRuntime,
     PhysicalParams,
     _apply_flux_scaling,
@@ -167,7 +168,9 @@ class SimulationRuntime(RetrievalRuntime):
                     "mask": observation.mask,
                     "coordinates": observation.wavelengths,
                     "metadata": {
-                        "photometry": observation.photometry,
+                        "photometry": isinstance(
+                            observation, PhotometryObservationState
+                        ),
                         "source_name": group.source_name,
                         "line_opacity_mode": observation.line_opacity_mode,
                         "scale_flux": observation.scale_flux,
@@ -358,7 +361,9 @@ class SimulationRuntime(RetrievalRuntime):
 
                 # --- Per-observation metadata (static, replicated) ---------
                 metadata_entry = {
-                    "photometry": observation.photometry,
+                    "photometry": isinstance(
+                        observation, PhotometryObservationState
+                    ),
                     "source_name": group.source_name,
                     "line_opacity_mode": observation.line_opacity_mode,
                     "scale_flux": observation.scale_flux,

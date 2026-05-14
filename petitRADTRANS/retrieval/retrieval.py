@@ -938,8 +938,8 @@ class Retrieval:
 
                 if isinstance(data, PhotometryData):
                     summary.write(
-                        f"    photometric width = {data.photometry_range[0]:.4f}"
-                        + f"--{data.photometry_range[1]:.4f} um\n"
+                        f"    photometric width = {data.photometric_bin_edges[0]:.4f}"
+                        + f"--{data.photometric_bin_edges[1]:.4f} um\n"
                     )
                     summary.write(
                         "    Photometric transform function = "
@@ -4258,7 +4258,7 @@ class Retrieval:
                     wavelengths_model, spectrum_model, data.data_resolution
                 )
 
-            if not data.photometry:
+            if not isinstance(data, PhotometryData):
                 binned = rebin_spectrum_bin(
                     wavelengths_model,
                     spectrum_model,
@@ -4291,7 +4291,9 @@ class Retrieval:
             else:
                 data_safe_name = name.replace("/", "_").replace(".", "_")
 
-                if (not only_return_best_fit_spectra) and (not data.photometry):
+                if (not only_return_best_fit_spectra) and (
+                    not isinstance(data, PhotometryData)
+                ):
                     np.savetxt(
                         os.path.join(
                             self.output_directory,
