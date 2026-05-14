@@ -551,6 +551,37 @@ def resolve_checkpoint_backend(preferred: str = 'auto') -> CheckpointBackend:
     raise ValueError(f"Unknown checkpoint backend '{preferred}'.")
 
 
+def load_trainer_checkpoint_state(
+    checkpoint_directory: str | Path,
+    checkpoint_kind: str = 'best',
+) -> tuple[Any, dict[str, Any]] | None:
+    """Load one persisted trainer checkpoint state and its metadata.
+
+    Parameters
+    ----------
+    checkpoint_directory:
+        Root directory containing trainer checkpoint subdirectories such as
+        ``best_selection`` and ``best_loss``.
+    checkpoint_kind:
+        Checkpoint subdirectory to restore.
+
+    Returns
+    -------
+    tuple[Any, dict[str, Any]] | None
+        Restored state payload and metadata, or ``None`` when the requested
+        checkpoint does not exist.
+    """
+    checkpoint_path = Path(checkpoint_directory) / checkpoint_kind
+    metadata_path = checkpoint_path / 'metadata.json'
+    if not metadata_path.exists():
+        return None
+
+    metadata = json.loads(metadata_path.read_text())
+    backend_name = str(metadata.get('checkpoint_backend', 'equinox'))
+    checkpoint_backend = instantiate_checkpoint_backend(backend_name)
+    return checkpoint_backend.restore(None, checkpoint_path)
+
+
 class SBITrainer:
     """Reusable optimization loop for amortized SBI posteriors."""
 
@@ -727,7 +758,7 @@ class SBITrainer:
         best_validation_loss = float('inf')
         best_validation_metrics: dict[str, float] = {}
         best_epoch = -1
-        best_checkpoint_kind = 'best_loss' if has_validation else 'best_selection'
+        best_checkpoint_kind = 'best_selection'
         best_selection_model = model
         best_selection_metric = float('inf')
         best_selection_validation_loss = float('inf')
@@ -817,7 +848,7 @@ class SBITrainer:
                 best_checkpoint_kind = str(
                     restored_state.get(
                         'best_checkpoint_kind',
-                        'best_loss' if has_validation else 'best_selection',
+                        'best_selection',
                     )
                 )
                 best_selection_epoch = int(
@@ -1466,14 +1497,16 @@ class SBITrainer:
                 best_metric,
             )
             if has_validation:
-                if best_stable_epoch >= 0:
-                    best_checkpoint_kind = 'best_stable'
-                    best_epoch = best_stable_epoch
-                    best_metric = best_stable_validation_loss
-                    best_metric_name = 'validation_loss'
-                    best_validation_loss = best_stable_validation_loss
-                    best_validation_metrics = dict(best_stable_validation_metrics)
-                    best_model = best_stable_model
+                # Keep the strictly stable checkpoint exported separately, but do
+                # not auto-promote it over the soft-penalized selection model.
+                if best_selection_epoch >= 0:
+                    best_checkpoint_kind = 'best_selection'
+                    best_epoch = best_selection_epoch
+                    best_metric = best_selection_metric
+                    best_metric_name = effective_selection_metric_name
+                    best_validation_loss = best_selection_validation_loss
+                    best_validation_metrics = dict(best_selection_validation_metrics)
+                    best_model = best_selection_model
                 elif best_loss_epoch >= 0:
                     best_checkpoint_kind = 'best_loss'
                     best_epoch = best_loss_epoch
@@ -1482,6 +1515,14 @@ class SBITrainer:
                     best_validation_loss = best_loss_validation_loss
                     best_validation_metrics = dict(best_loss_validation_metrics)
                     best_model = best_loss_model
+                elif best_stable_epoch >= 0:
+                    best_checkpoint_kind = 'best_stable'
+                    best_epoch = best_stable_epoch
+                    best_metric = best_stable_validation_loss
+                    best_metric_name = 'validation_loss'
+                    best_validation_loss = best_stable_validation_loss
+                    best_validation_metrics = dict(best_stable_validation_metrics)
+                    best_model = best_stable_model
                 else:
                     best_checkpoint_kind = 'best_selection'
                     best_epoch = best_selection_epoch
@@ -1579,6 +1620,7 @@ __all__ = [
     'CheckpointBackend',
     'EarlyStoppingConfig',
     'EquinoxCheckpointBackend',
+    'load_trainer_checkpoint_state',
     'OrbaxCheckpointBackend',
     'SBITrainer',
     'TrainingConfig',
