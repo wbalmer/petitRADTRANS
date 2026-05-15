@@ -4,12 +4,8 @@ import jax.numpy as jnp
 from jax import jit
 from interpax import PchipInterpolator
 
-# TODO: Finish adding in error checking - difficult to make checkify work with JIT.
-
 from numpy import argsort
 from jax.typing import ArrayLike
-
-# from scipy.interpolate import PchipInterpolator
 
 from functools import lru_cache, partial
 
@@ -851,7 +847,7 @@ def linear_spline_profile(
     return interpolated_abunds, prior
 
 
-@jit(static_argnames=["species_basenames"])
+@jit(static_argnames=("species_basenames",))
 def get_base_species_mass_fractions(
     mass_fractions: dict, species_basenames: tuple
 ) -> dict:

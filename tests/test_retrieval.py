@@ -73,7 +73,12 @@ from petitRADTRANS.retrieval.runtime import (
     ObservationState,
     PhysicalParams,
 )
-from petitRADTRANS.retrieval.sampler import NumPyroSampler, UltranestSampler
+from petitRADTRANS.retrieval.sampler import (
+    JAXNSSampler,
+    JAXNSShardedStaticNestedSampler,
+    NumPyroSampler,
+    UltranestSampler,
+)
 from petitRADTRANS.retrieval.utils import gaussian_prior
 
 from .context import petitRADTRANS
@@ -1228,6 +1233,182 @@ def test_sampler_summary_helpers_build_expected_payloads():
         "sampler_type": "jaxns",
         "parameter_names": ["alpha"],
     }
+
+
+def test_jaxns_sampler_builds_termination_condition_from_sampler_kwargs():
+    sampler_kwargs = {
+        "termination_condition_kwargs": {"ess": 256, "rtol": 1e-4},
+        "dlogZ": 0.05,
+        "termination_max_samples": 1024,
+    }
+
+    termination_condition, termination_summary = JAXNSSampler._build_termination_condition(
+        sampler_kwargs
+    )
+
+    assert sampler_kwargs == {}
+    assert termination_condition is not None
+    assert termination_condition.ess == 256
+    assert termination_condition.rtol == 1e-4
+    assert termination_condition.dlogZ == 0.05
+    assert termination_condition.max_samples == 1024
+    assert termination_summary == {
+        "ess": 256,
+        "rtol": 1e-4,
+        "dlogZ": 0.05,
+        "max_samples": 1024,
+    }
+
+
+def test_jaxns_run_sampler_passes_termination_condition(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeNestedSampler:
+        def __init__(self, model, **kwargs):
+            captured["model"] = model
+            captured["init_kwargs"] = dict(kwargs)
+
+        def __call__(self, key, termination_condition):
+            captured["key"] = key
+            captured["termination_condition"] = termination_condition
+            return "termination_reason", "state"
+
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "Model",
+        lambda prior_model, log_likelihood: {
+            "prior_model": prior_model,
+            "log_likelihood": log_likelihood,
+        },
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "NestedSampler",
+        FakeNestedSampler,
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "save_results",
+        lambda results, save_file: captured.update(
+            {"saved_results": results, "save_file": save_file}
+        ),
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "clear_caches",
+        lambda: None,
+    )
+
+    sampler = JAXNSSampler(
+        log_likelihood_func=lambda *_args: 0.0,
+        prior_func=lambda: (),
+        output_directory=str(tmp_path),
+        retrieval_name="jaxns_termination",
+    )
+    sampler._materialize_raw_results = (
+        lambda termination_reason, state: {
+            "termination_reason": termination_reason,
+            "state": state,
+        }
+    )
+    sampler._to_numpy_tree = lambda raw_results: raw_results
+    sampler._build_equal_weight_results = lambda raw_results: {"samples": np.array([[1.0]])}
+    sampler.pretty_print_results = lambda: None
+    sampler.plot_diagnostics = lambda results=None: {}
+
+    results = sampler.run_sampler(
+        use_jit=False,
+        num_live_points=32,
+        max_samples=4096,
+        seed=7,
+        dlogZ=0.1,
+        termination_max_samples=256,
+    )
+
+    assert captured["init_kwargs"]["num_live_points"] == 32
+    assert captured["init_kwargs"]["max_samples"] == 4096
+    assert captured["termination_condition"] is not None
+    assert captured["termination_condition"].dlogZ == 0.1
+    assert captured["termination_condition"].max_samples == 256
+    assert results == {"samples": np.array([[1.0]])}
+
+
+def test_jaxns_sharded_run_sampler_passes_termination_condition(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeShardedStaticNestedSampler:
+        def __init__(self, model, sampler, **kwargs):
+            captured["model"] = model
+            captured["sampler"] = sampler
+            captured["init_kwargs"] = dict(kwargs)
+
+        def __call__(self, key, termination_condition):
+            captured["key"] = key
+            captured["termination_condition"] = termination_condition
+            return "termination_reason", "state"
+
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "Model",
+        lambda prior_model, log_likelihood: {
+            "prior_model": prior_model,
+            "log_likelihood": log_likelihood,
+        },
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "ShardedStaticNestedSampler",
+        FakeShardedStaticNestedSampler,
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "UniformSampler",
+        object(),
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "save_results",
+        lambda results, save_file: captured.update(
+            {"saved_results": results, "save_file": save_file}
+        ),
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "clear_caches",
+        lambda: None,
+    )
+
+    sampler = JAXNSShardedStaticNestedSampler(
+        log_likelihood_func=lambda *_args: 0.0,
+        prior_func=lambda: (),
+        output_directory=str(tmp_path),
+        retrieval_name="jaxns_sharded_termination",
+    )
+    sampler._materialize_raw_results = (
+        lambda termination_reason, state: {
+            "termination_reason": termination_reason,
+            "state": state,
+        }
+    )
+    sampler._to_numpy_tree = lambda raw_results: raw_results
+    sampler._build_equal_weight_results = lambda raw_results: {"samples": np.array([[1.0]])}
+    sampler.pretty_print_results = lambda: None
+    sampler.plot_diagnostics = lambda results=None: {}
+
+    results = sampler.run_sampler(
+        use_jit=False,
+        num_live_points=24,
+        max_samples=2048,
+        seed=11,
+        termination_condition_kwargs={"evidence_uncert": 0.2, "atol": 1e-3},
+    )
+
+    assert captured["init_kwargs"]["num_live_points"] == 24
+    assert captured["init_kwargs"]["max_samples"] == 2048
+    assert captured["termination_condition"] is not None
+    assert captured["termination_condition"].evidence_uncert == 0.2
+    assert captured["termination_condition"].atol == 1e-3
+    assert results == {"samples": np.array([[1.0]])}
 
 
 def test_parameter_layout_free_parameter_ordering_matches_all_sampler_interfaces():

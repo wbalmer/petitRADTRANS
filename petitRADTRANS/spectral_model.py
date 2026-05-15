@@ -1336,6 +1336,7 @@ class SpectralModel(Radtrans):
     def _get_spectral_parameters(self, remove_flag=False, remove_branching=False):
         """Get the spectral parameters by checking the arguments of the spectral functions."""
         spectral_functions = [self.calculate_flux, self.calculate_transit_radii]
+        runtime_spectral_inputs = {"pressures", "wavelengths"}
 
         spectral_parameters = {}
 
@@ -1350,6 +1351,7 @@ class SpectralModel(Radtrans):
                         "args",
                         "kwargs",
                     ]  # remove generic placeholder arguments
+                    or parameter in runtime_spectral_inputs
                     or (
                         isinstance(value.default, bool) and remove_flag
                     )  # remove flag parameters
@@ -1718,11 +1720,14 @@ class SpectralModel(Radtrans):
             if "mode" in kwargs["modification_arguments"]:
                 kwargs["mode"] = kwargs["modification_arguments"]["mode"]
 
+        # ``pressures`` and ``wavelengths`` are runtime inputs passed explicitly to
+        # the spectral calculation path, not derived spectral parameters.
+        kwargs["pressures"] = pressures
+        kwargs["wavelengths"] = wavelengths
+
         temperatures, mass_fractions, mean_molar_mass, model_parameters = (
             self.compute_spectral_parameters(
                 model_functions_map=functions_dict,
-                pressures=pressures,
-                wavelengths=wavelengths,
                 **kwargs,
             )
         )
