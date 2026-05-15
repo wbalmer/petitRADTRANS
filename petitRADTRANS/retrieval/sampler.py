@@ -1,5 +1,6 @@
 import abc
 from dataclasses import dataclass, field
+import gc
 import os
 import json
 from typing import Any, TYPE_CHECKING
@@ -22,6 +23,9 @@ make_mesh = None
 shard_map = None
 set_mesh = None
 devices = None
+default_device = None
+device_get = None
+clear_caches = None
 jnp = None
 NamedSharding = None
 P = None
@@ -30,7 +34,8 @@ tfp = None
 
 def _require_jax():
     global lax, random, tree, vmap, tree_util, jit, local_device_count
-    global make_mesh, shard_map, set_mesh, devices, jnp, NamedSharding, P, tfp
+    global make_mesh, shard_map, set_mesh, devices, default_device, device_get
+    global clear_caches, jnp, NamedSharding, P, tfp
 
     if jnp is not None:
         return
@@ -48,6 +53,9 @@ def _require_jax():
             shard_map as _sm,
             set_mesh as _set_mesh,
             devices as _devices,
+            default_device as _default_device,
+            device_get as _device_get,
+            clear_caches as _clear_caches,
         )
         import jax.numpy as _jnp
         from jax.sharding import NamedSharding as _ns, PartitionSpec as _ps
@@ -68,6 +76,9 @@ def _require_jax():
     shard_map = _sm
     set_mesh = _set_mesh
     devices = _devices
+    default_device = _default_device
+    device_get = _device_get
+    clear_caches = _clear_caches
     jnp = _jnp
     NamedSharding = _ns
     P = _ps
@@ -2668,6 +2679,7 @@ class JAXNSSampler(Sampler):
         self.results = None
         self.raw_results = None
         self.parameter_names = []
+        self.offload_results_to_cpu = True
 
     @classmethod
     def _build_jaxns_interface(cls, context: SamplerContext):
@@ -2740,6 +2752,7 @@ class JAXNSSampler(Sampler):
         }
         jaxns_kwargs["seed"] = sampler_kwargs.pop("seed", 42654)
         use_jit = sampler_kwargs.pop("use_jit", True)
+        offload_results_to_cpu = sampler_kwargs.pop("offload_results_to_cpu", True)
         jaxns_kwargs.update(sampler_kwargs)
 
         sampler = cls(
@@ -2749,12 +2762,14 @@ class JAXNSSampler(Sampler):
             retrieval_name=context.retrieval_name,
         )
         sampler.parameter_names = list(free_parameter_names)
+        sampler.offload_results_to_cpu = offload_results_to_cpu
 
         run_kwargs = {"use_jit": use_jit, **jaxns_kwargs}
         summary_parameters = {
             **jaxns_kwargs,
             "sampler_type": "jaxns",
             "parameter_names": free_parameter_names,
+            "offload_results_to_cpu": offload_results_to_cpu,
         }
         return sampler, run_kwargs, summary_parameters
 
@@ -2769,6 +2784,46 @@ class JAXNSSampler(Sampler):
 
     def _get_parameter_names_path(self):
         return self._get_output_prefix() + "_params.json"
+
+    def _get_cpu_device(self):
+        if not self.offload_results_to_cpu:
+            return None
+
+        for device in devices():
+            if getattr(device, "platform", None) == "cpu":
+                return device
+
+        return None
+
+    def _materialize_raw_results(self, termination_reason, state):
+        cpu_device = self._get_cpu_device()
+
+        if cpu_device is None:
+            return self.sampler.to_results(
+                state=state,
+                termination_reason=termination_reason,
+            )
+
+        termination_reason = device_get(termination_reason)
+        state = device_get(state)
+
+        gc.collect()
+        clear_caches()
+
+        with default_device(cpu_device):
+            return self.sampler.to_results(
+                state=state,
+                termination_reason=termination_reason,
+            )
+
+    def _to_numpy_tree(self, pytree):
+        cpu_device = self._get_cpu_device()
+
+        if cpu_device is None:
+            return tree.map(np.asarray, pytree)
+
+        with default_device(cpu_device):
+            return tree.map(np.asarray, pytree)
 
     @staticmethod
     def _samples_mapping_to_matrix(samples_by_parameter, parameter_names=None):
@@ -2900,12 +2955,24 @@ class JAXNSSampler(Sampler):
             "samples": getattr(raw_results, "parametrised_samples", {}),
             "log_likelihood": getattr(raw_results, "log_L_samples", np.array([])),
         }
-        resampled_payload = jaxns_resample(
-            random.PRNGKey(self.seed),
-            posterior_payload,
-            getattr(raw_results, "log_dp_mean"),
-        )
-        resampled_payload = tree.map(np.asarray, resampled_payload)
+
+        cpu_device = self._get_cpu_device()
+
+        if cpu_device is None:
+            resampled_payload = jaxns_resample(
+                random.PRNGKey(self.seed),
+                posterior_payload,
+                getattr(raw_results, "log_dp_mean"),
+            )
+            resampled_payload = tree.map(np.asarray, resampled_payload)
+        else:
+            with default_device(cpu_device):
+                resampled_payload = jaxns_resample(
+                    random.PRNGKey(self.seed),
+                    posterior_payload,
+                    getattr(raw_results, "log_dp_mean"),
+                )
+                resampled_payload = tree.map(np.asarray, resampled_payload)
 
         equal_weight_samples, parameter_names = self._samples_mapping_to_matrix(
             resampled_payload["samples"],
@@ -2997,15 +3064,23 @@ class JAXNSSampler(Sampler):
         else:
             termination_reason, state = self.sampler(jax_random_key)
 
-        self.raw_results = self.sampler.to_results(
-            state=state, termination_reason=termination_reason
+        self.raw_results = self._materialize_raw_results(
+            termination_reason=termination_reason,
+            state=state,
         )
 
-        results_out = tree.map(np.asarray, self.raw_results)
+        del termination_reason
+        del state
+        gc.collect()
+        clear_caches()
+
+        results_out = self._to_numpy_tree(self.raw_results)
         save_results(
             results=results_out,
             save_file=self._get_raw_results_path(),
         )
+
+        self.raw_results = results_out
 
         self.results = self._build_equal_weight_results(self.raw_results)
 
@@ -3268,15 +3343,23 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
         else:
             termination_reason, state = self.sampler(jax_random_key)
 
-        self.raw_results = self.sampler.to_results(
-            state=state, termination_reason=termination_reason
+        self.raw_results = self._materialize_raw_results(
+            termination_reason=termination_reason,
+            state=state,
         )
 
-        results_out = tree.map(np.asarray, self.raw_results)
+        del termination_reason
+        del state
+        gc.collect()
+        clear_caches()
+
+        results_out = self._to_numpy_tree(self.raw_results)
         save_results(
             results=results_out,
             save_file=self._get_raw_results_path(),
         )
+
+        self.raw_results = results_out
 
         self.results = self._build_equal_weight_results(self.raw_results)
 

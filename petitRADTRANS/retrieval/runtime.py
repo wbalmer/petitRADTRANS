@@ -184,6 +184,7 @@ class ObservationState:
     model_generating_function: Any = None
     model_resolution: Any = None
     data_resolution: Any = None
+    data_resolution_array_model: Any = None
     wavelength_bin_widths: Any = None
     external_radtrans_reference: str | None = None
     line_opacity_mode: str | None = None
@@ -830,25 +831,78 @@ class RetrievalRuntime:
 
         # --- 2-D spectrum (e.g. multi-order spectroscopy or time series) ---
         if jnp.ndim(observation.spectrum) == 2:
-            log_likelihood = jnp.asarray(0.0, dtype=JAX_DTYPE)
-            for i, spectrum_data in enumerate(observation.spectrum):
-                # Project each epoch/order model spectrum into observation space
-                model_epoch = project_model_to_observation_space(
+            if (
+                jnp.ndim(observation.wavelengths) == 1
+                and data_covariance is None
+                and data_uncertainties is not None
+            ):
+                if jnp.ndim(spectrum_model) == 1:
+                    spectrum_model = jnp.broadcast_to(
+                        spectrum_model,
+                        observation.spectrum.shape[:-1] + (spectrum_model.shape[-1],),
+                    )
+
+                project_epoch = lambda spectrum_epoch: project_model_to_observation_space(
                     wavelengths_model,
-                    spectrum_model[i],
+                    spectrum_epoch,
                     observation,
                     parameters,
                     data_name,
                 )
-                if observation.mask is not None:
-                    model_epoch = model_epoch[~observation.mask[i, :]]
-                log_likelihood += compute_observation_log_likelihood(
-                    model_epoch,
-                    spectrum_data,
-                    observation.uncertainties[i],
-                    None,
-                    n_free,
+
+                if _uses_variable_resolution_convolution(observation):
+                    projected_model = lax.map(project_epoch, spectrum_model)
+                else:
+                    projected_model = vmap(project_epoch)(spectrum_model)
+
+                ll = compute_diagonal_observation_log_likelihood(
+                    projected_model,
+                    data_spectrum,
+                    data_uncertainties,
+                    mask=observation.mask,
                 )
+
+                return jnp.where(
+                    ll <= INVALID_LOG_LIKELIHOOD,
+                    INVALID_LOG_LIKELIHOOD,
+                    ll + additional_log_likelihood,
+                )
+
+            log_likelihood = jnp.asarray(0.0, dtype=JAX_DTYPE)
+
+            if jnp.ndim(spectrum_model) == 1:
+                spectrum_model = jnp.broadcast_to(
+                    spectrum_model,
+                    observation.spectrum.shape[:-1] + (spectrum_model.shape[-1],),
+                )
+
+            for i, spectrum_data in enumerate(observation.spectrum):
+                epoch_observation = _slice_observation_epoch(observation, i)
+
+                # Project each epoch/order model spectrum into observation space
+                model_epoch = project_model_to_observation_space(
+                    wavelengths_model,
+                    spectrum_model[i],
+                    epoch_observation,
+                    parameters,
+                    data_name,
+                )
+
+                if epoch_observation.uncertainties is not None:
+                    log_likelihood += compute_diagonal_observation_log_likelihood(
+                        model_epoch,
+                        spectrum_data,
+                        epoch_observation.uncertainties,
+                        mask=epoch_observation.mask,
+                    )
+                else:
+                    log_likelihood += compute_observation_log_likelihood(
+                        model_epoch,
+                        spectrum_data,
+                        epoch_observation.uncertainties,
+                        epoch_observation.covariance,
+                        n_free,
+                    )
             return log_likelihood + additional_log_likelihood
 
         # --- 3-D spectrum (e.g. multi-detector multi-order) ---
@@ -1853,6 +1907,55 @@ def _build_fitted_covariance_from_observation(
     return total_covariance
 
 
+def _slice_observation_epoch(
+    observation: ObservationState,
+    epoch_index: int,
+) -> ObservationState:
+    def slice_epoch(value: Any) -> Any:
+        if value is None:
+            return None
+
+        ndim = getattr(value, "ndim", None)
+
+        if ndim is None or ndim < 2:
+            return value
+
+        return value[epoch_index]
+
+    return replace(
+        observation,
+        wavelengths=slice_epoch(observation.wavelengths),
+        spectrum=slice_epoch(observation.spectrum),
+        mask=slice_epoch(observation.mask),
+        uncertainties=slice_epoch(observation.uncertainties),
+        covariance=slice_epoch(observation.covariance),
+        data_resolution=slice_epoch(observation.data_resolution),
+        data_resolution_array_model=slice_epoch(
+            observation.data_resolution_array_model
+        ),
+        wavelength_bin_widths=slice_epoch(observation.wavelength_bin_widths),
+    )
+
+
+def _uses_variable_resolution_convolution(observation: ObservationState) -> bool:
+    for resolution in (
+        observation.data_resolution_array_model,
+        observation.data_resolution,
+    ):
+        if resolution is None:
+            continue
+
+        resolution_ndim = getattr(resolution, "ndim", None)
+
+        if resolution_ndim is not None and resolution_ndim > 0:
+            return True
+
+        if isinstance(resolution, (np.ndarray, jnp.ndarray)):
+            return True
+
+    return False
+
+
 def _configuration_requires_radtrans_initialization(configuration: Any) -> bool:
     for data in getattr(configuration, "data", {}).values():
         if (
@@ -1924,6 +2027,45 @@ def project_model_to_observation_space(
         data_name,
         spectrum_params,
     )
+
+
+def compute_diagonal_observation_log_likelihood(
+    model_spectrum: Any,
+    data_spectrum: Any,
+    data_uncertainties: Any,
+    *,
+    mask: Any = None,
+) -> Any:
+    model_spectrum = jnp.asarray(model_spectrum)
+    data_spectrum = jnp.asarray(data_spectrum)
+    data_uncertainties = jnp.asarray(data_uncertainties)
+
+    if model_spectrum.shape != data_spectrum.shape:
+        raise ValueError("The data and model model must have the same shape.")
+
+    if data_uncertainties.shape != data_spectrum.shape:
+        raise ValueError(
+            "data_uncertainties must have the same shape as the data_spectrum"
+        )
+
+    if mask is None:
+        valid_mask = jnp.ones_like(data_spectrum, dtype=bool)
+    else:
+        valid_mask = ~jnp.asarray(mask, dtype=bool)
+
+        if valid_mask.shape != data_spectrum.shape:
+            raise ValueError("mask must have the same shape as the data_spectrum")
+
+    safe_uncertainties = jnp.where(valid_mask, data_uncertainties, 1.0)
+    residual = jnp.where(valid_mask, data_spectrum - model_spectrum, 0.0)
+    variance = safe_uncertainties**2
+
+    log_norm = -0.5 * jnp.sum(
+        jnp.where(valid_mask, jnp.log(2.0 * jnp.pi * variance), 0.0)
+    )
+    chi_squared = jnp.sum((residual / safe_uncertainties) ** 2)
+
+    return log_norm - 0.5 * chi_squared
 
 
 def compute_observation_log_likelihood(

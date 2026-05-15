@@ -416,16 +416,26 @@ class Retrieval:
                 A dictionary of Parameters, with values set to the values
                 in sample.
         """
-        parameters = {}
-        i_p = 0
+        sample_values = self._flatten_free_parameter_values(sample)
 
-        # TODO: test new implementation.
+        if sample_values.size < len(free_param_names):
+            raise ValueError(
+                f"Expected at least {len(free_param_names)} free-parameter values, got {sample_values.size}"
+            )
+
+        free_parameter_values = {
+            parameter_name: sample_values[index]
+            for index, parameter_name in enumerate(free_param_names)
+        }
+        parameters = {}
+
         for parameter_name, parameter in self.configuration.parameters.items():
-            if parameter.is_free_parameter and parameter_name in free_param_names:
+            if parameter.is_free_parameter and parameter_name in free_parameter_values:
                 parameters[parameter_name] = Parameter(
-                    name=parameter_name, is_free_parameter=False, value=sample[i_p]
+                    name=parameter_name,
+                    is_free_parameter=False,
+                    value=free_parameter_values[parameter_name],
                 )
-                i_p += 1
             else:
                 parameters[parameter_name] = Parameter(
                     name=parameter_name, is_free_parameter=False, value=parameter.value
@@ -439,6 +449,7 @@ class Retrieval:
         parameters: dict[str, Parameter],
         *,
         data_name: str,
+        data_object: Data | None = None,
         pt_plot_mode: bool = False,
         adaptive_mesh_refinement: bool = False,
     ):
@@ -449,12 +460,24 @@ class Retrieval:
         physical_params = PhysicalParams.from_mapping(
             {name: parameter.value for name, parameter in parameters.items()}
         )
+        model_metadata = None
+        variability_mode = False
+
+        if data_object is not None:
+            observation_state = data_object.to_observation_state()
+            model_metadata = observation_state.metadata
+            variability_mode = (
+                observation_state.variability_atmospheric_column_model_flux_return_mode
+            )
+
         model_context = _build_model_context_from_parameters(
             data_name,
             "unknown",
             radtrans_object,
             parameters,
             adaptive_mesh_refinement=adaptive_mesh_refinement,
+            variability_atmospheric_column_model_flux_return_mode=variability_mode,
+            model_metadata=model_metadata,
         )
         model_result = run_runtime_model_adapter(
             runtime_ready_model_function,
@@ -636,6 +659,7 @@ class Retrieval:
                 radtrans_object,
                 configuration_parameters,
                 data_name=name,
+                data_object=_data,
                 pt_plot_mode=pt_plot_mode,
                 adaptive_mesh_refinement=adaptive_mesh_refinement,
             )
@@ -1511,6 +1535,20 @@ class Retrieval:
         self.sampler = sampler
         self.latest_sampler_results = results
 
+        if self.configuration.sampler_type.lower() == "pymultinest":
+            analyzer = None
+
+            if results is not None and hasattr(results, "get_stats") and callable(
+                getattr(results, "get_stats")
+            ):
+                analyzer = results
+            elif getattr(sampler, "analyzer", None) is not None:
+                analyzer = sampler.analyzer
+
+            self.analyzer = analyzer
+        else:
+            self.analyzer = None
+
         if self.rank == 0:
             try:
                 self._save_samples_archive()
@@ -1544,8 +1582,15 @@ class Retrieval:
         if "pymultinest" not in self.configuration.sampler_type.lower():
             return None
 
+        if not ret_name and self.analyzer is not None:
+            return self.analyzer
+
         current_ret_name = self.configuration.retrieval_name
-        is_current_retrieval = not ret_name or ret_name == current_ret_name
+        if not ret_name:
+            ret_name = current_ret_name
+
+        is_current_retrieval = ret_name == current_ret_name
+
         if (
             hasattr(self, "latest_sampler_results")
             and self.latest_sampler_results is not None
@@ -1554,44 +1599,48 @@ class Retrieval:
                 getattr(self.latest_sampler_results, "get_stats")
             ):
                 if is_current_retrieval:
-                    return self.latest_sampler_results
-        if ret_name:
-            try:
-                import pymultinest
+                    self.analyzer = self.latest_sampler_results
+                    return self.analyzer
 
-                n_params = self._n_free_params_total_retrieval
-                prefix = os.path.join(self.output_directory, "out_PMN", ret_name + "_")
-                if not os.path.exists(
-                    os.path.join(
-                        self.output_directory, "out_PMN", ret_name + "_params.json"
-                    )
-                ):
-                    warnings.warn(
-                        f"No params file found for retrieval '{ret_name}' in out_PMN. "
-                        "Cannot construct analyzer."
-                    )
-                    return None
-                return pymultinest.Analyzer(
-                    n_params=n_params, outputfiles_basename=prefix
+        try:
+            import pymultinest
+
+            n_params = getattr(self, "_n_free_params_total_retrieval", None)
+
+            if n_params is None:
+                n_params = sum(
+                    parameter.is_free_parameter
+                    for parameter in self.configuration.parameters.values()
                 )
-            except ImportError:
+
+            prefix = os.path.join(self.output_directory, "out_PMN", ret_name + "_")
+
+            if not os.path.exists(
+                os.path.join(self.output_directory, "out_PMN", ret_name + "_params.json")
+            ):
                 warnings.warn(
-                    "pymultinest is not installed. Cannot load PymultinestAnalyzer from disk."
+                    f"No params file found for retrieval '{ret_name}' in out_PMN. "
+                    "Cannot construct analyzer."
                 )
                 return None
-            except Exception as e:
-                warnings.warn(
-                    f"Failed to load PyMultiNest analyzer for '{ret_name}': {e}"
-                )
-                return None
-        if (
-            hasattr(self, "latest_sampler_results")
-            and self.latest_sampler_results is not None
-        ):
-            warnings.warn(
-                f"Returning raw results object of type: {type(self.latest_sampler_results)}."
+
+            analyzer = pymultinest.Analyzer(
+                n_params=n_params, outputfiles_basename=prefix
             )
-            return self.latest_sampler_results
+
+            if is_current_retrieval:
+                self.analyzer = analyzer
+
+            return analyzer
+        except ImportError:
+            warnings.warn(
+                "pymultinest is not installed. Cannot load PymultinestAnalyzer from disk."
+            )
+            return None
+        except Exception as e:
+            warnings.warn(f"Failed to load PyMultiNest analyzer for '{ret_name}': {e}")
+            return None
+
         warnings.warn(
             "No sampler results found or specified PyMultiNest retrieval name not loadable."
         )
@@ -2150,9 +2199,8 @@ class Retrieval:
         return_array=False,
     ):
         """
-        This function builds a parameter dictionary based on the median value
-        of each parameter. This will update the best_fit_parameter dictionary!
-        # TODO fix docstring
+        Build a parameter dictionary from the marginal median of each parameter.
+
         Args:
             samples : numpy.ndarray
                 An array of samples and likelihoods taken from a post_equal_weights file.
@@ -2161,26 +2209,17 @@ class Retrieval:
             return_array : bool
                 If True, also return the median parameters as an array
         """
-        i_p = 0
-        samples_use = np.zeros(len(parameters_read))
+        samples_use = np.array(
+            [np.median(samples[index, :]) for index in range(len(parameters_read))],
+            dtype=float,
+        )
 
-        # Take the median of each column
-        for pp in self.configuration.parameters:
-            if self.configuration.parameters[pp].is_free_parameter:
-                for i_s in range(len(parameters_read)):
-                    if parameters_read[i_s] == self.configuration.parameters[pp].name:
-                        samples_use[i_p] = np.median(samples[i_s, :])
-
-                i_p += 1
-
-        self.best_fit_parameters = self.build_param_dict(
-            samples_use, parameters_read
-        )  # TODO should not update self.best_fit_parameters: median != best-fit  # noqa: E501
+        median_parameters = self.build_param_dict(samples_use, parameters_read)
 
         if return_array:
-            return self.best_fit_parameters, samples_use
+            return median_parameters, samples_use
 
-        return self.best_fit_parameters
+        return median_parameters
 
     def get_parameters_prior_mid_range_values(self) -> npt.NDArray[np.floating]:
         """Return the prior mid-range values of the free parameters."""
