@@ -88,15 +88,31 @@ def _require_jax():
 jaxns = None
 Model = None
 NestedSampler = None
+TerminationCondition = None
 save_results = None
 load_results = None
 jaxns_resample = None
 ShardedStaticNestedSampler = None
 UniformSampler = None
 
+_JAXNS_TERMINATION_FIELDS = (
+    "ess",
+    "evidence_uncert",
+    "live_evidence_frac",
+    "dlogZ",
+    "max_samples",
+    "max_num_likelihood_evaluations",
+    "log_L_contour",
+    "efficiency_threshold",
+    "rtol",
+    "atol",
+    "peak_XL_frac",
+)
+
 
 def _require_jaxns():
-    global jaxns, Model, NestedSampler, save_results, load_results, jaxns_resample
+    global jaxns, Model, NestedSampler, TerminationCondition
+    global save_results, load_results, jaxns_resample
     global ShardedStaticNestedSampler, UniformSampler
 
     if jaxns is not None:
@@ -108,6 +124,9 @@ def _require_jaxns():
         from jaxns import NestedSampler as jaxns_nested_sampler
         from jaxns import load_results as jaxns_load_results
         from jaxns import save_results as jaxns_save_results
+        from jaxns.nested_samplers.common.types import (
+            TerminationCondition as jaxns_termination_condition,
+        )
         from jaxns.nested_samplers import (
             ShardedStaticNestedSampler as jaxns_sharded_static_nested_sampler,
         )
@@ -121,6 +140,7 @@ def _require_jaxns():
     jaxns = jaxns_module
     Model = jaxns_model
     NestedSampler = jaxns_nested_sampler
+    TerminationCondition = jaxns_termination_condition
     save_results = jaxns_save_results
     load_results = jaxns_load_results
     jaxns_resample = jaxns_utils_resample
@@ -2722,6 +2742,95 @@ class JAXNSSampler(Sampler):
 
         return free_parameter_names, prior_model, log_likelihood_wrapper
 
+    @staticmethod
+    def _coerce_termination_condition_mapping(values, source_name: str) -> dict[str, Any]:
+        if values is None:
+            return {}
+
+        if hasattr(values, "_asdict"):
+            values = values._asdict()
+
+        if not isinstance(values, dict):
+            raise TypeError(
+                f"JAXNS termination condition source '{source_name}' must be a mapping or TerminationCondition, "
+                f"but is '{type(values)}'"
+            )
+
+        unknown_fields = [
+            field_name
+            for field_name in values
+            if field_name not in _JAXNS_TERMINATION_FIELDS
+        ]
+
+        if len(unknown_fields) > 0:
+            raise TypeError(
+                "Unknown JAXNS termination condition field(s): "
+                f"{unknown_fields}. Supported fields are {_JAXNS_TERMINATION_FIELDS}."
+            )
+
+        return dict(values)
+
+    @classmethod
+    def _build_termination_condition(
+        cls, sampler_kwargs: dict[str, Any]
+    ) -> tuple[Any, dict[str, Any]]:
+        _require_jaxns()
+
+        termination_condition_values: dict[str, Any] = {}
+
+        def _add_termination_field(field_name: str, value: Any, source_name: str) -> None:
+            if field_name in termination_condition_values:
+                raise TypeError(
+                    f"got multiple values for JAXNS termination condition field '{field_name}'"
+                )
+
+            termination_condition_values[field_name] = value
+
+        for source_name in (
+            "termination_condition",
+            "term_cond",
+            "termination_condition_kwargs",
+        ):
+            values = sampler_kwargs.pop(source_name, None)
+            values = cls._coerce_termination_condition_mapping(values, source_name)
+
+            for field_name, value in values.items():
+                _add_termination_field(field_name, value, source_name)
+
+        for field_name in _JAXNS_TERMINATION_FIELDS:
+            option_names = [f"termination_{field_name}"]
+
+            if field_name != "max_samples":
+                option_names.insert(0, field_name)
+
+            present_option_names = [
+                option_name for option_name in option_names if option_name in sampler_kwargs
+            ]
+
+            if len(present_option_names) > 1:
+                raise TypeError(
+                    "got multiple values for JAXNS termination condition field "
+                    f"'{field_name}' via {present_option_names}"
+                )
+
+            if len(present_option_names) == 0:
+                continue
+
+            option_name = present_option_names[0]
+            _add_termination_field(
+                field_name,
+                sampler_kwargs.pop(option_name),
+                option_name,
+            )
+
+        if len(termination_condition_values) == 0:
+            return None, {}
+
+        return (
+            TerminationCondition(**termination_condition_values),
+            dict(termination_condition_values),
+        )
+
     @classmethod
     def prepare(cls, context: SamplerContext, **sampler_kwargs):
         _require_jax()
@@ -2732,6 +2841,10 @@ class JAXNSSampler(Sampler):
 
         free_parameter_names, prior_model, log_likelihood_wrapper = (
             cls._build_jaxns_interface(context)
+        )
+
+        termination_condition, termination_summary = cls._build_termination_condition(
+            sampler_kwargs
         )
 
         jaxns_kwargs = {
@@ -2764,13 +2877,21 @@ class JAXNSSampler(Sampler):
         sampler.parameter_names = list(free_parameter_names)
         sampler.offload_results_to_cpu = offload_results_to_cpu
 
-        run_kwargs = {"use_jit": use_jit, **jaxns_kwargs}
+        run_kwargs = {
+            "use_jit": use_jit,
+            "termination_condition": termination_condition,
+            **jaxns_kwargs,
+        }
         summary_parameters = {
             **jaxns_kwargs,
             "sampler_type": "jaxns",
             "parameter_names": free_parameter_names,
             "offload_results_to_cpu": offload_results_to_cpu,
         }
+
+        if len(termination_summary) > 0:
+            summary_parameters["termination_condition"] = termination_summary
+
         return sampler, run_kwargs, summary_parameters
 
     def _get_output_prefix(self):
@@ -3029,6 +3150,10 @@ class JAXNSSampler(Sampler):
         """
         _require_jaxns()
 
+        termination_condition, _termination_summary = self._build_termination_condition(
+            jaxns_kwargs
+        )
+
         self.jaxns_parameters = {
             "num_live_points": jaxns_kwargs.pop("num_live_points", 400),
             "max_samples": jaxns_kwargs.pop("max_samples", 1e7),
@@ -3060,9 +3185,15 @@ class JAXNSSampler(Sampler):
         print(f"Starting JAXNS retrieval: {self.retrieval_name}")
 
         if use_jit:
-            termination_reason, state = jit(self.sampler)(jax_random_key)
+            termination_reason, state = jit(self.sampler)(
+                jax_random_key,
+                termination_condition,
+            )
         else:
-            termination_reason, state = self.sampler(jax_random_key)
+            termination_reason, state = self.sampler(
+                jax_random_key,
+                termination_condition,
+            )
 
         self.raw_results = self._materialize_raw_results(
             termination_reason=termination_reason,
@@ -3313,14 +3444,19 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
         """
         _require_jaxns()
 
+        termination_condition, _termination_summary = self._build_termination_condition(
+            jaxns_kwargs
+        )
+
         self.jaxns_parameters = {
             "num_live_points": jaxns_kwargs.pop("num_live_points", 400),
-            "sampler": jaxns_kwargs.pop("sampler", 400),
             "max_samples": jaxns_kwargs.pop("max_samples", 1e7),
             "devices": jaxns_kwargs.pop("devices", devices()),
             "difficult_model": jaxns_kwargs.pop("difficult_model", False),
             "verbose": jaxns_kwargs.pop("verbose", False),
         }
+
+        sampler_class = jaxns_kwargs.pop("sampler", UniformSampler)
 
         self.seed = jaxns_kwargs.pop("seed", 42654)
         # The prior_func is expected to be the prior_model (a generator)
@@ -3331,7 +3467,7 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
         # TODO Test Sharded parallel sampler
         # TODO test different sampler choices.
         self.sampler = ShardedStaticNestedSampler(
-            model, sampler=UniformSampler, **self.jaxns_parameters
+            model, sampler=sampler_class, **self.jaxns_parameters
         )
 
         jax_random_key = random.PRNGKey(self.seed)
@@ -3339,9 +3475,15 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
         print(f"Starting JAXNS retrieval: {self.retrieval_name}")
 
         if use_jit:
-            termination_reason, state = jit(self.sampler)(jax_random_key)
+            termination_reason, state = jit(self.sampler)(
+                jax_random_key,
+                termination_condition,
+            )
         else:
-            termination_reason, state = self.sampler(jax_random_key)
+            termination_reason, state = self.sampler(
+                jax_random_key,
+                termination_condition,
+            )
 
         self.raw_results = self._materialize_raw_results(
             termination_reason=termination_reason,

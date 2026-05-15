@@ -182,8 +182,50 @@ Key parameters:
 * ``devices``: JAX devices to use.
 * ``seed``: random seed.
 * ``use_jit``: JIT the nested-sampler call.
+* ``termination_condition``, ``term_cond``, or ``termination_condition_kwargs``:
+  pass a mapping or JAXNS ``TerminationCondition``-like object with stopping
+  criteria.
+* Direct termination-condition fields are also accepted as keyword arguments:
+  ``ess``, ``evidence_uncert``, ``live_evidence_frac``, ``dlogZ``,
+  ``max_num_likelihood_evaluations``, ``log_L_contour``,
+  ``efficiency_threshold``, ``rtol``, ``atol``, and ``peak_XL_frac``.
+* ``termination_<field>`` aliases are accepted for all termination-condition
+  fields. In practice, ``termination_max_samples`` is the important one because
+  plain ``max_samples`` configures the nested sampler itself.
 
 JAXNS is the default JAX-native nested sampler in pRT. It expects a differentiable retrieval runtime and now saves equal-weight posterior samples for downstream plotting.
+
+If you do not supply any termination-condition settings, pRT leaves
+``term_cond=None`` and JAXNS falls back to its internal defaults.
+
+For example, this run keeps the sampler-level ``max_samples`` cap at ``50000``
+while also building a termination condition with ``dlogZ=0.1``, ``ess=512``,
+and a termination-condition ``max_samples`` of ``20000``:
+
+.. code-block:: python
+
+   retrieval.run(
+       num_live_points=400,
+       max_samples=50000,
+       dlogZ=0.1,
+       ess=512,
+       termination_max_samples=20000,
+       use_jit=True,
+   )
+
+You can also pass the same stopping criteria as a mapping:
+
+.. code-block:: python
+
+   retrieval.run(
+       num_live_points=400,
+       termination_condition_kwargs={
+           "dlogZ": 0.1,
+           "rtol": 1e-4,
+           "peak_XL_frac": 1e-2,
+       },
+       use_jit=True,
+   )
 
 JAXNS sharded static sampler
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -198,7 +240,10 @@ Key parameters:
 * ``seed``: random seed.
 * ``use_jit``: JIT the sampler call.
 
-This backend is an advanced JAXNS variant. Prefer ``jaxns`` unless you specifically need the static sharded execution strategy.
+This backend accepts the same termination-condition setup as ``jaxns``:
+``termination_condition`` / ``term_cond`` / ``termination_condition_kwargs``,
+direct termination-condition field kwargs, and ``termination_<field>`` aliases.
+Prefer ``jaxns`` unless you specifically need the static sharded execution strategy.
 
 NumPyro NUTS / HMC
 ~~~~~~~~~~~~~~~~~~

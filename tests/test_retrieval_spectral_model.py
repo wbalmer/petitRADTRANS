@@ -294,7 +294,7 @@ def init_retrieval():
 retrieval = init_retrieval()
 
 
-@pytest.mark.skip
+@pytest.mark.skip_disabled
 def test_spectral_model_retrieval():
     retrieval.run(
         sampling_efficiency=test_parameters["retrieval_parameters"][
