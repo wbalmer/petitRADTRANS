@@ -2789,7 +2789,18 @@ class JAXNSSampler(Sampler):
         if not self.offload_results_to_cpu:
             return None
 
-        for device in devices():
+        try:
+            cpu_devices = devices("cpu")
+        except Exception as error:
+            warnings.warn(
+                "No JAX CPU backend is available for result offload. "
+                "Ensure the environment initializes the CPU backend, for example with JAX_PLATFORMS=cuda,cpu. "
+                f"Original error: {error}",
+                RuntimeWarning,
+            )
+            return None
+
+        for device in cpu_devices:
             if getattr(device, "platform", None) == "cpu":
                 return device
 

@@ -2020,8 +2020,7 @@ class Retrieval:
         Returns:
             object: The generated full range model.
         """
-        # Set up parameter dictionary
-        # parameters = self.build_param_dict(params,parameters_read)
+        parameters = copy.deepcopy(parameters)
         parameters["contribution"] = Parameter(
             "contribution", False, value=contribution
         )
@@ -2074,16 +2073,22 @@ class Retrieval:
                 line_by_line_opacity_sampling=line_by_line_sampling,
             )
 
-        # Check what model function we're using
+        if prt_reference is not None:
+            reference_data = self.configuration.data[prt_reference]
+        else:
+            reference_data = self.plotter.get_reference_data()
+
         if model_generating_function is None:
-            mg_func = self.plotter.get_reference_data().model_generating_function
+            mg_func = reference_data.model_generating_function
         else:
             mg_func = model_generating_function
 
-        # get the spectrum
-        results = mg_func(
+        results = self._call_model_generating_function(
+            mg_func,
             atmosphere,
             parameters,
+            data_name=reference_data.name,
+            data_object=reference_data,
             pt_plot_mode=False,
             adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
         )

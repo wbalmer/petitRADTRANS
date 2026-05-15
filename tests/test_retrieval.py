@@ -2439,6 +2439,76 @@ def test_set_free_parameter_values_accepts_ctypes_sequences():
     assert retrieval.configuration.parameters["free_parameter"].value == 4.25
 
 
+def test_get_full_range_model_uses_model_adapter_for_plotting():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    def legacy_direct_call(*args, **kwargs):
+        raise AssertionError("plotting should not call the legacy model path directly")
+
+    reference_data = SimpleNamespace(
+        name="reference_dataset",
+        model_generating_function=legacy_direct_call,
+    )
+
+    retrieval.configuration = SimpleNamespace(
+        pressures=np.array([1.0, 10.0]),
+        adaptive_mesh_refinement=False,
+        data={"reference_dataset": reference_data},
+    )
+    retrieval.plotter = SimpleNamespace(
+        get_reference_data=lambda: reference_data,
+    )
+
+    expected_wavelengths = np.array([1.0, 2.0])
+    expected_spectrum = np.array([0.1, 0.2])
+    adapter_call = {}
+
+    def fake_call_model_generating_function(
+        model_generating_function,
+        radtrans_object,
+        parameters,
+        *,
+        data_name,
+        data_object=None,
+        pt_plot_mode=False,
+        adaptive_mesh_refinement=False,
+    ):
+        adapter_call["model_generating_function"] = model_generating_function
+        adapter_call["radtrans_object"] = radtrans_object
+        adapter_call["parameters"] = parameters
+        adapter_call["data_name"] = data_name
+        adapter_call["data_object"] = data_object
+        adapter_call["pt_plot_mode"] = pt_plot_mode
+        adapter_call["adaptive_mesh_refinement"] = adaptive_mesh_refinement
+        return expected_wavelengths, expected_spectrum
+
+    retrieval._call_model_generating_function = fake_call_model_generating_function
+
+    parameters = {
+        "amplitude": Parameter(
+            name="amplitude",
+            is_free_parameter=False,
+            value=1.0,
+        )
+    }
+    atmosphere = object()
+
+    wavelengths, spectrum = retrieval.get_full_range_model(
+        parameters,
+        prt_object=atmosphere,
+    )
+
+    np.testing.assert_allclose(wavelengths, expected_wavelengths)
+    np.testing.assert_allclose(spectrum, expected_spectrum)
+    assert adapter_call["model_generating_function"] is legacy_direct_call
+    assert adapter_call["radtrans_object"] is atmosphere
+    assert adapter_call["data_name"] == "reference_dataset"
+    assert adapter_call["data_object"] is reference_data
+    assert adapter_call["pt_plot_mode"] is False
+    assert adapter_call["adaptive_mesh_refinement"] is False
+    assert "contribution" not in parameters
+
+
 def test_numpyro_hmc_kernel_kwargs_prefer_trajectory_length_over_num_steps():
     kernel_kwargs = NumPyroSampler._prepare_kernel_kwargs(
         algorithm_name="hmc",
