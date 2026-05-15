@@ -7,7 +7,8 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 import ctypes
 import json
 import os
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 import jax
 import jax.numpy as jnp
 import pytest
@@ -236,6 +237,21 @@ class _JAXNSLikeResults:
         self.log_L_samples = np.array([-3.0, -1.0, -2.0])
         self.log_Z_mean = 1.5
         self.log_Z_uncert = 0.2
+
+
+class _JAXNSSamplesOnlyResults:
+    def __init__(self):
+        self.samples = {"amplitude": np.array([1.0, 3.0, 2.0])}
+        self.parametrised_samples = {}
+        self.log_L_samples = np.array([-3.0, -1.0, -2.0])
+        self.log_dp_mean = np.array([-0.3, -0.2, -0.1])
+        self.log_Z_mean = 1.5
+        self.log_Z_uncert = 0.2
+        self.ESS = 3.0
+        self.H_mean = 0.1
+        self.total_num_samples = 3
+        self.total_num_likelihood_evaluations = 3
+        self.log_efficiency = -1.0
 
 
 def _build_runtime(
@@ -2578,6 +2594,110 @@ def test_get_samples_dict_supports_jaxns_style_results_without_pymultinest():
     np.testing.assert_allclose(samples["log_likelihood"], np.array([-3.0, -1.0, -2.0]))
     assert retrieval.get_best_fit_parameters() == {"amplitude": 3.0}
     assert retrieval.get_quantile_parameters(0.5) == {"amplitude": 2.0}
+
+
+def test_jaxns_equal_weight_results_fall_back_to_samples_mapping(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "jaxns_resample",
+        lambda key, posterior_payload, log_dp_mean: {
+            "samples": posterior_payload["samples"],
+            "log_likelihood": posterior_payload["log_likelihood"],
+        },
+    )
+
+    sampler = JAXNSSampler(
+        log_likelihood_func=lambda *_args: 0.0,
+        prior_func=lambda: (),
+        output_directory=str(tmp_path),
+        retrieval_name="jaxns_samples_only",
+    )
+    sampler.parameter_names = ["amplitude"]
+    sampler.seed = 7
+
+    results = sampler._build_equal_weight_results(_JAXNSSamplesOnlyResults())
+
+    assert results["samples"].shape == (3, 1)
+    np.testing.assert_allclose(
+        results["weighted_samples"]["points"],
+        np.array([[1.0], [3.0], [2.0]]),
+    )
+
+    with np.load(
+        tmp_path / "out_JAXNS" / "jaxns_samples_only_samples.npz",
+        allow_pickle=False,
+    ) as archive:
+        np.testing.assert_array_equal(
+            archive["parameter_names"], np.array(["amplitude"])
+        )
+        np.testing.assert_allclose(
+            archive["sample_matrix"],
+            results["samples"],
+        )
+        np.testing.assert_allclose(
+            archive["log_likelihood"],
+            results["log_likelihood"],
+        )
+
+
+def test_get_samples_recovers_malformed_jaxns_archive_from_raw_results(tmp_path, monkeypatch):
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    parameter = Parameter(
+        name="amplitude",
+        is_free_parameter=True,
+        value=0.0,
+        transform_prior_cube_coordinate=lambda x: 4.0 * x,
+    )
+    retrieval.configuration = SimpleNamespace(
+        parameters={"amplitude": parameter},
+        sampler_type="jaxns",
+        retrieval_name="current_jaxns",
+    )
+    retrieval.output_directory = str(tmp_path)
+    retrieval.sampler = None
+    retrieval.latest_sampler_results = None
+    retrieval.ultranest = False
+
+    out_jaxns = tmp_path / "out_JAXNS"
+    out_jaxns.mkdir(parents=True, exist_ok=True)
+
+    params_path = out_jaxns / "archived_jaxns_params.json"
+    samples_path = out_jaxns / "archived_jaxns_samples.npz"
+
+    params_path.write_text("[]")
+    np.savez(
+        samples_path,
+        sample_matrix=np.array(np.nan),
+        log_likelihood=np.array([-3.0, -1.0, -2.0]),
+    )
+
+    fake_jaxns = ModuleType("jaxns")
+    fake_jaxns.load_results = lambda _path: _JAXNSSamplesOnlyResults()
+    monkeypatch.setitem(sys.modules, "jaxns", fake_jaxns)
+
+    sample_dict, parameter_dict = retrieval.get_samples(
+        names=["archived_jaxns"],
+        output_directory=str(tmp_path),
+    )
+
+    np.testing.assert_allclose(
+        sample_dict["archived_jaxns"],
+        np.array([[1.0, 3.0, 2.0], [-3.0, -1.0, -2.0]]),
+    )
+    assert parameter_dict["archived_jaxns"] == ["amplitude"]
+
+    with np.load(samples_path, allow_pickle=False) as archive:
+        np.testing.assert_array_equal(
+            archive["parameter_names"], np.array(["amplitude"])
+        )
+        np.testing.assert_allclose(
+            archive["sample_matrix"], np.array([[1.0], [3.0], [2.0]])
+        )
+        np.testing.assert_allclose(
+            archive["log_likelihood"], np.array([-3.0, -1.0, -2.0])
+        )
+
+    assert json.loads(params_path.read_text()) == ["amplitude"]
 
 
 def test_set_free_parameter_values_updates_non_pymultinest_retrievals():

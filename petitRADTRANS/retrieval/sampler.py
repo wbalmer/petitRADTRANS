@@ -2958,6 +2958,16 @@ class JAXNSSampler(Sampler):
             return tree.map(np.asarray, pytree)
 
     @staticmethod
+    def _get_named_samples_mapping(raw_results):
+        for field_name in ("samples", "parametrised_samples"):
+            field_value = getattr(raw_results, field_name, None)
+
+            if isinstance(field_value, dict) and len(field_value) > 0:
+                return field_value
+
+        return None
+
+    @staticmethod
     def _samples_mapping_to_matrix(samples_by_parameter, parameter_names=None):
         if not isinstance(samples_by_parameter, dict):
             return None, list(parameter_names or [])
@@ -2983,14 +2993,54 @@ class JAXNSSampler(Sampler):
         return matrix, ordered_names
 
     def _save_equal_weight_samples(self, parameter_names, samples, log_likelihood):
+        if samples is None:
+            warnings.warn(
+                "Skipping JAXNS equal-weight sample export because no posterior sample matrix is available.",
+                RuntimeWarning,
+            )
+            return None, None
+
+        sample_matrix = np.asarray(samples, dtype=float)
+        log_likelihood = np.asarray(log_likelihood, dtype=float).reshape(-1)
+        parameter_names = list(parameter_names)
+
+        if sample_matrix.ndim == 1:
+            if len(parameter_names) != 1:
+                warnings.warn(
+                    "Skipping JAXNS equal-weight sample export because the sample matrix is 1-D but the parameter list is not.",
+                    RuntimeWarning,
+                )
+                return None, None
+            sample_matrix = sample_matrix.reshape(-1, 1)
+        elif sample_matrix.ndim != 2:
+            warnings.warn(
+                "Skipping JAXNS equal-weight sample export because the sample matrix is not 2-D.",
+                RuntimeWarning,
+            )
+            return None, None
+
+        if len(parameter_names) == 0 or sample_matrix.shape[1] != len(parameter_names):
+            warnings.warn(
+                "Skipping JAXNS equal-weight sample export because parameter names do not match the sample matrix columns.",
+                RuntimeWarning,
+            )
+            return None, None
+
+        if log_likelihood.shape[0] != sample_matrix.shape[0]:
+            warnings.warn(
+                "Skipping JAXNS equal-weight sample export because log-likelihood values do not match the number of samples.",
+                RuntimeWarning,
+            )
+            return None, None
+
         samples_file = self._get_equal_weight_samples_path()
         params_file = self._get_parameter_names_path()
 
         np.savez(
             samples_file,
             parameter_names=np.asarray(parameter_names, dtype=str),
-            sample_matrix=np.asarray(samples, dtype=float),
-            log_likelihood=np.asarray(log_likelihood, dtype=float),
+            sample_matrix=sample_matrix,
+            log_likelihood=log_likelihood,
         )
 
         with open(params_file, "w") as handle:
@@ -3009,7 +3059,7 @@ class JAXNSSampler(Sampler):
         raw_results_file=None,
     ):
         weighted_matrix, parameter_names = self._samples_mapping_to_matrix(
-            getattr(raw_results, "parametrised_samples", None),
+            self._get_named_samples_mapping(raw_results),
             self.parameter_names,
         )
         self.parameter_names = list(parameter_names)
@@ -3083,8 +3133,9 @@ class JAXNSSampler(Sampler):
         return processed_results
 
     def _build_equal_weight_results(self, raw_results):
+        named_samples = self._get_named_samples_mapping(raw_results)
         posterior_payload = {
-            "samples": getattr(raw_results, "parametrised_samples", {}),
+            "samples": named_samples or {},
             "log_likelihood": getattr(raw_results, "log_L_samples", np.array([])),
         }
 
@@ -3117,7 +3168,7 @@ class JAXNSSampler(Sampler):
         ).reshape(-1)
 
         weighted_matrix, _ = self._samples_mapping_to_matrix(
-            getattr(raw_results, "parametrised_samples", None),
+            named_samples,
             self.parameter_names,
         )
         weighted_log_likelihood = np.asarray(
@@ -3242,9 +3293,8 @@ class JAXNSSampler(Sampler):
             with open(parameter_names_path, "r") as handle:
                 self.parameter_names = list(json.load(handle))
         else:
-            self.parameter_names = list(
-                getattr(self.raw_results, "parametrised_samples", {}).keys()
-            )
+            named_samples = self._get_named_samples_mapping(self.raw_results)
+            self.parameter_names = list(named_samples.keys()) if named_samples else []
 
         samples_path = self._get_equal_weight_samples_path()
         if os.path.exists(samples_path):
