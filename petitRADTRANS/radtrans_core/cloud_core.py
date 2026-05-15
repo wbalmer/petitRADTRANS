@@ -1254,25 +1254,43 @@ def _integrate_cloud_opacities_from_dn_dr(
     )
 
     # Selectively disable bins
-    # TODO: make JIT compileable
-    """if target_pressure is not None:
-        target_pressure = [tp * 1e6 for tp in target_pressure]  # bar→cgs
-        target_particle_radii = [tr * 1e-4 for tr in target_particle_radii]  # micron→cm
+    if target_pressure is not None:
+        target_pressure_cgs = jnp.asarray(target_pressure) * 1e6
+        target_particle_radii_cgs = jnp.asarray(target_particle_radii) * 1e-4
 
-        disabled_bins = {(jnp.abs(cloud_particle_radii_bins - tr)).argmin()
-                            for tr in target_particle_radii}
-        in_layer = {(jnp.abs(pressures - tp)).argmin()
-                    for tp in target_pressure}
+        disabled_bins = jnp.clip(
+            jnp.searchsorted(cloud_particle_radii_bins, target_particle_radii_cgs),
+            1,
+            cloud_particle_radii_bins.shape[0] - 1
+        )
+        disabled_bins = jnp.where(
+            jnp.abs(target_particle_radii_cgs - cloud_particle_radii_bins[disabled_bins - 1])
+            < jnp.abs(target_particle_radii_cgs - cloud_particle_radii_bins[disabled_bins]),
+            disabled_bins - 1,
+            disabled_bins
+        )
 
-        block = np.ones_like(integrand_scale)
-        for bi in disabled_bins:
-            for li in in_layer:
-                block[bi, li, :] = 0
+        in_layer = jnp.clip(
+            jnp.searchsorted(pressures, target_pressure_cgs),
+            1,
+            pressures.shape[0] - 1
+        )
+        in_layer = jnp.where(
+            jnp.abs(target_pressure_cgs - pressures[in_layer - 1])
+            < jnp.abs(target_pressure_cgs - pressures[in_layer]),
+            in_layer - 1,
+            in_layer
+        )
 
-        integrand_scale *= block
-        integrand_absorption *= block[:, None]
-        integrand_scattering *= block[:, None]
-        integrand_anisotropy *= block[:, None]"""
+        bin_mask = jnp.isin(jnp.arange(cloud_particle_radii_bins.shape[0] - 1), disabled_bins)
+        layer_mask = jnp.isin(jnp.arange(pressures.shape[0]), in_layer)
+
+        block = (~bin_mask[:, None]) | (~layer_mask[None, :])
+        block = block[:, None, :, None]
+
+        integrand_absorption *= block
+        integrand_scattering *= block
+        integrand_anisotropy *= block
 
     # Integrate over radius
     widths = jnp.diff(cloud_particle_radii_bins)[:, None, None, None]
