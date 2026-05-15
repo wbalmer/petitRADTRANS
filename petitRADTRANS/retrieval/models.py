@@ -110,13 +110,24 @@ def _compute_gravity(physical_params):
             reference_gravity=gravity,
             mass=_get_parameter_value(physical_params, "mass"),
         )
+    elif "log_g" in physical_params.keys() and "planet_mass" in physical_params.keys():
+        gravity = 10 ** _get_parameter_value(physical_params, "log_g")
+        planet_radius, _, _ = reference_gravity2radius_jax(
+            reference_gravity=gravity,
+            mass=_get_parameter_value(physical_params, "planet_mass"),
+        )
     elif "log_g" in physical_params.keys():
         gravity = 10 ** _get_parameter_value(physical_params, "log_g")
         planet_radius = _get_parameter_value(physical_params, "planet_radius")
-    elif "mass" in physical_params.keys() or "planet_mass" in physical_params.keys():
+    elif "mass" in physical_params.keys() and "planet_radius" in physical_params.keys():
         planet_radius = _get_parameter_value(physical_params, "planet_radius")
         gravity, _, _ = mass2reference_gravity_jax(
             mass=_get_parameter_value(physical_params, "mass"), radius=planet_radius
+        )
+    elif "planet_mass" in physical_params.keys() and "planet_radius" in physical_params.keys():
+        planet_radius = _get_parameter_value(physical_params, "planet_radius")
+        gravity, _, _ = mass2reference_gravity_jax(
+            mass=_get_parameter_value(physical_params, "planet_mass"), radius=planet_radius
         )
     else:
         raise KeyError("Pick two of log_g, planet_radius and mass priors!")
@@ -3347,7 +3358,13 @@ def _is_scalar_like(value):
 
 
 def _build_model_context_from_parameters(
-    name, mode, prt_object, parameters, adaptive_mesh_refinement=False
+    name,
+    mode,
+    prt_object,
+    parameters,
+    adaptive_mesh_refinement=False,
+    variability_atmospheric_column_model_flux_return_mode=False,
+    model_metadata=None,
 ):
     (
         return_contribution,
@@ -3365,6 +3382,9 @@ def _build_model_context_from_parameters(
         mode=mode,
         radtrans=prt_object,
         adaptive_mesh_refinement=adaptive_mesh_refinement,
+        variability_atmospheric_column_model_flux_return_mode=(
+            variability_atmospheric_column_model_flux_return_mode
+        ),
         return_contribution=return_contribution,
         return_opacities=return_opacities,
         return_photosphere_radius=return_photosphere_radius,
@@ -3372,6 +3392,7 @@ def _build_model_context_from_parameters(
         return_radius_hydrostatic_equilibrium=return_radius_hydrostatic_equilibrium,
         return_cloud_contribution=return_cloud_contribution,
         return_abundances=return_abundances,
+        model_metadata={} if model_metadata is None else dict(model_metadata),
     )
 
 

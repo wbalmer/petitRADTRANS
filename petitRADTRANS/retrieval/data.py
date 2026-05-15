@@ -474,9 +474,9 @@ class Data:
     def initialise_data_resolution(self, wavelengths_model: ArrayLike) -> None:
         # TODO [4.0.0] this function should raise an error when the interpolation is not possible
         #  As it is now, it can do nothing, which can be confusing
-        if isinstance(self.data_resolution, jnp.ndarray):
+        if isinstance(self.data_resolution, (jnp.ndarray, np.ndarray)):
             self.data_resolution_array_model = jnp.interp(
-                wavelengths_model, self.wavelengths, self.data_resolution
+                wavelengths_model, self.wavelengths, jnp.asarray(self.data_resolution)
             )
 
     def update_bins(self, wavelengths: ArrayLike) -> None:
@@ -577,6 +577,7 @@ class Data:
             model_generating_function=self.model_generating_function,
             model_resolution=self.model_resolution,
             data_resolution=self.data_resolution,
+            data_resolution_array_model=self.data_resolution_array_model,
             wavelength_bin_widths=self.wavelength_bin_widths,
             external_radtrans_reference=self.external_radtrans_reference,
             line_opacity_mode=self.line_opacity_mode,
@@ -860,6 +861,7 @@ class PhotometryData(Data):
             model_generating_function=obs.model_generating_function,
             model_resolution=obs.model_resolution,
             data_resolution=obs.data_resolution,
+            data_resolution_array_model=obs.data_resolution_array_model,
             wavelength_bin_widths=obs.wavelength_bin_widths,
             external_radtrans_reference=obs.external_radtrans_reference,
             line_opacity_mode=obs.line_opacity_mode,
@@ -977,15 +979,44 @@ class TimeSeriesData(Data):
             mask=mask,
         )
 
+    @staticmethod
+    def _collapse_shared_epoch_axis(values):
+        if values is None:
+            return None
+
+        values_array = np.asarray(values)
+
+        if values_array.ndim < 2:
+            return values
+
+        reference_row = values_array[0]
+
+        if np.allclose(values_array, reference_row[None, ...], equal_nan=True):
+            return values[0]
+
+        return values
+
     def to_observation_state(self, model_contract: str = "legacy") -> ObservationState:
         obs = super().to_observation_state(model_contract=model_contract)
         updated_metadata = dict(obs.metadata)
         updated_metadata["observation_times"] = self.observation_times
         if self.time_series_config is not None:
             updated_metadata["time_series_config"] = self.time_series_config
+
+        observation_wavelengths = self._collapse_shared_epoch_axis(obs.wavelengths)
+        observation_bin_widths = self._collapse_shared_epoch_axis(
+            obs.wavelength_bin_widths
+        )
+        observation_data_resolution = self._collapse_shared_epoch_axis(
+            obs.data_resolution
+        )
+        observation_data_resolution_array_model = self._collapse_shared_epoch_axis(
+            obs.data_resolution_array_model
+        )
+
         return ObservationState(
             name=obs.name,
-            wavelengths=obs.wavelengths,
+            wavelengths=observation_wavelengths,
             spectrum=obs.spectrum,
             mask=obs.mask,
             uncertainties=obs.uncertainties,
@@ -993,8 +1024,9 @@ class TimeSeriesData(Data):
             radtrans_object=obs.radtrans_object,
             model_generating_function=obs.model_generating_function,
             model_resolution=obs.model_resolution,
-            data_resolution=obs.data_resolution,
-            wavelength_bin_widths=obs.wavelength_bin_widths,
+            data_resolution=observation_data_resolution,
+            data_resolution_array_model=observation_data_resolution_array_model,
+            wavelength_bin_widths=observation_bin_widths,
             external_radtrans_reference=obs.external_radtrans_reference,
             line_opacity_mode=obs.line_opacity_mode,
             model_contract=obs.model_contract,
@@ -1090,3 +1122,27 @@ class TimeSeriesData(Data):
             wavelength_bin_widths[-2]
         )
         return wavelengths, wavelength_bin_widths, spectrum, uncertainties
+
+    def initialise_data_resolution(self, wavelengths_model: ArrayLike) -> None:
+        # TODO [4.0.0] this function should raise an error when the interpolation is not possible
+        #  As it is now, it can do nothing, which can be confusing
+        if isinstance(self.data_resolution, (jnp.ndarray, np.ndarray)):
+            shared_wavelengths = self._collapse_shared_epoch_axis(self.wavelengths)
+            shared_resolution = self._collapse_shared_epoch_axis(self.data_resolution)
+
+            shared_wavelengths = jnp.asarray(shared_wavelengths)
+            shared_resolution = jnp.asarray(shared_resolution)
+
+            if shared_wavelengths.ndim != 1 or shared_resolution.ndim != 1:
+                raise ValueError(
+                    "TimeSeriesData variable spectral resolution requires a shared 1-D wavelength grid"
+                )
+
+            if shared_wavelengths.shape[0] != shared_resolution.shape[0]:
+                raise ValueError(
+                    "TimeSeriesData wavelengths and spectral resolution must have matching lengths"
+                )
+
+            self.data_resolution_array_model = jnp.interp(
+                wavelengths_model, shared_wavelengths, shared_resolution
+            )

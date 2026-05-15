@@ -320,6 +320,49 @@ def process_spectrum_pipeline(
     Returns:
         Processed spectrum (rebinned, convolved, continuum-subtracted as needed)
     """
+    def _resolve_instrument_resolution():
+        instrument_resolution = getattr(data, "data_resolution_array_model", None)
+
+        if instrument_resolution is not None:
+            return instrument_resolution
+
+        instrument_resolution = data.data_resolution
+
+        if not isinstance(instrument_resolution, (jnp.ndarray, np.ndarray)):
+            return instrument_resolution
+
+        instrument_resolution = jnp.asarray(instrument_resolution)
+
+        if instrument_resolution.ndim != 1:
+            return instrument_resolution
+
+        if instrument_resolution.shape[0] == wavelengths_model.shape[0]:
+            return instrument_resolution
+
+        data_wavelengths = getattr(data, "wavelengths", None)
+
+        if data_wavelengths is None:
+            raise ValueError(
+                "variable instrumental resolution requires observation wavelengths "
+                "to interpolate onto the model grid"
+            )
+
+        data_wavelengths = jnp.asarray(data_wavelengths)
+
+        if data_wavelengths.ndim != 1:
+            raise ValueError(
+                "variable instrumental resolution must be 1-D when projecting "
+                "model spectra onto observation space"
+            )
+
+        if data_wavelengths.shape[0] != instrument_resolution.shape[0]:
+            raise ValueError(
+                "variable instrumental resolution length must match the "
+                "observation wavelength grid"
+            )
+
+        return jnp.interp(wavelengths_model, data_wavelengths, instrument_resolution)
+
     if spectrum_params is None:
         spectrum_params = extract_spectrum_parameters(parameters, data_name)
 
@@ -346,9 +389,10 @@ def process_spectrum_pipeline(
 
     # Standard convolution to data resolution if needed
     model_spectrum_convolved = spectrum_model
-    if data.data_resolution is not None:
+    instrument_resolution = _resolve_instrument_resolution()
+    if instrument_resolution is not None:
         model_spectrum_convolved = convolve(
-            wavelengths_model, spectrum_model, data.data_resolution
+            wavelengths_model, spectrum_model, instrument_resolution
         )
 
     # Apply radial velocity shift
