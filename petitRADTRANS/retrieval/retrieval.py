@@ -1489,6 +1489,68 @@ class Retrieval:
             parameter_names,
         )
 
+    def _load_jaxns_raw_results_samples(
+        self,
+        *,
+        output_directory: str,
+        ret_name: str,
+        parameter_names: list[str],
+    ):
+        raw_results_path = os.path.join(
+            output_directory,
+            "out_JAXNS",
+            f"{ret_name}_jaxns_results.json",
+        )
+
+        if not os.path.exists(raw_results_path):
+            return None, parameter_names, None
+
+        try:
+            from jaxns import load_results as jaxns_load_results
+        except Exception as error:
+            warnings.warn(
+                f"Unable to import JAXNS while recovering samples for '{ret_name}': {error}",
+                RuntimeWarning,
+            )
+            return None, parameter_names, None
+
+        try:
+            raw_results = jaxns_load_results(raw_results_path)
+        except Exception as error:
+            warnings.warn(
+                f"Unable to load raw JAXNS results for '{ret_name}': {error}",
+                RuntimeWarning,
+            )
+            return None, parameter_names, None
+
+        parameter_matrix, parameter_names = self._coerce_parameter_sample_matrix(
+            self._get_results_field(raw_results, "samples", "parametrised_samples"),
+            parameter_names,
+        )
+
+        if parameter_matrix is None:
+            return None, parameter_names, None
+
+        log_likelihood = self._get_results_field(
+            raw_results,
+            "log_L_samples",
+            "log_likelihood",
+            "log_likelihoods",
+            "logL",
+            "logl",
+            "log_L",
+        )
+
+        if log_likelihood is None:
+            return None, parameter_names, None
+
+        log_likelihood = np.asarray(log_likelihood, dtype=float).reshape(-1)
+
+        if log_likelihood.shape[0] != parameter_matrix.shape[0]:
+            return None, parameter_names, None
+
+        return parameter_matrix, parameter_names, log_likelihood
+
     def _build_samples_for_export(self):
         samples, parameter_names = self._build_samples_from_sampler_results()
 
@@ -2020,8 +2082,7 @@ class Retrieval:
         Returns:
             object: The generated full range model.
         """
-        # Set up parameter dictionary
-        # parameters = self.build_param_dict(params,parameters_read)
+        parameters = copy.deepcopy(parameters)
         parameters["contribution"] = Parameter(
             "contribution", False, value=contribution
         )
@@ -2074,16 +2135,22 @@ class Retrieval:
                 line_by_line_opacity_sampling=line_by_line_sampling,
             )
 
-        # Check what model function we're using
+        if prt_reference is not None:
+            reference_data = self.configuration.data[prt_reference]
+        else:
+            reference_data = self.plotter.get_reference_data()
+
         if model_generating_function is None:
-            mg_func = self.plotter.get_reference_data().model_generating_function
+            mg_func = reference_data.model_generating_function
         else:
             mg_func = model_generating_function
 
-        # get the spectrum
-        results = mg_func(
+        results = self._call_model_generating_function(
+            mg_func,
             atmosphere,
             parameters,
+            data_name=reference_data.name,
+            data_object=reference_data,
             pt_plot_mode=False,
             adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
         )
@@ -2596,6 +2663,47 @@ class Retrieval:
                     else:
                         raise FileNotFoundError(
                             f"JAXNS sample file '{samples_file}' does not contain log likelihood values."
+                        )
+
+                sample_matrix, parameters_read = self._coerce_parameter_sample_matrix(
+                    sample_matrix,
+                    parameters_read,
+                )
+                log_values = np.asarray(log_values, dtype=float).reshape(-1)
+
+                if sample_matrix is None or log_values.shape[0] != sample_matrix.shape[0]:
+                    recovered_matrix, recovered_parameters, recovered_log_values = (
+                        self._load_jaxns_raw_results_samples(
+                            output_directory=output_directory,
+                            ret_name=name,
+                            parameter_names=parameters_read,
+                        )
+                    )
+
+                    if recovered_matrix is None or recovered_log_values is None:
+                        raise ValueError(
+                            f"JAXNS samples for '{name}' are malformed: posterior sample matrix shape "
+                            f"{None if sample_matrix is None else sample_matrix.shape} does not match "
+                            f"log-likelihood shape {log_values.shape}."
+                        )
+
+                    sample_matrix = recovered_matrix
+                    parameters_read = recovered_parameters
+                    log_values = recovered_log_values
+
+                    try:
+                        np.savez(
+                            samples_file,
+                            parameter_names=np.asarray(parameters_read, dtype=str),
+                            sample_matrix=np.asarray(sample_matrix, dtype=float),
+                            log_likelihood=np.asarray(log_values, dtype=float),
+                        )
+                        with open(params_file, "w") as handle:
+                            json.dump(list(parameters_read), handle, indent=4)
+                    except OSError as error:
+                        warnings.warn(
+                            f"Recovered JAXNS samples for '{name}' but failed to rewrite the repaired archive: {error}",
+                            RuntimeWarning,
                         )
 
                 samples[name] = np.vstack((sample_matrix.T, log_values[np.newaxis, :]))

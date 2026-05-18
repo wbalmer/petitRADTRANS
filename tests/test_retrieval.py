@@ -7,7 +7,8 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 import ctypes
 import json
 import os
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 import jax
 import jax.numpy as jnp
 import pytest
@@ -73,7 +74,12 @@ from petitRADTRANS.retrieval.runtime import (
     ObservationState,
     PhysicalParams,
 )
-from petitRADTRANS.retrieval.sampler import NumPyroSampler, UltranestSampler
+from petitRADTRANS.retrieval.sampler import (
+    JAXNSSampler,
+    JAXNSShardedStaticNestedSampler,
+    NumPyroSampler,
+    UltranestSampler,
+)
 from petitRADTRANS.retrieval.utils import gaussian_prior
 
 from .context import petitRADTRANS
@@ -231,6 +237,21 @@ class _JAXNSLikeResults:
         self.log_L_samples = np.array([-3.0, -1.0, -2.0])
         self.log_Z_mean = 1.5
         self.log_Z_uncert = 0.2
+
+
+class _JAXNSSamplesOnlyResults:
+    def __init__(self):
+        self.samples = {"amplitude": np.array([1.0, 3.0, 2.0])}
+        self.parametrised_samples = {}
+        self.log_L_samples = np.array([-3.0, -1.0, -2.0])
+        self.log_dp_mean = np.array([-0.3, -0.2, -0.1])
+        self.log_Z_mean = 1.5
+        self.log_Z_uncert = 0.2
+        self.ESS = 3.0
+        self.H_mean = 0.1
+        self.total_num_samples = 3
+        self.total_num_likelihood_evaluations = 3
+        self.log_efficiency = -1.0
 
 
 def _build_runtime(
@@ -1228,6 +1249,182 @@ def test_sampler_summary_helpers_build_expected_payloads():
         "sampler_type": "jaxns",
         "parameter_names": ["alpha"],
     }
+
+
+def test_jaxns_sampler_builds_termination_condition_from_sampler_kwargs():
+    sampler_kwargs = {
+        "termination_condition_kwargs": {"ess": 256, "rtol": 1e-4},
+        "dlogZ": 0.05,
+        "termination_max_samples": 1024,
+    }
+
+    termination_condition, termination_summary = JAXNSSampler._build_termination_condition(
+        sampler_kwargs
+    )
+
+    assert sampler_kwargs == {}
+    assert termination_condition is not None
+    assert termination_condition.ess == 256
+    assert termination_condition.rtol == 1e-4
+    assert termination_condition.dlogZ == 0.05
+    assert termination_condition.max_samples == 1024
+    assert termination_summary == {
+        "ess": 256,
+        "rtol": 1e-4,
+        "dlogZ": 0.05,
+        "max_samples": 1024,
+    }
+
+
+def test_jaxns_run_sampler_passes_termination_condition(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeNestedSampler:
+        def __init__(self, model, **kwargs):
+            captured["model"] = model
+            captured["init_kwargs"] = dict(kwargs)
+
+        def __call__(self, key, termination_condition):
+            captured["key"] = key
+            captured["termination_condition"] = termination_condition
+            return "termination_reason", "state"
+
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "Model",
+        lambda prior_model, log_likelihood: {
+            "prior_model": prior_model,
+            "log_likelihood": log_likelihood,
+        },
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "NestedSampler",
+        FakeNestedSampler,
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "save_results",
+        lambda results, save_file: captured.update(
+            {"saved_results": results, "save_file": save_file}
+        ),
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "clear_caches",
+        lambda: None,
+    )
+
+    sampler = JAXNSSampler(
+        log_likelihood_func=lambda *_args: 0.0,
+        prior_func=lambda: (),
+        output_directory=str(tmp_path),
+        retrieval_name="jaxns_termination",
+    )
+    sampler._materialize_raw_results = (
+        lambda termination_reason, state: {
+            "termination_reason": termination_reason,
+            "state": state,
+        }
+    )
+    sampler._to_numpy_tree = lambda raw_results: raw_results
+    sampler._build_equal_weight_results = lambda raw_results: {"samples": np.array([[1.0]])}
+    sampler.pretty_print_results = lambda: None
+    sampler.plot_diagnostics = lambda results=None: {}
+
+    results = sampler.run_sampler(
+        use_jit=False,
+        num_live_points=32,
+        max_samples=4096,
+        seed=7,
+        dlogZ=0.1,
+        termination_max_samples=256,
+    )
+
+    assert captured["init_kwargs"]["num_live_points"] == 32
+    assert captured["init_kwargs"]["max_samples"] == 4096
+    assert captured["termination_condition"] is not None
+    assert captured["termination_condition"].dlogZ == 0.1
+    assert captured["termination_condition"].max_samples == 256
+    assert results == {"samples": np.array([[1.0]])}
+
+
+def test_jaxns_sharded_run_sampler_passes_termination_condition(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeShardedStaticNestedSampler:
+        def __init__(self, model, sampler, **kwargs):
+            captured["model"] = model
+            captured["sampler"] = sampler
+            captured["init_kwargs"] = dict(kwargs)
+
+        def __call__(self, key, termination_condition):
+            captured["key"] = key
+            captured["termination_condition"] = termination_condition
+            return "termination_reason", "state"
+
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "Model",
+        lambda prior_model, log_likelihood: {
+            "prior_model": prior_model,
+            "log_likelihood": log_likelihood,
+        },
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "ShardedStaticNestedSampler",
+        FakeShardedStaticNestedSampler,
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "UniformSampler",
+        object(),
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "save_results",
+        lambda results, save_file: captured.update(
+            {"saved_results": results, "save_file": save_file}
+        ),
+    )
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "clear_caches",
+        lambda: None,
+    )
+
+    sampler = JAXNSShardedStaticNestedSampler(
+        log_likelihood_func=lambda *_args: 0.0,
+        prior_func=lambda: (),
+        output_directory=str(tmp_path),
+        retrieval_name="jaxns_sharded_termination",
+    )
+    sampler._materialize_raw_results = (
+        lambda termination_reason, state: {
+            "termination_reason": termination_reason,
+            "state": state,
+        }
+    )
+    sampler._to_numpy_tree = lambda raw_results: raw_results
+    sampler._build_equal_weight_results = lambda raw_results: {"samples": np.array([[1.0]])}
+    sampler.pretty_print_results = lambda: None
+    sampler.plot_diagnostics = lambda results=None: {}
+
+    results = sampler.run_sampler(
+        use_jit=False,
+        num_live_points=24,
+        max_samples=2048,
+        seed=11,
+        termination_condition_kwargs={"evidence_uncert": 0.2, "atol": 1e-3},
+    )
+
+    assert captured["init_kwargs"]["num_live_points"] == 24
+    assert captured["init_kwargs"]["max_samples"] == 2048
+    assert captured["termination_condition"] is not None
+    assert captured["termination_condition"].evidence_uncert == 0.2
+    assert captured["termination_condition"].atol == 1e-3
+    assert results == {"samples": np.array([[1.0]])}
 
 
 def test_parameter_layout_free_parameter_ordering_matches_all_sampler_interfaces():
@@ -2399,6 +2596,110 @@ def test_get_samples_dict_supports_jaxns_style_results_without_pymultinest():
     assert retrieval.get_quantile_parameters(0.5) == {"amplitude": 2.0}
 
 
+def test_jaxns_equal_weight_results_fall_back_to_samples_mapping(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.sampler,
+        "jaxns_resample",
+        lambda key, posterior_payload, log_dp_mean: {
+            "samples": posterior_payload["samples"],
+            "log_likelihood": posterior_payload["log_likelihood"],
+        },
+    )
+
+    sampler = JAXNSSampler(
+        log_likelihood_func=lambda *_args: 0.0,
+        prior_func=lambda: (),
+        output_directory=str(tmp_path),
+        retrieval_name="jaxns_samples_only",
+    )
+    sampler.parameter_names = ["amplitude"]
+    sampler.seed = 7
+
+    results = sampler._build_equal_weight_results(_JAXNSSamplesOnlyResults())
+
+    assert results["samples"].shape == (3, 1)
+    np.testing.assert_allclose(
+        results["weighted_samples"]["points"],
+        np.array([[1.0], [3.0], [2.0]]),
+    )
+
+    with np.load(
+        tmp_path / "out_JAXNS" / "jaxns_samples_only_samples.npz",
+        allow_pickle=False,
+    ) as archive:
+        np.testing.assert_array_equal(
+            archive["parameter_names"], np.array(["amplitude"])
+        )
+        np.testing.assert_allclose(
+            archive["sample_matrix"],
+            results["samples"],
+        )
+        np.testing.assert_allclose(
+            archive["log_likelihood"],
+            results["log_likelihood"],
+        )
+
+
+def test_get_samples_recovers_malformed_jaxns_archive_from_raw_results(tmp_path, monkeypatch):
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    parameter = Parameter(
+        name="amplitude",
+        is_free_parameter=True,
+        value=0.0,
+        transform_prior_cube_coordinate=lambda x: 4.0 * x,
+    )
+    retrieval.configuration = SimpleNamespace(
+        parameters={"amplitude": parameter},
+        sampler_type="jaxns",
+        retrieval_name="current_jaxns",
+    )
+    retrieval.output_directory = str(tmp_path)
+    retrieval.sampler = None
+    retrieval.latest_sampler_results = None
+    retrieval.ultranest = False
+
+    out_jaxns = tmp_path / "out_JAXNS"
+    out_jaxns.mkdir(parents=True, exist_ok=True)
+
+    params_path = out_jaxns / "archived_jaxns_params.json"
+    samples_path = out_jaxns / "archived_jaxns_samples.npz"
+
+    params_path.write_text("[]")
+    np.savez(
+        samples_path,
+        sample_matrix=np.array(np.nan),
+        log_likelihood=np.array([-3.0, -1.0, -2.0]),
+    )
+
+    fake_jaxns = ModuleType("jaxns")
+    fake_jaxns.load_results = lambda _path: _JAXNSSamplesOnlyResults()
+    monkeypatch.setitem(sys.modules, "jaxns", fake_jaxns)
+
+    sample_dict, parameter_dict = retrieval.get_samples(
+        names=["archived_jaxns"],
+        output_directory=str(tmp_path),
+    )
+
+    np.testing.assert_allclose(
+        sample_dict["archived_jaxns"],
+        np.array([[1.0, 3.0, 2.0], [-3.0, -1.0, -2.0]]),
+    )
+    assert parameter_dict["archived_jaxns"] == ["amplitude"]
+
+    with np.load(samples_path, allow_pickle=False) as archive:
+        np.testing.assert_array_equal(
+            archive["parameter_names"], np.array(["amplitude"])
+        )
+        np.testing.assert_allclose(
+            archive["sample_matrix"], np.array([[1.0], [3.0], [2.0]])
+        )
+        np.testing.assert_allclose(
+            archive["log_likelihood"], np.array([-3.0, -1.0, -2.0])
+        )
+
+    assert json.loads(params_path.read_text()) == ["amplitude"]
+
+
 def test_set_free_parameter_values_updates_non_pymultinest_retrievals():
     retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
     retrieval.configuration = SimpleNamespace(
@@ -2437,6 +2738,76 @@ def test_set_free_parameter_values_accepts_ctypes_sequences():
     retrieval._set_free_parameter_values(cube)
 
     assert retrieval.configuration.parameters["free_parameter"].value == 4.25
+
+
+def test_get_full_range_model_uses_model_adapter_for_plotting():
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    def legacy_direct_call(*args, **kwargs):
+        raise AssertionError("plotting should not call the legacy model path directly")
+
+    reference_data = SimpleNamespace(
+        name="reference_dataset",
+        model_generating_function=legacy_direct_call,
+    )
+
+    retrieval.configuration = SimpleNamespace(
+        pressures=np.array([1.0, 10.0]),
+        adaptive_mesh_refinement=False,
+        data={"reference_dataset": reference_data},
+    )
+    retrieval.plotter = SimpleNamespace(
+        get_reference_data=lambda: reference_data,
+    )
+
+    expected_wavelengths = np.array([1.0, 2.0])
+    expected_spectrum = np.array([0.1, 0.2])
+    adapter_call = {}
+
+    def fake_call_model_generating_function(
+        model_generating_function,
+        radtrans_object,
+        parameters,
+        *,
+        data_name,
+        data_object=None,
+        pt_plot_mode=False,
+        adaptive_mesh_refinement=False,
+    ):
+        adapter_call["model_generating_function"] = model_generating_function
+        adapter_call["radtrans_object"] = radtrans_object
+        adapter_call["parameters"] = parameters
+        adapter_call["data_name"] = data_name
+        adapter_call["data_object"] = data_object
+        adapter_call["pt_plot_mode"] = pt_plot_mode
+        adapter_call["adaptive_mesh_refinement"] = adaptive_mesh_refinement
+        return expected_wavelengths, expected_spectrum
+
+    retrieval._call_model_generating_function = fake_call_model_generating_function
+
+    parameters = {
+        "amplitude": Parameter(
+            name="amplitude",
+            is_free_parameter=False,
+            value=1.0,
+        )
+    }
+    atmosphere = object()
+
+    wavelengths, spectrum = retrieval.get_full_range_model(
+        parameters,
+        prt_object=atmosphere,
+    )
+
+    np.testing.assert_allclose(wavelengths, expected_wavelengths)
+    np.testing.assert_allclose(spectrum, expected_spectrum)
+    assert adapter_call["model_generating_function"] is legacy_direct_call
+    assert adapter_call["radtrans_object"] is atmosphere
+    assert adapter_call["data_name"] == "reference_dataset"
+    assert adapter_call["data_object"] is reference_data
+    assert adapter_call["pt_plot_mode"] is False
+    assert adapter_call["adaptive_mesh_refinement"] is False
+    assert "contribution" not in parameters
 
 
 def test_numpyro_hmc_kernel_kwargs_prefer_trajectory_length_over_num_steps():
