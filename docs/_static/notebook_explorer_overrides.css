@@ -1,0 +1,9 @@
+.jp-CodeCell:has(iframe[title="Interactive petitRADTRANS transmission explorer"]) > .jp-Cell-inputWrapper,
+.jp-CodeCell:has(iframe[title="Interactive petitRADTRANS emission explorer"]) > .jp-Cell-inputWrapper {
+    display: none;
+}
+
+.jp-CodeCell:has(iframe[title="Interactive petitRADTRANS transmission explorer"]),
+.jp-CodeCell:has(iframe[title="Interactive petitRADTRANS emission explorer"]) {
+    margin-top: 0.75rem;
+}
