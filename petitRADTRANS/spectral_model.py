@@ -513,7 +513,12 @@ class SpectralModel(Radtrans):
                     "add model parameter 'rebinned_wavelengths' to set the boundaries automatically"
                 )
 
-            wavelength_boundaries = self.calculate_optimal_wavelength_boundaries()
+            wavelength_boundaries = self.calculate_optimal_wavelength_boundaries(
+                line_opacity_mode=line_opacity_mode,
+                line_species=line_species,
+                line_by_line_opacity_sampling=line_by_line_opacity_sampling,
+                path_input_data=path_input_data,
+            )
 
         # Radtrans parameters
         super().__init__(
@@ -1596,7 +1601,13 @@ class SpectralModel(Radtrans):
         return self.wavelengths, self.fluxes, additional_outputs
 
     def calculate_optimal_wavelength_boundaries(
-        self, rebinned_wavelengths=None, relative_velocities=None
+        self,
+        rebinned_wavelengths=None,
+        relative_velocities=None,
+        line_opacity_mode=None,
+        line_species=None,
+        line_by_line_opacity_sampling=None,
+        path_input_data=None,
     ):
         """Return the optimal wavelength boundaries for rebin on output wavelengths.
         This minimizes the number of wavelengths to load and over which to calculate the spectra.
@@ -1623,6 +1634,20 @@ class SpectralModel(Radtrans):
                 self.model_parameters["relative_velocities"]
             )
 
+        if line_opacity_mode is None and hasattr(self, "line_opacity_mode"):
+            line_opacity_mode = self.line_opacity_mode
+
+        if line_species is None and hasattr(self, "line_species"):
+            line_species = self.line_species
+
+        if line_by_line_opacity_sampling is None and hasattr(
+            self, "line_by_line_opacity_sampling"
+        ):
+            line_by_line_opacity_sampling = self.line_by_line_opacity_sampling
+
+        if path_input_data is None and hasattr(self, "_path_input_data"):
+            path_input_data = self._path_input_data
+
         # Prevent multiple definitions and give priority to the function argument
         if "rebinned_wavelengths" in self.model_parameters:
             rebinned_wavelengths_tmp = copy.deepcopy(
@@ -1648,6 +1673,10 @@ class SpectralModel(Radtrans):
             rebinned_wavelengths=rebinned_wavelengths,
             shift_wavelengths_function=self.shift_wavelengths,
             relative_velocities=relative_velocities,
+            line_opacity_mode=line_opacity_mode,
+            line_species=line_species,
+            line_by_line_opacity_sampling=line_by_line_opacity_sampling,
+            path_input_data=path_input_data,
             **self.model_parameters,
         )
 
@@ -2335,8 +2364,63 @@ class SpectralModel(Radtrans):
         shift_wavelengths_function=None,
         relative_velocities=None,
         rebin_range_margin_power=15,
+        line_opacity_mode=None,
+        line_species=None,
+        line_by_line_opacity_sampling=None,
+        path_input_data=None,
         **kwargs,
     ) -> npt.NDArray[np.floating]:
+        def _get_local_wavelength_step(wavelength_edges, boundary):
+            if wavelength_edges.size < 2:
+                return 0.0
+
+            boundary_index = int(np.searchsorted(wavelength_edges, boundary, side="left"))
+            lower_index = max(boundary_index - 1, 0)
+            upper_index = min(boundary_index + 1, wavelength_edges.size - 1)
+            local_edges = wavelength_edges[lower_index : upper_index + 1]
+
+            if local_edges.size < 2:
+                return 0.0
+
+            return float(np.max(np.diff(local_edges)))
+
+        def _get_lbl_snap_padding(interval):
+            if line_opacity_mode != "lbl" or not line_species:
+                return 0.0, 0.0
+
+            if path_input_data is None:
+                _path_input_data = petitradtrans_config_parser.get_input_data_path()
+            else:
+                _path_input_data = path_input_data
+
+            sampling = max(int(line_by_line_opacity_sampling or 1), 1)
+
+            try:
+                from petitRADTRANS.opacities.opacities import LineByLineOpacity
+
+                opacity_file = LineByLineOpacity.find(
+                    path_input_data=_path_input_data,
+                    species=line_species[0],
+                )
+
+                with h5py.File(opacity_file, "r") as f:
+                    frequency_grid = np.asarray(cst.c * f["bin_edges"][:])
+
+                if frequency_grid[0] == frequency_grid[1]:
+                    frequency_grid = frequency_grid[1:]
+
+                wavelength_edges = np.asarray(
+                    frequency2wavelength(frequency_grid[::-1]),
+                    dtype=float,
+                )
+
+                low_step = _get_local_wavelength_step(wavelength_edges, interval[0])
+                high_step = _get_local_wavelength_step(wavelength_edges, interval[1])
+
+                return low_step * sampling, high_step * sampling
+            except (OSError, KeyError, IndexError, ValueError):
+                return 0.0, 0.0
+
         # Re-bin requirement is an interval half a bin larger than re-binning interval
         if hasattr(rebinned_wavelengths, "dtype"):
             if rebinned_wavelengths.dtype != "O":
@@ -2349,11 +2433,13 @@ class SpectralModel(Radtrans):
         if np.ndim(wavelengths_flat) > 1:
             wavelengths_flat = np.concatenate(wavelengths_flat)
 
+        half_bin_width_low = (wavelengths_flat[1] - wavelengths_flat[0]) / 2
+        half_bin_width_high = (wavelengths_flat[-1] - wavelengths_flat[-2]) / 2
+
         rebin_required_interval = np.array(
             [
-                wavelengths_flat[0] - (wavelengths_flat[1] - wavelengths_flat[0]) / 2,
-                wavelengths_flat[-1]
-                + (wavelengths_flat[-1] - wavelengths_flat[-2]) / 2,
+                wavelengths_flat[0] - half_bin_width_low,
+                wavelengths_flat[-1] + half_bin_width_high,
             ]
         )
 
@@ -2392,6 +2478,13 @@ class SpectralModel(Radtrans):
         rebin_required_interval[1] = np.max(
             (rebin_required_interval_shifted[1], rebin_required_interval[1])
         )
+
+        if line_opacity_mode == "lbl":
+            native_step_low, native_step_high = _get_lbl_snap_padding(
+                rebin_required_interval
+            )
+            rebin_required_interval[0] -= max(half_bin_width_low, native_step_low)
+            rebin_required_interval[1] += max(half_bin_width_high, native_step_high)
 
         # Satisfy re-bin requirement by increasing the range by the smallest possible significant value
         rebin_required_interval[0] -= 10 ** (

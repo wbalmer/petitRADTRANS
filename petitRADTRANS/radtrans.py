@@ -1816,9 +1816,6 @@ class Radtrans:
         if frequency_grid[selection[0]] > frequency_min:
             selection = selection.at[0].add(-1)
 
-        if frequency_grid[selection[-1]] < frequency_max:
-            selection = selection.at[-1].add(1)
-
         if sampling > 1:
             # Ensure that down-sampled wavelength upper bound >= requested wavelength upper bound
             selection = selection.at[0].subtract(sampling - 1)

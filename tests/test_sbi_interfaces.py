@@ -1452,7 +1452,7 @@ def test_neural_autoregressive_posterior_fit_sample_and_generic_load(tmp_path):
     assert len(artifacts.history["train_loss"]) == 1
     assert artifacts.metadata["flow_family"] == "neural_autoregressive"
     assert artifacts.metadata["effective_flow_family"] == "neural_autoregressive"
-    assert artifacts.metadata["best_checkpoint_kind"] == "best_stable"
+    assert artifacts.metadata["best_checkpoint_kind"] == "best_selection"
     assert artifacts.metadata["best_loss_epoch"] == 1
     assert artifacts.metadata["best_stable_epoch"] == 1
     assert np.asarray(samples.samples).shape == (5, 1)
@@ -1560,11 +1560,11 @@ def test_trainer_tracks_best_loss_and_best_stable_checkpoints(tmp_path):
 
     assert len(history["train_loss"]) == 3
     assert len(validation_metrics["validation_loss"]) == 3
-    assert metadata["best_checkpoint_kind"] == "best_stable"
+    assert metadata["best_checkpoint_kind"] == "best_selection"
     assert metadata["best_stable_epoch"] == 1
     assert metadata["best_loss_epoch"] == 3
     assert metadata["best_selection_epoch"] == 3
-    assert best_metadata["best_checkpoint_kind"] == "best_stable"
+    assert best_metadata["best_checkpoint_kind"] == "best_selection"
     assert best_loss_metadata["checkpoint_kind"] == "best_loss"
     assert best_stable_metadata["checkpoint_kind"] == "best_stable"
 

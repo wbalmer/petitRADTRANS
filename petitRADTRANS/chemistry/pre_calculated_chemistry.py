@@ -370,7 +370,9 @@ class PreCalculatedEquilibriumChemistryTable:
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
-        if path is None:
+        if path is not None:
+            file = path
+        elif file == "":
             file = self.get_default_file(path_input_data)
 
         if not os.path.isfile(file):

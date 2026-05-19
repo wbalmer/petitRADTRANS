@@ -87,6 +87,7 @@ def test_correlated_k_photospheric_radius_calculation():
         _,
         _,
     ) = atmosphere_ck_scattering._calculate_opacities(
+        pressures=atmosphere_ck_scattering.pressures,
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         mean_molar_masses=test_parameters["mean_molar_mass"],

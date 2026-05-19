@@ -2749,8 +2749,10 @@ def test_get_samples_recovers_malformed_jaxns_archive_from_raw_results(tmp_path,
 
     params_path = out_jaxns / "archived_jaxns_params.json"
     samples_path = out_jaxns / "archived_jaxns_samples.npz"
+    raw_results_path = out_jaxns / "archived_jaxns_jaxns_results.json"
 
     params_path.write_text("[]")
+    raw_results_path.write_text("{}")
     np.savez(
         samples_path,
         sample_matrix=np.array(np.nan),
