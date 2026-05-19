@@ -49,6 +49,9 @@ reference_filenames["pymultinest_parameter_analysis_spectral_model"] = os.path.j
 reference_filenames["NASA_exoplanet_archive_test"] = os.path.join(
     tests_data_directory, "NASA_exoplanet_archive_test.tab"
 )
+reference_filenames['cloud_particle_number_density_grid'] = (
+    os.path.join(tests_data_directory, 'cloud_particle_number_density_grid.npz')
+)
 
 # Make directories if needed
 if not os.path.isdir(tests_results_directory):
@@ -159,9 +162,8 @@ def make_petitradtrans_test_config_file(filename):
                     "wavelength_range_correlated_k_performance": wavelength_range_correlated_k_performance,
                     "wavelength_range_line_by_line": wavelength_range_line_by_line,
                 },
-                "cloud_particle_number_density_grid": (
-                    np.ones((130, 27, 2)) * 1e-5
-                ).tolist(),
+                'target_particle_radii': [1e-1, 1e-2],
+                'target_pressure': [1e-1, 1e-2],
                 "cloud_parameters": {
                     "kappa_zero": 0.01,
                     "gamma_scattering": -4.0,
@@ -784,9 +786,11 @@ def init_test_parameters(recreate_parameter_file=False):
         ]
     ]
 
-    parameters["cloud_particle_number_density_grid"] = np.array(
-        parameters.get("cloud_particle_number_density_grid", [])
-    )
+    parameters['target_particle_radii'] = np.asarray(
+        parameters.get('target_particle_radii'))
+
+    parameters['target_pressure'] = np.asarray(
+        parameters.get('target_pressure'))
 
     return parameters
 

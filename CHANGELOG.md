@@ -34,7 +34,8 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
 
 ### Changed
-- a34: Transition to mixed precision to reduce memory use and computation time.
+- a35: Transition to mixed precision to reduce memory use and computation time.
+- a34: Translated the cloud on/off code in `compute_cloud_log_normal_particle_distribution_opacities`to JAX
 - a32: Bug fixes for photometric data input for retrievals.
 - a32: Major overhaul of documentation.
 - a29: Improved memory management - smarter loading of lbl opacities, delaying JAX conversion, cholesky decomposition for large covariance matrix inversion.
