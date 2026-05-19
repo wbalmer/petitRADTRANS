@@ -4,7 +4,13 @@ from jax.typing import ArrayLike
 import numpy as np
 from interpax import interp1d
 
-from petitRADTRANS.math import gaussian_weights_running, median_filter, savgol_filter
+from petitRADTRANS.math import (
+    compute_resolving_power,
+    gaussian_kernel_1d,
+    gaussian_weights_running,
+    median_filter,
+    savgol_filter,
+)
 
 """
 JAX Implementation of fortran_convolve and fortran_rebin
@@ -127,19 +133,44 @@ def continuum_subtract_spectrum(
 
 
 def convolve_constant_resolution(
-    input_wavelength: ArrayLike, input_flux: ArrayLike, instrument_res: any
+    input_wavelength: ArrayLike,
+    input_flux: ArrayLike,
+    instrument_res: any,
+    max_radius: int = 20,
 ) -> ArrayLike:
-    sigma_lsf = input_wavelength / (2.0 * jnp.sqrt(2.0 * jnp.log(2.0)) * instrument_res)
-    # Calculate the spacing of the wavelength array
-    spacing = jnp.abs(input_wavelength - jnp.roll(input_wavelength, 1))
-    spacing = spacing.at[0].set(spacing[1])  # Fix the first element due to jnp.roll
+    input_dtype = jnp.result_type(input_wavelength, input_flux, instrument_res)
+    input_wavelength = jnp.asarray(input_wavelength, dtype=input_dtype)
+    input_flux = jnp.asarray(input_flux, dtype=input_dtype)
+    instrument_res = jnp.asarray(instrument_res, dtype=input_dtype)
 
-    # Calculate sigma_lsf for gaussian_filter
-    sigma_lsf_gauss_filter = sigma_lsf / spacing
+    if input_flux.shape[-1] < 2:
+        return input_flux
 
-    # Convolve with a Gaussian LSF
-    flux_lsf = _convolve_running(input_flux, sigma_lsf_gauss_filter)
-    return flux_lsf
+    # Match the old SpectralModel constant-convolution contract: use one
+    # fixed sigma in bin units, then convolve the whole public grid with
+    # reflect padding instead of writing raw edge bins back unchanged.
+    input_resolving_power = compute_resolving_power(input_wavelength)
+    sigma_lsf_gauss_filter = input_resolving_power / instrument_res / (
+        2.0 * jnp.sqrt(2.0 * jnp.log(2.0))
+    )
+
+    kernel = jnp.asarray(
+        gaussian_kernel_1d(sigma_lsf_gauss_filter, max_radius), dtype=input_dtype
+    )
+    pad_width = [(0, 0)] * (input_flux.ndim - 1) + [(max_radius, max_radius)]
+    padded_flux = jnp.pad(input_flux, pad_width, mode="reflect")
+
+    lhs = padded_flux.reshape((-1, padded_flux.shape[-1], 1))
+    rhs = kernel[:, None, None]
+    flux_lsf = lax.conv_general_dilated(
+        lhs,
+        rhs,
+        window_strides=(1,),
+        padding="VALID",
+        dimension_numbers=("NWC", "WIO", "NWC"),
+    )
+
+    return flux_lsf[..., 0].reshape(input_flux.shape)
 
 
 def convolve_variable_resolution(input_wavelength, input_flux, resolutions):

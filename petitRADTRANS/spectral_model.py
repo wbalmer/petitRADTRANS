@@ -2483,8 +2483,7 @@ class SpectralModel(Radtrans):
             native_step_low, native_step_high = _get_lbl_snap_padding(
                 rebin_required_interval
             )
-            rebin_required_interval[0] -= max(half_bin_width_low, native_step_low)
-            rebin_required_interval[1] += max(half_bin_width_high, native_step_high)
+            rebin_required_interval[0] -= native_step_low
 
         # Satisfy re-bin requirement by increasing the range by the smallest possible significant value
         rebin_required_interval[0] -= 10 ** (
