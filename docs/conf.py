@@ -18,8 +18,6 @@ import sys
 from importlib import util as importlib_util
 from pathlib import Path
 
-import importlib.metadata
-
 sys.path.insert(0, os.path.abspath("../"))
 
 logger = logging.getLogger(__name__)
