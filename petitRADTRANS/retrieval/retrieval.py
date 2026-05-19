@@ -1,11 +1,11 @@
 import os
 import sys
 import copy
+import importlib
 import json
 import traceback
 import warnings
 import dill
-from jaxns.utils import summary
 import numpy as np
 import numpy.typing as npt
 from typing import Callable
@@ -54,15 +54,6 @@ from petitRADTRANS.retrieval.utils import (
 from petitRADTRANS.retrieval.sampler import (
     Sampler,
     SamplerContext,
-    PymultinestSampler,
-    UltranestSampler,
-    DynestySampler,
-    BlackJAXHMCSampler,
-    BlackJAXNUTSSampler,
-    NumPyroHMCSampler,
-    NumPyroNUTSSampler,
-    JAXNSSampler,
-    JAXNSShardedStaticNestedSampler,
 )
 from petitRADTRANS.retrieval.log_likelihood import (
     LogLikelihood,
@@ -76,25 +67,35 @@ from petitRADTRANS.utils import list_str2str
 
 from petitRADTRANS.jax_dtype import JAX_DTYPE
 
-SAMPLER_DISPATCH: dict[str, type[Sampler]] = {
-    "pymultinest": PymultinestSampler,
-    "ultranest": UltranestSampler,
-    "dynesty": DynestySampler,
-    "blackjaxhmc": BlackJAXHMCSampler,
-    "blackjax_hmc": BlackJAXHMCSampler,
-    "hmc": BlackJAXHMCSampler,
-    "blackjaxnuts": BlackJAXNUTSSampler,
-    "blackjax_nuts": BlackJAXNUTSSampler,
-    "nuts": BlackJAXNUTSSampler,
-    "numpyrohmc": NumPyroHMCSampler,
-    "numpyro_hmc": NumPyroHMCSampler,
-    "numpyronuts": NumPyroNUTSSampler,
-    "numpyro_nuts": NumPyroNUTSSampler,
-    "jaxnestedsampler": JAXNSSampler,
-    "jaxns": JAXNSSampler,
-    "jaxnsshardedstaticnestedsampler": JAXNSShardedStaticNestedSampler,
-    "jaxnsshardedstaticsestedsampler": JAXNSShardedStaticNestedSampler,
+_SAMPLER_CLASS_NAMES: dict[str, str] = {
+    "pymultinest": "PymultinestSampler",
+    "ultranest": "UltranestSampler",
+    "dynesty": "DynestySampler",
+    "blackjaxhmc": "BlackJAXHMCSampler",
+    "blackjax_hmc": "BlackJAXHMCSampler",
+    "hmc": "BlackJAXHMCSampler",
+    "blackjaxnuts": "BlackJAXNUTSSampler",
+    "blackjax_nuts": "BlackJAXNUTSSampler",
+    "nuts": "BlackJAXNUTSSampler",
+    "numpyrohmc": "NumPyroHMCSampler",
+    "numpyro_hmc": "NumPyroHMCSampler",
+    "numpyronuts": "NumPyroNUTSSampler",
+    "numpyro_nuts": "NumPyroNUTSSampler",
+    "jaxnestedsampler": "JAXNSSampler",
+    "jaxns": "JAXNSSampler",
+    "jaxnsshardedstaticnestedsampler": "JAXNSShardedStaticNestedSampler",
+    "jaxnsshardedstaticsestedsampler": "JAXNSShardedStaticNestedSampler",
 }
+
+
+def _resolve_sampler_class(sampler_type: str) -> type[Sampler] | None:
+    sampler_class_name = _SAMPLER_CLASS_NAMES.get(sampler_type)
+
+    if sampler_class_name is None:
+        return None
+
+    sampler_module = importlib.import_module("petitRADTRANS.retrieval.sampler")
+    return getattr(sampler_module, sampler_class_name)
 
 
 class Retrieval:
@@ -1764,7 +1765,7 @@ class Retrieval:
 
         Args:
             best_fit_params : numpy.ndarray
-                A numpy array containing the best fit parameters, to be passed to get_max_likelihood_params
+                A numpy array containing the best fit parameters, to be passed to build_param_dict
             parameters_read : list
                 A list of the free parameters as read from the output files.
             ret_name : str
@@ -2231,32 +2232,6 @@ class Retrieval:
         )
 
         return abundances, mmw
-
-    def get_max_likelihood_params(
-        self, best_fit_params: npt.NDArray[np.floating], parameters_read: list[str]
-    ):
-        # TODO misnamed function as this does not return the max likelihood parameters, but is instead a wrapper for build_param_dict # noqa: E501
-        """
-        This function converts the sample from the post_equal_weights file with the maximum
-        log likelihood, and converts it into a dictionary of Parameters that can be used in
-        a model function.
-
-        Args:
-            best_fit_params : numpy.ndarray
-                An array of the best fit parameter values (or any other sample)
-            parameters_read : list
-                A list of the free parameter names as read from the output files.
-        """
-        warnings.warn(
-            "function 'get_max_likelihood_params' is deprecated and will be removed in a future update."
-            "Use 'build_param_dict' instead.",
-            FutureWarning,
-        )
-        self.best_fit_parameters = self.build_param_dict(
-            best_fit_params, parameters_read
-        )
-
-        return self.best_fit_parameters
 
     def get_median_params(
         self,
@@ -4133,7 +4108,7 @@ class Retrieval:
             results = sampler.run_sampler(**sampler_kwargs)
             return self._finalize_sampler_run(sampler, results)
 
-        sampler_cls = SAMPLER_DISPATCH.get(sampler_type_normalized)
+        sampler_cls = _resolve_sampler_class(sampler_type_normalized)
         if sampler_cls is None:
             raise ValueError(f"Unknown sampler_type: {sampler_type}")
 
@@ -4277,7 +4252,19 @@ class Retrieval:
 
         return temperature_dict
 
-    def save_best_fit_outputs(self, parameters, only_return_best_fit_spectra=False):
+    def save_best_fit_outputs(
+        self,
+        parameters,
+        only_return_best_fit_spectra=False,
+        retain_best_fit_spectra=True,
+    ):
+        best_fit_spectra = self.best_fit_spectra if retain_best_fit_spectra else {}
+
+        if retain_best_fit_spectra:
+            best_fit_spectra.clear()
+        else:
+            self.best_fit_spectra = {}
+
         # Save sampled outputs if necessary.
         for name, data in self.configuration.data.items():
             # Only calculate spectra within a given
@@ -4405,13 +4392,23 @@ class Retrieval:
                         np.column_stack((data.wavelengths, binned)),
                     )
 
-                self.best_fit_spectra[name] = [data.wavelengths, binned]
+                best_fit_spectra[name] = [data.wavelengths, binned]
 
-        return self.best_fit_spectra
+        return best_fit_spectra
 
     def save_best_fit_outputs_external_variability(
-        self, parameters, only_return_best_fit_spectra=False
+        self,
+        parameters,
+        only_return_best_fit_spectra=False,
+        retain_best_fit_spectra=True,
     ):
+        best_fit_spectra = self.best_fit_spectra if retain_best_fit_spectra else {}
+
+        if retain_best_fit_spectra:
+            best_fit_spectra.clear()
+        else:
+            self.best_fit_spectra = {}
+
         wavelengths_model = None  # prevent potential reference before assignment
 
         # Save sampled outputs if necessary
@@ -4478,7 +4475,7 @@ class Retrieval:
                     data.wavelengths,
                     data.wavelength_bin_widths,
                 )
-                self.best_fit_spectra[name] = [data.wavelengths, binned]
+                best_fit_spectra[name] = [data.wavelengths, binned]
 
             for name_2, data_2 in self.configuration.data.items():
                 if data_2.external_radtrans_reference is not None:
@@ -4510,12 +4507,12 @@ class Retrieval:
                                 data.wavelengths,
                                 data.wavelength_bin_widths,
                             )
-                            self.best_fit_spectra[name_2] = [data.wavelengths, binned_2]
+                            best_fit_spectra[name_2] = [data.wavelengths, binned_2]
                         else:
                             # TODO @Evert 'binned' may not be assigned if data.external_radtrans_reference is not None
                             #  , fix the condition and the other now useless (?) variables marked "prevent reference
                             #  befor assignment"
-                            self.best_fit_spectra[name_2] = [data.wavelengths, binned]
+                            best_fit_spectra[name_2] = [data.wavelengths, binned]
 
         for name, data in self.configuration.data.items():
             data_safe_name = name.replace("/", "_").replace(".", "_")
@@ -4526,9 +4523,9 @@ class Retrieval:
                         "evaluate_" + self.configuration.retrieval_name,
                         f"{self.configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat",
                     ),
-                    np.column_stack((self.best_fit_spectra[name])),
+                    np.column_stack((best_fit_spectra[name])),
                 )
-        return self.best_fit_spectra
+        return best_fit_spectra
 
     def save_mass_fractions(self, sample_dict, parameter_dict, rets=None):
         """

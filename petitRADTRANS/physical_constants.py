@@ -1,7 +1,7 @@
 """Stores physical constants in CGS.
 """
 import astropy.constants as a_cst
-import jax.numpy as jnp
+import numpy as jnp
 import scipy.constants as s_cst
 
 # Defined constants

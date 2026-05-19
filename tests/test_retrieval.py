@@ -2898,6 +2898,105 @@ def test_get_full_range_model_uses_model_adapter_for_plotting():
     assert "contribution" not in parameters
 
 
+def test_save_best_fit_outputs_can_skip_in_memory_retention(tmp_path, monkeypatch):
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+
+    wavelengths = np.array([1.0, 2.0, 3.0])
+    spectrum = np.array([0.5, 1.0, 1.5])
+    output_directory = tmp_path / "retrieval_outputs"
+    (output_directory / "evaluate_test").mkdir(parents=True)
+
+    data = SimpleNamespace(
+        scale_flux=False,
+        scale_uncertainties=False,
+        fit_flux_offset=False,
+        external_radtrans_reference=None,
+        variability_atmospheric_column_model_flux_return_mode=False,
+        data_resolution_array_model=None,
+        data_resolution=None,
+        wavelengths=wavelengths,
+        wavelength_bin_widths=np.ones_like(wavelengths),
+        subtract_continuum=False,
+        model_generating_function=object(),
+        radtrans_object=object(),
+        name="data.1",
+    )
+
+    retrieval.configuration = SimpleNamespace(
+        data={"data.1": data},
+        retrieval_name="test",
+        adaptive_mesh_refinement=False,
+    )
+    retrieval.output_directory = str(output_directory)
+    retrieval.evaluate_sample_spectra = False
+    retrieval.best_fit_spectra = {"stale": [np.array([0.0]), np.array([0.0])]}
+    retrieval.posterior_sample_spectra = {}
+    retrieval._call_model_generating_function = lambda *args, **kwargs: (
+        wavelengths,
+        spectrum,
+    )
+
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.retrieval,
+        "rebin_spectrum_bin",
+        lambda wavelengths_model, spectrum_model, data_wavelengths, data_bin_widths: np.asarray(
+            spectrum_model
+        ),
+    )
+
+    best_fit_spectra = retrieval.save_best_fit_outputs(
+        parameters={},
+        retain_best_fit_spectra=False,
+    )
+
+    output_file = (
+        output_directory
+        / "evaluate_test"
+        / "test_model_spec_best_fit_data_1.dat"
+    )
+
+    assert retrieval.best_fit_spectra == {}
+    assert list(best_fit_spectra) == ["data.1"]
+    np.testing.assert_allclose(best_fit_spectra["data.1"][0], wavelengths)
+    np.testing.assert_allclose(best_fit_spectra["data.1"][1], spectrum)
+    assert output_file.is_file()
+
+
+def test_retrieval_parameter_interface_copies_fixed_parameter_mutables():
+    interface = (
+        petitRADTRANS.spectral_model.SpectralModel._SpectralModel__retrieval_parameters_interface
+    )
+
+    fixed_imposed_mass_fractions = {"CO": np.array([0.2, 0.2])}
+    fixed_other = np.array([1.0, 2.0])
+    fixed_parameters = {
+        "imposed_mass_fractions": fixed_imposed_mass_fractions,
+        "other": fixed_other,
+    }
+
+    parameters, _, _, _ = interface(
+        retrieved_parameters={"H2O": -3.0},
+        fixed_parameters=fixed_parameters,
+        line_species=("H2O",),
+        n_layers=2,
+    )
+
+    assert set(fixed_imposed_mass_fractions) == {"CO"}
+    assert set(parameters["imposed_mass_fractions"]) == {"CO", "H2O"}
+    assert parameters["imposed_mass_fractions"] is not fixed_imposed_mass_fractions
+    assert (
+        parameters["imposed_mass_fractions"]["CO"]
+        is not fixed_imposed_mass_fractions["CO"]
+    )
+    np.testing.assert_allclose(
+        parameters["imposed_mass_fractions"]["CO"],
+        fixed_imposed_mass_fractions["CO"],
+    )
+
+    parameters["other"][0] = 99.0
+    assert fixed_other[0] == 1.0
+
+
 def test_numpyro_hmc_kernel_kwargs_prefer_trajectory_length_over_num_steps():
     kernel_kwargs = NumPyroSampler._prepare_kernel_kwargs(
         algorithm_name="hmc",

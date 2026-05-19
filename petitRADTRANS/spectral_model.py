@@ -50,16 +50,11 @@ from petitRADTRANS.validation import (
     _normalize_deprecated_cloud_particle_arguments,
     _normalize_deprecated_cloud_particle_parameter_keys,
 )
-from petitRADTRANS.retrieval.data import Data
-from petitRADTRANS.retrieval.parameter import RetrievalParameter
-from petitRADTRANS.retrieval.preparing import polyfit
-from petitRADTRANS.retrieval.retrieval import Retrieval
-from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
-from petitRADTRANS.retrieval.runtime import ModelContext, ModelResult, PhysicalParams
-from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
-from petitRADTRANS.stellar_spectra.phoenix import PhoenixStarTable
+from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
 from petitRADTRANS.utils import (
     LockedDict,
+    copy_array_like,
+    copy_parameter_value,
     dict2hdf5,
     fill_object,
     hdf52dict,
@@ -67,8 +62,6 @@ from petitRADTRANS.utils import (
     remove_mask,
     topological_sort,
 )
-
-phoenix_star_table = PhoenixStarTable()
 
 
 class SpectralModel(Radtrans):
@@ -686,6 +679,8 @@ class SpectralModel(Radtrans):
     def __retrieval_parameters_interface(
         retrieved_parameters, fixed_parameters, line_species, n_layers
     ):
+        from petitRADTRANS.retrieval.retrieval import Retrieval
+
         # TODO (v4.0.0) Change model generating function template to not include pt_plot_mode
         if fixed_parameters is None:
             fixed_parameters = {}
@@ -703,10 +698,10 @@ class SpectralModel(Radtrans):
                 k = k.split(_parameter, 1)[0]
 
                 if k == "":
-                    __parameter = copy.deepcopy(v)
+                    __parameter = copy_parameter_value(v)
                     break
                 elif k == "_log10":
-                    __parameter = copy.deepcopy(10**v)
+                    __parameter = copy_parameter_value(10**v)
                     break
 
             return __parameter
@@ -717,12 +712,12 @@ class SpectralModel(Radtrans):
 
         # Add fixed parameters
         for key, value in fixed_parameters.items():
-            parameters[key] = value
+            parameters[key] = copy_parameter_value(value)
 
         # Add free parameters, convert from Parameter object to dictionary
         for key, value in retrieved_parameters.items():
             if key not in fixed_parameters:
-                parameters[key] = copy.deepcopy(value)
+                parameters[key] = copy_parameter_value(value)
 
         for key, value in parameters.items():
             if key[0] == "_":
@@ -1912,7 +1907,7 @@ class SpectralModel(Radtrans):
             parameters["preparation_matrix"] = jnp.ones(spectrum.shape)
 
             if "data_uncertainties" in parameters:
-                parameters["prepared_uncertainties"] = copy.deepcopy(
+                parameters["prepared_uncertainties"] = copy_array_like(
                     parameters["data_uncertainties"]
                 )
             else:
@@ -3177,6 +3172,8 @@ class SpectralModel(Radtrans):
                 **model_parameters,
             )
 
+        from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
+
         samples_dict = get_pymultinest_sample_dict(
             output_dir=retrieval_directory,
             name=retrieval_name,
@@ -3196,7 +3193,7 @@ class SpectralModel(Radtrans):
                 parameter not in sample_selection
                 and "log10_" + parameter not in sample_selection
             ):
-                fixed_parameters[parameter] = copy.deepcopy(value)
+                fixed_parameters[parameter] = copy_parameter_value(value)
 
         parameters, _, _, _ = new_spectral_model.__retrieval_parameters_interface(
             retrieved_parameters=sample_selection,
@@ -3534,7 +3531,7 @@ class SpectralModel(Radtrans):
         convolve: bool = False,
         rebin: bool = False,
         prepare: bool = False,
-    ) -> Data:
+    ) -> "Data":
         """Initialize a Data object using a SpectralModel object.
         Automatically handle the fixed parameters, data mask, and model generating function.
         Fixed parameters, i.e. model parameters that are not retrieved, are stored within the model generating function.
@@ -3583,11 +3580,15 @@ class SpectralModel(Radtrans):
         Returns:
             A new Data object instance.
         """
+        from petitRADTRANS.retrieval.data import Data
+        from petitRADTRANS.retrieval.parameter import RetrievalParameter
+        from petitRADTRANS.retrieval.retrieval import Retrieval
+
         if retrieved_parameters is None:
             raise TypeError("missing required argument: 'retrieved_parameters'")
 
         if model_parameters is None:
-            model_parameters = copy.deepcopy(self.model_parameters)
+            model_parameters = self.model_parameters
 
         if fixed_special_parameters is None:
             fixed_special_parameters = {}
@@ -3608,7 +3609,7 @@ class SpectralModel(Radtrans):
                 parameter not in retrieved_parameters_names
                 and "log10_" + parameter not in retrieved_parameters_names
             ):
-                fixed_parameters[parameter] = copy.deepcopy(value)
+                fixed_parameters[parameter] = copy_parameter_value(value)
 
         special_parameters = Retrieval.get_special_parameters()
 
@@ -3638,7 +3639,7 @@ class SpectralModel(Radtrans):
                     f"multiple Data objects are retrieved."
                 )
 
-            fixed_parameters[parameter] = value
+            fixed_parameters[parameter] = copy_parameter_value(value)
 
         # Set the model generating function
         def model_generating_function(
@@ -3672,7 +3673,7 @@ class SpectralModel(Radtrans):
                 data=data_spectrum, data_uncertainties=data_uncertainties
             )
         else:
-            data_mask = fill_object(copy.deepcopy(data_spectrum), False)
+            data_mask = fill_object(copy_array_like(data_spectrum), False)
 
         return Data(
             name=data_name,
@@ -3711,12 +3712,16 @@ class SpectralModel(Radtrans):
         pressures=None,
         dataset_name="data",
         **kwargs,
-    ) -> Retrieval:
+    ) -> "Retrieval":
+        from petitRADTRANS.retrieval.parameter import RetrievalParameter
+        from petitRADTRANS.retrieval.retrieval import Retrieval
+        from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
+
         if pressures is None:
             pressures = copy.copy(self.pressures)
 
         if model_parameters is None:
-            model_parameters = copy.deepcopy(self.model_parameters)
+            model_parameters = self.model_parameters
 
         retrieval_configuration = RetrievalConfig(
             retrieval_name=retrieval_name,
@@ -3757,7 +3762,7 @@ class SpectralModel(Radtrans):
                 retrieval_configuration.add_parameter(
                     name=parameter,
                     is_free_parameter=False,
-                    value=model_parameters[parameter],
+                    value=copy_parameter_value(model_parameters[parameter]),
                     transform_prior_cube_coordinate=None,
                 )
 
@@ -3767,7 +3772,7 @@ class SpectralModel(Radtrans):
                 data=data, data_uncertainties=data_uncertainties
             )
         else:
-            data_mask = fill_object(copy.deepcopy(data), False)
+            data_mask = fill_object(copy_array_like(data), False)
 
         # Set model generating function
         def model_generating_function(
@@ -4250,6 +4255,8 @@ class SpectralModel(Radtrans):
         if np.ndim(spectrum.mask) == 0:
             spectrum.mask = np.zeros(spectrum.shape, dtype=bool)
 
+        from petitRADTRANS.retrieval.preparing import polyfit
+
         return polyfit(
             spectrum=spectrum,
             uncertainties=uncertainties,
@@ -4390,7 +4397,7 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def run_retrieval(
-        retrieval_configuration: RetrievalConfig,
+        retrieval_configuration: "RetrievalConfig",
         retrieval_directory,
         uncertainties_mode="default",
         n_live_points=100,
@@ -4405,6 +4412,8 @@ class SpectralModel(Radtrans):
         rank=0,
         **kwargs,
     ):
+        from petitRADTRANS.retrieval.retrieval import Retrieval
+
         retrieval = Retrieval(
             configuration=retrieval_configuration,
             output_directory=retrieval_directory,

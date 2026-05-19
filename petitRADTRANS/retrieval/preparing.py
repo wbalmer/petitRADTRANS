@@ -1,10 +1,11 @@
 """Stores useful functions for data reduction.
 """
-import copy
 import sys
 import warnings
 
 import numpy as np
+
+from petitRADTRANS.utils import copy_array_like, copy_mask_array
 
 
 def __init_pipeline(spectrum, uncertainties):
@@ -13,22 +14,28 @@ def __init_pipeline(spectrum, uncertainties):
     reduction_matrix.mask = np.zeros(spectrum.shape, dtype=bool)
 
     # Initialize reduced data and pipeline noise
-    reduced_data = copy.deepcopy(spectrum)
+    reduced_data = copy_array_like(spectrum)
 
     if isinstance(spectrum, np.ma.core.MaskedArray):
-        reduced_data.mask = copy.deepcopy(spectrum.mask)
+        reduced_data.mask = copy_mask_array(spectrum)
 
         if uncertainties is not None:
             if isinstance(uncertainties, np.ma.core.MaskedArray):
                 reduced_data.mask = np.logical_or(reduced_data.mask, uncertainties.mask)
 
-            reduced_data_uncertainties = np.ma.masked_array(copy.deepcopy(uncertainties))
-            reduced_data_uncertainties.mask = copy.deepcopy(reduced_data.mask)
+            reduced_data_uncertainties = np.ma.masked_array(
+                copy_array_like(uncertainties)
+            )
+            reduced_data_uncertainties.mask = np.array(
+                reduced_data.mask,
+                copy=True,
+                dtype=bool,
+            )
         else:
             reduced_data_uncertainties = None
     else:
         if uncertainties is not None:
-            reduced_data_uncertainties = copy.deepcopy(uncertainties)
+            reduced_data_uncertainties = copy_array_like(uncertainties)
         else:
             reduced_data_uncertainties = None
 
@@ -42,18 +49,18 @@ def __init_pipeline_outputs(spectrum, reduction_matrix, uncertainties):
 
     if isinstance(spectrum, np.ma.core.MaskedArray):
         spectral_data_corrected = np.ma.zeros(spectrum.shape)
-        spectral_data_corrected.mask = copy.deepcopy(spectrum.mask)
+        spectral_data_corrected.mask = copy_mask_array(spectrum)
 
         if uncertainties is not None:
-            pipeline_uncertainties = np.ma.masked_array(copy.deepcopy(uncertainties))
-            pipeline_uncertainties.mask = copy.deepcopy(spectrum.mask)
+            pipeline_uncertainties = np.ma.masked_array(copy_array_like(uncertainties))
+            pipeline_uncertainties.mask = copy_mask_array(spectrum)
         else:
             pipeline_uncertainties = None
     else:
         spectral_data_corrected = np.zeros(spectrum.shape)
 
         if uncertainties is not None:
-            pipeline_uncertainties = copy.deepcopy(uncertainties)
+            pipeline_uncertainties = copy_array_like(uncertainties)
         else:
             pipeline_uncertainties = None
 
@@ -213,7 +220,7 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
             weights = np.ma.masked_where(uncertainties.mask, weights)
             weights = weights.filled(0)
 
-    mask = copy.deepcopy(spectrum.mask)
+    mask = copy_mask_array(spectrum)
     spectrum[np.nonzero(np.equal(weights, 0))] = 0  # ensure no invalid values are hidden where weight = 0
     spectrum = np.ma.masked_where(mask, spectrum)
 
@@ -388,7 +395,7 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
     )
 
     if uncertainties is not None and uncertainties_as_weights:
-        weights = copy.deepcopy(uncertainties)
+        weights = copy_array_like(uncertainties)
         weights = weights.filled(0)  # polyfit doesn't take masks into account, so set weight of masked values to 0
     else:
         weights = np.ones(spectrum.shape)
@@ -397,7 +404,7 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
             weights = np.ma.masked_where(uncertainties.mask, weights)
             weights = weights.filled(0)
 
-    mask = copy.deepcopy(spectrum.mask)
+    mask = copy_mask_array(spectrum)
     spectrum[np.nonzero(np.equal(weights, 0))] = 0  # ensure no invalid values are hidden where weight = 0
     spectrum = np.ma.masked_where(mask, spectrum)
 
@@ -546,8 +553,8 @@ def trim_spectrum(spectrum, uncertainties=None, wavelengths=None, airmass=None, 
             uncertainties_as_weights=uncertainties_as_weights
         )
     else:
-        spectrum_ref = copy.deepcopy(spectrum)
-        u = copy.deepcopy(uncertainties)
+        spectrum_ref = copy_array_like(spectrum)
+        u = copy_array_like(uncertainties)
 
     spectrum_mean = np.ma.median(spectrum_ref, axis=1)
 
@@ -713,8 +720,8 @@ def sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
     """
     # Pre-preparation
     preparing_matrix = np.ones(spectrum.shape)
-    prepared_data_uncertainties = copy.deepcopy(uncertainties)
-    prepared_data = copy.deepcopy(spectrum)
+    prepared_data_uncertainties = copy_array_like(uncertainties)
+    prepared_data = copy_array_like(spectrum)
 
     if apply_throughput_removal:
         if wavelengths is None:
@@ -749,7 +756,7 @@ def sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
             print("Subtracting mean...")
 
         if uncertainties_as_weights:
-            weights = copy.deepcopy(uncertainties)
+            weights = copy_array_like(uncertainties)
         else:
             weights = np.ma.ones(uncertainties.shape)
             weights = np.ma.masked_where(uncertainties.mask, weights)

@@ -1296,7 +1296,10 @@ class RetrievalPlotter:
                 )
 
             if only_save_best_fit_spectra:
-                self.save_best_fit_outputs(self.best_fit_parameters)
+                self.save_best_fit_outputs(
+                    self.best_fit_parameters,
+                    retain_best_fit_spectra=False,
+                )
                 return None, None, None
 
             best_fit_wavelengths, best_fit_spectrum = self.get_best_fit_model(

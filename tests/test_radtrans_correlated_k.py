@@ -64,6 +64,50 @@ def test_correlated_k_emission_spectrum():
     )
 
 
+def test_photosphere_radius_profile_matches_reference_interpolation():
+    pressures = np.array([1.0, 2.0, 4.0, 8.0, 16.0])
+    radius_hydrostatic_equilibrium = np.array([12.0, 11.5, 11.0, 10.5, 10.0])
+    n_frequencies = atmosphere_ck.frequencies.size
+    tau_target = 2.0 / 3.0
+
+    pressure_targets = np.linspace(pressures[1], pressures[-2], n_frequencies - 2)
+    tau_profiles = np.empty((n_frequencies, pressures.size))
+
+    for i, pressure_target in enumerate(pressure_targets):
+        tau_profiles[i] = tau_target * pressures / pressure_target
+
+    tau_profiles[-2:] = 0.5 * tau_target * pressures / pressures[-1]
+
+    weights_gauss = np.asarray(atmosphere_ck._lines_loaded_opacities["weights_gauss"])
+    optical_depths = np.broadcast_to(
+        tau_profiles[None, :, None, :] / np.sum(weights_gauss),
+        (weights_gauss.size, n_frequencies, 1, pressures.size),
+    ).copy()
+
+    photosphere_radius = np.asarray(
+        atmosphere_ck._interpolate_photosphere_radius_profile(
+            pressures=pressures,
+            optical_depths=optical_depths,
+            radius_hydrostatic_equilibrium=radius_hydrostatic_equilibrium,
+        )
+    )
+
+    expected = np.empty(n_frequencies)
+
+    for i, tau_profile in enumerate(tau_profiles):
+        if np.max(tau_profile) > tau_target:
+            pressure_tau_23 = np.interp(tau_target, tau_profile, pressures)
+            expected[i] = np.interp(
+                pressure_tau_23,
+                pressures,
+                radius_hydrostatic_equilibrium,
+            )
+        else:
+            expected[i] = radius_hydrostatic_equilibrium[-1]
+
+    np.testing.assert_allclose(photosphere_radius, expected, rtol=1e-7, atol=5e-7)
+
+
 def test_correlated_k_emission_contribution_cloud_calculated_radius():
     mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
         get_cloud_parameters("mass_fractions_correlated_k")

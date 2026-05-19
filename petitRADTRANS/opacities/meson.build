@@ -8,6 +8,7 @@ py.install_sources([
     'opacities.py',
     'optical_depths.py',
     'rayleigh.py',
+    'registry.py',
     'rosseland.py',
     'write.py',
     '__init__.py',

@@ -7,6 +7,9 @@ import h5py
 import warnings
 
 from petitRADTRANS.opacities.opacities import CorrelatedKOpacity, Opacity, _get_mpi_context
+from petitRADTRANS.opacities.registry import (
+    _get_default_rebinning_wavelength_range as _registry_get_default_rebinning_wavelength_range,
+)
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.utils import intersection_indices
 from petitRADTRANS.utils import LockedDict
@@ -408,7 +411,7 @@ def get_opacity_sources_dict():
 
 
 def _get_default_rebinning_wavelength_range():
-    return np.array([0.1, 251.0])  # um
+    return _registry_get_default_rebinning_wavelength_range()
 
 
 def rebin_ck_line_opacities(

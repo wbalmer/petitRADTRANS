@@ -65,6 +65,25 @@ def _noop_opacity_fn(wavelengths, pressures):
     return jnp.zeros((wavelengths.size, pressures.size), dtype=WORKING_JAX_DTYPE)
 
 
+def _interpolate_linear_sorted(x_grid, y_grid, x_query):
+    """Linearly interpolate ``y(x)`` on a sorted 1D grid for a scalar query."""
+    upper_index = jnp.clip(
+        jnp.searchsorted(x_grid, x_query, side="left"),
+        1,
+        x_grid.size - 1,
+    )
+    lower_index = upper_index - 1
+
+    x0 = x_grid[lower_index]
+    x1 = x_grid[upper_index]
+    y0 = y_grid[lower_index]
+    y1 = y_grid[upper_index]
+
+    slope = jnp.where(x1 == x0, 0.0, (x_query - x0) / (x1 - x0))
+
+    return y0 + slope * (y1 - y0)
+
+
 class Radtrans:
     r"""Calculate spectra using a given set of opacities.
 
@@ -831,11 +850,11 @@ class Radtrans:
         )
         n_g = int(self._lines_loaded_opacities["g_gauss"].size)
 
-        temperature_pressure_grid_stacked = np.zeros(
+        temperature_pressure_grid_stacked = np.empty(
             (n_line_species, max_temperature_grid_size, max_pressure_grid_size, 2),
             dtype=np.asarray(self._pressures).dtype,
         )
-        opacity_grid_stacked = np.zeros(
+        opacity_grid_stacked = np.empty(
             (
                 n_line_species,
                 n_g,
@@ -853,18 +872,23 @@ class Radtrans:
             ).reshape(temperature_grid_size, pressure_grid_size, 2)
             opacity_grid = np.asarray(opacity_grids[species])
 
-            if (
-                temperature_grid_size < max_temperature_grid_size
-                or pressure_grid_size < max_pressure_grid_size
-            ):
-                temperature_pressure_grid = np.pad(
-                    temperature_pressure_grid,
-                    (
-                        (0, max_temperature_grid_size - temperature_grid_size),
-                        (0, max_pressure_grid_size - pressure_grid_size),
-                        (0, 0),
-                    ),
-                    mode="edge",
+            temperature_pressure_grid_stacked_species = (
+                temperature_pressure_grid_stacked[i_species]
+            )
+            temperature_pressure_grid_stacked_species[
+                :temperature_grid_size, :pressure_grid_size, :
+            ] = temperature_pressure_grid
+            if pressure_grid_size < max_pressure_grid_size:
+                temperature_pressure_grid_stacked_species[
+                    :temperature_grid_size, pressure_grid_size:, :
+                ] = temperature_pressure_grid[
+                    :, pressure_grid_size - 1 : pressure_grid_size, :
+                ]
+            if temperature_grid_size < max_temperature_grid_size:
+                temperature_pressure_grid_stacked_species[temperature_grid_size:, :, :] = (
+                    temperature_pressure_grid_stacked_species[
+                        temperature_grid_size - 1 : temperature_grid_size, :, :
+                    ]
                 )
 
             # Reshape the flat (T_act * P_act) opacity dimension to 2D (T_act, P_act),
@@ -872,26 +896,26 @@ class Radtrans:
             opacity_grid_2d = opacity_grid.reshape(
                 n_g, self._frequencies.size, temperature_grid_size, pressure_grid_size
             )
-            if (
-                temperature_grid_size < max_temperature_grid_size
-                or pressure_grid_size < max_pressure_grid_size
-            ):
-                opacity_grid_2d = np.pad(
-                    opacity_grid_2d,
-                    (
-                        (0, 0),
-                        (0, 0),
-                        (0, max_temperature_grid_size - temperature_grid_size),
-                        (0, max_pressure_grid_size - pressure_grid_size),
-                    ),
-                    mode="edge",
-                )
-            opacity_grid = opacity_grid_2d.reshape(
-                n_g, self._frequencies.size, max_temperature_pressure_grid_size
-            )
 
-            temperature_pressure_grid_stacked[i_species] = temperature_pressure_grid
-            opacity_grid_stacked[i_species] = opacity_grid
+            opacity_grid_stacked_species = opacity_grid_stacked[i_species].reshape(
+                n_g,
+                self._frequencies.size,
+                max_temperature_grid_size,
+                max_pressure_grid_size,
+            )
+            opacity_grid_stacked_species[
+                :, :, :temperature_grid_size, :pressure_grid_size
+            ] = opacity_grid_2d
+            if pressure_grid_size < max_pressure_grid_size:
+                opacity_grid_stacked_species[
+                    :, :, :temperature_grid_size, pressure_grid_size:
+                ] = opacity_grid_2d[:, :, :, pressure_grid_size - 1 : pressure_grid_size]
+            if temperature_grid_size < max_temperature_grid_size:
+                opacity_grid_stacked_species[:, :, temperature_grid_size:, :] = (
+                    opacity_grid_stacked_species[
+                        :, :, temperature_grid_size - 1 : temperature_grid_size, :
+                    ]
+                )
 
         self._lines_loaded_opacities["temperature_pressure_grid_stacked"] = jnp.array(
             temperature_pressure_grid_stacked,
@@ -1232,40 +1256,47 @@ class Radtrans:
         optical_depths,
         radius_hydrostatic_equilibrium,
     ):
-        from interpax import interp1d
+        pressures = jnp.asarray(pressures, dtype=WORKING_JAX_DTYPE)
+        optical_depths = jnp.asarray(optical_depths, dtype=WORKING_JAX_DTYPE)
+        radius_hydrostatic_equilibrium = jnp.asarray(
+            radius_hydrostatic_equilibrium,
+            dtype=JAX_DTYPE,
+        )
+        tau_target = jnp.asarray(2.0 / 3.0, dtype=WORKING_JAX_DTYPE)
+        tau_profiles = jnp.sum(
+            self._lines_loaded_opacities["weights_gauss"][:, None, None]
+            * optical_depths[:, :, 0, :],
+            axis=0,
+        )
+        reaches_tau_target = jnp.max(tau_profiles, axis=1) > tau_target
 
-        photosphere_radius = jnp.zeros(self._frequencies.size, dtype=JAX_DTYPE)
-        weights_gauss_reshape = self._lines_loaded_opacities["weights_gauss"].reshape(
-            len(self._lines_loaded_opacities["weights_gauss"]), 1
+        pressure_tau_23 = vmap(
+            lambda tau_profile: _interpolate_linear_sorted(
+                tau_profile,
+                pressures,
+                tau_target,
+            )
+        )(tau_profiles)
+        photosphere_radius = vmap(
+            lambda pressure_tau_23_i: _interpolate_linear_sorted(
+                pressures,
+                radius_hydrostatic_equilibrium,
+                pressure_tau_23_i,
+            )
+        )(pressure_tau_23)
+        photosphere_radius = jnp.where(
+            reaches_tau_target,
+            photosphere_radius,
+            radius_hydrostatic_equilibrium[-1],
         )
 
-        # TODO vmap or fori_loop
-        # TODO replace interp1d
-        for i_freq in range(self._frequencies.size):
-            tau_p = jnp.sum(
-                weights_gauss_reshape * optical_depths[:, i_freq, 0, :], axis=0
+        if not bool(jnp.all(reaches_tau_target)):
+            debug.print(
+                'Atmosphere is too transparent for calculating the "photospheric '
+                'radius" at tau = 2/3. Returning the radius at maximum pressure instead!'
             )
-            if jnp.max(tau_p) > 2.0 / 3.0:
-                pressure_tau_23 = interp1d(
-                    jnp.asarray([2.0 / 3.0]), tau_p, pressures
-                )[0]
-                photosphere_radius = photosphere_radius.at[i_freq].set(
-                    interp1d(
-                        jnp.asarray([pressure_tau_23]),
-                        pressures,
-                        radius_hydrostatic_equilibrium,
-                    )[0]
-                )
-            else:
-                debug.print(
-                    'Atmosphere is too transparent for calculating the "photospheric '
-                    'radius" at tau = 2/3. Returning the radius at maximum pressure instead!'
-                )
-                photosphere_radius = photosphere_radius.at[i_freq].set(
-                    radius_hydrostatic_equilibrium[-1]
-                )
 
-        return photosphere_radius
+        return jnp.asarray(photosphere_radius, dtype=JAX_DTYPE)
 
     @jit(
         static_argnames=[
@@ -4226,19 +4257,18 @@ class Radtrans:
         g_size,
         temperature_pressure_grid_size,
         return_radtrans_opacities=True,
+        return_host_array=False,
     ):
+        """Load k-coefficient tables in HDF5 format, based on the ExoMol setup."""
         import h5py
 
-        """Load k-coefficient tables in HDF5 format, based on the ExoMol setup."""
         with h5py.File(file_path_hdf5, "r") as f:
-            k_table = np.array(f["kcoeff"])
-
             if not return_radtrans_opacities:
                 return (
                     f["DOI"][()][0].decode("utf-8"),
                     f["bin_centers"][:],
                     f["bin_edges"][:],
-                    k_table,
+                    f["kcoeff"][:],
                     f["mol_mass"][()][0],
                     f["mol_name"][()][0].decode("utf-8"),
                     f["p"][:],
@@ -4247,16 +4277,12 @@ class Radtrans:
                     f["weights"][:],
                 )
 
-            n_wavelengths = len(f["bin_centers"][:])
-            _frequencies = cst.c * f["bin_centers"][:][::-1]
+            bin_centers = f["bin_centers"][:]
+            n_wavelengths = len(bin_centers)
+            host_dtype = np.dtype(WORKING_JAX_DTYPE)
+            _frequencies = cst.c * bin_centers[::-1]
             n_temperatures = len(f["t"][:])
             n_pressures = len(f["p"][:])
-
-            # Reshape k-table to petitRADTRANS format
-            k_table = jnp.swapaxes(k_table, 0, 1)
-            k_table = k_table.reshape((n_pressures * n_temperatures, n_wavelengths, 16))
-            k_table = jnp.swapaxes(k_table, 0, 2)
-            k_table = k_table[:, ::-1, :]
 
             indices_opacities, indices_file = (
                 load.get_frequency_grids_intersection_indices(
@@ -4291,8 +4317,8 @@ class Radtrans:
                     grid_misalignment = True
 
                 if grid_misalignment:
-                    max_relative_difference = jnp.max(
-                        jnp.abs(
+                    max_relative_difference = np.max(
+                        np.abs(
                             frequencies[indices_opacities] / _frequencies[indices_file]
                             - 1
                         )
@@ -4318,32 +4344,52 @@ class Radtrans:
                             f"have similar wavenumber grids"
                         )
 
-            # Fill opacity array
-            opacities = jnp.zeros(
-                (g_size, frequencies.size, 1, temperature_pressure_grid_size),
-                dtype=WORKING_JAX_DTYPE,
+            selected_file_indices = np.nonzero(indices_file)[0]
+            selection_start = n_wavelengths - int(selected_file_indices[-1]) - 1
+            selection_stop = n_wavelengths - int(selected_file_indices[0])
+            selected_wavelengths = selection_stop - selection_start
+
+            k_table = np.asarray(
+                f["kcoeff"][:, :, selection_start:selection_stop, :],
+                dtype=host_dtype,
             )
-            opacities = opacities.at[:, indices_opacities, 0, :].set(
-                jnp.asarray(k_table[:, indices_file, :], dtype=WORKING_JAX_DTYPE)
+            # Reshape k-table to petitRADTRANS format while staying on the host.
+            k_table = np.swapaxes(k_table, 0, 1)
+            k_table = k_table.reshape(
+                (n_pressures * n_temperatures, selected_wavelengths, g_size)
             )
-            opacities = jnp.where(opacities < 0, 0.0, opacities)
+            k_table = np.swapaxes(k_table, 0, 2)
+            k_table = np.maximum(k_table[:, ::-1, :], 0.0)
 
             # Divide by mass to convert cross-sections to opacities
             mol_mass_inv = 1 / (f["mol_mass"][()] * cst.amu)
 
-        line_opacities_grid = opacities * mol_mass_inv
+        line_opacities_grid = k_table * mol_mass_inv
 
-        return line_opacities_grid
+        if line_opacities_grid.shape[1] == frequencies.size and np.all(indices_opacities):
+            line_opacities_grid = line_opacities_grid[:, :, np.newaxis, :]
+        else:
+            opacities = np.zeros(
+                (g_size, frequencies.size, 1, temperature_pressure_grid_size),
+                dtype=host_dtype,
+            )
+            opacities[:, indices_opacities, 0, :] = line_opacities_grid
+            line_opacities_grid = opacities
+
+        if return_host_array:
+            return line_opacities_grid
+
+        return jnp.asarray(line_opacities_grid, dtype=WORKING_JAX_DTYPE)
 
     def load_line_opacities(self, path_input_data):
-        import h5py
-
         """Load the line opacities for spectral calculation.
         The default pressure-temperature grid is a log-uniform (10, 13) grid.
 
         Args:
             path_input_data: path to petitRADTRANS input_data directory
         """
+        import h5py
+
         # TODO currently all the pressure-temperature grid is loaded, it could be more memory efficient to provide a T an p range at init and only load the relevant parts of the grid # noqa: E501
         if self._line_opacity_mode == "c-k":
             category = "correlated_k_opacities"
@@ -4398,6 +4444,7 @@ class Radtrans:
                             temperature_pressure_grid_size=temperature_pressure_grids[
                                 species
                             ].shape[0],
+                            return_host_array=True,
                         )[:, :, 0, :],
                         dtype=host_dtype,
                     )

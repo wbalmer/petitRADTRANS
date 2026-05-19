@@ -170,6 +170,7 @@ class PhoenixStarTable:
 
 
 _PHOENIX_STAR_TABLE = PhoenixStarTable()
+phoenix_star_table = _PHOENIX_STAR_TABLE
 _STAR_SPECTRUM_CACHE = {}
 
 
@@ -224,12 +225,12 @@ def compute_star_spectrum(
         return _STAR_SPECTRUM_CACHE[cache_key]
 
     if star_radius is not None:
-        star_spectrum, _ = _PHOENIX_STAR_TABLE.compute_spectrum(
+        star_spectrum, _ = phoenix_star_table.compute_spectrum(
             star_effective_temperature
         )
         _star_radius = star_radius
     else:
-        star_spectrum, _star_radius = _PHOENIX_STAR_TABLE.compute_spectrum(
+        star_spectrum, _star_radius = phoenix_star_table.compute_spectrum(
             star_effective_temperature
         )
 

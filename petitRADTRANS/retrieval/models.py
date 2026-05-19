@@ -43,7 +43,7 @@ from petitRADTRANS.chemistry.core import (
 from petitRADTRANS.chemistry.utils import build_adaptive_pressure_grid
 from petitRADTRANS.physics import flux2irradiance, planck_function_cm, apply_ism_ext
 from petitRADTRANS.stellar_spectra.phoenix import (
-    _PHOENIX_STAR_TABLE,
+    phoenix_star_table,
     rebin_star_spectrum,
 )
 import petitRADTRANS.physical_constants as cst
@@ -525,7 +525,7 @@ def guillot_relative_emission(
     lambda_cm = cst.c / freq_centers  # wavelengths in cm
 
     # Interpolate the PHOENIX grid to obtain the surface F_nu [erg/cm^2/s/Hz].
-    star_spectrum, phoenix_star_radius = _PHOENIX_STAR_TABLE.compute_spectrum(
+    star_spectrum, phoenix_star_radius = phoenix_star_table.compute_spectrum(
         physical_params["star_effective_temperature"]
     )
 

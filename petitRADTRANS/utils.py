@@ -271,6 +271,56 @@ def dict2hdf5(dictionary, hdf5_file, group="/"):
             hdf5_file.create_dataset(name=group + key, data=data)
 
 
+def copy_array_like(array):
+    """Copy a numpy or masked array without recursive Python deepcopy overhead."""
+    if array is None:
+        return None
+
+    if isinstance(array, Array):
+        return jnp.array(array, copy=True)
+
+    if isinstance(array, np.ma.core.MaskedArray):
+        return np.ma.array(array, copy=True, subok=True)
+
+    return np.array(array, copy=True, subok=True)
+
+
+def copy_mask_array(array):
+    """Copy the boolean mask associated with a masked array-like object."""
+    return np.array(np.ma.getmaskarray(array), copy=True, dtype=bool)
+
+
+def copy_parameter_value(value):
+    """Copy nested parameter values while leaving immutable scalars untouched."""
+    if isinstance(value, (str, bytes, int, float, complex, bool, type(None))):
+        return value
+
+    if isinstance(value, (Array, np.ndarray, np.ma.core.MaskedArray)):
+        return copy_array_like(value)
+
+    if isinstance(value, tuple):
+        return tuple(copy_parameter_value(item) for item in value)
+
+    if isinstance(value, list):
+        return [copy_parameter_value(item) for item in value]
+
+    if isinstance(value, set):
+        return {copy_parameter_value(item) for item in value}
+
+    if isinstance(value, dict):
+        copied_value = copy.copy(value)
+
+        for key, item in value.items():
+            copied_value[key] = copy_parameter_value(item)
+
+        return copied_value
+
+    if callable(value):
+        return value
+
+    return copy.copy(value)
+
+
 def fill_object(array, value):
     """Fill a numpy object array with a value."""
     if array.dtype == "O":
