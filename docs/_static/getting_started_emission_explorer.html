@@ -245,30 +245,6 @@
         let currentValues = null;
         let pendingFrame = null;
 
-        function resizeFrameToContent() {
-            const frame = window.frameElement;
-            if (!frame) {
-                return;
-            }
-
-            const doc = document.documentElement;
-            const body = document.body;
-            const height = Math.max(
-                body ? body.scrollHeight : 0,
-                body ? body.offsetHeight : 0,
-                doc ? doc.scrollHeight : 0,
-                doc ? doc.offsetHeight : 0,
-            );
-
-            if (height > 0) {
-                frame.style.height = `${height + 4}px`;
-            }
-        }
-
-        function requestFrameResize() {
-            window.requestAnimationFrame(resizeFrameToContent);
-        }
-
         function formatValue(spec, value) {
             return Number(value).toFixed(spec.decimals || 0);
         }
@@ -589,7 +565,6 @@
                 "Client-side updates use precomputed petitRADTRANS response grids around the Guillot emission example. " +
                 "Emission scattering is disabled here to keep docs builds responsive."
             );
-            requestFrameResize();
         }
 
         function scheduleRender() {
@@ -702,14 +677,6 @@
                 buildControls(explorerData);
                 renderFigure();
                 resetButton.addEventListener("click", resetControls);
-                if (typeof ResizeObserver !== "undefined") {
-                    const resizeObserver = new ResizeObserver(() => {
-                        requestFrameResize();
-                    });
-                    resizeObserver.observe(document.body);
-                }
-                window.addEventListener("resize", requestFrameResize);
-                requestFrameResize();
             } catch (error) {
                 console.error(error);
                 statusNode.textContent = "Failed to load the emission explorer data.";

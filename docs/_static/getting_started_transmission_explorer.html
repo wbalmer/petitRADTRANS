@@ -245,30 +245,6 @@
         let currentValues = null;
         let pendingFrame = null;
 
-        function resizeFrameToContent() {
-            const frame = window.frameElement;
-            if (!frame) {
-                return;
-            }
-
-            const doc = document.documentElement;
-            const body = document.body;
-            const height = Math.max(
-                body ? body.scrollHeight : 0,
-                body ? body.offsetHeight : 0,
-                doc ? doc.scrollHeight : 0,
-                doc ? doc.offsetHeight : 0,
-            );
-
-            if (height > 0) {
-                frame.style.height = `${height + 4}px`;
-            }
-        }
-
-        function requestFrameResize() {
-            window.requestAnimationFrame(resizeFrameToContent);
-        }
-
         function formatValue(spec, value) {
             return Number(value).toFixed(spec.decimals || 0);
         }
@@ -597,7 +573,6 @@
             statusNode.textContent = (
                 "Client-side updates use precomputed petitRADTRANS one-parameter response grids around the notebook defaults."
             );
-            requestFrameResize();
         }
 
         function scheduleRender() {
@@ -712,13 +687,6 @@
                 buildControls(explorerData);
                 renderFigure();
                 resetButton.addEventListener("click", resetControls);
-                if (typeof ResizeObserver !== "undefined") {
-                    const resizeObserver = new ResizeObserver(() => {
-                        requestFrameResize();
-                    });
-                    resizeObserver.observe(document.body);
-                }
-                requestFrameResize();
             } catch (error) {
                 statusNode.textContent = `Failed to load the explorer data: ${error.message}`;
             }
@@ -728,7 +696,6 @@
             if (plotNode.data) {
                 Plotly.Plots.resize(plotNode);
             }
-            requestFrameResize();
         });
 
         loadExplorer();
