@@ -12,15 +12,17 @@ from petitRADTRANS.utils import intersection_indices
 from petitRADTRANS.utils import LockedDict
 
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE, WORKING_JAX_DTYPE
 
 # JAX-friendly sentinels and helpers for optional inputs
-_MISSING_FLOAT = jnp.array(-1.0, dtype=JAX_DTYPE)
-_MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=JAX_DTYPE)
+_MISSING_FLOAT = jnp.array(-1.0, dtype=WORKING_JAX_DTYPE)
+_MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=WORKING_JAX_DTYPE)
 
 
 def load_cia_opacity(file_path_hdf5, return_radtrans_opacities=True):
     """Load a CIA opacity file."""
+    host_dtype = np.dtype(WORKING_JAX_DTYPE)
+
     with h5py.File(file_path_hdf5, "r") as f:
         if not return_radtrans_opacities:
             return (
@@ -39,17 +41,20 @@ def load_cia_opacity(file_path_hdf5, return_radtrans_opacities=True):
 
         return (
             species,
-            jnp.prod(f["mol_mass"][:]),  # weight
-            wavelengths,
-            f["t"][:],  # temperatures
-            jnp.transpose(f["alpha"][:])[
-                ::-1, :
-            ],  # alpha (wavelength, temperature), correct ordering
+            np.prod(f["mol_mass"][:]).astype(host_dtype, copy=False),  # weight
+            np.asarray(wavelengths, dtype=host_dtype),
+            np.asarray(f["t"][:], dtype=host_dtype),  # temperatures
+            np.asarray(
+                np.transpose(f["alpha"][:])[::-1, :],
+                dtype=host_dtype,
+            ),  # alpha (wavelength, temperature), correct ordering
         )
 
 
 def load_cloud_opacity(file_path_hdf5, return_radtrans_opacities=True):
     """Load a cloud opacity file."""
+    host_dtype = np.dtype(FEAUTRIER_JAX_DTYPE)
+
     with h5py.File(file_path_hdf5, "r") as f:
         if not return_radtrans_opacities:
             return (
@@ -66,13 +71,13 @@ def load_cloud_opacity(file_path_hdf5, return_radtrans_opacities=True):
         cloud_wavelengths = cloud_wavelengths[::-1]  # correct ordering
 
         return (
-            cloud_wavelengths,
-            f["particle_radius_bins"][:],
-            f["particles_radii"][:],
-            f["particles_density"][()],
-            f["absorption_opacities"][:],
-            f["scattering_opacities"][:],
-            f["asymmetry_parameters"][:],
+            np.asarray(cloud_wavelengths, dtype=host_dtype),
+            np.asarray(f["particle_radius_bins"][:], dtype=host_dtype),
+            np.asarray(f["particles_radii"][:], dtype=host_dtype),
+            np.asarray(f["particles_density"][()], dtype=host_dtype),
+            np.asarray(f["absorption_opacities"][:], dtype=host_dtype),
+            np.asarray(f["scattering_opacities"][:], dtype=host_dtype),
+            np.asarray(f["asymmetry_parameters"][:], dtype=host_dtype),
         )
 
 
@@ -90,7 +95,7 @@ def load_hdf5_line_opacity_table(
     frequencies_relative_tolerance = (
         1e-12  # allow for a small relative deviation from the wavenumber grid
     )
-    host_dtype = np.dtype(JAX_DTYPE)
+    host_dtype = np.dtype(WORKING_JAX_DTYPE)
 
     with h5py.File(file_path_hdf5, "r") as f:
         if not return_radtrans_opacities:
@@ -318,7 +323,7 @@ def load_line_opacities_pressure_temperature_grid(hdf5_file):
             axis=-1,
         )
         .reshape(-1, 2)
-        .astype(np.dtype(JAX_DTYPE), copy=False)
+        .astype(np.dtype(WORKING_JAX_DTYPE), copy=False)
     )
     line_opacities_temperature_grid_size = temperature_grid.size
     line_opacities_pressure_grid_size = pressure_grid.size

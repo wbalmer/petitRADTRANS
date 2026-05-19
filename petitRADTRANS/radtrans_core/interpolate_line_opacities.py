@@ -5,7 +5,7 @@ JAX implementation of fortran_inputs.interpolate_line_opacities
 import jax.numpy as jnp
 from jax import lax, vmap, jit
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import WORKING_JAX_DTYPE
 
 
 @jit
@@ -210,7 +210,8 @@ def interpolate_species_opacities(
 
         if n_line_species > 0:
             line_opacities = jnp.zeros(
-                (n_g, n_frequencies, n_line_species, n_layers), dtype=JAX_DTYPE
+                (n_g, n_frequencies, n_line_species, n_layers),
+                dtype=WORKING_JAX_DTYPE,
             )
 
             for i, species in enumerate(line_opacities_grid):
@@ -233,7 +234,7 @@ def interpolate_species_opacities(
                 )
         else:
             line_opacities = jnp.zeros(
-                (n_g, n_frequencies, 1, n_layers), dtype=JAX_DTYPE
+                (n_g, n_frequencies, 1, n_layers), dtype=WORKING_JAX_DTYPE
             )
 
         return line_opacities
@@ -260,4 +261,4 @@ def interpolate_species_opacities(
             line_opacities_pressure_grid_size=line_opacities_pressure_grid_size,
         )
 
-    return jnp.zeros((n_g, n_frequencies, 1, n_layers), dtype=JAX_DTYPE)
+    return jnp.zeros((n_g, n_frequencies, 1, n_layers), dtype=WORKING_JAX_DTYPE)

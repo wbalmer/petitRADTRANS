@@ -7,11 +7,13 @@ from petitRADTRANS.opacities.opacities import Opacity
 from petitRADTRANS.opacities.hminus import get_non_cia_gas_continuum_contributions
 from petitRADTRANS.chemistry.utils import get_base_species_mass_fractions
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import WORKING_JAX_DTYPE
 
 
-_INV_LOSCHMIDT_SQUARED = jnp.array((1.0 / cst.L0) ** 2, dtype=JAX_DTYPE)
-_CIA_OPACITY_CUTOFF = jnp.finfo(JAX_DTYPE).tiny
+_INV_LOSCHMIDT_SQUARED = jnp.array(
+    (1.0 / cst.L0) ** 2, dtype=WORKING_JAX_DTYPE
+)
+_CIA_OPACITY_CUTOFF = jnp.finfo(WORKING_JAX_DTYPE).tiny
 
 
 def get_cia_aliases(name: str) -> str:
@@ -147,10 +149,14 @@ def interpolate_cia(
     Returns:
         A (wavelength, temperature) array containing the CIA opacities.
     """
-    weights = jnp.array(collision_dict["weight"], dtype=JAX_DTYPE)
-    alphas = jnp.array(collision_dict["alpha"], dtype=JAX_DTYPE)
-    binned_temperatures = jnp.array(collision_dict["temperature"], dtype=JAX_DTYPE)
-    binned_wavelengths = jnp.array(collision_dict["lambda"], dtype=JAX_DTYPE)
+    weights = jnp.array(collision_dict["weight"], dtype=WORKING_JAX_DTYPE)
+    alphas = jnp.array(collision_dict["alpha"], dtype=WORKING_JAX_DTYPE)
+    binned_temperatures = jnp.array(
+        collision_dict["temperature"], dtype=WORKING_JAX_DTYPE
+    )
+    binned_wavelengths = jnp.array(
+        collision_dict["lambda"], dtype=WORKING_JAX_DTYPE
+    )
 
     factor = (
         combined_mass_fractions

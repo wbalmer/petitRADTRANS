@@ -15,7 +15,7 @@ from petitRADTRANS.config.configuration import (
     petitradtrans_config_parser,
 )
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import WORKING_JAX_DTYPE
 
 
 def interpolate_chemical_table(
@@ -405,13 +405,15 @@ class PreCalculatedEquilibriumChemistryTable:
         species = tuple(species[index] for index in species_order)
         mass_fractions = mass_fractions[species_order, ...]
 
-        mass_fractions = jnp.array(mass_fractions, dtype=JAX_DTYPE)
-        mean_molar_masses = jnp.array(mean_molar_masses, dtype=JAX_DTYPE)
-        nabla_adiabatic = jnp.array(nabla_adiabatic, dtype=JAX_DTYPE)
-        log10_metallicities = jnp.array(log10_metallicities, dtype=JAX_DTYPE)
-        co_ratios = jnp.array(co_ratios, dtype=JAX_DTYPE)
-        temperatures = jnp.array(temperatures, dtype=JAX_DTYPE)
-        pressures = jnp.array(pressures, dtype=JAX_DTYPE)
+        mass_fractions = jnp.array(mass_fractions, dtype=WORKING_JAX_DTYPE)
+        mean_molar_masses = jnp.array(mean_molar_masses, dtype=WORKING_JAX_DTYPE)
+        nabla_adiabatic = jnp.array(nabla_adiabatic, dtype=WORKING_JAX_DTYPE)
+        log10_metallicities = jnp.array(
+            log10_metallicities, dtype=WORKING_JAX_DTYPE
+        )
+        co_ratios = jnp.array(co_ratios, dtype=WORKING_JAX_DTYPE)
+        temperatures = jnp.array(temperatures, dtype=WORKING_JAX_DTYPE)
+        pressures = jnp.array(pressures, dtype=WORKING_JAX_DTYPE)
 
         print("Done.")
         return (

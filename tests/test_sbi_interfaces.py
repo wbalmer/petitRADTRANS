@@ -742,6 +742,91 @@ def test_runtime_simulator_supports_nuisance_parameters():
     assert observation["metadata"][0]["fit_flux_offset"] is True
 
 
+def test_row_invalid_value_mask_accepts_padded_per_sample_mask_vectors():
+    values = np.ones((3, 2), dtype=float)
+    mask = np.array([False, True, False, True], dtype=bool)
+
+    row_invalid = RuntimeSimulator._row_invalid_value_mask(
+        values,
+        mask,
+        constraint=None,
+    )
+
+    np.testing.assert_array_equal(row_invalid, np.array([False, False, False]))
+
+
+def test_slice_batch_rows_preserves_static_masks():
+    batch = SimulationBatch(
+        parameters=jnp.array([[1.0], [2.0], [3.0]], dtype=jnp.float64),
+        observations={
+            "synthetic_spectrum": {
+                "values": jnp.array(
+                    [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=jnp.float64
+                ),
+                "deterministic_values": jnp.array(
+                    [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=jnp.float64
+                ),
+                "uncertainties": jnp.array(
+                    [[0.1, 0.1], [0.1, 0.1], [0.1, 0.1]], dtype=jnp.float64
+                ),
+                "mask": np.array([False, True]),
+                "coordinates": jnp.array(
+                    [[1.0, 2.0], [1.0, 2.0], [1.0, 2.0]], dtype=jnp.float64
+                ),
+                "metadata": [
+                    {"source_name": "synthetic_spectrum"},
+                    {"source_name": "synthetic_spectrum"},
+                    {"source_name": "synthetic_spectrum"},
+                ],
+            }
+        },
+    )
+
+    sliced = RuntimeSimulator._slice_batch_rows(batch, np.array([0, 2]))
+
+    np.testing.assert_array_equal(
+        sliced.observations["synthetic_spectrum"]["mask"],
+        np.array([False, True]),
+    )
+
+
+def test_concatenate_simulation_batches_preserves_static_masks():
+    batch_a = SimulationBatch(
+        parameters=jnp.array([[1.0]], dtype=jnp.float64),
+        observations={
+            "synthetic_spectrum": {
+                "values": jnp.array([[1.0, 2.0]], dtype=jnp.float64),
+                "deterministic_values": jnp.array([[1.0, 2.0]], dtype=jnp.float64),
+                "uncertainties": jnp.array([[0.1, 0.1]], dtype=jnp.float64),
+                "mask": np.array([False, True]),
+                "coordinates": jnp.array([[1.0, 2.0]], dtype=jnp.float64),
+                "metadata": [{"source_name": "synthetic_spectrum"}],
+            }
+        },
+    )
+    batch_b = SimulationBatch(
+        parameters=jnp.array([[3.0]], dtype=jnp.float64),
+        observations={
+            "synthetic_spectrum": {
+                "values": jnp.array([[3.0, 4.0]], dtype=jnp.float64),
+                "deterministic_values": jnp.array([[3.0, 4.0]], dtype=jnp.float64),
+                "uncertainties": jnp.array([[0.1, 0.1]], dtype=jnp.float64),
+                "mask": np.array([False, True]),
+                "coordinates": jnp.array([[1.0, 2.0]], dtype=jnp.float64),
+                "metadata": [{"source_name": "synthetic_spectrum"}],
+            }
+        },
+    )
+
+    combined = RuntimeSimulator._concatenate_simulation_batches([batch_a, batch_b])
+
+    np.testing.assert_array_equal(
+        combined.observations["synthetic_spectrum"]["mask"],
+        np.array([False, True]),
+    )
+    assert combined.parameters.shape == (2, 1)
+
+
 def test_zarr_simulation_dataset_store_round_trip(tmp_path):
     task = _build_runtime_task(
         retrieval_name="dataset_round_trip_demo", noise_mode="no_noise", seed=21

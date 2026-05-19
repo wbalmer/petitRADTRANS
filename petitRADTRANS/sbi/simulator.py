@@ -580,6 +580,191 @@ class RuntimeSimulator(BatchedSimulator):
         self._rng_key, next_key = random.split(self._rng_key)
         return next_key
 
+    @staticmethod
+    def _row_invalid_value_mask(
+        values: Any,
+        mask: Any,
+        constraint: Any,
+    ) -> np.ndarray:
+        values_array = np.asarray(values, dtype=float)
+        if values_array.ndim == 0:
+            values_array = values_array.reshape(1, 1)
+        elif values_array.ndim == 1:
+            values_array = values_array[np.newaxis, :]
+
+        value_mask = np.zeros_like(values_array, dtype=bool)
+        if mask is not None:
+            raw_mask = np.asarray(mask, dtype=bool)
+            if raw_mask.ndim == 0:
+                raw_mask = np.broadcast_to(raw_mask.reshape(1, 1), values_array.shape)
+            elif raw_mask.ndim == 1:
+                if (
+                    values_array.ndim > 1
+                    and raw_mask.shape[0] >= values_array.shape[0]
+                    and raw_mask.shape[0] != values_array.shape[-1]
+                ):
+                    raw_mask = raw_mask[: values_array.shape[0]]
+                if (
+                    values_array.ndim > 1
+                    and raw_mask.shape[0] == values_array.shape[0]
+                    and raw_mask.shape[0] != values_array.shape[-1]
+                ):
+                    reshape_shape = (raw_mask.shape[0],) + (1,) * (values_array.ndim - 1)
+                else:
+                    reshape_shape = (1,) * (values_array.ndim - 1) + (raw_mask.shape[0],)
+                raw_mask = np.broadcast_to(raw_mask.reshape(reshape_shape), values_array.shape)
+            elif raw_mask.shape != values_array.shape:
+                raw_mask = np.broadcast_to(raw_mask, values_array.shape)
+            value_mask = raw_mask
+
+        valid_positions = ~value_mask
+        invalid_positions = valid_positions & ~np.isfinite(values_array)
+
+        if constraint is not None:
+            if constraint.min_value is not None:
+                if constraint.min_inclusive:
+                    lower_violation = values_array < float(constraint.min_value)
+                else:
+                    lower_violation = values_array <= float(constraint.min_value)
+                invalid_positions |= valid_positions & lower_violation
+            if constraint.max_value is not None:
+                if constraint.max_inclusive:
+                    upper_violation = values_array > float(constraint.max_value)
+                else:
+                    upper_violation = values_array >= float(constraint.max_value)
+                invalid_positions |= valid_positions & upper_violation
+
+        return np.any(invalid_positions, axis=tuple(range(1, invalid_positions.ndim)))
+
+    def _invalid_sample_mask(
+        self,
+        observations: Mapping[str, Mapping[str, Any]],
+        n_samples: int,
+    ) -> tuple[np.ndarray, dict[str, int]]:
+        invalid_mask = np.zeros((n_samples,), dtype=bool)
+        invalid_counts: dict[str, int] = {}
+        constraints = self.task.simulation_config.observation_value_constraints
+
+        for observation_name, payload in observations.items():
+            deterministic_values = payload.get("deterministic_values", payload.get("values"))
+            if deterministic_values is None:
+                continue
+            row_invalid = self._row_invalid_value_mask(
+                deterministic_values,
+                payload.get("mask"),
+                constraints.get(observation_name),
+            )
+            invalid_mask |= row_invalid
+            invalid_counts[observation_name] = int(np.sum(row_invalid))
+
+        return invalid_mask, invalid_counts
+
+    @staticmethod
+    def _slice_batch_rows(
+        batch: SimulationBatch,
+        row_indices: np.ndarray,
+    ) -> SimulationBatch:
+        row_indices = np.asarray(row_indices, dtype=int)
+        original_n_samples = batch.n_samples
+
+        def _slice_optional_array(value: Any) -> Any:
+            if value is None:
+                return None
+            return jnp.asarray(value)[row_indices]
+
+        sliced_observations: dict[str, dict[str, Any]] = {}
+        for observation_name, payload in batch.observations.items():
+            sliced_payload: dict[str, Any] = {}
+            for key, value in payload.items():
+                if value is None:
+                    sliced_payload[key] = None
+                elif key == "metadata":
+                    sliced_payload[key] = [value[int(index)] for index in row_indices]
+                elif key == "mask":
+                    mask_array = np.asarray(value)
+                    if mask_array.ndim >= 1 and mask_array.shape[0] == original_n_samples:
+                        sliced_payload[key] = mask_array[row_indices]
+                    else:
+                        sliced_payload[key] = mask_array
+                else:
+                    sliced_payload[key] = jnp.asarray(value)[row_indices]
+            sliced_observations[observation_name] = sliced_payload
+
+        diagnostics = dict(batch.diagnostics)
+        diagnostics["n_samples"] = int(row_indices.shape[0])
+
+        return SimulationBatch(
+            parameters=_slice_optional_array(batch.parameters),
+            observations=sliced_observations,
+            cube_parameters=_slice_optional_array(batch.cube_parameters),
+            unconstrained_parameters=_slice_optional_array(batch.unconstrained_parameters),
+            log_likelihood=_slice_optional_array(batch.log_likelihood),
+            diagnostics=diagnostics,
+        )
+
+    @staticmethod
+    def _concatenate_simulation_batches(
+        batches: list[SimulationBatch],
+        diagnostics: Mapping[str, Any] | None = None,
+    ) -> SimulationBatch:
+        if not batches:
+            raise ValueError("At least one simulation batch is required for concatenation.")
+
+        def _concat_optional_arrays(values: list[Any]) -> Any:
+            present_values = [value for value in values if value is not None]
+            if not present_values:
+                return None
+            return jnp.concatenate([jnp.asarray(value) for value in present_values], axis=0)
+
+        concatenated_observations: dict[str, dict[str, Any]] = {}
+        observation_names = list(batches[0].observations.keys())
+        for observation_name in observation_names:
+            payload_keys = list(batches[0].observations[observation_name].keys())
+            concatenated_payload: dict[str, Any] = {}
+            for key in payload_keys:
+                field_values = [batch.observations[observation_name][key] for batch in batches]
+                if all(value is None for value in field_values):
+                    concatenated_payload[key] = None
+                elif key == "metadata":
+                    metadata_values: list[Any] = []
+                    for value in field_values:
+                        metadata_values.extend(list(value))
+                    concatenated_payload[key] = metadata_values
+                elif key == "mask":
+                    mask_arrays = [np.asarray(value) for value in field_values]
+                    if all(
+                        mask_array.ndim >= 1 and mask_array.shape[0] == batch.n_samples
+                        for mask_array, batch in zip(mask_arrays, batches, strict=True)
+                    ):
+                        concatenated_payload[key] = np.concatenate(mask_arrays, axis=0)
+                    else:
+                        concatenated_payload[key] = mask_arrays[0]
+                else:
+                    concatenated_payload[key] = jnp.concatenate(
+                        [jnp.asarray(value) for value in field_values],
+                        axis=0,
+                    )
+            concatenated_observations[observation_name] = concatenated_payload
+
+        merged_diagnostics = dict(batches[0].diagnostics)
+        if diagnostics is not None:
+            merged_diagnostics.update(dict(diagnostics))
+
+        return SimulationBatch(
+            parameters=_concat_optional_arrays([batch.parameters for batch in batches]),
+            observations=concatenated_observations,
+            cube_parameters=_concat_optional_arrays(
+                [batch.cube_parameters for batch in batches]
+            ),
+            unconstrained_parameters=_concat_optional_arrays(
+                [batch.unconstrained_parameters for batch in batches]
+            ),
+            log_likelihood=_concat_optional_arrays(
+                [batch.log_likelihood for batch in batches]
+            ),
+            diagnostics=merged_diagnostics,
+        )
+
     def _sample_prior_parameter_batch(self, n_samples: int) -> dict[str, jnp.ndarray]:
         if self.task.parameter_layout.n_free_parameters == 0:
             empty = jnp.zeros((n_samples, 0), dtype=JAX_DTYPE)
@@ -847,7 +1032,7 @@ class RuntimeSimulator(BatchedSimulator):
                     )[:n_samples]
                 for obs_name in det_obs:
                     payload = det_obs[obs_name]
-                    for key in ("values", "uncertainties", "covariance", "coordinates"):
+                    for key in ("values", "uncertainties", "covariance", "coordinates", "mask"):
                         if payload.get(key) is not None and hasattr(
                             payload[key], "__getitem__"
                         ):
@@ -887,7 +1072,7 @@ class RuntimeSimulator(BatchedSimulator):
                 "parameter_layout": self.task.parameter_layout.serialize_metadata(),
                 "task_fingerprint": self.task.task_fingerprint.digest,
             }
-            return SimulationBatch(
+            batched_batch = SimulationBatch(
                 parameters=parameter_matrix,
                 observations=stacked_observations_batched,
                 cube_parameters=(
@@ -903,6 +1088,18 @@ class RuntimeSimulator(BatchedSimulator):
                 log_likelihood=batched_log_likelihood,
                 diagnostics=diagnostics_batched,
             )
+            invalid_sample_mask, invalid_counts = self._invalid_sample_mask(
+                batched_batch.observations,
+                batched_batch.n_samples,
+            )
+            batched_batch.diagnostics.update(
+                {
+                    "invalid_sample_mask": invalid_sample_mask,
+                    "invalid_sample_count": int(np.sum(invalid_sample_mask)),
+                    "invalid_sample_counts_by_observation": invalid_counts,
+                }
+            )
+            return batched_batch
 
         # --- Scalar fallback path ---
         batched_observations: dict[str, list[dict[str, Any]]] = {
@@ -955,8 +1152,7 @@ class RuntimeSimulator(BatchedSimulator):
             "parameter_layout": self.task.parameter_layout.serialize_metadata(),
             "task_fingerprint": self.task.task_fingerprint.digest,
         }
-
-        return SimulationBatch(
+        scalar_batch = SimulationBatch(
             parameters=parameter_matrix,
             observations=stacked_observations,
             cube_parameters=(
@@ -976,6 +1172,18 @@ class RuntimeSimulator(BatchedSimulator):
             ),
             diagnostics=diagnostics,
         )
+        invalid_sample_mask, invalid_counts = self._invalid_sample_mask(
+            scalar_batch.observations,
+            scalar_batch.n_samples,
+        )
+        scalar_batch.diagnostics.update(
+            {
+                "invalid_sample_mask": invalid_sample_mask,
+                "invalid_sample_count": int(np.sum(invalid_sample_mask)),
+                "invalid_sample_counts_by_observation": invalid_counts,
+            }
+        )
+        return scalar_batch
 
     def simulate_from_parameters(self, parameters: Any) -> SimulationBatch:
         return self._simulate_parameter_matrix(
@@ -986,15 +1194,74 @@ class RuntimeSimulator(BatchedSimulator):
         self, n_samples: int, proposal: ProposalSampler | None = None
     ) -> SimulationBatch:
         """Sample parameters and preserve prior-space coordinates when available."""
-        if proposal is not None:
-            return self.simulate_from_parameters(
-                self.sample_parameters(n_samples=n_samples, proposal=proposal)
-            )
+        accepted_batches: list[SimulationBatch] = []
+        accepted_count = 0
+        attempted_count = 0
+        rejected_count = 0
+        invalid_counts_by_observation: dict[str, int] = {}
+        max_attempted = max(int(n_samples) * 20, int(n_samples) + 1024)
 
-        parameter_batch = self._sample_prior_parameter_batch(n_samples)
-        return self._simulate_parameter_matrix(
-            parameter_batch["parameters"],
-            cube_parameters=parameter_batch["cube_parameters"],
-            unconstrained_parameters=parameter_batch["unconstrained_parameters"],
-            data_parallel=self._data_parallel,
+        while accepted_count < n_samples:
+            remaining = int(n_samples - accepted_count)
+            if attempted_count >= max_attempted:
+                raise RuntimeError(
+                    "Failed to generate enough valid simulations within the allowed resampling budget."
+                )
+
+            if proposal is None:
+                parameter_batch = self._sample_prior_parameter_batch(remaining)
+                candidate_batch = self._simulate_parameter_matrix(
+                    parameter_batch["parameters"],
+                    cube_parameters=parameter_batch["cube_parameters"],
+                    unconstrained_parameters=parameter_batch["unconstrained_parameters"],
+                    data_parallel=self._data_parallel,
+                )
+            else:
+                candidate_batch = self._simulate_parameter_matrix(
+                    self.sample_parameters(n_samples=remaining, proposal=proposal),
+                    data_parallel=self._data_parallel,
+                )
+
+            attempted_count += candidate_batch.n_samples
+            invalid_mask = np.asarray(
+                candidate_batch.diagnostics.get("invalid_sample_mask"),
+                dtype=bool,
+            )
+            if invalid_mask.ndim == 0:
+                invalid_mask = np.full((candidate_batch.n_samples,), bool(invalid_mask))
+            rejected_count += int(np.sum(invalid_mask))
+
+            counts_by_observation = candidate_batch.diagnostics.get(
+                "invalid_sample_counts_by_observation",
+                {},
+            )
+            for observation_name, count in counts_by_observation.items():
+                invalid_counts_by_observation[observation_name] = (
+                    invalid_counts_by_observation.get(observation_name, 0) + int(count)
+                )
+
+            valid_indices = np.flatnonzero(~invalid_mask)
+            if valid_indices.size == 0:
+                continue
+
+            accepted_batch = self._slice_batch_rows(candidate_batch, valid_indices)
+            accepted_batches.append(accepted_batch)
+            accepted_count += accepted_batch.n_samples
+
+        final_batch = self._concatenate_simulation_batches(
+            accepted_batches,
+            diagnostics={
+                "parameter_layout": self.task.parameter_layout.serialize_metadata(),
+                "task_fingerprint": self.task.task_fingerprint.digest,
+                "accepted_sample_count": int(accepted_count),
+                "attempted_sample_count": int(attempted_count),
+                "rejected_sample_count": int(rejected_count),
+                "rejection_rate": (
+                    float(rejected_count) / float(attempted_count)
+                    if attempted_count > 0
+                    else 0.0
+                ),
+                "invalid_sample_counts_by_observation": invalid_counts_by_observation,
+            },
         )
+        return final_batch

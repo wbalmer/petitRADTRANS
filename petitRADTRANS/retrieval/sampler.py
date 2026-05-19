@@ -331,7 +331,7 @@ class SamplerContext:
     n_free_parameters: int = 0
 
 
-def _check_runtime_native_support(context: SamplerContext, sampler_label: str) -> None:
+def _check_differentiable_support(context: SamplerContext, sampler_label: str) -> None:
     """Raise if the retrieval has only legacy (non-differentiable) model groups."""
     runtime = context.runtime
     if all(group.model_contract != "differentiable" for group in runtime.model_groups):
@@ -349,7 +349,7 @@ def _build_unconstrained_mcmc_interface(context: SamplerContext):
     _require_jax()
     from petitRADTRANS.retrieval.parameter import JAX_DTYPE
 
-    _check_runtime_native_support(context, "Gradient-based JAX samplers")
+    _check_differentiable_support(context, "Gradient-based JAX samplers")
     parameter_layout = context.parameter_layout
     runtime = context.runtime
     free_parameter_names = list(parameter_layout.free_parameter_names)
@@ -1597,6 +1597,7 @@ class PymultinestSampler(Sampler):
         os.makedirs(os.path.join(self.output_directory, "out_PMN/"), exist_ok=True)
         self.seed = -1
         self.analyzer = None
+        self._n_dims = None
         self.outputfiles_basename = os.path.join(
             self.output_directory, "out_PMN", f"{self.retrieval_name}_"
         )
@@ -1676,8 +1677,26 @@ class PymultinestSampler(Sampler):
         return sampler, run_kwargs, summary_parameters
 
     def post_run(self, results):
-        analyzer = results
-        self.pretty_print(self._free_parameter_names, self._prefix)
+        _, _, rank = get_mpi_context()
+        analyzer = results if hasattr(results, "get_stats") else self.analyzer
+
+        if analyzer is None and rank == 0 and self._n_dims is not None:
+            try:
+                analyzer = pymultinest.Analyzer(
+                    outputfiles_basename=self.outputfiles_basename,
+                    n_params=self._n_dims,
+                )
+            except Exception as error:
+                warnings.warn(
+                    f"Unable to construct PyMultiNest analyzer for '{self.retrieval_name}': {error}",
+                    RuntimeWarning,
+                )
+
+        self.analyzer = analyzer
+
+        if rank == 0:
+            self.pretty_print(self._free_parameter_names, self._prefix)
+
         statistics = (
             analyzer.get_stats()
             if analyzer is not None and hasattr(analyzer, "get_stats")
@@ -1733,6 +1752,8 @@ class PymultinestSampler(Sampler):
         outputfiles_basename = kwargs.get(
             "outputfiles_basename", self.outputfiles_basename
         )
+        self.outputfiles_basename = outputfiles_basename
+        self._n_dims = n_dims
 
         pymultinest.run(
             LogLikelihood=self.log_likelihood_func,
@@ -1742,13 +1763,19 @@ class PymultinestSampler(Sampler):
         )
 
         if rank == 0:
-            self.outputfiles_basename = outputfiles_basename
             self.analyzer = pymultinest.Analyzer(
                 outputfiles_basename=self.outputfiles_basename, n_params=n_dims
             )
         return self.analyzer
 
     def pretty_print(self, free_parameter_names, prefix):
+        if self.analyzer is None:
+            warnings.warn(
+                f"PyMultiNest analyzer unavailable for '{self.retrieval_name}'; skipping stats output.",
+                RuntimeWarning,
+            )
+            return
+
         statistics = self.analyzer.get_stats()
         with open(prefix + "stats.json", "w") as f:
             json.dump(statistics, f, indent=4)
@@ -2457,10 +2484,21 @@ class DynestySampler(Sampler):
 
             resume = bool(run_kwargs.get("resume", False))
             pool = init_kwargs.get("pool")
+            checkpoint_exists = bool(
+                checkpoint_file and os.path.exists(checkpoint_file)
+            )
 
-            if resume and checkpoint_file and os.path.exists(checkpoint_file):
+            if resume and checkpoint_exists:
                 self.sampler = DynamicNestedSampler.restore(checkpoint_file, pool=pool)
             else:
+                if resume and not checkpoint_exists:
+                    warnings.warn(
+                        f"Dynesty checkpoint '{checkpoint_file}' was not found; "
+                        "starting a fresh run with resume=False.",
+                        RuntimeWarning,
+                    )
+                    run_kwargs["resume"] = False
+
                 self.sampler = DynamicNestedSampler(
                     self.log_likelihood_func,
                     self.prior_func,
@@ -2704,7 +2742,7 @@ class JAXNSSampler(Sampler):
     @classmethod
     def _build_jaxns_interface(cls, context: SamplerContext):
         """Build JAXNS prior_model generator and log_likelihood wrapper."""
-        _check_runtime_native_support(context, "JAXNS")
+        _check_differentiable_support(context, "JAXNS")
         free_parameter_names = context.free_parameter_names
 
         if len(free_parameter_names) < 1:

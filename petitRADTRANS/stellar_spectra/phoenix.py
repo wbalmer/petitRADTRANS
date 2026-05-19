@@ -15,7 +15,7 @@ from petitRADTRANS.config.configuration import (
 from petitRADTRANS.physics import wavelength2frequency, frequency2wavelength
 from petitRADTRANS.radtrans_core.spectrum_utils import rebin_spectrum
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 
 
 def _print_min_temperature_warning(_):
@@ -69,11 +69,11 @@ class PhoenixStarTable:
         assert self.wavelength_grid is not None
 
         log10_effective_temperature_grid = jnp.asarray(
-            self.log10_effective_temperature_grid, dtype=JAX_DTYPE
+            self.log10_effective_temperature_grid, dtype=FEAUTRIER_JAX_DTYPE
         )
-        radius_grid = jnp.asarray(self.radius_grid, dtype=JAX_DTYPE)
-        flux_grid = jnp.asarray(self.flux_grid, dtype=JAX_DTYPE)
-        wavelength_grid = jnp.asarray(self.wavelength_grid, dtype=JAX_DTYPE)
+        radius_grid = jnp.asarray(self.radius_grid, dtype=FEAUTRIER_JAX_DTYPE)
+        flux_grid = jnp.asarray(self.flux_grid, dtype=FEAUTRIER_JAX_DTYPE)
+        wavelength_grid = jnp.asarray(self.wavelength_grid, dtype=FEAUTRIER_JAX_DTYPE)
 
         log_temp = jnp.log10(temperature)
         grid_size = log10_effective_temperature_grid.shape[0]
@@ -151,11 +151,18 @@ class PhoenixStarTable:
 
         with h5py.File(file, "r") as f:
             self.log10_effective_temperature_grid = np.asarray(
-                f["log10_effective_temperatures"]
+                f["log10_effective_temperatures"],
+                dtype=np.dtype(FEAUTRIER_JAX_DTYPE),
             )
-            self.radius_grid = np.asarray(f["radii"])
-            self.flux_grid = np.asarray(f["fluxes"])
-            self.wavelength_grid = np.asarray(f["wavelengths"])
+            self.radius_grid = np.asarray(
+                f["radii"], dtype=np.dtype(FEAUTRIER_JAX_DTYPE)
+            )
+            self.flux_grid = np.asarray(
+                f["fluxes"], dtype=np.dtype(FEAUTRIER_JAX_DTYPE)
+            )
+            self.wavelength_grid = np.asarray(
+                f["wavelengths"], dtype=np.dtype(FEAUTRIER_JAX_DTYPE)
+            )
 
         self._loaded = True
 
@@ -243,8 +250,11 @@ def compute_star_spectrum(
 
 
 def rebin_star_spectrum(star_spectrum, star_wavelengths, wavelengths):
-    add_stellar_flux = jnp.zeros(100, dtype=JAX_DTYPE)
-    add_wavelengths = jnp.logspace(jnp.log10(1.0000002e-02), 2, 100)
+    add_stellar_flux = jnp.zeros(100, dtype=FEAUTRIER_JAX_DTYPE)
+    add_wavelengths = jnp.asarray(
+        jnp.logspace(jnp.log10(1.0000002e-02), 2, 100),
+        dtype=FEAUTRIER_JAX_DTYPE,
+    )
 
     wavelengths_interp = jnp.append(star_wavelengths, add_wavelengths)
     fluxes_interp = jnp.append(star_spectrum, add_stellar_flux)

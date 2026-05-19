@@ -43,6 +43,35 @@ class NoiseModelConfig:
 
 
 @dataclass(frozen=True)
+class ObservationValueConstraint:
+    """Admissible range for simulated observation values.
+
+    Attributes:
+        min_value:
+            Optional lower bound for valid simulated values.
+        max_value:
+            Optional upper bound for valid simulated values.
+        min_inclusive:
+            Whether ``min_value`` is included in the valid interval.
+        max_inclusive:
+            Whether ``max_value`` is included in the valid interval.
+    """
+
+    min_value: float | None = None
+    max_value: float | None = None
+    min_inclusive: bool = True
+    max_inclusive: bool = True
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "min_value": self.min_value,
+            "max_value": self.max_value,
+            "min_inclusive": bool(self.min_inclusive),
+            "max_inclusive": bool(self.max_inclusive),
+        }
+
+
+@dataclass(frozen=True)
 class ObservationSchema:
     """Capture the supported observation family for an amortized task.
 
@@ -77,6 +106,9 @@ class SimulationConfig:
             Persist log-likelihood components alongside simulated observations.
         noise_model:
             Noise model configuration applied after forward-model evaluation.
+        observation_value_constraints:
+            Optional per-dataset admissible value ranges enforced on
+            deterministic projected observations before simulations are accepted.
     """
 
     batch_size: int = 256
@@ -84,6 +116,9 @@ class SimulationConfig:
     use_vectorized_runtime: bool = True
     store_per_datapoint_log_likelihood: bool = False
     noise_model: NoiseModelConfig = field(default_factory=NoiseModelConfig)
+    observation_value_constraints: Mapping[str, ObservationValueConstraint] = field(
+        default_factory=dict
+    )
 
 
 @dataclass(frozen=True)
@@ -206,6 +241,12 @@ class SBITask:
             "dataset_names": self.observation_schema.dataset_names,
             "modalities": dict(self.observation_schema.modalities),
             "line_opacity_modes": dict(self.line_opacity_modes),
+            "observation_value_constraints": {
+                name: constraint.to_payload()
+                for name, constraint in sorted(
+                    self.simulation_config.observation_value_constraints.items()
+                )
+            },
         }
 
     @property

@@ -13,7 +13,7 @@ from jax import lax, debug
 from jax.typing import ArrayLike
 
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE, WORKING_JAX_DTYPE
 from petitRADTRANS.stellar_spectra.phoenix import compute_star_spectrum
 
 _UNSET = object()
@@ -313,12 +313,14 @@ def _sanitize_frequency_surface_input(
     values, frequencies, default_value, quantity_name
 ):
     if values is None:
-        return jnp.full_like(frequencies, default_value, dtype=JAX_DTYPE)
+        return jnp.full_like(
+            frequencies, default_value, dtype=WORKING_JAX_DTYPE
+        )
 
-    values = jnp.array(values, dtype=JAX_DTYPE)
+    values = jnp.array(values, dtype=WORKING_JAX_DTYPE)
 
     if jnp.ndim(values) == 0:
-        return values * jnp.ones_like(frequencies, dtype=JAX_DTYPE)
+        return values * jnp.ones_like(frequencies, dtype=WORKING_JAX_DTYPE)
 
     def _check_input_size(_values, _frequencies):
         if jnp.size(_values) != _frequencies.size:
@@ -349,7 +351,9 @@ def _sanitize_emission_surface_inputs(
     )
 
     if stellar_intensities is None:
-        stellar_intensities = jnp.zeros_like(frequencies, dtype=JAX_DTYPE)
+        stellar_intensities = jnp.zeros_like(
+            frequencies, dtype=FEAUTRIER_JAX_DTYPE
+        )
 
         if (
             scattering_in_emission
@@ -363,7 +367,9 @@ def _sanitize_emission_surface_inputs(
                 star_radius=star_radius,
             )
     else:
-        stellar_intensities = jnp.array(stellar_intensities, dtype=JAX_DTYPE)
+        stellar_intensities = jnp.array(
+            stellar_intensities, dtype=FEAUTRIER_JAX_DTYPE
+        )
 
     reflectances = _sanitize_frequency_surface_input(
         values=reflectances,
@@ -386,26 +392,26 @@ def _sanitize_emission_surface_inputs(
     }
 
 
-def _normalize_optional_mapping(mapping):
+def _normalize_optional_mapping(mapping, dtype=WORKING_JAX_DTYPE):
     if mapping is None or isinstance(mapping, (int, float)):
         return mapping
 
     if isinstance(mapping, (np.ndarray, jnp.ndarray)):
-        return jnp.array(mapping, dtype=JAX_DTYPE)
+        return jnp.array(mapping, dtype=dtype)
 
     normalized_mapping = {}
 
     for key, value in list(mapping.items()):
-        normalized_mapping[key] = jnp.array(value, dtype=JAX_DTYPE)
+        normalized_mapping[key] = jnp.array(value, dtype=dtype)
 
     return normalized_mapping
 
 
-def _normalize_optional_scalar(value, missing_value):
+def _normalize_optional_scalar(value, missing_value, dtype=WORKING_JAX_DTYPE):
     if value is None:
         return missing_value
 
-    return jnp.array(value, dtype=JAX_DTYPE)
+    return jnp.array(value, dtype=dtype)
 
 
 def _normalize_cloud_species_selection(selection, default_species):
@@ -448,11 +454,12 @@ def _sanitize_flux_opacity_inputs(
         cloud_f_sed_norm = {}
     elif isinstance(cloud_f_sed, dict):
         cloud_f_sed_norm = {
-            key: jnp.array(value, dtype=JAX_DTYPE) for key, value in cloud_f_sed.items()
+            key: jnp.array(value, dtype=FEAUTRIER_JAX_DTYPE)
+            for key, value in cloud_f_sed.items()
         }
     else:
         cloud_f_sed_norm = {
-            species: jnp.array(cloud_f_sed, dtype=JAX_DTYPE)
+            species: jnp.array(cloud_f_sed, dtype=FEAUTRIER_JAX_DTYPE)
             for species in cloud_species
         }
 
@@ -462,19 +469,19 @@ def _sanitize_flux_opacity_inputs(
     if clouds_particle_porosity_factor is not None:
         for key, value in list(clouds_particle_porosity_factor.items()):
             clouds_particle_porosity_factor_norm[key] = jnp.array(
-                value, dtype=JAX_DTYPE
+                value, dtype=FEAUTRIER_JAX_DTYPE
             )
 
     if eddy_diffusion_coefficients is None:
         eddy_diffusion_coefficients_norm = None
     elif isinstance(eddy_diffusion_coefficients, dict):
         eddy_diffusion_coefficients_norm = {
-            key: jnp.array(value, dtype=JAX_DTYPE)
+            key: jnp.array(value, dtype=FEAUTRIER_JAX_DTYPE)
             for key, value in eddy_diffusion_coefficients.items()
         }
     else:
         eddy_diffusion_coefficients_norm = jnp.array(
-            eddy_diffusion_coefficients, dtype=JAX_DTYPE
+            eddy_diffusion_coefficients, dtype=FEAUTRIER_JAX_DTYPE
         )
 
     return {
@@ -483,10 +490,15 @@ def _sanitize_flux_opacity_inputs(
             default_species=cloud_species,
         ),
         "cloud_particle_mean_radii": _normalize_optional_mapping(
-            cloud_particle_mean_radii
+            cloud_particle_mean_radii,
+            dtype=FEAUTRIER_JAX_DTYPE,
         ),
-        "cloud_hansen_a": _normalize_optional_mapping(cloud_hansen_a),
-        "cloud_hansen_b": _normalize_optional_mapping(cloud_hansen_b),
+        "cloud_hansen_a": _normalize_optional_mapping(
+            cloud_hansen_a, dtype=FEAUTRIER_JAX_DTYPE
+        ),
+        "cloud_hansen_b": _normalize_optional_mapping(
+            cloud_hansen_b, dtype=FEAUTRIER_JAX_DTYPE
+        ),
         "clouds_particle_porosity_factor": clouds_particle_porosity_factor_norm,
         "cloud_f_sed": cloud_f_sed_norm,
         "eddy_diffusion_coefficients": eddy_diffusion_coefficients_norm,
@@ -496,6 +508,7 @@ def _sanitize_flux_opacity_inputs(
         "cloud_particle_radius_distribution_std": _normalize_optional_scalar(
             cloud_particle_radius_distribution_std,
             missing_float,
+            dtype=FEAUTRIER_JAX_DTYPE,
         ),
         "power_law_opacity_350nm": _normalize_optional_scalar(
             power_law_opacity_350nm, missing_float
@@ -505,16 +518,17 @@ def _sanitize_flux_opacity_inputs(
             missing_float,
         ),
         "gray_opacity": (
-            jnp.array(0.0, dtype=JAX_DTYPE)
+            jnp.array(0.0, dtype=WORKING_JAX_DTYPE)
             if gray_opacity is None
-            else jnp.array(gray_opacity, dtype=JAX_DTYPE)
+            else jnp.array(gray_opacity, dtype=WORKING_JAX_DTYPE)
         ),
         "cloud_photosphere_median_optical_depth": _normalize_optional_scalar(
             cloud_photosphere_median_optical_depth,
             missing_float,
         ),
         "cloud_particle_number_density_grid": _normalize_optional_mapping(
-            cloud_particle_number_density_grid
+            cloud_particle_number_density_grid,
+            dtype=FEAUTRIER_JAX_DTYPE,
         ),
         "additional_absorption_opacities_function": (
             additional_absorption_opacities_function
@@ -529,12 +543,12 @@ def _sanitize_flux_opacity_inputs(
         "target_particle_radii": (
             None
             if target_particle_radii is None
-            else jnp.array(target_particle_radii, dtype=JAX_DTYPE)
+            else jnp.array(target_particle_radii, dtype=FEAUTRIER_JAX_DTYPE)
         ),
         "target_pressure": (
             None
             if target_pressure is None
-            else jnp.array(target_pressure, dtype=JAX_DTYPE)
+            else jnp.array(target_pressure, dtype=FEAUTRIER_JAX_DTYPE)
         ),
     }
 

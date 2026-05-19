@@ -73,6 +73,8 @@ from petitRADTRANS.retrieval.runtime import (
     ModelResult,
     ObservationState,
     PhysicalParams,
+    compute_diagonal_observation_log_likelihood,
+    project_model_to_observation_space,
 )
 from petitRADTRANS.retrieval.sampler import (
     JAXNSSampler,
@@ -447,6 +449,90 @@ def test_data_materializes_observation_and_likelihood_state():
     )
     np.testing.assert_array_equal(likelihood_state.mask, jnp.array([False, True]))
     assert likelihood_state.metadata["has_covariance"] is False
+
+
+def test_runtime_scores_shared_grid_time_series_by_projecting_model_times_first():
+    observation_times = jnp.array([0.0, 0.5, 1.5, 2.0])
+    observation_wavelengths = jnp.array([1.5, 2.5])
+    uncertainties = jnp.full((4, 2), 0.1)
+    mask = jnp.zeros((4, 2), dtype=bool)
+
+    model_times = jnp.array([0.0, 1.0, 2.0])
+    model_wavelengths = jnp.array([1.0, 2.0, 3.0])
+    model_spectra = jnp.array(
+        [
+            [1.0, 2.0, 4.0],
+            [2.0, 3.0, 5.0],
+            [4.0, 6.0, 8.0],
+        ]
+    )
+
+    interpolated_model = jax.vmap(
+        lambda wavelength_bin: jnp.interp(observation_times, model_times, wavelength_bin),
+        in_axes=1,
+        out_axes=1,
+    )(model_spectra)
+
+    reference_observation = ObservationState(
+        name="time_series",
+        wavelengths=observation_wavelengths,
+        spectrum=jnp.zeros((4, 2)),
+        mask=mask,
+        uncertainties=uncertainties,
+        metadata={"observation_times": observation_times},
+    )
+    projected_reference = jax.vmap(
+        lambda epoch_spectrum: project_model_to_observation_space(
+            model_wavelengths,
+            epoch_spectrum,
+            reference_observation,
+            {},
+            "time_series",
+        )
+    )(interpolated_model)
+
+    observation = ObservationState(
+        name="time_series",
+        wavelengths=observation_wavelengths,
+        spectrum=projected_reference,
+        mask=mask,
+        uncertainties=uncertainties,
+        metadata={"observation_times": observation_times},
+    )
+    likelihood = LikelihoodState(
+        data_uncertainties=uncertainties,
+        n_free_parameters=0,
+    )
+    runtime = RetrievalRuntime(
+        parameter_layout=SimpleNamespace(n_free_parameters=0),
+        observations={"time_series": observation},
+        likelihoods={"time_series": likelihood},
+    )
+
+    reference_ll = compute_diagonal_observation_log_likelihood(
+        projected_reference,
+        observation.spectrum,
+        observation.uncertainties,
+        mask=observation.mask,
+    )
+    optimized_ll = runtime._score_dataset(
+        "time_series",
+        {},
+        model_wavelengths,
+        jnp.full_like(interpolated_model, -10.0),
+        0.0,
+        model_auxiliary_outputs={
+            "model_times": model_times,
+            "model_spectra": model_spectra,
+        },
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(optimized_ll),
+        np.asarray(reference_ll),
+        rtol=1e-8,
+        atol=1e-8,
+    )
 
 
 def test_data_loadfits_accepts_structured_spectrum_tables(tmp_path):

@@ -98,10 +98,10 @@ SAMPLER_DISPATCH: dict[str, type[Sampler]] = {
 
 
 class Retrieval:
-    """Implement the retrieval method using petitRADTRANS and pymultinest.
+    """Implement the retrieval method using petitRADTRANS.
 
     A RetrievalConfig object is passed to this class to describe the retrieval data, parameters
-    and priors. The run() method then uses pymultinest to sample the parameter space, producing
+    and priors. The run() method then samples the parameter space, producing
     posterior distributions for parameters and bayesian evidence for models.
     Various useful plotting functions have also been included, and can be run once the retrieval is
     complete.
@@ -113,7 +113,7 @@ class Retrieval:
         output_directory : Str
             The directory in which the output folders should be written
         evaluate_sample_spectra : Bool
-            Produce plots and data files for random samples drawn from the outputs of pymultinest.
+            Produce plots and data files for random samples drawn from the outputs of the sampler.
         corner_plot_names : List(Str)
             List of additional retrieval names that should be included in the corner plotlib.
         reference_data_name : str
@@ -126,7 +126,7 @@ class Retrieval:
             test_plotting parameter is True.
         test_plotting : Bool
             Only use when running locally. A boolean flag that will produce plots
-            for each sample when pymultinest is run.
+            for each sample.
         uncertainties_mode : Str
             Uncertainties handling method during the retrieval.
                 - "default": the uncertainties are fixed.
@@ -195,7 +195,7 @@ class Retrieval:
         self.analyzer = None
         self.sampler = None
 
-        self.samples = {}  #: The samples produced by pymultinest.
+        self.samples = {}
         self.param_dictionary = {}
         # TODO reference_data_name should be in retrieval not in plotter
         self.plotter = RetrievalPlotter(self, reference_data_name=reference_data_name)
@@ -749,9 +749,8 @@ class Retrieval:
             retrieval_name : Str
                 Name of this retrieval. Make it informative so that you can keep track of the outputs!
             run_mode : Str
-                Can be either 'retrieval', which runs the retrieval normally using pymultinest,
-                or 'evaluate', which produces plots from the best fit parameters stored in the
-                output post_equal_weights file.
+                Can be either 'retrieval', which runs the retrieval, or 'evaluate', which produces plots
+                from the best fit parameters stored in the samples file.
             adaptive_mesh_refinement : Bool
                 Use an adaptive high resolution pressure grid around the location of cloud condensation.
                 This will increase the size of the pressure grid by a constant factor that can be adjusted
@@ -759,7 +758,7 @@ class Retrieval:
             output_directory : Str
                 The directory in which the output folders should be written
             evaluate_sample_spectra : Bool
-                Produce plots and data files for random samples drawn from the outputs of pymultinest.
+                Produce plots and data files for random samples drawn from the outputs of the sampler.
             corner_plot_names : List(Str)
                 List of additional retrieval names that should be included in the corner plotlib.
             reference_data_name : str
@@ -771,7 +770,7 @@ class Retrieval:
                 test_plotting parameter is True.
             test_plotting : Bool
                 Only use when running locally. A boolean flag that will produce plots
-                for each sample when pymultinest is run.
+                for each sample.
             uncertainties_mode : Str
                 Uncertainties handling method during the retrieval.
                     - "default": the uncertainties are fixed.

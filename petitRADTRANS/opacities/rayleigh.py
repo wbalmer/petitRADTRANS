@@ -4,7 +4,7 @@ from petitRADTRANS.chemistry.utils import get_base_species_mass_fractions
 from petitRADTRANS.opacities.opacities import Opacity
 from petitRADTRANS.physics import frequency2wavelength, hz2um
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 
 
 def compute_power_law_opacities(
@@ -34,10 +34,10 @@ def compute_rayleigh_scattering_opacities(
         mass_fractions: dictionary of the Rayleigh scattering species mass fractions
     """
     wavelengths_angstroem = jnp.array(
-        frequency2wavelength(frequencies) * 1e8, dtype=JAX_DTYPE
+        frequency2wavelength(frequencies) * 1e8, dtype=FEAUTRIER_JAX_DTYPE
     )
     rayleigh_scattering_opacities = jnp.zeros(
-        (frequencies.size, pressures.size), dtype=JAX_DTYPE
+        (frequencies.size, pressures.size), dtype=FEAUTRIER_JAX_DTYPE
     )
 
     # TODO Store base names

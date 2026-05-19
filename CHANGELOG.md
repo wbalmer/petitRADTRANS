@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a33] - 2026-05-14
+## [4.0.0a35] - 2026-05-19
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -34,6 +34,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
 
 ### Changed
+- a34: Transition to mixed precision to reduce memory use and computation time.
 - a32: Bug fixes for photometric data input for retrievals.
 - a32: Major overhaul of documentation.
 - a29: Improved memory management - smarter loading of lbl opacities, delaying JAX conversion, cholesky decomposition for large covariance matrix inversion.

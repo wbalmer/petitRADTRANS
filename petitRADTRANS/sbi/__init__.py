@@ -101,7 +101,13 @@ from .preprocessing import (
 from .simulator import ProposalSampler, RuntimeSimulator, SimulationBatch, Simulator
 
 # Task configuration
-from .task import NoiseModelConfig, ObservationSchema, SBITask, SimulationConfig
+from .task import (
+    NoiseModelConfig,
+    ObservationSchema,
+    ObservationValueConstraint,
+    SBITask,
+    SimulationConfig,
+)
 
 # Training
 from .training import EarlyStoppingConfig, SBITrainer, TrainingConfig
@@ -180,6 +186,7 @@ __all__ = [
     # Task configuration
     "NoiseModelConfig",
     "ObservationSchema",
+    "ObservationValueConstraint",
     "SBITask",
     "SimulationConfig",
     # Training

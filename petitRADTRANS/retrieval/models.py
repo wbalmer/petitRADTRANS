@@ -3618,14 +3618,14 @@ def make_unified_model(fn, legacy_fn=None):
     *legacy_fn* based on the type of the first positional argument.
 
     When the first argument is a :class:`~petitRADTRANS.retrieval.runtime.ModelContext`
-    instance, the runtime-native code path is taken.  Any other type routes to
+    instance, the differentiable code path is taken.  Any other type routes to
     the legacy calling convention ``(prt_object, parameters, ...)``.  If no
     *legacy_fn* is supplied and the first argument is not a
     :class:`ModelContext`, a :class:`TypeError` is raised.
 
     The dispatcher carries ``_prt_model_contract == MODEL_CONTRACT_DIFFERENTIABLE``
     so that :func:`coerce_model_generating_function` and the retrieval runtime
-    treat it as a first-class runtime-native function.  The constituent
+    treat it as a first-class differentiable function.  The constituent
     functions remain accessible as ``.___`` and ``.__legacy__``
     attributes.
     """

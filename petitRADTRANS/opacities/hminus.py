@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import frequency2wavelength
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import WORKING_JAX_DTYPE
 
 
 def get_non_cia_gas_continuum_contributions():
@@ -51,7 +51,7 @@ def compute_h_minus_free_free_xsec(
             - 0.625151 * jnp.log10(lamb_use) ** 4.0
         )
 
-        ret_val = jnp.zeros_like(wavelengths, dtype=JAX_DTYPE)
+        ret_val = jnp.zeros_like(wavelengths, dtype=WORKING_JAX_DTYPE)
         ret_val = ret_val.at[index].set(
             1e-26
             * electron_partial_pressure
@@ -61,7 +61,7 @@ def compute_h_minus_free_free_xsec(
 
     else:
 
-        return jnp.zeros_like(wavelengths, dtype=JAX_DTYPE)
+        return jnp.zeros_like(wavelengths, dtype=WORKING_JAX_DTYPE)
 
 
 def compute_h_minus_bound_free_xsec(wavelengths_bin_edges):
@@ -89,7 +89,7 @@ def compute_h_minus_bound_free_xsec(wavelengths_bin_edges):
         2.78701e-23,
     ]
 
-    ret_val = jnp.zeros_like(wavelengths_bin_edges[1:], dtype=JAX_DTYPE)
+    ret_val = jnp.zeros_like(wavelengths_bin_edges[1:], dtype=WORKING_JAX_DTYPE)
 
     index = right <= 1.64e4
 
@@ -136,7 +136,7 @@ def compute_h_minus_opacities(
         jnp.zeros(len(wavelengths) * len(pressures)).reshape(
             len(wavelengths), len(pressures)
         ),
-        dtype=JAX_DTYPE,
+        dtype=WORKING_JAX_DTYPE,
     )
 
     # Calculate electron number fraction

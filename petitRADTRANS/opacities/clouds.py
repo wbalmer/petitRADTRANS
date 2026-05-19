@@ -1439,8 +1439,7 @@ def compute_species_optical_depths(reference_gravity, pressures, cloud_opacities
         pressures:
             Atmospheric pressure grid in cgs units.
         cloud_opacities:
-            Cloud opacity array with dimensions
-            ``(n_g, n_frequencies, n_species, n_layers)``.
+            Cloud opacity array with dimensions ``(..., n_layers)``.
 
     Returns:
         Cloud optical depths with the same shape as ``cloud_opacities``.

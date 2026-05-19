@@ -13,12 +13,13 @@ from jax.typing import ArrayLike
 import petitRADTRANS.physical_constants as cst
 import petitRADTRANS.radtrans_core.physics_core as physics_core
 import petitRADTRANS.radtrans_core.linalg as linalg
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE, WORKING_JAX_DTYPE
 
 CST_PI = jnp.pi  # Or the specific precision from Fortran
 
-TINIEST = jnp.finfo(JAX_DTYPE).tiny
-HUGE_SQRT = jnp.sqrt(jnp.finfo(JAX_DTYPE).max)
+TINIEST = jnp.finfo(FEAUTRIER_JAX_DTYPE).tiny
+HUGE_SQRT = jnp.sqrt(jnp.finfo(FEAUTRIER_JAX_DTYPE).max)
+WORKING_TINIEST = jnp.finfo(WORKING_JAX_DTYPE).tiny
 
 _UNROLL_SPECIES_LIMIT = 8
 
@@ -209,7 +210,11 @@ def _combine_ck_opacities_jax(
         x1 = g_x_vals[rows, idx]
         y0 = k_sorted[rows, idx_lo]
         y1 = k_sorted[rows, idx]
-        t = jnp.clip((g_target - x0) / jnp.maximum(x1 - x0, TINIEST), 0.0, 1.0)
+        t = jnp.clip(
+            (g_target - x0) / jnp.maximum(x1 - x0, WORKING_TINIEST),
+            0.0,
+            1.0,
+        )
         return y0 + t * (y1 - y0)
 
     # ------------------------------------------------------------------
@@ -618,27 +623,33 @@ def compute_species_optical_depths(
     Args:
         reference_gravity (DeviceArray): Reference gravity (scalar).
         pressures (DeviceArray): Pressures at each layer with shape (n_layers,).
-        opacities (DeviceArray): Opacities with shape (n_g, n_frequencies, n_species, n_layers).
+        opacities (DeviceArray): Opacities with shape (..., n_layers).
 
     Returns:
-        DeviceArray: Optical depths with shape (n_g, n_frequencies, n_species, n_layers).
+        DeviceArray: Optical depths with the same leading shape as ``opacities``.
     """
+    opacities_work = jnp.asarray(opacities, dtype=WORKING_JAX_DTYPE)
+    pressures_work = jnp.asarray(pressures, dtype=WORKING_JAX_DTYPE)
+    reference_gravity_work = jnp.asarray(reference_gravity, dtype=WORKING_JAX_DTYPE)
+
     # Calculate pressure differences
-    pressure_diffs = pressures[1:] - pressures[:-1]
+    pressure_diffs = pressures_work[1:] - pressures_work[:-1]
+    pressure_diffs = jnp.reshape(
+        pressure_diffs,
+        (1,) * (opacities_work.ndim - 1) + (pressure_diffs.shape[0],),
+    )
 
     # Calculate average opacities between layers (vectorized)
-    avg_opacities = (opacities[..., 1:] + opacities[..., :-1]) / 2.0
+    avg_opacities = (opacities_work[..., 1:] + opacities_work[..., :-1]) / 2.0
 
     # Calculate optical depth increments (vectorized)
-    d_optical_depths = (
-        avg_opacities * pressure_diffs[None, None, None, :] / reference_gravity
-    )
+    d_optical_depths = avg_opacities * pressure_diffs / reference_gravity_work
 
     # Integrate optical depths cumulatively (vectorized)
     optical_depths = jnp.concatenate(
         [
             jnp.zeros_like(
-                opacities[..., :1]
+                opacities_work[..., :1]
             ),  # Initial optical depth at the top is zero
             jnp.cumsum(d_optical_depths, axis=-1),
         ],
@@ -879,7 +890,9 @@ def _compute_feautrier_radiative_transfer_chunk(
     # insensitive to the photon destruction probability in scattering-
     # dominated cells.  Using 10*eps ensures the floor is always
     # representable as a correction to 1.0 in whatever dtype is active.
-    _pdp_floor = jnp.finfo(JAX_DTYPE).eps * 10  # ~1.2e-6 float32, ~2.2e-15 float64
+    _pdp_floor = (
+        jnp.finfo(FEAUTRIER_JAX_DTYPE).eps * 10
+    )  # ~1.2e-6 float32, ~2.2e-15 float64
     pdp_gfl = jnp.maximum(photon_destruction_probabilities_in, _pdp_floor)
 
     # ------------------------------------------------------------------
@@ -1501,25 +1514,39 @@ def _compute_feautrier_radiative_transfer_chunk(
     # ------------------------------------------------------------------
     # 15. Contribution function (optional)
     # ------------------------------------------------------------------
-    emission_contribution_lf = jnp.zeros((n_layers, n_freq_bins))
+    emission_contribution_lf = jnp.zeros(
+        (n_layers, n_freq_bins), dtype=WORKING_JAX_DTYPE
+    )
 
     def compute_contribution() -> ArrayLike:
+        weights_gauss_work = jnp.asarray(weights_gauss, dtype=WORKING_JAX_DTYPE)
+        final_source_work = jnp.asarray(final_source_gfl, dtype=WORKING_JAX_DTYPE)
+        i_minus_work = jnp.asarray(I_minus_gf_final, dtype=WORKING_JAX_DTYPE)
+        optical_depths_work = jnp.asarray(optical_depths_in, dtype=WORKING_JAX_DTYPE)
+        emission_cos_angles_work = jnp.asarray(
+            emission_cos_angles, dtype=WORKING_JAX_DTYPE
+        )
+        emission_cos_angles_weights_work = jnp.asarray(
+            emission_cos_angles_weights, dtype=WORKING_JAX_DTYPE
+        )
+
         # G-integrated source: (l, f)
-        r_src_lf = jnp.einsum("g,gfl->lf", weights_gauss, final_source_gfl)
+        r_src_lf = jnp.einsum("g,gfl->lf", weights_gauss_work, final_source_work)
 
         # G-integrated I_minus: (f,)
-        I_minus_f = jnp.einsum("g,gf->f", weights_gauss, I_minus_gf_final)
+        I_minus_f = jnp.einsum("g,gf->f", weights_gauss_work, i_minus_work)
 
         # This replaces n_angles separate exp(-tau/mu) calls inside fori_loop.
         transm_gfla = jnp.exp(
-            -optical_depths_in[:, :, :, None] / emission_cos_angles[None, None, None, :]
+            -optical_depths_work[:, :, :, None]
+            / emission_cos_angles_work[None, None, None, :]
         )  # (g, f, l, a)
-        transm_lfa = jnp.einsum("g,gfla->lfa", weights_gauss, transm_gfla)  # (l, f, a)
+        transm_lfa = jnp.einsum("g,gfla->lfa", weights_gauss_work, transm_gfla)  # (l, f, a)
         del transm_gfla
 
         def i_mu_body(i_mu: int, acc: ArrayLike) -> ArrayLike:
-            mu_val = emission_cos_angles[i_mu]
-            mu_weight_val = emission_cos_angles_weights[i_mu]
+            mu_val = emission_cos_angles_work[i_mu]
+            mu_weight_val = emission_cos_angles_weights_work[i_mu]
 
             # no exp() here — just slice the precomputed array.
             transm_lf = transm_lfa[:, :, i_mu]  # (l, f)
@@ -1540,10 +1567,17 @@ def _compute_feautrier_radiative_transfer_chunk(
             return acc
 
         accumulated = lax.fori_loop(
-            0, n_angles, i_mu_body, jnp.zeros((n_layers, n_freq_bins))
+            0,
+            n_angles,
+            i_mu_body,
+            jnp.zeros((n_layers, n_freq_bins), dtype=WORKING_JAX_DTYPE),
         )
         total = jnp.sum(accumulated, axis=0, keepdims=True)
-        return jnp.where(jnp.abs(total) < TINIEST, 0.0, accumulated / total)
+        return jnp.where(
+            jnp.abs(total) < WORKING_TINIEST,
+            jnp.zeros_like(accumulated),
+            accumulated / total,
+        )
 
     if return_contribution:
         emission_contribution_lf = compute_contribution()
@@ -1972,23 +2006,44 @@ def compute_optical_depths(
         photon destruction probabilities with shape ``(n_g, n_frequencies, n_layers)``.
     """
 
+    opacities_work = jnp.asarray(opacities, dtype=WORKING_JAX_DTYPE)
+    pressures_work = jnp.asarray(pressures, dtype=WORKING_JAX_DTYPE)
+    reference_gravity_work = jnp.asarray(reference_gravity, dtype=WORKING_JAX_DTYPE)
+    if continuum_opacities_scattering is None:
+        continuum_opacities_scattering_work = jnp.zeros(
+            opacities_work[:, :, 0, :].shape, dtype=WORKING_JAX_DTYPE
+        )
+    else:
+        continuum_opacities_scattering_work = jnp.asarray(
+            continuum_opacities_scattering, dtype=WORKING_JAX_DTYPE
+        )
+
     def scattering_function() -> tuple[ArrayLike, ArrayLike]:
         # Add continuum scattering to the first species (assumed at index 0)
-        _opacities = opacities.at[:, :, 0, :].add(continuum_opacities_scattering)
+        _opacities = opacities_work.at[:, :, 0, :].add(
+            continuum_opacities_scattering_work
+        )
         # Compute photon destruction probabilities for all g, freq, press
-        absorptive_opac = opacities[:, :, 0, :]
+        absorptive_opac = opacities_work[:, :, 0, :]
         total_opac = _opacities[:, :, 0, :]
-        safe_total_opac = jnp.where(total_opac > TINIEST, total_opac, 1.0)
+        safe_total_opac = jnp.where(
+            total_opac > WORKING_TINIEST,
+            total_opac,
+            jnp.ones_like(total_opac),
+        )
         photon_destruction_probabilities = absorptive_opac / safe_total_opac
         photon_destruction_probabilities = jnp.where(
-            total_opac > TINIEST,
+            total_opac > WORKING_TINIEST,
             photon_destruction_probabilities,
-            1.0,
+            jnp.ones_like(total_opac),
         )
         return photon_destruction_probabilities, _opacities
 
     def false_function() -> tuple[ArrayLike, ArrayLike]:
-        return jnp.ones(opacities[:, :, 0, :].shape), opacities
+        return (
+            jnp.ones(opacities_work[:, :, 0, :].shape, dtype=WORKING_JAX_DTYPE),
+            opacities_work,
+        )
 
     photon_destruction_probabilities, _opacities = lax.cond(
         scattering_in_emission, scattering_function, false_function
@@ -1999,12 +2054,12 @@ def compute_optical_depths(
     )
 
     # Vectorized optical depth calculation
-    pressure_diffs = pressures[1:] - pressures[:-1]  # (n_layers-1,)
+    pressure_diffs = pressures_work[1:] - pressures_work[:-1]  # (n_layers-1,)
     avg_opacities = (
         _opacities[..., 1:] + _opacities[..., :-1]
     ) / 2.0  # (..., n_layers-1)
     d_optical_depths = (
-        avg_opacities * pressure_diffs / reference_gravity
+        avg_opacities * pressure_diffs / reference_gravity_work
     )  # (..., n_layers-1)
     # Pad with zeros at the start for cumulative sum
     d_optical_depths_padded = jnp.pad(
@@ -2369,13 +2424,21 @@ def compute_transit_radii(
     )
 
     rho = atmospheric_densities
+    rho_work = jnp.asarray(rho, dtype=WORKING_JAX_DTYPE)
+    opacities_work = jnp.asarray(opacities, dtype=WORKING_JAX_DTYPE)
+    continuum_opacities_scattering_work = jnp.asarray(
+        continuum_opacities_scattering, dtype=WORKING_JAX_DTYPE
+    )
+    weights_gauss_work = jnp.asarray(weights_gauss, dtype=WORKING_JAX_DTYPE)
 
     # Scale continuum scattering once, then broadcast it only onto the first species slot.
-    continuum_opa_scat_reshaped = (continuum_opacities_scattering * rho).reshape(
-        (1, continuum_opacities_scattering.shape[0], 1, pressures.size)
+    continuum_opa_scat_reshaped = (
+        continuum_opacities_scattering_work * rho_work
+    ).reshape(
+        (1, continuum_opacities_scattering_work.shape[0], 1, pressures.size)
     )
 
-    transparencies = opacities * rho[None, None, None, :]
+    transparencies = opacities_work * rho_work[None, None, None, :]
     transparencies = transparencies.at[:, :, :1, :].add(continuum_opa_scat_reshaped)
 
     # Factor 1/2 is omitted because it cancels with effective planet area integration below.
@@ -2390,6 +2453,7 @@ def compute_transit_radii(
     diff_s_active = _safe_sqrt_positive(
         upper_shell_boundaries - impact_radius_squared
     ) - _safe_sqrt_positive(lower_shell_boundaries - impact_radius_squared)
+    diff_s_active = jnp.asarray(diff_s_active, dtype=WORKING_JAX_DTYPE)
 
     optical_depths_active = jnp.einsum(
         "gfsl,ml->gfsm", pair_transparencies, diff_s_active, optimize=True
@@ -2402,7 +2466,7 @@ def compute_transit_radii(
         transparencies = transparencies[0]
     else:
         transparencies = jnp.einsum(
-            "gfsl,g->fsl", transparencies, weights_gauss, optimize=True
+            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True
         )
 
     if transparencies.shape[1] == 1:
@@ -2513,15 +2577,23 @@ def compute_transit_radii_summed(
     )
 
     rho = atmospheric_densities
+    rho_work = jnp.asarray(rho, dtype=WORKING_JAX_DTYPE)
+    opacities_work = jnp.asarray(opacities[:, :, :1, :], dtype=WORKING_JAX_DTYPE)
+    continuum_opacities_scattering_work = jnp.asarray(
+        continuum_opacities_scattering, dtype=WORKING_JAX_DTYPE
+    )
+    weights_gauss_work = jnp.asarray(weights_gauss, dtype=WORKING_JAX_DTYPE)
 
     # Bring continuum scattering opacities in right shape for matrix operations later.
     # Reminder: when calling this function, continuum absorption opacities have already
     # been added to line_struc_kappas.
-    continuum_opa_scat_reshaped = (continuum_opacities_scattering * rho).reshape(
-        (1, continuum_opacities_scattering.shape[0], 1, pressures.size)
+    continuum_opa_scat_reshaped = (
+        continuum_opacities_scattering_work * rho_work
+    ).reshape(
+        (1, continuum_opacities_scattering_work.shape[0], 1, pressures.size)
     )
 
-    transparencies = opacities[:, :, :1, :] * rho[None, None, None, :]
+    transparencies = opacities_work * rho_work[None, None, None, :]
     transparencies = transparencies + continuum_opa_scat_reshaped
 
     # Calculate average mean free path between neighboring layers for later integration
@@ -2537,6 +2609,7 @@ def compute_transit_radii_summed(
     diff_s_active = _safe_sqrt_positive(
         upper_shell_boundaries - impact_radius_squared
     ) - _safe_sqrt_positive(lower_shell_boundaries - impact_radius_squared)
+    diff_s_active = jnp.asarray(diff_s_active, dtype=WORKING_JAX_DTYPE)
 
     optical_depths_active = jnp.einsum(
         "gfsl,ml->gfsm", pair_transparencies, diff_s_active, optimize=True
@@ -2549,7 +2622,7 @@ def compute_transit_radii_summed(
         transparencies = transparencies[0]
     else:
         transparencies = jnp.einsum(
-            "gfsl,g->fsl", transparencies, weights_gauss, optimize=True
+            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True
         )
 
     transparencies = transparencies[:, 0, :]
@@ -2809,7 +2882,14 @@ def compute_transmission_spectrum_contribution(
     )
     radius_squared = radius_hydrostatic_equilibrium**2
 
-    opacity_times_rho = opacities * rho[None, None, None, :]
+    rho_work = jnp.asarray(rho, dtype=WORKING_JAX_DTYPE)
+    opacities_work = jnp.asarray(opacities, dtype=WORKING_JAX_DTYPE)
+    continuum_opacities_scattering_work = jnp.asarray(
+        continuum_opacities_scattering, dtype=WORKING_JAX_DTYPE
+    )
+    weights_gauss_work = jnp.asarray(weights_gauss, dtype=WORKING_JAX_DTYPE)
+
+    opacity_times_rho = opacities_work * rho_work[None, None, None, :]
     pair_opacity_times_rho = opacity_times_rho[..., :-1] + opacity_times_rho[..., 1:]
 
     impact_radius_squared = radius_squared[1:, None]
@@ -2818,13 +2898,14 @@ def compute_transmission_spectrum_contribution(
     diff_s_active = _safe_sqrt_positive(
         upper_shell_boundaries - impact_radius_squared
     ) - _safe_sqrt_positive(lower_shell_boundaries - impact_radius_squared)
+    diff_s_active = jnp.asarray(diff_s_active, dtype=WORKING_JAX_DTYPE)
 
     gas_optical_depths_active = jnp.einsum(
         "gfsl,ml->gfsm", pair_opacity_times_rho, diff_s_active, optimize=True
     )
 
     if scattering_in_transmission:
-        continuum_times_rho = continuum_opacities_scattering * rho[None, :]
+        continuum_times_rho = continuum_opacities_scattering_work * rho_work[None, :]
         pair_continuum_times_rho = (
             continuum_times_rho[:, :-1] + continuum_times_rho[:, 1:]
         )
@@ -2848,11 +2929,12 @@ def compute_transmission_spectrum_contribution(
     layer_path_weights_by_layer = jnp.swapaxes(layer_path_weights, 0, 1)
     opacity_times_rho_by_layer = jnp.moveaxis(opacity_times_rho, -1, 0)
     weights_gauss_expanded = weights_gauss[:, None, None, None]
+    weights_gauss_expanded = weights_gauss_work[:, None, None, None]
     annulus_radius_increments = (
         radius_hydrostatic_equilibrium[:-1] - radius_hydrostatic_equilibrium[1:]
     )
     top_of_atmosphere_transmission = jnp.ones(
-        (opacities.shape[1], 1), dtype=opacities.dtype
+        (opacities.shape[1], 1), dtype=WORKING_JAX_DTYPE
     )
 
     def _leave_one_out_contribution(i_leave_str_idx: ArrayLike) -> ArrayLike:

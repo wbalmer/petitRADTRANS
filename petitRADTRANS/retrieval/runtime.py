@@ -691,6 +691,7 @@ class RetrievalRuntime:
         wavelengths_model: Any,
         spectrum_model: Any,
         additional_log_likelihood: Any,
+        model_auxiliary_outputs: Mapping[str, Any] | None = None,
     ) -> float:
         """Score one observation against a model spectrum using ``LogLikelihood``.
 
@@ -836,24 +837,43 @@ class RetrievalRuntime:
                 and data_covariance is None
                 and data_uncertainties is not None
             ):
-                if jnp.ndim(spectrum_model) == 1:
-                    spectrum_model = jnp.broadcast_to(
-                        spectrum_model,
-                        observation.spectrum.shape[:-1] + (spectrum_model.shape[-1],),
+                projected_model = None
+
+                if model_auxiliary_outputs is not None:
+                    model_times = model_auxiliary_outputs.get("model_times")
+                    model_spectra_sequence = model_auxiliary_outputs.get(
+                        "model_spectra"
                     )
 
-                project_epoch = lambda spectrum_epoch: project_model_to_observation_space(
-                    wavelengths_model,
-                    spectrum_epoch,
-                    observation,
-                    parameters,
-                    data_name,
-                )
+                    if model_times is not None and model_spectra_sequence is not None:
+                        projected_model = project_model_time_series_to_observation_space(
+                            wavelengths_model,
+                            model_spectra_sequence,
+                            model_times,
+                            observation,
+                            parameters,
+                            data_name,
+                        )
 
-                if _uses_variable_resolution_convolution(observation):
-                    projected_model = lax.map(project_epoch, spectrum_model)
-                else:
-                    projected_model = vmap(project_epoch)(spectrum_model)
+                if projected_model is None:
+                    if jnp.ndim(spectrum_model) == 1:
+                        spectrum_model = jnp.broadcast_to(
+                            spectrum_model,
+                            observation.spectrum.shape[:-1] + (spectrum_model.shape[-1],),
+                        )
+
+                    project_epoch = lambda spectrum_epoch: project_model_to_observation_space(
+                        wavelengths_model,
+                        spectrum_epoch,
+                        observation,
+                        parameters,
+                        data_name,
+                    )
+
+                    if _uses_variable_resolution_convolution(observation):
+                        projected_model = lax.map(project_epoch, spectrum_model)
+                    else:
+                        projected_model = vmap(project_epoch)(spectrum_model)
 
                 ll = compute_diagonal_observation_log_likelihood(
                     projected_model,
@@ -956,6 +976,7 @@ class RetrievalRuntime:
                     wavelengths_model,
                     spectrum_model,
                     additional_log_likelihood,
+                    model_auxiliary_outputs=model_result.auxiliary_outputs,
                 )
 
                 if contribution <= invalid_value:
@@ -1021,6 +1042,7 @@ class RetrievalRuntime:
                     model_result.wavelengths,
                     model_result.spectrum,
                     model_result.additional_log_likelihood,
+                    model_auxiliary_outputs=model_result.auxiliary_outputs,
                 )
 
                 contribution_is_invalid = contribution <= invalid_value
@@ -2027,6 +2049,47 @@ def project_model_to_observation_space(
         data_name,
         spectrum_params,
     )
+
+
+def project_model_time_series_to_observation_space(
+    wavelengths_model: Any,
+    model_spectra: Any,
+    model_times: Any,
+    observation: "ObservationState",
+    parameters: Mapping[str, Any],
+    data_name: str,
+) -> Any | None:
+    """Project shared-grid time-series spectra before interpolating in time."""
+    observation_times = (observation.metadata or {}).get("observation_times")
+    if observation_times is None:
+        return None
+
+    observation_times = jnp.asarray(observation_times)
+    model_times = jnp.asarray(model_times)
+    model_spectra = jnp.asarray(model_spectra)
+
+    project_epoch = lambda spectrum_epoch: project_model_to_observation_space(
+        wavelengths_model,
+        spectrum_epoch,
+        observation,
+        parameters,
+        data_name,
+    )
+
+    if _uses_variable_resolution_convolution(observation):
+        projected_model_spectra = lax.map(project_epoch, model_spectra)
+    else:
+        projected_model_spectra = vmap(project_epoch)(model_spectra)
+
+    return vmap(
+        lambda wavelength_bin: jnp.interp(
+            observation_times,
+            model_times,
+            wavelength_bin,
+        ),
+        in_axes=1,
+        out_axes=1,
+    )(projected_model_spectra)
 
 
 def compute_diagonal_observation_log_likelihood(

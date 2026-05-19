@@ -6,11 +6,11 @@ from petitRADTRANS.opacities.hminus import (
 )
 from petitRADTRANS.opacities.rayleigh import compute_rayleigh_scattering_opacities
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE, WORKING_JAX_DTYPE
 
 # JAX-friendly sentinels and helpers for optional inputs
-_MISSING_FLOAT = jnp.array(-1.0, dtype=JAX_DTYPE)
-_MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=JAX_DTYPE)
+_MISSING_FLOAT = jnp.array(-1.0, dtype=WORKING_JAX_DTYPE)
+_MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=WORKING_JAX_DTYPE)
 
 
 def compute_continuum_opacities(
@@ -25,7 +25,9 @@ def compute_continuum_opacities(
     gray_opacity,
 ):
     # Reset
-    continuum_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
+    continuum_opacities = jnp.zeros(
+        (frequencies.size, pressures.size), dtype=WORKING_JAX_DTYPE
+    )
 
     # Add CIA opacities
     continuum_opacities += compute_cia_opacities(
@@ -141,7 +143,7 @@ def compute_continuum_scattering_opacities(
 ):
     # Reset
     continuum_opacities_scattering = jnp.zeros(
-        (frequencies.size, pressures.size), dtype=JAX_DTYPE
+        (frequencies.size, pressures.size), dtype=FEAUTRIER_JAX_DTYPE
     )
     scattering_in_transmission = False
 
