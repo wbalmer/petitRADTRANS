@@ -29,6 +29,12 @@ GETTING_STARTED_TRANSMISSION_EXPLORER_GENERATOR_PATH = (
 GETTING_STARTED_TRANSMISSION_EXPLORER_DATA_PATH = (
     DOCS_DIR / "_static" / "getting_started_transmission_explorer_data.json"
 )
+GETTING_STARTED_EMISSION_EXPLORER_GENERATOR_PATH = (
+    DOCS_DIR / "generate_getting_started_emission_explorer_data.py"
+)
+GETTING_STARTED_EMISSION_EXPLORER_DATA_PATH = (
+    DOCS_DIR / "_static" / "getting_started_emission_explorer_data.json"
+)
 
 nbsphinx_allow_errors = True
 
@@ -214,15 +220,13 @@ epub_exclude_files = ["search.html"]
 # -- Extension configuration -------------------------------------------------
 
 
-def _load_getting_started_transmission_explorer_generator():
+def _load_static_explorer_generator(module_name, generator_path):
     spec = importlib_util.spec_from_file_location(
-        "getting_started_transmission_explorer_generator",
-        GETTING_STARTED_TRANSMISSION_EXPLORER_GENERATOR_PATH,
+        module_name,
+        generator_path,
     )
     if spec is None or spec.loader is None:
-        raise ImportError(
-            "unable to load getting started transmission explorer generator"
-        )
+        raise ImportError(f"unable to load static explorer generator '{module_name}'")
 
     module = importlib_util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -230,28 +234,53 @@ def _load_getting_started_transmission_explorer_generator():
     return module
 
 
-def _refresh_getting_started_transmission_explorer(app):
+def _refresh_static_explorer(app, label, module_name, generator_path, data_path):
     if getattr(app.builder, "format", None) != "html":
         return
 
-    logger.info("Refreshing getting started transmission explorer data")
+    logger.info("Refreshing %s data", label)
 
     try:
-        generator = _load_getting_started_transmission_explorer_generator()
+        generator = _load_static_explorer_generator(
+            module_name=module_name,
+            generator_path=generator_path,
+        )
         generator.main()
     except Exception as error:
-        if not GETTING_STARTED_TRANSMISSION_EXPLORER_DATA_PATH.exists():
+        if not data_path.exists():
             raise
 
         logger.warning(
-            "Failed to refresh getting started transmission explorer data; using existing '%s': %s",
-            GETTING_STARTED_TRANSMISSION_EXPLORER_DATA_PATH.name,
+            "Failed to refresh %s data; using existing '%s': %s",
+            label,
+            data_path.name,
             error,
         )
 
 
+def _refresh_getting_started_transmission_explorer(app):
+    _refresh_static_explorer(
+        app=app,
+        label="getting started transmission explorer",
+        module_name="getting_started_transmission_explorer_generator",
+        generator_path=GETTING_STARTED_TRANSMISSION_EXPLORER_GENERATOR_PATH,
+        data_path=GETTING_STARTED_TRANSMISSION_EXPLORER_DATA_PATH,
+    )
+
+
+def _refresh_getting_started_emission_explorer(app):
+    _refresh_static_explorer(
+        app=app,
+        label="getting started emission explorer",
+        module_name="getting_started_emission_explorer_generator",
+        generator_path=GETTING_STARTED_EMISSION_EXPLORER_GENERATOR_PATH,
+        data_path=GETTING_STARTED_EMISSION_EXPLORER_DATA_PATH,
+    )
+
+
 def setup(app):
     app.connect("builder-inited", _refresh_getting_started_transmission_explorer)
+    app.connect("builder-inited", _refresh_getting_started_emission_explorer)
 
     return {
         "parallel_read_safe": True,
