@@ -29,14 +29,15 @@
                 radial-gradient(circle at top right, rgba(226, 140, 45, 0.16), transparent 34%),
                 linear-gradient(180deg, #f8f5ee 0%, #f3ede2 100%);
             color: var(--text);
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
         }
 
         .widget {
             max-width: 1260px;
             margin: 0 auto;
             padding: 10px 12px 10px;
-            min-height: 780px;
+            min-height: 820px;
         }
 
         .heading {
@@ -89,8 +90,8 @@
 
         .controls {
             display: grid;
-            gap: 10px;
-            max-height: 660px;
+            gap: 8px;
+            max-height: 700px;
             overflow: auto;
             padding-right: 2px;
         }
@@ -100,13 +101,13 @@
             backdrop-filter: blur(8px);
             border: 1px solid var(--line);
             border-radius: 14px;
-            padding: 8px 10px 8px;
+            padding: 7px 9px 7px;
             box-shadow: 0 12px 28px rgba(31, 43, 59, 0.08);
         }
 
         .control-panel h2 {
-            margin: 0 0 6px;
-            font-size: 0.8rem;
+            margin: 0 0 5px;
+            font-size: 0.78rem;
             font-weight: 700;
             letter-spacing: 0.01em;
         }
@@ -114,16 +115,16 @@
         .control-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 6px 8px;
+            gap: 5px 7px;
         }
 
         .control {
             display: grid;
-            gap: 3px;
+            gap: 2px;
         }
 
         .control-label {
-            font-size: 0.7rem;
+            font-size: 0.66rem;
             color: var(--muted);
             font-weight: 600;
         }
@@ -131,7 +132,7 @@
         .slider-row {
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
-            gap: 6px;
+            gap: 5px;
             align-items: center;
         }
 
@@ -142,21 +143,21 @@
         }
 
         output {
-            min-width: 40px;
+            min-width: 36px;
             text-align: right;
             font-variant-numeric: tabular-nums;
-            font-size: 0.68rem;
+            font-size: 0.66rem;
             font-weight: 700;
             color: var(--text);
         }
 
         .status {
-            margin-top: 8px;
-            padding: 6px 8px;
+            margin-top: 7px;
+            padding: 5px 7px;
             border-radius: 12px;
             background: rgba(255, 255, 255, 0.72);
             border: 1px solid var(--line);
-            font-size: 0.72rem;
+            font-size: 0.69rem;
             color: var(--muted);
         }
 
@@ -174,7 +175,7 @@
             height: 668px;
         }
 
-        @media (max-width: 860px) {
+        @media (max-width: 700px) {
             .workspace {
                 grid-template-columns: 1fr;
             }
@@ -184,7 +185,7 @@
             }
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 560px) {
             .heading {
                 flex-direction: column;
             }
@@ -243,6 +244,30 @@
         let explorerData = null;
         let currentValues = null;
         let pendingFrame = null;
+
+        function resizeFrameToContent() {
+            const frame = window.frameElement;
+            if (!frame) {
+                return;
+            }
+
+            const doc = document.documentElement;
+            const body = document.body;
+            const height = Math.max(
+                body ? body.scrollHeight : 0,
+                body ? body.offsetHeight : 0,
+                doc ? doc.scrollHeight : 0,
+                doc ? doc.offsetHeight : 0,
+            );
+
+            if (height > 0) {
+                frame.style.height = `${height + 4}px`;
+            }
+        }
+
+        function requestFrameResize() {
+            window.requestAnimationFrame(resizeFrameToContent);
+        }
 
         function formatValue(spec, value) {
             return Number(value).toFixed(spec.decimals || 0);
@@ -564,6 +589,7 @@
                 "Client-side updates use precomputed petitRADTRANS response grids around the Guillot emission example. " +
                 "Emission scattering is disabled here to keep docs builds responsive."
             );
+            requestFrameResize();
         }
 
         function scheduleRender() {
@@ -676,6 +702,14 @@
                 buildControls(explorerData);
                 renderFigure();
                 resetButton.addEventListener("click", resetControls);
+                if (typeof ResizeObserver !== "undefined") {
+                    const resizeObserver = new ResizeObserver(() => {
+                        requestFrameResize();
+                    });
+                    resizeObserver.observe(document.body);
+                }
+                window.addEventListener("resize", requestFrameResize);
+                requestFrameResize();
             } catch (error) {
                 console.error(error);
                 statusNode.textContent = "Failed to load the emission explorer data.";
