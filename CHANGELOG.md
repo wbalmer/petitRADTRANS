@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a33] - 2026-05-14
+## [4.0.0a34] - 2026-05-15
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -34,6 +34,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
 
 ### Changed
+- a34: Translated the cloud on/off code in `compute_cloud_log_normal_particle_distribution_opacities`to JAX
 - a32: Bug fixes for photometric data input for retrievals.
 - a32: Major overhaul of documentation.
 - a29: Improved memory management - smarter loading of lbl opacities, delaying JAX conversion, cholesky decomposition for large covariance matrix inversion.

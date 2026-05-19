@@ -1322,10 +1322,9 @@ class Radtrans:
             compute_clear_opacities:
                 If ``True``, also construct clear-column opacities.
             target_particle_radii:
-                Optional cloud particle radii grid to which cloud opacities
-                should be evaluated or interpolated.
+                Particle radius to target for selective bin disabling. Radius bin closest the input value will be disabled.
             target_pressure:
-                Optional pressure grid associated with ``target_particle_radii``.
+                Pressure to target for selective bin disabling. Pressure bin closest to the input value will be disabled.
 
         Returns:
             Tuple containing cloudy opacities, cloudy scattering opacities,
@@ -2428,14 +2427,10 @@ class Radtrans:
                 If True, return the particle radii bins.
             return_particle_radii (Optional[bool]):
                 If True, return the particle radii.
-            target_particle_radii (Optional[ArrayLike]):
-                Optional particle radii grid used when evaluating cloud
-                opacities at specific particle sizes instead of the native
-                opacity table grid.
-            target_pressure (Optional[ArrayLike]):
-                Optional pressure grid associated with
-                ``target_particle_radii`` when cloud properties are
-                requested on a custom grid.
+            target_particle_radii (Optional[ArrayLike]:
+                Particle radius to target for selective bin disabling. Radius bin closest the input value will be disabled.
+            target_pressure (Optional[ArrayLike]:
+                Pressure to target for selective bin disabling. Pressure bin closest to the input value will be disabled.
         """
         has_partial_coverage_background_cloud = (
             self._has_partial_coverage_background_cloud(
@@ -3509,12 +3504,10 @@ class Radtrans:
                     If True, return the particles radii.
                 return_particle_densities (Optional[bool]):
                     If True, return the particles densities.
-                target_particle_radii (Optional[ArrayLike]):
-                    Optional particle radii grid used when evaluating cloud
-                    opacity products on a custom particle-size sampling.
-                target_pressure (Optional[ArrayLike]):
-                    Optional pressure grid associated with
-                    ``target_particle_radii``.
+                target_particle_radii (Optional[ArrayLike]:
+                    Particle radius to target for selective bin disabling. Radius bin closest the input value will be disabled.
+                target_pressure (Optional[ArrayLike]:
+                    Pressure to target for selective bin disabling. Pressure bin closest to the input value will be disabled.
         """
         has_partial_coverage_background_cloud = (
             self._has_partial_coverage_background_cloud(

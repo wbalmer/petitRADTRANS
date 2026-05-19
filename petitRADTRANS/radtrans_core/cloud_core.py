@@ -1230,8 +1230,42 @@ def _integrate_cloud_opacities_from_dn_dr(
     target_pressure,
 ):
     """
-    Shared integration backend for both cloud opacity methods.
+    Shared integration backend for all cloud opacity methods.
     Operates purely on dn/dr and handles all integration logic.
+
+    If target_particle_radii and target_pressure are provided,
+    the function will disable the radius bin closest to
+    target_particle_radii and the pressure layer closest to
+    target_pressure in the integration, effectively removing
+    their contribution to the final opacities. This allows for
+    selective exclusion of specific particle sizes or
+    atmospheric layers from the cloud opacity calculation.
+
+    Args:
+        dn_dr:
+            Particle size distribution (radius grid, layers, clouds)
+        atmosphere_densities:
+            Density of the atmosphere at each of its layer
+        clouds_particle_densities:
+            Density of each cloud particles
+        cloud_particle_radii_bins:
+            Bins of the particles cloud radii grid
+        cloud_particle_radii:
+            Particles cloud radii grid
+        clouds_absorption_opacities:
+            Cloud absorption opacities (radius grid, wavelength grid, clouds)
+        clouds_scattering_opacities:
+            Cloud scattering opacities (radius grid, wavelength grid, clouds)
+        clouds_particle_asymmetry_parameters:
+            Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
+        pressures:
+            Pressure grid of the atmosphere layers
+        target_particle_radii (Optional[ArrayLike]:
+            Particle radius to target for selective bin disabling.
+            Radius bin closest the input value will be disabled.
+        target_pressure (Optional[ArrayLike]:
+            Pressure to target for selective bin disabling.
+            Pressure bin closest to the input value will be disabled.
     """
 
     # Scale factor
@@ -1254,25 +1288,43 @@ def _integrate_cloud_opacities_from_dn_dr(
     )
 
     # Selectively disable bins
-    # TODO: make JIT compileable
-    """if target_pressure is not None:
-        target_pressure = [tp * 1e6 for tp in target_pressure]  # bar→cgs
-        target_particle_radii = [tr * 1e-4 for tr in target_particle_radii]  # micron→cm
+    if target_pressure is not None:
+        target_pressure_cgs = jnp.asarray(target_pressure) * 1e6   # bar to cgs
+        target_particle_radii_cgs = jnp.asarray(target_particle_radii) * 1e-4  # micron to cm
 
-        disabled_bins = {(jnp.abs(cloud_particle_radii_bins - tr)).argmin()
-                            for tr in target_particle_radii}
-        in_layer = {(jnp.abs(pressures - tp)).argmin()
-                    for tp in target_pressure}
+        disabled_bins = jnp.clip(
+            jnp.searchsorted(cloud_particle_radii_bins, target_particle_radii_cgs),
+            1,
+            cloud_particle_radii_bins.shape[0] - 1
+        )
+        disabled_bins = jnp.where(
+            jnp.abs(target_particle_radii_cgs - cloud_particle_radii_bins[disabled_bins - 1])
+            < jnp.abs(target_particle_radii_cgs - cloud_particle_radii_bins[disabled_bins]),
+            disabled_bins - 1,
+            disabled_bins
+        )
 
-        block = np.ones_like(integrand_scale)
-        for bi in disabled_bins:
-            for li in in_layer:
-                block[bi, li, :] = 0
+        in_layer = jnp.clip(
+            jnp.searchsorted(pressures, target_pressure_cgs),
+            1,
+            pressures.shape[0] - 1
+        )
+        in_layer = jnp.where(
+            jnp.abs(target_pressure_cgs - pressures[in_layer - 1])
+            < jnp.abs(target_pressure_cgs - pressures[in_layer]),
+            in_layer - 1,
+            in_layer
+        )
 
-        integrand_scale *= block
-        integrand_absorption *= block[:, None]
-        integrand_scattering *= block[:, None]
-        integrand_anisotropy *= block[:, None]"""
+        bin_mask = jnp.isin(jnp.arange(cloud_particle_radii_bins.shape[0] - 1), disabled_bins)
+        layer_mask = jnp.isin(jnp.arange(pressures.shape[0]), in_layer)
+
+        block = (~bin_mask[:, None]) | (~layer_mask[None, :])
+        block = block[:, None, :, None]
+
+        integrand_absorption *= block
+        integrand_scattering *= block
+        integrand_anisotropy *= block
 
     # Integrate over radius
     widths = jnp.diff(cloud_particle_radii_bins)[:, None, None, None]
@@ -1346,6 +1398,12 @@ def compute_cloud_log_normal_particle_distribution_opacities_grid(
             Cloud scattering opacities (radius grid, wavelength grid, clouds)
         clouds_particle_asymmetry_parameters:
             Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
+        pressures:
+            Pressure grid of the atmosphere layers
+        target_particle_radii (Optional[ArrayLike]:
+            Particle radius to target for selective bin disabling. Radius bin closest the input value will be disabled.
+        target_pressure (Optional[ArrayLike]:
+            Pressure to target for selective bin disabling. Pressure bin closest to the input value will be disabled.
 
     Returns:
 
@@ -1431,11 +1489,11 @@ def _compute_cloud_opacities_using_particle_size_grid(
         clouds_particle_asymmetry_parameters:
             Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
         pressures:
-            Pressure array
-        target_particle_radii:
-            Target particle radii array
-        target_pressure:
-            Target pressure array
+            Pressure grid of the atmosphere layers
+        target_particle_radii (Optional[ArrayLike]:
+            Particle radius to target for selective bin disabling. Radius bin closest the input value will be disabled.
+        target_pressure (Optional[ArrayLike]:
+            Pressure to target for selective bin disabling. Pressure bin closest to the input value will be disabled.
 
     Returns:
 
