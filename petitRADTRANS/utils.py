@@ -2,7 +2,6 @@
 
 import copy
 import csv
-import sys
 import warnings
 
 import h5py
@@ -343,7 +342,14 @@ def intersection_indices(array1: npt.NDArray, array2: npt.NDArray):
     Returns:
         The indices of the intersection between both arrays, for the first and the second array.
     """
-    tiny = 10**-sys.float_info.dig
+    array1 = np.asarray(array1)
+    array2 = np.asarray(array2)
+
+    tiny = 0.0
+
+    for array in (array1, array2):
+        if np.issubdtype(array.dtype, np.floating):
+            tiny = max(tiny, np.finfo(array.dtype).eps)
 
     indices1 = np.logical_and(
         np.less_equal(array1, array2[0] * (1.0 + tiny)),

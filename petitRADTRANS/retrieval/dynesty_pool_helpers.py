@@ -9,6 +9,15 @@ class DynestyPoolPriorTransform:
         self._parameter_layout_payload = dill.dumps(parameter_layout)
         self._parameter_layout = None
 
+    def __getstate__(self):
+        return {
+            "_parameter_layout_payload": self._parameter_layout_payload,
+            "_parameter_layout": None,
+        }
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
     def _get_parameter_layout(self):
         if self._parameter_layout is None:
             self._parameter_layout = dill.loads(self._parameter_layout_payload)
@@ -41,6 +50,25 @@ class DynestyPoolLogLikelihood:
         self._jitted_log_likelihood = None
         self._jax_module = None
         self._jax_dtype = None
+
+    def __getstate__(self):
+        return {
+            "_parameter_layout_payload": self._parameter_layout_payload,
+            "_runtime_payload": self._runtime_payload,
+            "_uncertainties_mode": self._uncertainties_mode,
+            "_print_log_likelihood_for_debugging": (
+                self._print_log_likelihood_for_debugging
+            ),
+            "_use_jit": self._use_jit,
+            "_parameter_layout": None,
+            "_runtime": None,
+            "_jitted_log_likelihood": None,
+            "_jax_module": None,
+            "_jax_dtype": None,
+        }
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
     def _load_state(self):
         if self._parameter_layout is None:

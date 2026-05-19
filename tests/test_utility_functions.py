@@ -4,6 +4,7 @@ import jax
 import numpy as np
 
 from .context import petitRADTRANS
+from petitRADTRANS.utils import intersection_indices
 from .utils import reference_filenames, test_parameters, temperature_guillot_2010
 
 relative_tolerance = 1e-6
@@ -130,3 +131,28 @@ def test_stellar_model_jit():
         stellar_spectrum_jit, stellar_spectrum_eager, rtol=relative_tolerance, atol=0
     )
     assert np.allclose(radius_jit, radius_eager, rtol=relative_tolerance, atol=0)
+
+
+def test_intersection_indices_handles_mixed_precision_boundaries():
+    file_frequencies = np.array(
+        [
+            3.33241172e14,
+            3.32908097e14,
+            3.32575355e14,
+            3.32242946e14,
+            2.50602111e14,
+            2.50351634e14,
+            2.50101408e14,
+            2.49851431e14,
+        ],
+        dtype=np.float64,
+    )
+    frequencies = np.array(file_frequencies[1:], dtype=np.float32)
+
+    indices_frequencies, indices_file = intersection_indices(
+        frequencies,
+        file_frequencies,
+    )
+
+    assert np.nonzero(indices_frequencies)[0].size == frequencies.size
+    assert np.array_equal(np.nonzero(indices_file)[0], np.arange(1, file_frequencies.size))
