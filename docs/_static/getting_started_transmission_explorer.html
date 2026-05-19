@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>petitRADTRANS Transmission Explorer</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f2e8;
+            --panel: rgba(255, 255, 255, 0.84);
+            --panel-strong: #ffffff;
+            --line: rgba(40, 51, 67, 0.12);
+            --text: #1d2430;
+            --muted: #5c6675;
+            --accent: #0b6c8f;
+            --accent-soft: rgba(11, 108, 143, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(11, 108, 143, 0.12), transparent 38%),
+                radial-gradient(circle at top right, rgba(226, 140, 45, 0.16), transparent 34%),
+                linear-gradient(180deg, #f8f5ee 0%, #f3ede2 100%);
+            color: var(--text);
+        }
+
+        .widget {
+            max-width: 1220px;
+            margin: 0 auto;
+            padding: 18px 18px 22px;
+        }
+
+        .heading {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+            margin-bottom: 14px;
+        }
+
+        .heading h1 {
+            font-size: 1.08rem;
+            margin: 0 0 4px;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+        }
+
+        .heading p {
+            margin: 0;
+            font-size: 0.93rem;
+            line-height: 1.45;
+            color: var(--muted);
+            max-width: 760px;
+        }
+
+        .reset-button {
+            border: 1px solid rgba(11, 108, 143, 0.18);
+            background: rgba(255, 255, 255, 0.92);
+            color: var(--accent);
+            border-radius: 999px;
+            padding: 10px 14px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 120ms ease, transform 120ms ease;
+            white-space: nowrap;
+        }
+
+        .reset-button:hover {
+            background: #ffffff;
+            transform: translateY(-1px);
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 14px;
+        }
+
+        .control-panel {
+            background: var(--panel);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 14px 14px 10px;
+            box-shadow: 0 16px 36px rgba(31, 43, 59, 0.08);
+        }
+
+        .control-panel h2 {
+            margin: 0 0 10px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+        }
+
+        .control {
+            display: grid;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+
+        .control:last-child {
+            margin-bottom: 0;
+        }
+
+        .control-label {
+            font-size: 0.84rem;
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .slider-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            accent-color: var(--accent);
+        }
+
+        output {
+            min-width: 56px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-size: 0.84rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .status {
+            margin-bottom: 12px;
+            padding: 10px 14px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid var(--line);
+            font-size: 0.88rem;
+            color: var(--muted);
+        }
+
+        .plot-shell {
+            background: var(--panel-strong);
+            border-radius: 24px;
+            border: 1px solid rgba(40, 51, 67, 0.08);
+            box-shadow: 0 20px 52px rgba(31, 43, 59, 0.12);
+            padding: 6px;
+        }
+
+        #plot {
+            width: 100%;
+            min-height: 840px;
+        }
+
+        @media (max-width: 960px) {
+            .heading {
+                flex-direction: column;
+            }
+
+            .controls {
+                grid-template-columns: 1fr;
+            }
+
+            #plot {
+                min-height: 940px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="widget">
+        <div class="heading">
+            <div>
+                <h1>Interactive Transmission Explorer</h1>
+                <p>
+                    This docs view stays interactive without a live kernel by using a client-side Plotly explorer fed by
+                    precomputed petitRADTRANS response grids around the getting-started atmosphere.
+                </p>
+            </div>
+            <button class="reset-button" id="reset-button" type="button">Reset defaults</button>
+        </div>
+        <div class="controls" id="controls"></div>
+        <div class="status" id="status">Loading precomputed petitRADTRANS response grids...</div>
+        <div class="plot-shell">
+            <div id="plot"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <script>
+        const CONTROL_GROUPS = {
+            temperature: "Temperature profile",
+            abundance: "Trace-gas mass fractions",
+            planet: "Planet parameters",
+        };
+
+        const plotNode = document.getElementById("plot");
+        const controlsNode = document.getElementById("controls");
+        const statusNode = document.getElementById("status");
+        const resetButton = document.getElementById("reset-button");
+
+        let explorerData = null;
+        let currentValues = null;
+        let pendingFrame = null;
+
+        function formatValue(spec, value) {
+            return Number(value).toFixed(spec.decimals || 0);
+        }
+
+        function interpolateScalar(grid, values, coordinate) {
+            if (coordinate <= grid[0]) {
+                return values[0];
+            }
+            if (coordinate >= grid[grid.length - 1]) {
+                return values[values.length - 1];
+            }
+
+            let upperIndex = 1;
+            while (grid[upperIndex] < coordinate) {
+                upperIndex += 1;
+            }
+
+            const lowerIndex = upperIndex - 1;
+            const span = grid[upperIndex] - grid[lowerIndex];
+            const weight = (coordinate - grid[lowerIndex]) / span;
+            return values[lowerIndex] + weight * (values[upperIndex] - values[lowerIndex]);
+        }
+
+        function interpolateSeries(grid, series, coordinate) {
+            if (coordinate <= grid[0]) {
+                return series[0].slice();
+            }
+            if (coordinate >= grid[grid.length - 1]) {
+                return series[series.length - 1].slice();
+            }
+
+            let upperIndex = 1;
+            while (grid[upperIndex] < coordinate) {
+                upperIndex += 1;
+            }
+
+            const lowerIndex = upperIndex - 1;
+            const span = grid[upperIndex] - grid[lowerIndex];
+            const weight = (coordinate - grid[lowerIndex]) / span;
+            const lowerSeries = series[lowerIndex];
+            const upperSeries = series[upperIndex];
+
+            return lowerSeries.map((lowerValue, index) => (
+                lowerValue + weight * (upperSeries[index] - lowerValue)
+            ));
+        }
+
+        function buildTemperatureProfile(data, values) {
+            const nodeTemperatures = [
+                values.temperature_top,
+                values.temperature_middle,
+                values.temperature_bottom,
+            ];
+
+            return data.log_pressure_bars.map((logPressure) => (
+                interpolateScalar(data.temperature_node_log_pressures, nodeTemperatures, logPressure)
+            ));
+        }
+
+        function buildMassFractionState(data, values) {
+            const traceMassFractions = {
+                H2O: 10 ** values.log_h2o,
+                "CO-NatAbund": 10 ** values.log_co,
+                CO2: 10 ** values.log_co2,
+                CH4: 10 ** values.log_ch4,
+                Na: 10 ** values.log_na,
+                K: 10 ** values.log_k,
+            };
+
+            const traceSpecies = Object.keys(traceMassFractions);
+            const remainingBackground = 1 - traceSpecies.reduce(
+                (sum, species) => sum + traceMassFractions[species],
+                0,
+            );
+
+            const h2MassFraction = remainingBackground * data.background_fractions.H2;
+            const heMassFraction = remainingBackground * data.background_fractions.He;
+            const constantProfiles = {};
+
+            for (const species of [...data.species_order, "H2", "He"]) {
+                const value = species === "H2"
+                    ? h2MassFraction
+                    : species === "He"
+                        ? heMassFraction
+                        : traceMassFractions[species];
+                constantProfiles[species] = Array(data.pressure_bars.length).fill(value);
+            }
+
+            const combinedMassFractions = {
+                ...traceMassFractions,
+                H2: h2MassFraction,
+                He: heMassFraction,
+            };
+            const inverseMeanMolarMass = Object.entries(combinedMassFractions).reduce(
+                (sum, [species, massFraction]) => sum + (massFraction / data.molar_masses[species]),
+                0,
+            );
+
+            return {
+                profiles: constantProfiles,
+                remainingBackground,
+                meanMolarMass: 1 / inverseMeanMolarMass,
+            };
+        }
+
+        function buildSpectrum(data, values) {
+            const combinedSpectrum = data.baseline_spectrum_r_jup.slice();
+
+            for (const [parameterName, response] of Object.entries(data.responses)) {
+                const interpolatedSpectrum = interpolateSeries(
+                    response.grid,
+                    response.spectra_r_jup,
+                    values[parameterName],
+                );
+                for (let index = 0; index < combinedSpectrum.length; index += 1) {
+                    combinedSpectrum[index] += (
+                        interpolatedSpectrum[index] - data.baseline_spectrum_r_jup[index]
+                    );
+                }
+            }
+
+            return combinedSpectrum;
+        }
+
+        function makeAnnotations(values, massFractionState) {
+            return [
+                {
+                    text: "Temperature profile",
+                    x: 0.22,
+                    y: 1.06,
+                    xref: "paper",
+                    yref: "paper",
+                    showarrow: false,
+                    font: { size: 14, color: "#1d2430" },
+                },
+                {
+                    text: "Molecular abundances",
+                    x: 0.77,
+                    y: 1.06,
+                    xref: "paper",
+                    yref: "paper",
+                    showarrow: false,
+                    font: { size: 14, color: "#1d2430" },
+                },
+                {
+                    text: (
+                        `Transmission spectrum | log g = ${values.log10_surface_gravity.toFixed(2)}, ` +
+                        `R<sub>p</sub> = ${values.planet_radius_r_jup.toFixed(2)} R<sub>Jup</sub>, ` +
+                        `background = ${massFractionState.remainingBackground.toFixed(3)}, ` +
+                        `μ = ${massFractionState.meanMolarMass.toFixed(2)} g mol<sup>-1</sup>`
+                    ),
+                    x: 0.5,
+                    y: 0.55,
+                    xref: "paper",
+                    yref: "paper",
+                    showarrow: false,
+                    font: { size: 14, color: "#1d2430" },
+                },
+            ];
+        }
+
+        function buildFigureState(data, values) {
+            const temperatureProfile = buildTemperatureProfile(data, values);
+            const massFractionState = buildMassFractionState(data, values);
+            const spectrum = buildSpectrum(data, values);
+            const abundanceSpecies = [...data.species_order, "H2", "He"];
+
+            const traces = [
+                {
+                    x: temperatureProfile,
+                    y: data.pressure_bars,
+                    type: "scatter",
+                    mode: "lines",
+                    line: { color: "#d94f45", width: 2.5 },
+                    xaxis: "x",
+                    yaxis: "y",
+                    hovertemplate: "T = %{x:.0f} K<br>P = %{y:.3e} bar<extra></extra>",
+                    showlegend: false,
+                },
+            ];
+
+            abundanceSpecies.forEach((species) => {
+                traces.push({
+                    x: massFractionState.profiles[species],
+                    y: data.pressure_bars,
+                    type: "scatter",
+                    mode: "lines",
+                    name: data.species_labels[species],
+                    line: {
+                        color: data.species_colors[species],
+                        width: data.species_order.includes(species) ? 2.2 : 1.6,
+                        dash: data.species_order.includes(species) ? "solid" : "dash",
+                    },
+                    xaxis: "x2",
+                    yaxis: "y2",
+                    hovertemplate: (
+                        `${data.species_labels[species]} = %{x:.3e}<br>P = %{y:.3e} bar<extra></extra>`
+                    ),
+                    showlegend: true,
+                });
+            });
+
+            traces.push({
+                x: data.wavelengths_microns,
+                y: spectrum,
+                type: "scatter",
+                mode: "lines",
+                line: { color: "#111111", width: 2.6 },
+                xaxis: "x3",
+                yaxis: "y3",
+                hovertemplate: "λ = %{x:.3f} μm<br>R = %{y:.5f} R_Jup<extra></extra>",
+                showlegend: false,
+            });
+
+            return {
+                traces,
+                layout: {
+                    margin: { l: 74, r: 26, t: 76, b: 60 },
+                    paper_bgcolor: "rgba(0, 0, 0, 0)",
+                    plot_bgcolor: "#ffffff",
+                    font: {
+                        family: '"Segoe UI", "Helvetica Neue", Arial, sans-serif',
+                        color: "#1d2430",
+                    },
+                    legend: {
+                        orientation: "h",
+                        x: 1,
+                        xanchor: "right",
+                        y: 1.13,
+                        yanchor: "bottom",
+                        bgcolor: "rgba(255,255,255,0.8)",
+                        font: { size: 11 },
+                    },
+                    xaxis: {
+                        domain: [0.0, 0.45],
+                        title: { text: "Temperature [K]" },
+                        gridcolor: "rgba(40, 51, 67, 0.10)",
+                        zeroline: false,
+                    },
+                    yaxis: {
+                        domain: [0.64, 1.0],
+                        title: { text: "Pressure [bar]" },
+                        type: "log",
+                        autorange: "reversed",
+                        gridcolor: "rgba(40, 51, 67, 0.10)",
+                        minor: { showgrid: true, gridcolor: "rgba(40, 51, 67, 0.05)" },
+                    },
+                    xaxis2: {
+                        domain: [0.55, 1.0],
+                        title: { text: "Mass fraction" },
+                        type: "log",
+                        range: [-12, 0],
+                        gridcolor: "rgba(40, 51, 67, 0.10)",
+                        zeroline: false,
+                    },
+                    yaxis2: {
+                        domain: [0.64, 1.0],
+                        title: { text: "Pressure [bar]" },
+                        type: "log",
+                        autorange: "reversed",
+                        gridcolor: "rgba(40, 51, 67, 0.10)",
+                        minor: { showgrid: true, gridcolor: "rgba(40, 51, 67, 0.05)" },
+                    },
+                    xaxis3: {
+                        domain: [0.0, 1.0],
+                        title: { text: "Wavelength [microns]" },
+                        type: "log",
+                        gridcolor: "rgba(40, 51, 67, 0.10)",
+                        zeroline: false,
+                    },
+                    yaxis3: {
+                        domain: [0.0, 0.45],
+                        title: { text: "Transit radius [R_Jup]" },
+                        gridcolor: "rgba(40, 51, 67, 0.10)",
+                        zeroline: false,
+                    },
+                    annotations: makeAnnotations(values, massFractionState),
+                },
+                massFractionState,
+            };
+        }
+
+        function renderFigure() {
+            const figureState = buildFigureState(explorerData, currentValues);
+            Plotly.react(
+                plotNode,
+                figureState.traces,
+                figureState.layout,
+                {
+                    responsive: true,
+                    displaylogo: false,
+                    modeBarButtonsToRemove: [
+                        "select2d",
+                        "lasso2d",
+                        "autoScale2d",
+                        "toggleSpikelines",
+                    ],
+                },
+            );
+
+            statusNode.textContent = (
+                "Client-side updates use precomputed petitRADTRANS one-parameter response grids around the notebook defaults."
+            );
+        }
+
+        function scheduleRender() {
+            if (pendingFrame !== null) {
+                window.cancelAnimationFrame(pendingFrame);
+            }
+            pendingFrame = window.requestAnimationFrame(() => {
+                pendingFrame = null;
+                renderFigure();
+            });
+        }
+
+        function buildControls(data) {
+            const groupedSpecs = {
+                temperature: [],
+                abundance: [],
+                planet: [],
+            };
+
+            Object.entries(data.control_specs).forEach(([name, spec]) => {
+                groupedSpecs[spec.group].push({ name, ...spec });
+            });
+
+            Object.entries(CONTROL_GROUPS).forEach(([groupName, title]) => {
+                const panel = document.createElement("section");
+                panel.className = "control-panel";
+
+                const heading = document.createElement("h2");
+                heading.textContent = title;
+                panel.appendChild(heading);
+
+                groupedSpecs[groupName].forEach((spec) => {
+                    const control = document.createElement("label");
+                    control.className = "control";
+
+                    const label = document.createElement("span");
+                    label.className = "control-label";
+                    label.textContent = spec.label;
+                    control.appendChild(label);
+
+                    const row = document.createElement("div");
+                    row.className = "slider-row";
+
+                    const slider = document.createElement("input");
+                    slider.type = "range";
+                    slider.min = spec.min;
+                    slider.max = spec.max;
+                    slider.step = spec.step;
+                    slider.value = data.default_parameters[spec.name];
+                    slider.dataset.controlName = spec.name;
+
+                    const value = document.createElement("output");
+                    value.textContent = formatValue(spec, slider.value);
+
+                    slider.addEventListener("input", () => {
+                        currentValues[spec.name] = Number(slider.value);
+                        value.textContent = formatValue(spec, slider.value);
+                        scheduleRender();
+                    });
+
+                    row.appendChild(slider);
+                    row.appendChild(value);
+                    control.appendChild(row);
+                    panel.appendChild(control);
+                });
+
+                controlsNode.appendChild(panel);
+            });
+        }
+
+        function resetControls() {
+            currentValues = { ...explorerData.default_parameters };
+            const sliders = controlsNode.querySelectorAll('input[type="range"]');
+
+            sliders.forEach((slider) => {
+                const specName = slider.dataset.controlName;
+                if (!specName) {
+                    return;
+                }
+                slider.value = explorerData.default_parameters[specName];
+                slider.parentElement.querySelector("output").textContent = formatValue(
+                    explorerData.control_specs[specName],
+                    slider.value,
+                );
+            });
+
+            renderFigure();
+        }
+
+        async function loadExplorer() {
+            try {
+                const response = await fetch("getting_started_transmission_explorer_data.json");
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                explorerData = await response.json();
+                currentValues = { ...explorerData.default_parameters };
+                buildControls(explorerData);
+                renderFigure();
+                resetButton.addEventListener("click", resetControls);
+            } catch (error) {
+                statusNode.textContent = `Failed to load the explorer data: ${error.message}`;
+            }
+        }
+
+        window.addEventListener("resize", () => {
+            if (plotNode.data) {
+                Plotly.Plots.resize(plotNode);
+            }
+        });
+
+        loadExplorer();
+    </script>
+</body>
+</html>

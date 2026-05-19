@@ -3,12 +3,12 @@ import glob
 import h5py
 import os
 
-from petitRADTRANS._input_data_loader import (
-    _get_base_cloud_names, _split_species_source,
-    get_input_data_subpaths, get_species_basename, get_species_isotopologue_name,
-    join_species_all_info, split_species_all_info
+from petitRADTRANS.config.configuration import (
+    get_input_data_subpaths,
+    petitradtrans_config_parser,
 )
-from petitRADTRANS.config import petitradtrans_config_parser
+from petitRADTRANS.opacities.opacities import CloudOpacity, CorrelatedKOpacity
+from petitRADTRANS.opacities.registry import _get_base_cloud_names
 
 
 def make_table_ck_species_reference_documentation(path_to_ck_opacities=None):
@@ -30,26 +30,30 @@ def make_table_ck_species_reference_documentation(path_to_ck_opacities=None):
     for species in species_list:
         file_name = species.rsplit(os.path.sep, 1)[-1]
 
-        name, natural_abundance, charge, _, source, _ = split_species_all_info(file_name)
-
-        call_name = join_species_all_info(
-            name=name,
-            natural_abundance=natural_abundance,
-            charge=charge,
-            source=source
+        name, natural_abundance, charge, _, source, _ = CorrelatedKOpacity.split_species_all_info(
+            file_name
         )
 
-        base_name = get_species_basename(name)
-        main_isotopologue_name = get_species_isotopologue_name(base_name)
+        call_name = CorrelatedKOpacity.join_species_all_info(
+            species_name=name,
+            natural_abundance=natural_abundance,
+            charge=charge,
+            source=source,
+        )
+
+        base_name = CorrelatedKOpacity.get_species_base_name(name)
+        main_isotopologue_name = CorrelatedKOpacity.get_species_isotopologue_name(
+            base_name
+        )
         short_charge = charge.split('_', 1)[-1]
 
         if name == main_isotopologue_name:
             call_name_short = base_name + short_charge
         else:
-            call_name_short = join_species_all_info(
-                name=name,
+            call_name_short = CorrelatedKOpacity.join_species_all_info(
+                species_name=name,
                 natural_abundance=natural_abundance,
-                charge=short_charge
+                charge=short_charge,
             )
 
         with h5py.File(species, 'r') as f:
@@ -101,13 +105,15 @@ def make_table_cloud_species_reference_documentation(path_to_cloud_opacities=Non
         file_name = species.rsplit(os.path.sep, 1)[-1]
         _file_name = file_name.rsplit('.cotable.petitRADTRANS.h5', 1)[0]  # discard file extension
 
-        name, natural_abundance, _, cloud_info, source, spectral_info = split_species_all_info(_file_name)
+        name, natural_abundance, _, cloud_info, source, spectral_info = CloudOpacity.split_species_all_info(
+            _file_name
+        )
 
-        _file_name = join_species_all_info(
-            name=name,
+        _file_name = CloudOpacity.join_species_all_info(
+            species_name=name,
             natural_abundance=natural_abundance,
             cloud_info=cloud_info,
-            spectral_info=spectral_info
+            spectral_info=spectral_info,
         )
 
         # Check if file name is in the cloud aliases dictionary
@@ -120,17 +126,17 @@ def make_table_cloud_species_reference_documentation(path_to_cloud_opacities=Non
 
                     break
 
-            call_name = join_species_all_info(
-                name=call_name,
-                source=source
+            call_name = CloudOpacity.join_species_all_info(
+                species_name=call_name,
+                source=source,
             )
         else:
-            name = get_species_basename(name)  # remove isotope separators
+            name = CloudOpacity.get_species_base_name(name)  # remove isotope separators
 
-            call_name = join_species_all_info(
-                name=name,
+            call_name = CloudOpacity.join_species_all_info(
+                species_name=name,
                 cloud_info=cloud_info,
-                source=source
+                source=source,
             )
 
         with h5py.File(species, 'r') as f:

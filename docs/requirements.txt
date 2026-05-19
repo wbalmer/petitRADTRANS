@@ -3,4 +3,3 @@ sphinx-autoapi
 sphinx_book_theme
 sphinx_new_tab_link
 ipython
-ipywidgets

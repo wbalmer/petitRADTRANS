@@ -13,11 +13,24 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import os
+import logging
 import sys
+from importlib import util as importlib_util
+from pathlib import Path
 
 import importlib.metadata
 
 sys.path.insert(0, os.path.abspath("../"))
+
+logger = logging.getLogger(__name__)
+
+DOCS_DIR = Path(__file__).resolve().parent
+GETTING_STARTED_TRANSMISSION_EXPLORER_GENERATOR_PATH = (
+    DOCS_DIR / "generate_getting_started_transmission_explorer_data.py"
+)
+GETTING_STARTED_TRANSMISSION_EXPLORER_DATA_PATH = (
+    DOCS_DIR / "_static" / "getting_started_transmission_explorer_data.json"
+)
 
 nbsphinx_allow_errors = True
 
@@ -201,3 +214,48 @@ epub_exclude_files = ["search.html"]
 
 
 # -- Extension configuration -------------------------------------------------
+
+
+def _load_getting_started_transmission_explorer_generator():
+    spec = importlib_util.spec_from_file_location(
+        "getting_started_transmission_explorer_generator",
+        GETTING_STARTED_TRANSMISSION_EXPLORER_GENERATOR_PATH,
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(
+            "unable to load getting started transmission explorer generator"
+        )
+
+    module = importlib_util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    return module
+
+
+def _refresh_getting_started_transmission_explorer(app):
+    if getattr(app.builder, "format", None) != "html":
+        return
+
+    logger.info("Refreshing getting started transmission explorer data")
+
+    try:
+        generator = _load_getting_started_transmission_explorer_generator()
+        generator.main()
+    except Exception as error:
+        if not GETTING_STARTED_TRANSMISSION_EXPLORER_DATA_PATH.exists():
+            raise
+
+        logger.warning(
+            "Failed to refresh getting started transmission explorer data; using existing '%s': %s",
+            GETTING_STARTED_TRANSMISSION_EXPLORER_DATA_PATH.name,
+            error,
+        )
+
+
+def setup(app):
+    app.connect("builder-inited", _refresh_getting_started_transmission_explorer)
+
+    return {
+        "parallel_read_safe": True,
+        "parallel_write_safe": True,
+    }
