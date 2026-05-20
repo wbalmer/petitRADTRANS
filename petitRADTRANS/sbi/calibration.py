@@ -1212,15 +1212,8 @@ def generate_posterior_predictive_report(
     on the original observation scale in the returned report.
     """
 
-    raw_split = dataset_reader.dataset.read_split(split)
-    raw_blocks_batch = build_observation_block_batch(
-        raw_split["observations"], task.observation_schema.modalities
-    )
-    normalized_blocks_batch = [
-        normalize_observation_blocks(blocks, dataset_reader.preprocessing_metadata)
-        for blocks in raw_blocks_batch
-    ]
-    selected_indices = _selected_case_indices(len(normalized_blocks_batch), max_cases)
+    split_size = int(dataset_reader.dataset.manifest.splits.get(split.value, 0))
+    selected_indices = _selected_case_indices(split_size, max_cases)
 
     if not selected_indices:
         raise ValueError(
@@ -1241,6 +1234,7 @@ def generate_posterior_predictive_report(
     n_cases = len(selected_indices)
     rng = np.random.default_rng(seed)
     has_batch_encode = hasattr(posterior, "batch_encode_observation")
+    observation_fields = frozenset({"values", "uncertainties", "coordinates", "mask"})
 
     # Checkpoint directory setup
     ckpt_dir: Path | None = None
@@ -1248,16 +1242,8 @@ def generate_posterior_predictive_report(
         ckpt_dir = Path(checkpoint_directory)
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    # Batch-encode all selected observations in one vmapped forward pass when
-    # the posterior supports it; otherwise encode case-by-case.
-    if has_batch_encode:
-        selected_blocks = [normalized_blocks_batch[i] for i in selected_indices]
-        encoded_all = posterior.batch_encode_observation(selected_blocks)
-    else:
-        encoded_all = None
-
+    pending_cases: list[tuple[int, int, Path | None]] = []
     for case_offset, sample_index in enumerate(selected_indices):
-        # --- Checkpoint resume: skip cases already completed ---
         ckpt_file: Path | None = None
         if ckpt_dir is not None:
             ckpt_file = ckpt_dir / f"case_{case_offset:06d}.npz"
@@ -1292,69 +1278,108 @@ def generate_posterior_predictive_report(
                     )
                 continue
 
-        print(f"Posterior-predictive case {case_offset + 1}/{n_cases} ...", flush=True)
-        if encoded_all is not None:
-            encoded = encoded_all[case_offset]
-        else:
-            encoded = posterior.encode_observation(
-                normalized_blocks_batch[sample_index]
-            )
-        posterior_samples = posterior.sample_posterior(
-            encoded,
-            n_samples=n_posterior_samples,
-            seed=base_seed + case_offset,
-        ).samples
-        physical_parameters = _posterior_space_to_physical(
-            task, posterior_samples, resolved_parameter_space
+        pending_cases.append((case_offset, sample_index, ckpt_file))
+
+    if pending_cases:
+        pending_indices = np.asarray(
+            [sample_index for _, sample_index, _ in pending_cases],
+            dtype=int,
         )
-        if n_predictive_forward_model_samples is not None:
-            n_use = min(
-                int(n_predictive_forward_model_samples), physical_parameters.shape[0]
-            )
-            indices = rng.choice(
-                physical_parameters.shape[0], size=n_use, replace=False
-            )
-            physical_parameters = physical_parameters[indices]
-        predictive_batch = simulator.simulate_from_parameters(physical_parameters)
+        pending_cursor = 0
+        stream_chunk_size = max(1, min(32, len(pending_cases)))
 
-        # Collect per-observation results for this case
-        case_save_arrays: dict[str, np.ndarray] = {}
-        case_observation_names: list[str] = []
-
-        for observation_name, payload in predictive_batch.observations.items():
-            predictive_values = np.asarray(payload["values"], dtype=float)
-            lower, upper = central_credible_interval(
-                predictive_values, level=interval_level
+        for chunk in dataset_reader.dataset.iter_split_chunks(
+            split=split,
+            chunk_size=stream_chunk_size,
+            indices=pending_indices,
+            observation_fields=observation_fields,
+        ):
+            raw_blocks_batch = build_observation_block_batch(
+                chunk["observations"],
+                task.observation_schema.modalities,
             )
-            observed_value = np.asarray(
-                raw_split["observations"][observation_name]["values"][sample_index],
-                dtype=float,
+            normalized_blocks_batch = [
+                normalize_observation_blocks(blocks, dataset_reader.preprocessing_metadata)
+                for blocks in raw_blocks_batch
+            ]
+            encoded_batch = (
+                posterior.batch_encode_observation(normalized_blocks_batch)
+                if has_batch_encode
+                else None
             )
-            pred_mean = np.mean(predictive_values, axis=0)
-            pred_std = np.std(predictive_values, axis=0)
-            hits = (observed_value >= lower) & (observed_value <= upper)
 
-            observed_values.setdefault(observation_name, []).append(observed_value)
-            predictive_mean.setdefault(observation_name, []).append(pred_mean)
-            predictive_std.setdefault(observation_name, []).append(pred_std)
-            interval_lower.setdefault(observation_name, []).append(lower)
-            interval_upper.setdefault(observation_name, []).append(upper)
-            interval_hits.setdefault(observation_name, []).append(hits)
+            for row_offset, raw_blocks in enumerate(raw_blocks_batch):
+                case_offset, _sample_index, ckpt_file = pending_cases[
+                    pending_cursor + row_offset
+                ]
+                print(
+                    f"Posterior-predictive case {case_offset + 1}/{n_cases} ...",
+                    flush=True,
+                )
+                if encoded_batch is not None:
+                    encoded = encoded_batch[row_offset]
+                else:
+                    encoded = posterior.encode_observation(
+                        normalized_blocks_batch[row_offset]
+                    )
+                posterior_samples = posterior.sample_posterior(
+                    encoded,
+                    n_samples=n_posterior_samples,
+                    seed=base_seed + case_offset,
+                ).samples
+                physical_parameters = _posterior_space_to_physical(
+                    task, posterior_samples, resolved_parameter_space
+                )
+                if n_predictive_forward_model_samples is not None:
+                    n_use = min(
+                        int(n_predictive_forward_model_samples),
+                        physical_parameters.shape[0],
+                    )
+                    indices = rng.choice(
+                        physical_parameters.shape[0], size=n_use, replace=False
+                    )
+                    physical_parameters = physical_parameters[indices]
+                predictive_batch = simulator.simulate_from_parameters(physical_parameters)
+                raw_blocks_by_name = {block.name: block for block in raw_blocks}
 
-            case_observation_names.append(observation_name)
-            case_save_arrays[f"{observation_name}_observed"] = observed_value
-            case_save_arrays[f"{observation_name}_pred_mean"] = pred_mean
-            case_save_arrays[f"{observation_name}_pred_std"] = pred_std
-            case_save_arrays[f"{observation_name}_lower"] = lower
-            case_save_arrays[f"{observation_name}_upper"] = upper
-            case_save_arrays[f"{observation_name}_hits"] = hits
+                case_save_arrays: dict[str, np.ndarray] = {}
+                case_observation_names: list[str] = []
 
-        # --- Checkpoint save: persist this case ---
-        if ckpt_file is not None:
-            case_save_arrays["_observation_names_joined"] = np.array(
-                [",".join(case_observation_names)]
-            )
-            np.savez_compressed(ckpt_file, **case_save_arrays)
+                for observation_name, payload in predictive_batch.observations.items():
+                    predictive_values = np.asarray(payload["values"], dtype=float)
+                    lower, upper = central_credible_interval(
+                        predictive_values, level=interval_level
+                    )
+                    observed_value = np.asarray(
+                        raw_blocks_by_name[observation_name].values,
+                        dtype=float,
+                    )
+                    pred_mean = np.mean(predictive_values, axis=0)
+                    pred_std = np.std(predictive_values, axis=0)
+                    hits = (observed_value >= lower) & (observed_value <= upper)
+
+                    observed_values.setdefault(observation_name, []).append(observed_value)
+                    predictive_mean.setdefault(observation_name, []).append(pred_mean)
+                    predictive_std.setdefault(observation_name, []).append(pred_std)
+                    interval_lower.setdefault(observation_name, []).append(lower)
+                    interval_upper.setdefault(observation_name, []).append(upper)
+                    interval_hits.setdefault(observation_name, []).append(hits)
+
+                    case_observation_names.append(observation_name)
+                    case_save_arrays[f"{observation_name}_observed"] = observed_value
+                    case_save_arrays[f"{observation_name}_pred_mean"] = pred_mean
+                    case_save_arrays[f"{observation_name}_pred_std"] = pred_std
+                    case_save_arrays[f"{observation_name}_lower"] = lower
+                    case_save_arrays[f"{observation_name}_upper"] = upper
+                    case_save_arrays[f"{observation_name}_hits"] = hits
+
+                if ckpt_file is not None:
+                    case_save_arrays["_observation_names_joined"] = np.array(
+                        [",".join(case_observation_names)]
+                    )
+                    np.savez_compressed(ckpt_file, **case_save_arrays)
+
+            pending_cursor += len(raw_blocks_batch)
 
     observed_arrays = {
         name: np.asarray(values, dtype=float)

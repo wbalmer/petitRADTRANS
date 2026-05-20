@@ -145,6 +145,13 @@ def _scalar_feature(value: Any) -> jnp.ndarray:
     return scalar[:1]
 
 
+def _broadcast_scalar_feature(value: Any, size: int) -> jnp.ndarray:
+    if size <= 0:
+        return jnp.zeros((0,), dtype=jnp.float32)
+    scalar = _scalar_feature(value)
+    return jnp.broadcast_to(scalar, (size,)).astype(jnp.float32)
+
+
 def _log_scale_from_metadata(metadata: Any) -> Any:
     if not isinstance(metadata, dict):
         return 0.0
@@ -487,10 +494,11 @@ class SpectralConv1DEncoder(eqx.Module):
         self.n_wavelengths = int(n_wavelengths)
         ch1, ch2 = hidden_channels
 
-        # 3 input channels: shape-normalized values, uncertainties, coordinates
+        # 5 input channels: normalized values, uncertainties, coordinates,
+        # absolute-depth profile, and a broadcast log-scale channel.
         # Explicitly use float32 so weights are not promoted to float64
         # when jax_enable_x64 is active.
-        self.conv1 = eqx.nn.Conv1d(3, ch1, kernel_size=7, padding=3, key=k1, dtype=jnp.float32)
+        self.conv1 = eqx.nn.Conv1d(5, ch1, kernel_size=7, padding=3, key=k1, dtype=jnp.float32)
         self.conv2 = eqx.nn.Conv1d(ch1, ch2, kernel_size=5, padding=2, key=k2, dtype=jnp.float32)
         self.conv3 = eqx.nn.Conv1d(ch2, self.embedding_dim, kernel_size=3, padding=1, key=k3, dtype=jnp.float32)
         self.amplitude_projection = eqx.nn.MLP(_AMPLITUDE_FEATURE_DIM, self.embedding_dim, max(self.embedding_dim, ch2), 1, key=k_amp, dtype=jnp.float32)
@@ -534,9 +542,14 @@ class SpectralConv1DEncoder(eqx.Module):
         if absolute_values is None or absolute_values.shape[0] == 0:
             absolute_values = jnp.zeros_like(values)
         absolute_values = absolute_values * valid
+        scale_channel = _broadcast_scalar_feature(log_median_flux, values.shape[0]) * valid
 
-        # Stack into (3, n_wavelengths) for the shape branch.
-        x = jnp.stack([values, uncertainties, coordinates], axis=0)
+        # Keep absolute-depth information in the main spectral branch instead
+        # of relegating it entirely to side-channel projections.
+        x = jnp.stack(
+            [values, uncertainties, coordinates, absolute_values, scale_channel],
+            axis=0,
+        )
 
         x = jax.nn.gelu(self.conv1(x))   # (ch1, n_wavelengths)
         x = jax.nn.gelu(self.conv2(x))   # (ch2, n_wavelengths)

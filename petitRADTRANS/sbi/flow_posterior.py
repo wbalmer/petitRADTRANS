@@ -983,6 +983,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         resume_from_checkpoint: bool = False,
         gradient_clip_norm: float | None = 1.0,
         embedding_noise_std: float = 0.0,
+        embedding_noise_min_scale: float = 0.0,
         aux_scale_loss_weight: float = 0.0,
         spline_small_bin_regularization_weight: float | None = None,
         spline_min_bin_ratio_target: float = 0.2,
@@ -994,7 +995,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         weight_decay: float = 0.0,
         use_cosine_schedule: bool = False,
         warmup_fraction: float = 0.02,
+        warmup_epochs: float | None = None,
         min_learning_rate: float = 1e-6,
+        lr_schedule_total_epochs: float | None = None,
         stable_inverse_forward_max_abs_error_threshold: float | None = 1e-4,
         stable_inverse_forward_logdet_closure_max_abs_error_threshold: float | None = 1e-4,
         stable_cube_edge_hit_rate_threshold: float | None = 0.0,
@@ -1053,6 +1056,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.resume_from_checkpoint = bool(resume_from_checkpoint)
         self.gradient_clip_norm = gradient_clip_norm
         self.embedding_noise_std = float(embedding_noise_std)
+        self.embedding_noise_min_scale = float(embedding_noise_min_scale)
         self.aux_scale_loss_weight = float(aux_scale_loss_weight)
         self.spline_entropy_regularization_weight = float(
             spline_entropy_regularization_weight
@@ -1072,7 +1076,15 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.weight_decay = float(weight_decay)
         self.use_cosine_schedule = bool(use_cosine_schedule)
         self.warmup_fraction = float(warmup_fraction)
+        self.warmup_epochs = (
+            None if warmup_epochs is None else float(warmup_epochs)
+        )
         self.min_learning_rate = float(min_learning_rate)
+        self.lr_schedule_total_epochs = (
+            None
+            if lr_schedule_total_epochs is None
+            else float(lr_schedule_total_epochs)
+        )
         self.stable_inverse_forward_max_abs_error_threshold = (
             None
             if stable_inverse_forward_max_abs_error_threshold is None
@@ -1118,6 +1130,17 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             raise ValueError("autoregressive_transform_units must be positive")
         if self.neural_autoregressive_min_slope <= 0.0:
             raise ValueError("neural_autoregressive_min_slope must be positive")
+        if self.embedding_noise_min_scale < 0.0:
+            raise ValueError("embedding_noise_min_scale must be non-negative")
+        if self.warmup_epochs is not None and self.warmup_epochs < 0.0:
+            raise ValueError("warmup_epochs must be non-negative when provided")
+        if (
+            self.lr_schedule_total_epochs is not None
+            and self.lr_schedule_total_epochs <= 0.0
+        ):
+            raise ValueError(
+                "lr_schedule_total_epochs must be positive when provided"
+            )
         if not 0.0 < self.neural_autoregressive_min_residual < 1.0:
             raise ValueError(
                 "neural_autoregressive_min_residual must lie in (0, 1)"
@@ -1526,6 +1549,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         noise_std: float,
         preprocessing_metadata: Any = None,
         *,
+        noise_min_scale: float = 0.0,
         include_spline_regularization: bool = True,
     ) -> Callable[[_PosteriorModel, PosteriorBatch], jnp.ndarray]:
         """Return a loss function that injects on-the-fly Gaussian noise into
@@ -1641,7 +1665,11 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                             jnp.power(jnp.asarray(10.0, dtype=v.dtype), safe_log_scale),
                             jnp.asarray(1e-30, dtype=v.dtype),
                         )
-                        v_noisy = v + noise_std * jnp.abs(u) * noise
+                        noise_scale = jnp.maximum(
+                            noise_std * jnp.abs(u),
+                            jnp.asarray(noise_min_scale, dtype=v.dtype),
+                        )
+                        v_noisy = v + noise_scale * noise
                         updated_block[0] = v_noisy
 
                         if len(block_tuple) > 5:
@@ -1664,9 +1692,11 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                                 absolute_local_scale,
                                 jnp.asarray(1e-30, dtype=v.dtype),
                             )
-                            updated_block[5] = (
-                                absolute_values + noise_std * absolute_noise_scale * noise
+                            absolute_noise = jnp.maximum(
+                                noise_std * absolute_noise_scale,
+                                jnp.asarray(noise_min_scale, dtype=v.dtype),
                             )
+                            updated_block[5] = absolute_values + absolute_noise * noise
                     elif block_idx < len(_block_noise_params):
                         # Reconstruct raw uncertainty from the normalized
                         # uncertainty channel and convert it into the scale of
@@ -1674,11 +1704,19 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                         _unc_scale, _value_scale = _block_noise_params[block_idx]
                         u_raw = u * jnp.asarray(_unc_scale, dtype=u.dtype)
                         noise_scale = jnp.abs(u_raw) / jnp.asarray(_value_scale, dtype=u.dtype)
-                        v_noisy = v + noise_std * noise_scale * noise
+                        effective_noise_scale = jnp.maximum(
+                            noise_std * noise_scale,
+                            jnp.asarray(noise_min_scale, dtype=v.dtype),
+                        )
+                        v_noisy = v + effective_noise_scale * noise
                         updated_block[0] = v_noisy
                     else:
                         # Fallback: no preprocessing stats for this block.
-                        v_noisy = v + noise_std * noise
+                        effective_noise_scale = jnp.asarray(
+                            max(float(noise_std), float(noise_min_scale)),
+                            dtype=v.dtype,
+                        )
+                        v_noisy = v + effective_noise_scale * noise
                         updated_block[0] = v_noisy
 
                     noisy_blocks.append(tuple(updated_block))
@@ -1754,7 +1792,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 weight_decay=self.weight_decay,
                 use_cosine_schedule=self.use_cosine_schedule,
                 warmup_fraction=self.warmup_fraction,
+                warmup_epochs=self.warmup_epochs,
                 min_learning_rate=self.min_learning_rate,
+                lr_schedule_total_epochs=self.lr_schedule_total_epochs,
                 verbose_diagnostics=self.verbose_diagnostics,
                 diagnostics_output_directory=self.diagnostics_output_directory,
                 diagnostics_plot_interval=self.diagnostics_plot_interval,
@@ -1764,9 +1804,10 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             self._make_noisy_loss(
                 self.embedding_noise_std,
                 preprocessing_metadata,
+                noise_min_scale=self.embedding_noise_min_scale,
                 include_spline_regularization=True,
             )
-            if self.embedding_noise_std > 0
+            if self.embedding_noise_std > 0 or self.embedding_noise_min_scale > 0
             else self._training_loss
         )
         self.model, history, validation_metrics, training_metadata = trainer.fit(
@@ -1841,7 +1882,14 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "spline_min_derivative_target": self.spline_min_derivative_target,
             "spline_max_derivative_target": self.spline_max_derivative_target,
             "weight_decay": self.weight_decay,
+            "gradient_clip_norm": self.gradient_clip_norm,
             "use_cosine_schedule": self.use_cosine_schedule,
+            "embedding_noise_std": self.embedding_noise_std,
+            "embedding_noise_min_scale": self.embedding_noise_min_scale,
+            "warmup_fraction": self.warmup_fraction,
+            "warmup_epochs": self.warmup_epochs,
+            "min_learning_rate": self.min_learning_rate,
+            "lr_schedule_total_epochs": self.lr_schedule_total_epochs,
             "stable_inverse_forward_max_abs_error_threshold": (
                 self.stable_inverse_forward_max_abs_error_threshold
             ),
@@ -1893,7 +1941,14 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "spline_min_derivative_target": self.spline_min_derivative_target,
                 "spline_max_derivative_target": self.spline_max_derivative_target,
                 "weight_decay": self.weight_decay,
+                "gradient_clip_norm": self.gradient_clip_norm,
                 "use_cosine_schedule": self.use_cosine_schedule,
+                "embedding_noise_std": self.embedding_noise_std,
+                "embedding_noise_min_scale": self.embedding_noise_min_scale,
+                "warmup_fraction": self.warmup_fraction,
+                "warmup_epochs": self.warmup_epochs,
+                "min_learning_rate": self.min_learning_rate,
+                "lr_schedule_total_epochs": self.lr_schedule_total_epochs,
                 "stable_inverse_forward_max_abs_error_threshold": (
                     self.stable_inverse_forward_max_abs_error_threshold
                 ),
@@ -1980,7 +2035,19 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 5.0,
             ),
             "weight_decay": metadata.get("weight_decay", 0.0),
+            "gradient_clip_norm": metadata.get("gradient_clip_norm", 1.0),
             "use_cosine_schedule": metadata.get("use_cosine_schedule", False),
+            "embedding_noise_std": metadata.get("embedding_noise_std", 0.0),
+            "embedding_noise_min_scale": metadata.get(
+                "embedding_noise_min_scale",
+                0.0,
+            ),
+            "warmup_fraction": metadata.get("warmup_fraction", 0.02),
+            "warmup_epochs": metadata.get("warmup_epochs"),
+            "min_learning_rate": metadata.get("min_learning_rate", 1e-6),
+            "lr_schedule_total_epochs": metadata.get(
+                "lr_schedule_total_epochs"
+            ),
             "stable_inverse_forward_max_abs_error_threshold": metadata.get(
                 "stable_inverse_forward_max_abs_error_threshold",
                 1e-4,
@@ -2080,7 +2147,26 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 estimator_config.get("spline_max_derivative_target", 5.0)
             ),
             weight_decay=float(estimator_config.get("weight_decay", 0.0)),
+            gradient_clip_norm=estimator_config.get("gradient_clip_norm", 1.0),
+            embedding_noise_std=float(
+                estimator_config.get("embedding_noise_std", 0.0)
+            ),
+            embedding_noise_min_scale=float(
+                estimator_config.get("embedding_noise_min_scale", 0.0)
+            ),
             use_cosine_schedule=bool(estimator_config.get("use_cosine_schedule", False)),
+            warmup_fraction=float(estimator_config.get("warmup_fraction", 0.02)),
+            warmup_epochs=(
+                None
+                if estimator_config.get("warmup_epochs") is None
+                else float(estimator_config.get("warmup_epochs"))
+            ),
+            min_learning_rate=float(estimator_config.get("min_learning_rate", 1e-6)),
+            lr_schedule_total_epochs=(
+                None
+                if estimator_config.get("lr_schedule_total_epochs") is None
+                else float(estimator_config.get("lr_schedule_total_epochs"))
+            ),
             stable_inverse_forward_max_abs_error_threshold=estimator_config.get(
                 "stable_inverse_forward_max_abs_error_threshold",
                 1e-4,

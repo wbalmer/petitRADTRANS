@@ -208,7 +208,9 @@ class TrainingConfig:
     weight_decay: float = 0.0
     use_cosine_schedule: bool = False
     warmup_fraction: float = 0.02
+    warmup_epochs: float | None = None
     min_learning_rate: float = 1e-6
+    lr_schedule_total_epochs: float | None = None
     verbose_diagnostics: bool = False
     diagnostics_output_directory: str | None = None
     diagnostics_plot_interval: int = 1
@@ -717,15 +719,41 @@ class SBITrainer:
         n_train_samples = int(dataset.dataset.manifest.splits.get('train', 0))
         steps_per_epoch = max(1, n_train_samples // self.config.batch_size)
         total_steps = steps_per_epoch * self.config.num_epochs
+        schedule_total_steps = total_steps
+        warmup_steps = 0
 
         # --- Build optimizer with optional weight decay & cosine schedule --
         if self.config.use_cosine_schedule and total_steps > 0:
-            warmup_steps = max(1, int(self.config.warmup_fraction * total_steps))
+            schedule_total_epochs = (
+                self.config.lr_schedule_total_epochs
+                if self.config.lr_schedule_total_epochs is not None
+                else self.config.num_epochs
+            )
+            schedule_total_steps = max(
+                steps_per_epoch,
+                int(np.ceil(float(schedule_total_epochs) * steps_per_epoch)),
+            )
+            if self.config.warmup_epochs is not None:
+                warmup_steps = max(
+                    1,
+                    int(
+                        np.ceil(
+                            max(float(self.config.warmup_epochs), 0.0)
+                            * steps_per_epoch
+                        )
+                    ),
+                )
+            else:
+                warmup_steps = max(
+                    1,
+                    int(self.config.warmup_fraction * schedule_total_steps),
+                )
+            schedule_total_steps = max(schedule_total_steps, warmup_steps + 1)
             lr_schedule = optax.warmup_cosine_decay_schedule(
                 init_value=0.0,
                 peak_value=self.config.learning_rate,
                 warmup_steps=warmup_steps,
-                decay_steps=total_steps,
+                decay_steps=schedule_total_steps,
                 end_value=self.config.min_learning_rate,
             )
         else:
@@ -1600,6 +1628,10 @@ class SBITrainer:
                 'stopped_early': self._should_stop(patience_counter),
                 'resumed_from_checkpoint': resumed_from_checkpoint,
                 'completed_epochs': len(train_loss_history),
+                'steps_per_epoch': steps_per_epoch,
+                'total_training_steps': total_steps,
+                'lr_schedule_total_steps': schedule_total_steps,
+                'warmup_steps': warmup_steps,
                 'checkpoint_backend': None if self.checkpoint_backend is None else self.checkpoint_backend.name,
             },
         )
