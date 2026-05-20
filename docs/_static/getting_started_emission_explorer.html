@@ -175,7 +175,7 @@
             height: 668px;
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 680px) {
             .workspace {
                 grid-template-columns: 1fr;
             }
@@ -193,7 +193,7 @@
             }
         }
 
-        @media (max-width: 430px) {
+        @media (max-width: 360px) {
             .heading {
                 flex-direction: column;
             }
@@ -203,11 +203,11 @@
             }
 
             #plot {
-                height: 500px;
+                height: 380px;
             }
 
             .plot-shell {
-                min-height: 512px;
+                min-height: 392px;
             }
         }
     </style>
@@ -218,8 +218,7 @@
             <div>
                 <h1>Interactive Emission Explorer</h1>
                 <p>
-                    Client-side sliders update a compact Plotly explorer fed by precomputed petitRADTRANS response grids
-                    around the Guillot emission example in the getting-started notebook.
+                    Guillot emission example.
                 </p>
             </div>
             <button class="reset-button" id="reset-button" type="button">Reset defaults</button>
@@ -405,6 +404,16 @@
             ];
         }
 
+        function getPlotHeight() {
+            if (window.innerWidth <= 360) {
+                return 380;
+            }
+            if (window.innerWidth <= 680) {
+                return 540;
+            }
+            return 668;
+        }
+
         function buildFigureState(data, values) {
             const temperatureProfile = buildTemperatureProfile(data, values);
             const massFractionState = buildMassFractionState(data, values);
@@ -461,6 +470,7 @@
             return {
                 traces,
                 layout: {
+                    height: getPlotHeight(),
                     margin: { l: 66, r: 18, t: 48, b: 46 },
                     paper_bgcolor: "rgba(0, 0, 0, 0)",
                     plot_bgcolor: "#ffffff",
@@ -685,6 +695,7 @@
                 buildControls(explorerData);
                 renderFigure();
                 resetButton.addEventListener("click", resetControls);
+                window.addEventListener("resize", scheduleRender);
             } catch (error) {
                 console.error(error);
                 statusNode.textContent = "Failed to load the emission explorer data.";
