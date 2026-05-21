@@ -129,9 +129,9 @@ def set_petitradtrans_plot_style():
     if not have_display:
         matplotlib.use('Agg')
 
-    prt_colours = ['#009FB8', '#FF695C', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
-                   "#B429FF"]
-    font = {'family': 'serif',
+    prt_colours = ["#0082D3", "#FB0058", "#EEBB00", "#0FB100", "#3C0085", "#870000", "#1C5400", "#005265", "#B69392",
+                   "#18161A"]
+    font = {'family': 'sans',
             'size': 24}
     lines = {'markeredgecolor': 'k',
              'markersize': 8}
@@ -156,7 +156,7 @@ def set_petitradtrans_plot_style():
                 color=prt_colours
             ),
             'titlesize': 32,
-            'linewidth': 3}
+            'linewidth': 3.5}
     figure = {'titlesize': 32,
               'figsize': (16, 10),
               'autolayout': True}
