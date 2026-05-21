@@ -29,14 +29,15 @@
                 radial-gradient(circle at top right, rgba(226, 140, 45, 0.16), transparent 34%),
                 linear-gradient(180deg, #f8f5ee 0%, #f3ede2 100%);
             color: var(--text);
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
         }
 
         .widget {
             max-width: 1260px;
             margin: 0 auto;
             padding: 10px 12px 10px;
-            min-height: 780px;
+            min-height: 820px;
         }
 
         .heading {
@@ -89,8 +90,8 @@
 
         .controls {
             display: grid;
-            gap: 10px;
-            max-height: 660px;
+            gap: 8px;
+            max-height: 700px;
             overflow: auto;
             padding-right: 2px;
         }
@@ -100,13 +101,13 @@
             backdrop-filter: blur(8px);
             border: 1px solid var(--line);
             border-radius: 14px;
-            padding: 8px 10px 8px;
+            padding: 7px 9px 7px;
             box-shadow: 0 12px 28px rgba(31, 43, 59, 0.08);
         }
 
         .control-panel h2 {
-            margin: 0 0 6px;
-            font-size: 0.8rem;
+            margin: 0 0 5px;
+            font-size: 0.78rem;
             font-weight: 700;
             letter-spacing: 0.01em;
         }
@@ -114,16 +115,16 @@
         .control-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 6px 8px;
+            gap: 5px 7px;
         }
 
         .control {
             display: grid;
-            gap: 3px;
+            gap: 2px;
         }
 
         .control-label {
-            font-size: 0.7rem;
+            font-size: 0.66rem;
             color: var(--muted);
             font-weight: 600;
         }
@@ -131,7 +132,7 @@
         .slider-row {
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
-            gap: 6px;
+            gap: 5px;
             align-items: center;
         }
 
@@ -142,21 +143,21 @@
         }
 
         output {
-            min-width: 40px;
+            min-width: 36px;
             text-align: right;
             font-variant-numeric: tabular-nums;
-            font-size: 0.68rem;
+            font-size: 0.66rem;
             font-weight: 700;
             color: var(--text);
         }
 
         .status {
-            margin-top: 8px;
-            padding: 6px 8px;
+            margin-top: 7px;
+            padding: 5px 7px;
             border-radius: 12px;
             background: rgba(255, 255, 255, 0.72);
             border: 1px solid var(--line);
-            font-size: 0.72rem;
+            font-size: 0.69rem;
             color: var(--muted);
         }
 
@@ -174,7 +175,7 @@
             height: 668px;
         }
 
-        @media (max-width: 860px) {
+        @media (max-width: 680px) {
             .workspace {
                 grid-template-columns: 1fr;
             }
@@ -182,9 +183,17 @@
             .controls {
                 max-height: none;
             }
+
+            #plot {
+                height: 540px;
+            }
+
+            .plot-shell {
+                min-height: 552px;
+            }
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 360px) {
             .heading {
                 flex-direction: column;
             }
@@ -194,11 +203,11 @@
             }
 
             #plot {
-                height: 620px;
+                height: 380px;
             }
 
             .plot-shell {
-                min-height: 632px;
+                min-height: 392px;
             }
         }
     </style>
@@ -209,8 +218,7 @@
             <div>
                 <h1>Interactive Emission Explorer</h1>
                 <p>
-                    Client-side sliders update a compact Plotly explorer fed by precomputed petitRADTRANS response grids
-                    around the Guillot emission example in the getting-started notebook.
+                    Guillot emission example.
                 </p>
             </div>
             <button class="reset-button" id="reset-button" type="button">Reset defaults</button>
@@ -396,6 +404,16 @@
             ];
         }
 
+        function getPlotHeight() {
+            if (window.innerWidth <= 360) {
+                return 380;
+            }
+            if (window.innerWidth <= 680) {
+                return 540;
+            }
+            return 668;
+        }
+
         function buildFigureState(data, values) {
             const temperatureProfile = buildTemperatureProfile(data, values);
             const massFractionState = buildMassFractionState(data, values);
@@ -452,6 +470,7 @@
             return {
                 traces,
                 layout: {
+                    height: getPlotHeight(),
                     margin: { l: 66, r: 18, t: 48, b: 46 },
                     paper_bgcolor: "rgba(0, 0, 0, 0)",
                     plot_bgcolor: "#ffffff",
@@ -676,6 +695,7 @@
                 buildControls(explorerData);
                 renderFigure();
                 resetButton.addEventListener("click", resetControls);
+                window.addEventListener("resize", scheduleRender);
             } catch (error) {
                 console.error(error);
                 statusNode.textContent = "Failed to load the emission explorer data.";
