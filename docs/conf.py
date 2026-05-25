@@ -22,20 +22,6 @@ sys.path.insert(0, os.path.abspath("../"))
 
 logger = logging.getLogger(__name__)
 
-DOCS_DIR = Path(__file__).resolve().parent
-GETTING_STARTED_TRANSMISSION_EXPLORER_GENERATOR_PATH = (
-    DOCS_DIR / "generate_getting_started_transmission_explorer_data.py"
-)
-GETTING_STARTED_TRANSMISSION_EXPLORER_DATA_PATH = (
-    DOCS_DIR / "_static" / "getting_started_transmission_explorer_data.json"
-)
-GETTING_STARTED_EMISSION_EXPLORER_GENERATOR_PATH = (
-    DOCS_DIR / "generate_getting_started_emission_explorer_data.py"
-)
-GETTING_STARTED_EMISSION_EXPLORER_DATA_PATH = (
-    DOCS_DIR / "_static" / "getting_started_emission_explorer_data.json"
-)
-
 nbsphinx_allow_errors = True
 
 autodoc_mock_imports = [
@@ -56,7 +42,7 @@ copyright = "2019-2026, the pRT team"
 author = "pRT team"
 
 # The full version, including alpha/beta/rc tags
-release = "4.0.0a35"
+release = "4.0.0a36"
 
 
 # -- General configuration ---------------------------------------------------
@@ -108,6 +94,20 @@ pygments_style = None
 
 
 # -- Options for HTML output -------------------------------------------------
+
+DOCS_DIR = Path(__file__).resolve().parent
+GETTING_STARTED_TRANSMISSION_EXPLORER_GENERATOR_PATH = (
+    DOCS_DIR / "generate_getting_started_transmission_explorer_data.py"
+)
+GETTING_STARTED_TRANSMISSION_EXPLORER_DATA_PATH = (
+    DOCS_DIR / "_static" / "getting_started_transmission_explorer_data.json"
+)
+GETTING_STARTED_EMISSION_EXPLORER_GENERATOR_PATH = (
+    DOCS_DIR / "generate_getting_started_emission_explorer_data.py"
+)
+GETTING_STARTED_EMISSION_EXPLORER_DATA_PATH = (
+    DOCS_DIR / "_static" / "getting_started_emission_explorer_data.json"
+)
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.

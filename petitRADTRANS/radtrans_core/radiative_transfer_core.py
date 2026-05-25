@@ -227,8 +227,11 @@ def _combine_ck_opacities_jax(
     if n_species > 1:
         # C2: Vectorized threshold matching Fortran structure.
         # Fortran uses g=1 (first/weakest g-point) to compute the threshold,
-        # then checks g=n_g (last/strongest) against it.
-        threshold = jnp.max(weighted_all[:, :, 0], axis=1) * 1e-2  # (n_fl,)
+        # then checks g=n_g (last/strongest) against it. The continuum has
+        # already been added to species 0 in the Fortran input, so fold it
+        # into the threshold probe here as well.
+        threshold_input = weighted_all[:, :, 0].at[:, 0].add(continuum_flat)
+        threshold = jnp.max(threshold_input, axis=1) * 1e-2  # (n_fl,)
         active_mask = weighted_all[:, :, -1] >= threshold[:, None]  # (n_fl, n_species)
 
         # Batched species loop — no vmap, single sort kernel per species.
@@ -281,12 +284,12 @@ def _run_fortran_ck(modified_opas, g_gauss_arr, weights_gauss_arr):
     import numpy as np
     from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 
-    m = np.asarray(modified_opas)
-    g = np.asarray(g_gauss_arr)
-    w = np.asarray(weights_gauss_arr)
-    n_g, n_f, n_s, n_l = m.shape
-    result = fcore.combine_ck_opacities(m, g, w, n_g, n_f, n_s, n_l)
-    return np.ascontiguousarray(result)
+    original_dtype = np.asarray(modified_opas).dtype
+    m = np.asfortranarray(np.asarray(modified_opas, dtype=np.float64))
+    g = np.ascontiguousarray(np.asarray(g_gauss_arr, dtype=np.float64))
+    w = np.ascontiguousarray(np.asarray(weights_gauss_arr, dtype=np.float64))
+    result = fcore.combine_ck_opacities(m, g, w)
+    return np.array(result, dtype=original_dtype, order="C", copy=True)
 
 
 @partial(custom_vjp, nondiff_argnums=(7,))
@@ -1172,7 +1175,6 @@ def _compute_feautrier_radiative_transfer_chunk(
             current_I_plus_surface_gfa,
             I_minus_gf_new,
         )
-
         source_ali = (
             pdp_times_planck
             + one_minus_pdp_gfl
@@ -1543,7 +1545,6 @@ def _compute_feautrier_radiative_transfer_chunk(
         )  # (g, f, l, a)
         transm_lfa = jnp.einsum("g,gfla->lfa", weights_gauss_work, transm_gfla)  # (l, f, a)
         del transm_gfla
-
         def i_mu_body(i_mu: int, acc: ArrayLike) -> ArrayLike:
             mu_val = emission_cos_angles_work[i_mu]
             mu_weight_val = emission_cos_angles_weights_work[i_mu]

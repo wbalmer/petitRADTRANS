@@ -414,7 +414,6 @@ def contour_corner(
 ):
     """
     Use the corner package to plot the posterior distributions produced by pymultinest.
-    # TODO @Evert complete docstring
     Args:
         sampledict : dict
             A dictionary of samples, each sample has shape (N_Samples,N_params). The keys of the
@@ -541,18 +540,8 @@ def contour_corner(
         mpl.rc("font", **font)
 
         if color_list is None:
-            color_list = [
-                "#009FB8",
-                "#FF695C",
-                "#70FF92",
-                "#FFBB33",
-                "#6171FF",
-                "#FF1F69",
-                "#52AC25",
-                "#E574FF",
-                "#FF261D",
-                "#B429FF",
-            ]
+            from petitRADTRANS.plotlib.style import prt_default_colour_cycle
+            color_list = prt_default_colour_cycle
     elif color_list is None:
         color_list = [f"C{i}" for i in range(8)]  # standard matplotlib colour cycle
 

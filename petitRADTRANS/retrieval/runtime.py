@@ -1681,6 +1681,9 @@ def _is_static_parameter_value(value: Any) -> bool:
     if isinstance(value, (str, bytes, dict)):
         return True
 
+    if isinstance(value, (bool, np.bool_, int, np.integer)):
+        return True
+
     if isinstance(value, (list, tuple)):
         return all(_is_static_parameter_value(item) for item in value)
 

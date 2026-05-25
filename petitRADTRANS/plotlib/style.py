@@ -21,6 +21,18 @@ flux_units = r'erg$\cdot$s$^{-1}\cdot$cm${-2}$/cm$^{-1}$'
 
 default_color = 'magenta'
 
+prt_default_colour_cycle = [
+    "#0082D3",
+    "#FB0058",
+    "#EEBB00",
+    "#0FB100",
+    "#3C0085",
+    "#870000",
+    "#1C5400",
+    "#005265",
+    "#B69392",
+    "#18161A"
+    ]
 
 __species_color = {
     'CH4': 'C7',
@@ -129,8 +141,7 @@ def set_petitradtrans_plot_style():
     if not have_display:
         matplotlib.use('Agg')
 
-    prt_colours = ["#0082D3", "#FB0058", "#EEBB00", "#0FB100", "#3C0085", "#870000", "#1C5400", "#005265", "#B69392",
-                   "#18161A"]
+
     font = {'family': 'sans',
             'size': 24}
     lines = {'markeredgecolor': 'k',
@@ -153,7 +164,7 @@ def set_petitradtrans_plot_style():
     ymaj = {'size': 10}
     axes = {'labelsize': 26,
             'prop_cycle': matplotlib.cycler(  # type: ignore
-                color=prt_colours
+                color=prt_default_colour_cycle
             ),
             'titlesize': 32,
             'linewidth': 3.5}

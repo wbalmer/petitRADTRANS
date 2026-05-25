@@ -11,6 +11,7 @@ import numpy.typing as npt
 from typing import Callable
 
 from scipy.stats import binned_statistic
+from jax import errors as jax_errors
 from jax import vmap, lax, numpy as jnp
 
 import petitRADTRANS
@@ -30,6 +31,7 @@ from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.models import (
+    MODEL_CONTRACT_DIFFERENTIABLE,
     _build_model_context_from_parameters,
     _model_result_to_legacy_output,
     coerce_model_generating_function,
@@ -86,6 +88,17 @@ _SAMPLER_CLASS_NAMES: dict[str, str] = {
     "jaxnsshardedstaticnestedsampler": "JAXNSShardedStaticNestedSampler",
     "jaxnsshardedstaticsestedsampler": "JAXNSShardedStaticNestedSampler",
 }
+
+_VMAP_FALLBACK_JAX_ERRORS = (jax_errors.ConcretizationTypeError,)
+
+for _error_name in (
+    "TracerBoolConversionError",
+    "TracerIntegerConversionError",
+    "NonConcreteBooleanIndexError",
+):
+    _error_type = getattr(jax_errors, _error_name, None)
+    if _error_type is not None:
+        _VMAP_FALLBACK_JAX_ERRORS += (_error_type,)
 
 
 def _resolve_sampler_class(sampler_type: str) -> type[Sampler] | None:
@@ -198,7 +211,6 @@ class Retrieval:
 
         self.samples = {}
         self.param_dictionary = {}
-        # TODO reference_data_name should be in retrieval not in plotter
         self.plotter = RetrievalPlotter(self, reference_data_name=reference_data_name)
 
         # Set up pretty plotting
@@ -610,7 +622,6 @@ class Retrieval:
                         ].transform_prior_cube_coordinate
                         is not None
                     ):
-                        # TODO: tfp distributions enforce this natively?
                         lower_boundary = configuration_parameters[
                             parameter_name
                         ].get_param_uniform(0)
@@ -643,11 +654,6 @@ class Retrieval:
             data = {data: self.configuration.data[data]}
 
         for name, _data in data.items():
-            if (
-                return_dict or len(data) > 1
-            ):  # display from which data the forward model is being calculated
-                print(f"Calculating model function for data '{name}'...")
-
             if _data.external_radtrans_reference is not None:
                 radtrans_object = self.configuration.data[
                     _data.external_radtrans_reference
@@ -706,6 +712,54 @@ class Retrieval:
             A dictionary with the outputs of the forward models for the requested data, or, if data is a string, the
             output of the forward model corresponding to these data.
         """
+        if parameters is not None and not isinstance(parameters, (dict, str)):
+            parameter_array = np.asarray(parameters)
+
+            if parameter_array.ndim == 2:
+                free_parameter_names = list(self._get_parameter_layout().free_parameter_names)
+                sample_matrix, free_parameter_names = self._coerce_parameter_sample_matrix(
+                    parameters,
+                    free_parameter_names,
+                )
+
+                if sample_matrix is None:
+                    raise ValueError(
+                        "expected batched temperature-profile parameters with shape "
+                        "(n_samples, n_free_parameters) or (n_free_parameters, n_samples)"
+                    )
+
+                model_returned_values = {}
+                return_dict = False
+
+                if data is None:
+                    data = self.configuration.data
+                    return_dict = True
+                elif isinstance(data, str):
+                    data = {data: self.configuration.data[data]}
+
+                for name, _data in data.items():
+                    if _data.external_radtrans_reference is not None:
+                        radtrans_object = self.configuration.data[
+                            _data.external_radtrans_reference
+                        ].radtrans_object
+                    else:
+                        radtrans_object = _data.radtrans_object
+
+                    model_returned_values[name] = self._get_batched_full_range_model_outputs(
+                        sample_matrix,
+                        free_parameter_names,
+                        model_generating_function=_data.model_generating_function,
+                        prt_object=radtrans_object,
+                        prt_reference=_data,
+                        pt_plot_mode=True,
+                        adaptive_mesh_refinement=adaptive_mesh_refinement,
+                    )
+
+                if return_dict or len(data) > 1:
+                    return model_returned_values
+
+                return model_returned_values[list(data.keys())[0]]
+
         return self.calculate_forward_model(
             parameters,
             data,
@@ -1811,12 +1865,19 @@ class Retrieval:
         if contribution:
             if not refresh and os.path.exists(contribution_file):
                 print("Loading best fit spectrum and contribution from file")
-                best_fit_contribution = np.load(contribution_file)
+                cached_auxiliary_outputs = np.load(
+                    contribution_file,
+                    allow_pickle=True,
+                )
                 best_fit_wavelengths, best_fit_spectrum = np.load(full_file).T
 
-                return best_fit_wavelengths, best_fit_spectrum, best_fit_contribution
+                return (
+                    best_fit_wavelengths,
+                    best_fit_spectrum,
+                    self._coerce_best_fit_auxiliary_outputs(cached_auxiliary_outputs),
+                )
 
-            best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = (
+            best_fit_wavelengths, best_fit_spectrum, best_fit_auxiliary_outputs = (
                 self.get_full_range_model(
                     self.best_fit_parameters,
                     model_generating_function=model_generating_function,
@@ -1824,7 +1885,11 @@ class Retrieval:
                     prt_reference=prt_reference,
                 )
             )
-            np.save(contribution_file, best_fit_contribution)
+            np.save(
+                contribution_file,
+                self._coerce_best_fit_auxiliary_outputs(best_fit_auxiliary_outputs),
+                allow_pickle=True,
+            )
         else:
             if not refresh and os.path.exists(full_file):
                 print("Loading best fit spectrum from file")
@@ -1839,7 +1904,7 @@ class Retrieval:
                 prt_reference=prt_reference,
             )
 
-            best_fit_contribution = None  # prevent eventual reference before assignment
+            best_fit_auxiliary_outputs = None  # prevent eventual reference before assignment
 
             if len(ret_val) == 2:
                 best_fit_wavelengths, best_fit_spectrum = ret_val
@@ -1860,9 +1925,38 @@ class Retrieval:
             )
 
         if contribution:
-            return best_fit_wavelengths, best_fit_spectrum, best_fit_contribution
+            return (
+                best_fit_wavelengths,
+                best_fit_spectrum,
+                self._coerce_best_fit_auxiliary_outputs(best_fit_auxiliary_outputs),
+            )
 
         return best_fit_wavelengths, best_fit_spectrum
+
+    @staticmethod
+    def _coerce_best_fit_auxiliary_outputs(auxiliary_outputs):
+        if auxiliary_outputs is None:
+            return {}
+
+        if isinstance(auxiliary_outputs, np.ndarray):
+            if auxiliary_outputs.dtype == object and auxiliary_outputs.shape == ():
+                auxiliary_outputs = auxiliary_outputs.item()
+            else:
+                return {"contribution": np.asarray(auxiliary_outputs, dtype=float)}
+
+        if isinstance(auxiliary_outputs, dict):
+            normalized_outputs = {}
+
+            for key, value in auxiliary_outputs.items():
+                if value is None:
+                    normalized_outputs[key] = None
+                    continue
+
+                normalized_outputs[key] = np.asarray(value, dtype=float)
+
+            return normalized_outputs
+
+        return {"contribution": np.asarray(auxiliary_outputs, dtype=float)}
 
     def get_best_fit_parameters(self, return_max_likelihood: bool = False):
         """Get the retrieved best fit parameters.
@@ -2158,12 +2252,227 @@ class Retrieval:
             return results
 
         wavelength, spectrum, additional_outputs = results
-        if "emission_contribution" in additional_outputs.keys():
-            contribution = additional_outputs["emission_contribution"]
-        elif "transmission_contribution" in additional_outputs.keys():
-            contribution = additional_outputs["transmission_contribution"]
+        return wavelength, spectrum, self._coerce_best_fit_auxiliary_outputs(
+            additional_outputs
+        )
 
-        return wavelength, spectrum, contribution
+    def _get_batched_full_range_model_outputs(
+        self,
+        free_parameter_values: npt.ArrayLike,
+        free_param_names: list[str],
+        *,
+        model_generating_function: Callable = None,
+        prt_object: Radtrans = None,
+        prt_reference: Data | str = None,
+        contribution: bool = False,
+        pt_plot_mode: bool = False,
+        adaptive_mesh_refinement: bool | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return batched model outputs for a batch of sampled free parameters.
+
+        Model functions are evaluated with a single static model
+        context and ``jax.vmap`` over the leading sample dimension when
+        possible. Legacy adapters and differentiable models that still require
+        Python-side concretization fall back to scalar evaluation to preserve
+        compatibility.
+
+        When ``pt_plot_mode=False`` this returns batched wavelength and spectrum
+        arrays. When ``pt_plot_mode=True`` this returns a shared pressure grid and
+        a temperature matrix with the leading dimension matching the sample batch.
+        """
+        sample_matrix = np.asarray(free_parameter_values, dtype=float)
+
+        if adaptive_mesh_refinement is None:
+            adaptive_mesh_refinement = self.configuration.adaptive_mesh_refinement
+
+        if sample_matrix.ndim == 1:
+            sample_matrix = sample_matrix[np.newaxis, :]
+
+        if sample_matrix.ndim != 2:
+            raise ValueError(
+                "expected free_parameter_values with shape (n_samples, n_free_parameters)"
+            )
+
+        if sample_matrix.shape[0] == 0:
+            return np.empty((0, 0), dtype=float), np.empty((0, 0), dtype=float)
+
+        if prt_object is None:
+            raise ValueError(
+                "prt_object must be provided for batched full-range model evaluation"
+            )
+
+        if isinstance(prt_reference, str):
+            reference_data = self.configuration.data[prt_reference]
+        elif prt_reference is not None:
+            reference_data = prt_reference
+        else:
+            reference_data = self.plotter.get_reference_data()
+
+        if model_generating_function is None:
+            model_function = reference_data.model_generating_function
+        else:
+            model_function = model_generating_function
+
+        resolved_contract, runtime_ready_model_function = (
+            coerce_model_generating_function(model_function)
+        )
+
+        parameter_layout = self._get_parameter_layout()
+        parameter_index_by_name = {
+            name: index for index, name in enumerate(free_param_names)
+        }
+
+        try:
+            reorder_indices = [
+                parameter_index_by_name[name]
+                for name in parameter_layout.free_parameter_names
+            ]
+        except KeyError as error:
+            raise ValueError(
+                f"sample matrix is missing free parameter '{error.args[0]}'"
+            ) from error
+
+        ordered_sample_matrix = np.ascontiguousarray(
+            sample_matrix[:, reorder_indices],
+            dtype=float,
+        )
+
+        def _evaluate_scalar_batch():
+            batched_first_output = []
+            batched_second_output = []
+
+            for sample in sample_matrix:
+                parameters = self.build_param_dict(sample, free_param_names)
+                parameters["contribution"] = Parameter(
+                    "contribution", False, value=contribution
+                )
+                ret_val = self._call_model_generating_function(
+                    model_function,
+                    prt_object,
+                    parameters,
+                    data_name=reference_data.name,
+                    data_object=reference_data,
+                    pt_plot_mode=pt_plot_mode,
+                    adaptive_mesh_refinement=adaptive_mesh_refinement,
+                )
+
+                if len(ret_val) == 2:
+                    first_output, second_output = ret_val
+                elif len(ret_val) == 3 and not pt_plot_mode:
+                    first_output, second_output, __ = ret_val
+                else:
+                    raise ValueError(
+                        "expected 2 or 3 values to unpack from full range model, "
+                        f"but got {len(ret_val)}"
+                    )
+
+                if first_output is None or second_output is None:
+                    if pt_plot_mode:
+                        continue
+
+                    raise ValueError(
+                        "batched full-range model evaluation returned an invalid sample"
+                    )
+
+                batched_first_output.append(np.asarray(first_output, dtype=float))
+                batched_second_output.append(np.asarray(second_output, dtype=float))
+
+            if not batched_first_output:
+                return np.empty((0, 0), dtype=float), np.empty((0, 0), dtype=float)
+
+            if pt_plot_mode:
+                pressure_grid = np.asarray(batched_first_output[0], dtype=float)
+
+                if any(
+                    pressure_grid.shape != grid.shape
+                    or not np.allclose(pressure_grid, grid, equal_nan=True)
+                    for grid in batched_first_output[1:]
+                ):
+                    raise ValueError(
+                        "batched PT-profile evaluation requires a shared pressure grid"
+                    )
+
+                return pressure_grid, np.asarray(batched_second_output, dtype=float)
+
+            return (
+                np.asarray(batched_first_output, dtype=float),
+                np.asarray(batched_second_output, dtype=float),
+            )
+
+        if resolved_contract != MODEL_CONTRACT_DIFFERENTIABLE:
+            return _evaluate_scalar_batch()
+
+        context_parameters = self.build_param_dict(sample_matrix[0], free_param_names)
+        context_parameters["contribution"] = Parameter(
+            "contribution", False, value=contribution
+        )
+
+        observation_state = reference_data.to_observation_state()
+        model_context = _build_model_context_from_parameters(
+            reference_data.name,
+            "unknown",
+            prt_object,
+            context_parameters,
+            adaptive_mesh_refinement=adaptive_mesh_refinement,
+            variability_atmospheric_column_model_flux_return_mode=(
+                observation_state.variability_atmospheric_column_model_flux_return_mode
+            ),
+            model_metadata=observation_state.metadata,
+        )
+
+        batched_physical_params = vmap(
+            parameter_layout.physical_params_from_free_values
+        )(jnp.asarray(ordered_sample_matrix, dtype=JAX_DTYPE))
+
+        try:
+            batched_model_results = vmap(
+                lambda physical_params: run_runtime_model_adapter(
+                    runtime_ready_model_function,
+                    model_context,
+                    physical_params,
+                    pt_plot_mode=pt_plot_mode,
+                )
+            )(batched_physical_params)
+        except _VMAP_FALLBACK_JAX_ERRORS as error:
+            model_name = getattr(
+                model_function,
+                "__name__",
+                type(model_function).__name__,
+            )
+            warnings.warn(
+                "Falling back to scalar full-range model evaluation for "
+                f"'{model_name}' because it is not vmap-safe for this call: {error}",
+                RuntimeWarning,
+            )
+            return _evaluate_scalar_batch()
+
+        if pt_plot_mode:
+            batched_pressures = np.asarray(batched_model_results.pressures, dtype=float)
+            batched_temperatures = np.asarray(
+                batched_model_results.temperatures,
+                dtype=float,
+            )
+
+            if batched_pressures.ndim == 1:
+                return batched_pressures, batched_temperatures
+
+            pressure_grid = batched_pressures[0, :]
+
+            if not np.allclose(
+                batched_pressures,
+                pressure_grid[np.newaxis, :],
+                equal_nan=True,
+            ):
+                raise ValueError(
+                    "batched PT-profile evaluation requires a shared pressure grid"
+                )
+
+            return pressure_grid, batched_temperatures
+
+        return (
+            np.asarray(batched_model_results.wavelengths, dtype=float),
+            np.asarray(batched_model_results.spectrum, dtype=float),
+        )
 
     def get_log_likelihood_per_datapoint(
         self, samples_use: npt.NDArray[np.floating], ret_name: str = None
@@ -2210,24 +2519,24 @@ class Retrieval:
             MMW : numpy.ndarray
                 The mean molecular weight at each pressure level in the atmosphere.
         """
-        from petitRADTRANS.chemistry.core import get_abundances
+        from petitRADTRANS.chemistry.core import get_abundances_from_legacy_dict
 
         parameters = self.build_param_dict(sample, parameters_read)
 
-        pressures, temps = self.calculate_temperature_profile(sample)
 
         name = self.plotter.get_reference_radtrans_name()
+        pressures, temps = self.calculate_temperature_profile(sample)[name]
 
         species = [
             Opacity([species]).get_full_name().split(".R")[0]
             for species in self.configuration.data[name].radtrans_object.line_species
         ]
-        abundances, mmw, _, _ = get_abundances(
-            pressures,
-            temps,
-            copy.copy(species),
-            copy.copy(self.configuration.data[name].radtrans_object.cloud_species),
-            parameters,
+        abundances, mmw, small_index, p_bases = get_abundances_from_legacy_dict(
+            pressures=pressures,
+            temperatures=temps,
+            parameters=parameters,
+            line_species=species,
+            cloud_species=self.configuration.data[name].radtrans_object.cloud_species,
             adaptive_mesh_refinement=False,
         )
 
@@ -2706,7 +3015,6 @@ class Retrieval:
             samples[name] = np.array(list(samples_.values()))
             param_dict[name] = list(samples_.keys())[:-1]  # do not add the likelihood
 
-        # TODO: JAXNS
         return samples, param_dict
 
     def get_samples_dict(
@@ -2987,8 +3295,6 @@ class Retrieval:
                             resolution_array = (
                                 data.wavelengths * resolution_slope
                             ) + resolution_intersect
-                            # TODO: interpolate resolution_array and use standard convolve function.
-                            # TODO: compare different convolution and binning methods
                             model_spectrum_rebinned = (
                                 convolve_and_sample_variable_resolution_breads(
                                     data.wavelengths,
@@ -3219,7 +3525,7 @@ class Retrieval:
         if "log_prior_weight" in self.configuration.parameters.keys():
             log_prior += self.configuration.parameters[
                 "log_prior_weight"
-            ].value  # TODO why not using log_likelihood?
+            ].value
 
         if log_likelihood + log_prior < invalid_value:
             return invalid_value
@@ -3317,7 +3623,7 @@ class Retrieval:
     def _ensure_jax_sampler_model_support(self, sampler_name: str) -> None:
         if self._has_only_legacy_model_groups():
             raise ValueError(
-                f"{sampler_name} requires at least one runtime-native model group; legacy-only retrievals are not supported."
+                f"{sampler_name} requires at least one differentiable model group; legacy-only retrievals are not supported."
             )
 
     def _get_ultranest_vectorization_disable_reason(self) -> str | None:
@@ -4337,42 +4643,32 @@ class Retrieval:
                 else:
                     wavelengths_model, spectrum_model = ret_val
 
-            if data.data_resolution_array_model is not None:
-                data.initialise_data_resolution(wavelengths_model)
-                spectrum_model = convolve(
-                    wavelengths_model, spectrum_model, data.data_resolution_array_model
-                )
-            elif data.data_resolution is not None:
-                spectrum_model = convolve(
-                    wavelengths_model, spectrum_model, data.data_resolution
-                )
+            spectrum_params = extract_spectrum_parameters(parameters, name)
 
             if not isinstance(data, PhotometryData):
-                binned = rebin_spectrum_bin(
-                    wavelengths_model,
-                    spectrum_model,
-                    data.wavelengths,
-                    data.wavelength_bin_widths,
+                binned = process_spectrum_pipeline(
+                    wavelengths_model=np.asarray(wavelengths_model),
+                    spectrum_model=np.asarray(spectrum_model),
+                    data=data,
+                    parameters=parameters,
+                    data_name=name,
+                    spectrum_params=spectrum_params,
                 )
             else:
-                binned = data.photometric_transformation_function(
-                    wavelengths_model, spectrum_model
-                )
-
-            if data.subtract_continuum:
-                x_nodes = None
-
-                if name + "_nodes" in parameters.keys():
-                    nodes = parameters[name + "_nodes"].value
-                    x_nodes = np.linspace(
-                        data.wavelengths[0], data.wavelengths[-1], nodes
+                if data.data_resolution_array_model is not None:
+                    data.initialise_data_resolution(wavelengths_model)
+                    spectrum_model = convolve(
+                        wavelengths_model,
+                        spectrum_model,
+                        data.data_resolution_array_model,
+                    )
+                elif data.data_resolution is not None:
+                    spectrum_model = convolve(
+                        wavelengths_model, spectrum_model, data.data_resolution
                     )
 
-                if name + "_node_array" in parameters.keys():
-                    x_nodes = parameters[name + "_node_array"].value
-
-                binned = filter_spectrum_with_spline(
-                    wavelengths=data.wavelengths, fluxes=binned, x_nodes=x_nodes
+                binned = data.photometric_transformation_function(
+                    wavelengths_model, spectrum_model
                 )
 
             if self.evaluate_sample_spectra:

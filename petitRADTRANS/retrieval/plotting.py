@@ -78,9 +78,9 @@ class RetrievalPlotter:
         object.__setattr__(self, "spec_xlabel", "Wavelength [micron]")
         object.__setattr__(self, "spec_ylabel", "Flux [W/m2/micron]")
         object.__setattr__(self, "y_axis_scaling", 1.0)
-        object.__setattr__(self, "xscale", "log")
+        object.__setattr__(self, "xscale", "linear")
         object.__setattr__(self, "yscale", "linear")
-        object.__setattr__(self, "resolution", 1500.0)
+        object.__setattr__(self, "resolution", None)
         object.__setattr__(self, "nsample", 10.0)
         object.__setattr__(self, "temp_limits", [150, 3000])
         object.__setattr__(self, "press_limits", [1e2, 1e-5])
@@ -135,6 +135,36 @@ class RetrievalPlotter:
     def _synchronize(self):
         if self.comm is not None:
             self.comm.barrier()
+
+    @staticmethod
+    def _get_clipped_contribution_output(auxiliary_outputs):
+        if auxiliary_outputs is None:
+            raise ValueError("best-fit model did not return any auxiliary outputs")
+
+        contribution = None
+
+        if isinstance(auxiliary_outputs, dict):
+            for key in (
+                "emission_contribution",
+                "transmission_contribution",
+                "contribution",
+            ):
+                if auxiliary_outputs.get(key) is not None:
+                    contribution = auxiliary_outputs[key]
+                    break
+        else:
+            contribution = auxiliary_outputs
+
+        if contribution is None:
+            raise ValueError(
+                "best-fit model auxiliary outputs do not contain a contribution array"
+            )
+
+        contribution = np.asarray(contribution, dtype=float)
+        contribution = contribution.copy()
+        contribution[~np.isfinite(contribution)] = 1e-16
+
+        return np.clip(contribution, 1e-16, None)
 
     def plot_abundances(
         self,
@@ -207,7 +237,8 @@ class RetrievalPlotter:
             else:
                 sample_use = None
 
-            pressures, t = self.calculate_temperature_profile(sample_use)
+            results = self.calculate_temperature_profile(sample_use)[self.reference_data_name]
+            pressures, t = results
 
             if species_to_plot is None:
                 species_to_plot = (
@@ -300,7 +331,11 @@ class RetrievalPlotter:
             self.configuration.adaptive_mesh_refinement = False
             pressures = self.configuration.pressures
             if contribution:
-                best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = (
+                (
+                    best_fit_wavelengths,
+                    best_fit_spectrum,
+                    best_fit_auxiliary_outputs,
+                ) = (
                     self.get_best_fit_model(
                         sample_use,
                         parameters_read,
@@ -309,6 +344,9 @@ class RetrievalPlotter:
                         refresh=refresh,
                         contribution=True,
                     )
+                )
+                best_fit_contribution = self._get_clipped_contribution_output(
+                    best_fit_auxiliary_outputs
                 )
 
                 nu = wavelength2frequency(best_fit_wavelengths)
@@ -571,7 +609,11 @@ class RetrievalPlotter:
             else:
                 sample_use = None
 
-            best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = (
+            (
+                best_fit_wavelengths,
+                best_fit_spectrum,
+                best_fit_auxiliary_outputs,
+            ) = (
                 self.get_best_fit_model(
                     sample_use,
                     parameters_read,
@@ -582,9 +624,9 @@ class RetrievalPlotter:
                     mode=mode,
                 )
             )
-
-            index = (best_fit_contribution < 1e-16) & np.isnan(best_fit_contribution)
-            best_fit_contribution[index] = 1e-16
+            best_fit_contribution = self._get_clipped_contribution_output(
+                best_fit_auxiliary_outputs
+            )
 
             pressure_weights = np.diff(np.log10(pressures))
             weights = np.ones_like(pressures)
@@ -727,7 +769,7 @@ class RetrievalPlotter:
         import matplotlib.pyplot as plt
 
         if self._is_plotting_root():
-            fig, ax = plt.subplots(figsize=(10, 6))
+            fig, ax = plt.subplots(figsize=(14, 7))
             for name, data in self.configuration.data.items():
                 if isinstance(data, PhotometryData):
                     wavelengths = np.mean(data.photometric_bin_edges)
@@ -775,6 +817,7 @@ class RetrievalPlotter:
         Plot the PT profile with error contours
         """
         import matplotlib.pyplot as plt
+        from petitRADTRANS.plotlib.style import prt_default_colour_cycle
 
         if self._is_plotting_root():
 
@@ -787,7 +830,6 @@ class RetrievalPlotter:
 
             adaptive_mesh_refinement = self.configuration.adaptive_mesh_refinement
             self.configuration.adaptive_mesh_refinement = False
-            temps = []
 
             pressures = self.configuration.pressures
             if adaptive_mesh_refinement:
@@ -796,6 +838,7 @@ class RetrievalPlotter:
                         data.radtrans_object._pressures = pressures * 1e6
             press_file = f"{self.get_base_figure_name()}_pressures"
             temp_file = f"{self.get_base_figure_name()}_temps"
+            reference_data_name = self.get_reference_data_name()
 
             if (
                 os.path.exists(press_file + ".npy")
@@ -805,27 +848,44 @@ class RetrievalPlotter:
                 pressures = np.load(press_file + ".npy")
                 temps_sort = np.load(temp_file + ".npy")
             else:
-                length_samples = np.shape(samples_use)[1]
-                for i_sample in range(length_samples):
-                    press, t = self.calculate_temperature_profile(
-                        samples_use[:-1, i_sample]
-                    )  # TODO: correctly get pressures and temperatures
-                    if t is None:
-                        continue
-                    temps.append(t)
+                pressures, temps = self.calculate_temperature_profile(
+                    samples_use[:-1, :],
+                    data=reference_data_name,
+                )
 
-                temps = np.array(temps, dtype=float)
+                temps = np.asarray(temps, dtype=float)
                 temps_sort = np.sort(temps, axis=0)
                 np.save(press_file, pressures)
                 np.save(temp_file, temps_sort)
 
+            if temps_sort.shape[0] == 0:
+                raise ValueError("no valid temperature profiles available for PT plot")
+
             len_samp = temps_sort.shape[0]
-            fig, ax = plt.subplots(figsize=(16, 10))
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.plot(
+                pressures,
+                temps_sort[0, :],
+                color=prt_default_colour_cycle[0],
+                alpha=0.8,
+                zorder=0,
+                linewidth=1.2
+            )
+            ax.plot(
+                pressures,
+                temps_sort[-1, :],
+                color=prt_default_colour_cycle[0],
+                alpha=0.8,
+                zorder=0,
+                linewidth=1.2
+            )
+
             ax.fill_betweenx(
                 pressures,
                 x1=temps_sort[0, :],
                 x2=temps_sort[-1, :],
-                color="cyan",
+                color=prt_default_colour_cycle[0],
+                alpha=0.1,
                 label="all",
                 zorder=0,
             )
@@ -833,32 +893,42 @@ class RetrievalPlotter:
                 pressures,
                 x1=temps_sort[int(len_samp * (0.5 - 0.997 / 2.0)), :],
                 x2=temps_sort[int(len_samp * (0.5 + 0.997 / 2.0)), :],
-                color="brown",
-                label="3 sig",
+                color=prt_default_colour_cycle[0],
+                alpha=0.3,
+                label=r"$3 \sigma$",
                 zorder=1,
             )
             ax.fill_betweenx(
                 pressures,
                 x1=temps_sort[int(len_samp * (0.5 - 0.95 / 2.0)), :],
                 x2=temps_sort[int(len_samp * (0.5 + 0.95 / 2.0)), :],
-                color="orange",
-                label="2 sig",
+                color=prt_default_colour_cycle[0],
+                alpha=0.7,
+                label=r"$2 \sigma$",
                 zorder=2,
             )
             ax.fill_betweenx(
                 pressures,
                 x1=temps_sort[int(len_samp * (0.5 - 0.68 / 2.0)), :],
                 x2=temps_sort[int(len_samp * (0.5 + 0.68 / 2.0)), :],
-                color="red",
-                label="1 sig",
+                color=prt_default_colour_cycle[0],
+                alpha=1.0,
+                label=r"$1 \sigma$",
                 zorder=3,
             )
-
+            ax.plot(
+                pressures,
+                np.median(temps_sort, axis=0),
+                color='k',
+                alpha=1.0,
+                zorder=10,
+                linewidth=2.0
+            )
             if self.temp_limits is not None:
                 tlims = self.temp_limits
                 ax.set_xlim(self.temp_limits)
             else:
-                tlims = (np.min(temps) * 0.97, np.max(temps) * 1.03)
+                tlims = (np.min(temps_sort) * 0.97, np.max(temps_sort) * 1.03)
                 ax.set_xlim(tlims)
 
             if contribution:
@@ -875,7 +945,11 @@ class RetrievalPlotter:
                 else:
                     sample_use = None
 
-                best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = (
+                (
+                    best_fit_wavelengths,
+                    best_fit_spectrum,
+                    best_fit_auxiliary_outputs,
+                ) = (
                     self.get_best_fit_model(
                         sample_use,
                         parameters_read,
@@ -885,6 +959,9 @@ class RetrievalPlotter:
                         contribution=True,
                         mode=mode,
                     )
+                )
+                best_fit_contribution = self._get_clipped_contribution_output(
+                    best_fit_auxiliary_outputs
                 )
 
                 nu = wavelength2frequency(best_fit_wavelengths)
@@ -975,7 +1052,7 @@ class RetrievalPlotter:
         samples_use,
         parameters_read,
         downsample_factor=None,
-        save_outputs=False,
+        save_outputs=True,
         nsample=None,
         model_generating_function=None,
         prt_reference=None,
@@ -1045,7 +1122,7 @@ class RetrievalPlotter:
                 scattering_in_emission=self.configuration.scattering_in_emission,
             )
 
-            fig, ax = plt.subplots(figsize=(16, 10))
+            fig, ax = plt.subplots(figsize=(14, 7))
             n_samples = nsample
 
             if nsample is None:
@@ -1054,50 +1131,83 @@ class RetrievalPlotter:
             random_ints = np.random.randint(
                 low=0, high=len_samples, size=int(n_samples)
             )
-            parameters = {}
+            sample_matrix = np.asarray(samples_use[:-1, random_ints].T, dtype=float)
+            sampled_wavelengths = [None] * len(random_ints)
+            sampled_models = [None] * len(random_ints)
+            missing_sample_rows = []
+            missing_file_stems = []
 
             for i_sample, random_index in enumerate(random_ints):
-                file = os.path.join(
+                file_stem = os.path.join(
                     path, "posterior_sampled_spectra_" + str(random_index).zfill(5)
                 )
+                cache_file = file_stem + ".npy"
 
-                if os.path.exists(file):
-                    wavelengths, model = np.load(file)
-                else:
-                    print(f"Generating sampled spectrum {i_sample} / {self.nsample}...")
+                if os.path.exists(cache_file):
+                    cached_output = np.load(cache_file)
 
-                    parameters = self.build_param_dict(
-                        samples_use[:-1, random_index], parameters_read
-                    )
-                    parameters["contribution"] = Parameter(
-                        "contribution", False, value=False
-                    )
-                    ret_val = self.get_full_range_model(
-                        parameters,
+                    if cached_output.ndim != 2:
+                        raise ValueError(
+                            f"expected cached sampled spectrum '{cache_file}' to be 2-D"
+                        )
+
+                    if cached_output.shape[1] == 2:
+                        wavelengths = cached_output[:, 0]
+                        model = cached_output[:, 1]
+                    elif cached_output.shape[0] == 2:
+                        wavelengths = cached_output[0, :]
+                        model = cached_output[1, :]
+                    else:
+                        raise ValueError(
+                            f"expected cached sampled spectrum '{cache_file}' to have two columns"
+                        )
+
+                    sampled_wavelengths[i_sample] = np.asarray(wavelengths, dtype=float)
+                    sampled_models[i_sample] = np.asarray(model, dtype=float)
+                    continue
+
+                missing_sample_rows.append(i_sample)
+                missing_file_stems.append(file_stem)
+
+            if missing_sample_rows:
+                print(
+                    f"Generating {len(missing_sample_rows)} sampled spectra with vmap..."
+                )
+                batched_wavelengths, batched_models = (
+                    self._get_batched_full_range_model_outputs(
+                        sample_matrix[np.asarray(missing_sample_rows)],
+                        parameters_read,
                         model_generating_function=model_generating_function,
                         prt_reference=prt_reference,
                         prt_object=atmosphere,
                     )
+                )
 
-                    wavelengths = None
-                    model = None
+                if batched_wavelengths.ndim == 1:
+                    batched_wavelengths = batched_wavelengths[np.newaxis, :]
+                    batched_models = batched_models[np.newaxis, :]
 
-                    if len(ret_val) == 2:
-                        wavelengths, model = ret_val
-                    elif len(ret_val) == 3:
-                        wavelengths, model, __ = ret_val
-                    else:
-                        ValueError(
-                            f"expected 2 or 3 values to unpack from full range model, "
-                            f"but got {len(ret_val)}"
+                for batch_index, sample_row in enumerate(missing_sample_rows):
+                    wavelengths = np.asarray(
+                        batched_wavelengths[batch_index], dtype=float
+                    )
+                    model = np.asarray(batched_models[batch_index], dtype=float)
+                    sampled_wavelengths[sample_row] = wavelengths
+                    sampled_models[sample_row] = model
+
+                    if save_outputs:
+                        np.save(
+                            missing_file_stems[batch_index],
+                            np.column_stack((wavelengths, model)),
                         )
 
+            for wavelengths, model in zip(
+                sampled_wavelengths, sampled_models, strict=True
+            ):
                 if downsample_factor is not None:
                     model = running_mean(model, downsample_factor)[::downsample_factor]
                     wavelengths = wavelengths[::downsample_factor]
 
-                if save_outputs:
-                    np.save(file, np.column_stack((wavelengths, model)))
                 ax.plot(
                     wavelengths,
                     model * self.y_axis_scaling,
@@ -1120,7 +1230,7 @@ class RetrievalPlotter:
                 wavelengths_model=best_fit_wavelengths,
                 spectrum_model=best_fit_spectrum,
                 subtract_n_parameters=True,
-                parameters=parameters,
+                parameters=self.best_fit_parameters,
                 verbose=True,
                 show_chi2=True,
             )
@@ -1129,9 +1239,9 @@ class RetrievalPlotter:
                 best_fit_spectrum * self.y_axis_scaling,
                 marker=None,
                 label=rf"Best fit, $\chi^{{2}}$={chi2:.2f}",
-                linewidth=4,
-                alpha=0.5,
-                color="r",
+                linewidth=3,
+                alpha=0.8,
+                color="k",
             )
 
             for name, data in self.configuration.data.items():
@@ -1244,6 +1354,23 @@ class RetrievalPlotter:
                 alpha=_alpha,
             )
 
+        def __calculate_standardized_residuals(
+            _flux,
+            _model_flux,
+            _error,
+            _covariance,
+        ):
+            residual = np.asarray(_flux, dtype=float) - np.asarray(
+                _model_flux, dtype=float
+            )
+
+            if _covariance is not None and residual.ndim == 1:
+                covariance = np.asarray(_covariance, dtype=float)
+                covariance_cholesky = np.linalg.cholesky(covariance)
+                return np.linalg.solve(covariance_cholesky, residual)
+
+            return residual / np.asarray(_error, dtype=float)
+
         def plot_best_fit_model(
             _ax,
             _best_fit_wavelengths,
@@ -1257,9 +1384,9 @@ class RetrievalPlotter:
                 _best_fit_wavelengths,
                 _best_fit_spectrum * _y_axis_scaling,
                 label=rf"{_spectrum_type_label} model, $\chi^2/\nu$={_chi2:.2f}",
-                linewidth=4,
-                alpha=0.5,
-                color="r",
+                linewidth=3,
+                alpha=0.8,
+                color="k",
             )
 
         if marker_cmap is None:
@@ -1281,7 +1408,7 @@ class RetrievalPlotter:
                 sharex="col",
                 sharey=False,
                 gridspec_kw={"height_ratios": [2.5, 1], "hspace": 0.1},
-                figsize=(18, 9),
+                figsize=(14, 7),
             )
 
             ax = axes[0]
@@ -1322,8 +1449,27 @@ class RetrievalPlotter:
             if not only_save_best_fit_spectra:
                 self.save_best_fit_outputs(self.best_fit_parameters)
 
+            plotted_model_wavelengths = np.asarray(best_fit_wavelengths, dtype=float)
+            plotted_model_spectrum = np.asarray(best_fit_spectrum, dtype=float)
+
+            reference_data_name = self.get_reference_data_name()
+            reference_data = self.configuration.data.get(reference_data_name)
+
+            if (
+                reference_data is not None
+                and not isinstance(reference_data, PhotometryData)
+                and reference_data_name in self.best_fit_spectra
+            ):
+                plotted_model_wavelengths = np.asarray(
+                    self.best_fit_spectra[reference_data_name][0], dtype=float
+                )
+                plotted_model_spectrum = np.asarray(
+                    self.best_fit_spectra[reference_data_name][1], dtype=float
+                )
+
             markersize = None
             markerfacecolors = {}
+            has_correlated_noise = False
 
             if marker_color_type is not None:
                 from matplotlib.colors import Normalize
@@ -1361,6 +1507,7 @@ class RetrievalPlotter:
                 if marker_color_type == "pareto_k":
                     cax.axhline(0.7, c="k", ls="--")
 
+            dataset_counter = 0
             for name, data in self.configuration.data.items():
                 if not isinstance(data, PhotometryData):
                     wavelengths, flux, error, wavelengths_bins = __rebin_data(
@@ -1376,116 +1523,61 @@ class RetrievalPlotter:
                     error = data.uncertainties
                     wavelengths_bins = data.wavelength_bin_widths
 
-                if name + "_radial_velocity" in self.configuration.parameters.keys():
-                    radial_velocity = (
-                        self.best_fit_parameters[name + "_radial_velocity"].value * 1e5
-                    )
-                    wavelengths = wavelengths * np.sqrt(
-                        (1 + radial_velocity / cst.c) / (1 - radial_velocity / cst.c)
-                    )
-                elif "system_radial_velocity" in self.configuration.parameters.keys():
-                    radial_velocity = (
-                        self.best_fit_parameters["system_radial_velocity"].value * 1e5
-                    )
-                    wavelengths = wavelengths * np.sqrt(
-                        (1 + radial_velocity / cst.c) / (1 - radial_velocity / cst.c)
-                    )
+                flux = np.asarray(
+                    data.apply_flux_scaling(data.spectrum, self.best_fit_parameters),
+                    dtype=float,
+                )
+                flux = np.asarray(
+                    data.offset_flux(flux, self.best_fit_parameters),
+                    dtype=float,
+                )
+                error, covariance = data.scale_and_inflate_uncertainties(
+                    self.best_fit_parameters
+                )
+                error = np.asarray(error, dtype=float)
 
-                scale = 1.0
-                if name + "_radial_velocity" in self.configuration.parameters.keys():
-                    radial_velocity = (
-                        self.best_fit_parameters[name + "_radial_velocity"].value * 1e5
-                    )
-                    wavelengths = wavelengths * np.sqrt(
-                        (1 + radial_velocity / cst.c) / (1 - radial_velocity / cst.c)
-                    )
-                elif "system_radial_velocity" in self.configuration.parameters.keys():
-                    radial_velocity = (
-                        self.best_fit_parameters["system_radial_velocity"].value * 1e5
-                    )
-                    wavelengths = wavelengths * np.sqrt(
-                        (1 + radial_velocity / cst.c) / (1 - radial_velocity / cst.c)
-                    )
+                if covariance is not None:
+                    covariance = np.asarray(covariance, dtype=float)
+                    has_correlated_noise = True
 
-                if data.scale_flux:
-                    scale = self.best_fit_parameters[f"{name}_scale_factor"].value
+                best_fit_spectrum_name = name
+                if (
+                    best_fit_spectrum_name not in self.best_fit_spectra
+                    and data.external_radtrans_reference is not None
+                ):
+                    best_fit_spectrum_name = data.external_radtrans_reference
 
-                if data.scale_uncertainties:
-                    errscale = self.best_fit_parameters[f"{name}_scale_factor"].value
-                    error = error * errscale
+                best_fit_binned = np.asarray(
+                    self.best_fit_spectra[best_fit_spectrum_name][1],
+                    dtype=float,
+                )
+                residuals = __calculate_standardized_residuals(
+                    flux,
+                    best_fit_binned,
+                    error,
+                    covariance,
+                )
 
-                offset = 0.0
-                if data.fit_flux_offset:
-                    offset = self.best_fit_parameters[f"{name}_offset"].value
-
-                flux = (flux * scale) - offset
-                if f"{data.name}_b" in self.configuration.parameters.keys():
-                    error = np.sqrt(
-                        error**2
-                        + 10 ** self.best_fit_parameters[f"{data.name}_b"].value
-                    )
-
-                if not isinstance(data, PhotometryData):
-                    if data.external_radtrans_reference is None:
-                        best_fit_binned = self.best_fit_spectra[name][1]
-                    else:
-                        best_fit_binned = self.best_fit_spectra[
-                            data.external_radtrans_reference
-                        ][1]
-                else:
-                    if data.external_radtrans_reference is None:
-                        best_fit_binned = self.best_fit_spectra[name][1]
-                        if isinstance(best_fit_binned, tuple) or isinstance(
-                            best_fit_binned, np.ndarray
-                        ):
-                            best_fit_binned = best_fit_binned[0]
-                    else:
-                        best_fit_binned = data.photometric_transformation_function(
-                            self.best_fit_spectra[data.external_radtrans_reference][0],
-                            self.best_fit_spectra[data.external_radtrans_reference][1],
-                        )
-                        if isinstance(best_fit_binned, tuple) or isinstance(
-                            best_fit_binned, np.ndarray
-                        ):
-                            best_fit_binned = best_fit_binned[0]
-
-                if data.subtract_continuum:
-                    x_nodes = None
-                    if name + "_nodes" in self.best_fit_parameters.keys():
-                        nodes = self.best_fit_parameters[name + "_nodes"].value
-                        x_nodes = np.linspace(
-                            data.wavelengths[0], data.wavelengths[-1], nodes
-                        )
-                    if name + "_node_array" in self.best_fit_parameters.keys():
-                        x_nodes = self.best_fit_parameters[name + "_node_array"].value
-
-                    best_fit_binned = filter_spectrum_with_spline(
-                        wavelengths=wavelengths,
-                        fluxes=self.best_fit_spectra[name][1],
-                        x_nodes=x_nodes,
-                    )
-                    best_fit_spectrum = filter_spectrum_with_spline(
-                        wavelengths=best_fit_wavelengths,
-                        fluxes=best_fit_spectrum,
-                        x_nodes=x_nodes,
-                    )
+                wavelengths = np.asarray(wavelengths, dtype=float)
+                wavelengths_bins = np.asarray(wavelengths_bins, dtype=float)
 
                 marker = "o" if not isinstance(data, PhotometryData) else "s"
                 label = data.name
 
-                if isinstance(flux, float):
-                    wavelengths = [wavelengths]
-                    flux = [flux]
-                    error = [error]
-                    best_fit_binned = [best_fit_binned]
-                    wavelengths_bins = [wavelengths_bins]
+                if np.ndim(flux) == 0:
+                    wavelengths = np.asarray([wavelengths], dtype=float)
+                    flux = np.asarray([flux], dtype=float)
+                    error = np.asarray([error], dtype=float)
+                    best_fit_binned = np.asarray([best_fit_binned], dtype=float)
+                    residuals = np.asarray([residuals], dtype=float)
+                    wavelengths_bins = np.asarray([wavelengths_bins], dtype=float)
 
                 for i in range(len(flux)):
                     if i > 0:
                         label = None
 
-                    color_i = "C0"
-                    ecolor = "C0"
+                    color_i = f"C{dataset_counter}"
+                    ecolor = f"C{dataset_counter}"
                     alpha = 0.9
                     if isinstance(data, PhotometryData):
                         color_i = "grey"
@@ -1517,7 +1609,7 @@ class RetrievalPlotter:
                         ax_r,
                         data,
                         _wavelengths=wavelengths[i],
-                        _flux=(flux[i] - best_fit_binned[i]) / error[i],
+                        _flux=residuals[i],
                         _error=1,
                         _wavelengths_bins=wavelengths_bins[i],
                         _marker=marker,
@@ -1528,11 +1620,12 @@ class RetrievalPlotter:
                         _label=None,
                         _alpha=alpha,
                     )
+                dataset_counter += 1
 
             plot_best_fit_model(
                 ax,
-                best_fit_wavelengths,
-                best_fit_spectrum,
+                plotted_model_wavelengths,
+                plotted_model_spectrum,
                 self.y_axis_scaling,
                 chi2,
                 mode,
@@ -1549,9 +1642,12 @@ class RetrievalPlotter:
                 ax.set_ylim(lim_y)
 
             if self.xscale == "log":
-                lims = [best_fit_wavelengths[0] * 0.98, lims[1] * 1.02]
+                lims = [plotted_model_wavelengths[0] * 0.98, lims[1] * 1.02]
             else:
-                lims = [best_fit_wavelengths[0] * 0.98, best_fit_wavelengths[-1] * 1.02]
+                lims = [
+                    plotted_model_wavelengths[0] * 0.98,
+                    plotted_model_wavelengths[-1] * 1.02,
+                ]
 
             if self.wavelength_lim is not None:
                 ax.set_xlim(self.wavelength_lim)
@@ -1586,8 +1682,8 @@ class RetrievalPlotter:
             except Exception:
                 warnings.warn("Please update to matplotlib 3.3.4 or greater")
 
-            min_wavelength = best_fit_wavelengths[0]
-            max_wavelength = best_fit_wavelengths[-1]
+            min_wavelength = plotted_model_wavelengths[0]
+            max_wavelength = plotted_model_wavelengths[-1]
 
             ax.tick_params(
                 axis="both",
