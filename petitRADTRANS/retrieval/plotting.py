@@ -1507,6 +1507,7 @@ class RetrievalPlotter:
                 if marker_color_type == "pareto_k":
                     cax.axhline(0.7, c="k", ls="--")
 
+            dataset_counter = 0
             for name, data in self.configuration.data.items():
                 if not isinstance(data, PhotometryData):
                     wavelengths, flux, error, wavelengths_bins = __rebin_data(
@@ -1575,8 +1576,8 @@ class RetrievalPlotter:
                     if i > 0:
                         label = None
 
-                    color_i = "C0"
-                    ecolor = "C0"
+                    color_i = f"C{dataset_counter}"
+                    ecolor = f"C{dataset_counter}"
                     alpha = 0.9
                     if isinstance(data, PhotometryData):
                         color_i = "grey"
@@ -1619,6 +1620,7 @@ class RetrievalPlotter:
                         _label=None,
                         _alpha=alpha,
                     )
+                dataset_counter += 1
 
             plot_best_fit_model(
                 ax,
