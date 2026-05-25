@@ -220,7 +220,7 @@ class RetrievalPlotter:
                 The lower pane of the plot, containing the residuals between the fit and the data.
         """
         import matplotlib.pyplot as plt
-
+        from petitRADTRANS.plotlib.style import prt_default_colour_cycle
         if self._is_plotting_root():
             print("\nPlotting Abundances profiles")
 
@@ -245,8 +245,7 @@ class RetrievalPlotter:
                     self.get_reference_radtrans_data().radtrans_object.line_species
                 )
 
-            prop_cycle = plt.rcParams["axes.prop_cycle"]
-            colors = prop_cycle.by_key()["color"]
+            colors = prt_default_colour_cycle
 
             fig, ax = plt.subplots(figsize=(12, 7))
 
@@ -863,22 +862,6 @@ class RetrievalPlotter:
 
             len_samp = temps_sort.shape[0]
             fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(
-                pressures,
-                temps_sort[0, :],
-                color=prt_default_colour_cycle[0],
-                alpha=0.8,
-                zorder=0,
-                linewidth=1.2
-            )
-            ax.plot(
-                pressures,
-                temps_sort[-1, :],
-                color=prt_default_colour_cycle[0],
-                alpha=0.8,
-                zorder=0,
-                linewidth=1.2
-            )
 
             ax.fill_betweenx(
                 pressures,
@@ -903,7 +886,7 @@ class RetrievalPlotter:
                 x1=temps_sort[int(len_samp * (0.5 - 0.95 / 2.0)), :],
                 x2=temps_sort[int(len_samp * (0.5 + 0.95 / 2.0)), :],
                 color=prt_default_colour_cycle[0],
-                alpha=0.7,
+                alpha=0.5,
                 label=r"$2 \sigma$",
                 zorder=2,
             )
@@ -912,7 +895,7 @@ class RetrievalPlotter:
                 x1=temps_sort[int(len_samp * (0.5 - 0.68 / 2.0)), :],
                 x2=temps_sort[int(len_samp * (0.5 + 0.68 / 2.0)), :],
                 color=prt_default_colour_cycle[0],
-                alpha=1.0,
+                alpha=0.8,
                 label=r"$1 \sigma$",
                 zorder=3,
             )
@@ -1057,6 +1040,7 @@ class RetrievalPlotter:
         model_generating_function=None,
         prt_reference=None,
         refresh=True,
+        figsize=(16, 10)
     ):
         """
         Plot a set of randomly sampled output spectra for each dataset in the retrieval.
@@ -1122,7 +1106,7 @@ class RetrievalPlotter:
                 scattering_in_emission=self.configuration.scattering_in_emission,
             )
 
-            fig, ax = plt.subplots(figsize=(14, 7))
+            fig, ax = plt.subplots(figsize=figsize)
             n_samples = nsample
 
             if nsample is None:
@@ -1281,6 +1265,7 @@ class RetrievalPlotter:
         marker_cmap=None,
         marker_label="",
         only_save_best_fit_spectra=False,
+        figsize=(16, 10),
     ):
         """
         Plot the best fit spectrum, the data from each dataset and the residuals between the two.
@@ -1408,7 +1393,7 @@ class RetrievalPlotter:
                 sharex="col",
                 sharey=False,
                 gridspec_kw={"height_ratios": [2.5, 1], "hspace": 0.1},
-                figsize=(14, 7),
+                figsize=figsize,
             )
 
             ax = axes[0]
