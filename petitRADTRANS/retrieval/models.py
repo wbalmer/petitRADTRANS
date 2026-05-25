@@ -3703,6 +3703,16 @@ def _resolve_runtime_abundance_state(
         )
         temperatures = temperature_builder(pressures)
 
+    if pt_plot_mode:
+        return (
+            ModelResult(
+                kind="pt_profile",
+                pressures=pressures,
+                temperatures=temperatures,
+            ),
+            None,
+        )
+
     abundances, mean_molar_masses, small_index, _ = get_abundances(
         pressures=pressures,
         temperatures=temperatures,
@@ -3715,16 +3725,6 @@ def _resolve_runtime_abundance_state(
     if abundances is None:
         wavelengths = _radtrans_wavelength_grid(model_context.radtrans)
         return ModelResult.make_nan_result(wavelengths), None
-
-    if pt_plot_mode:
-        return (
-            ModelResult(
-                kind="pt_profile",
-                pressures=pressures[small_index],
-                temperatures=temperatures[small_index],
-            ),
-            None,
-        )
 
     return None, {
         "pressures": pressures,
