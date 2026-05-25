@@ -3,25 +3,20 @@
 This module contains a set of functions that generate the spectra used
 in the petitRADTRANS retrieval. This includes setting up the
 pressure-temperature structure, the chemistry, and the radiative
-transfer to compute the emission or transmission spectrum.
+transfer to compute the emission or transmission spectrum. See
+the documentation on the Retrieval Models for full details.
 
 All models must take the same set of inputs:
 
-    prt_object : petitRADTRANS.RadTrans
-        This is the pRT object that is used to compute the spectrum
-        It must be fully initialized prior to be used in the model function
-    parameters : dict
-        A dictionary of Parameter objects. The naming of the parameters
-        must be consistent between the Priors and the model function you
-        are using.
-    PT_plot_mode : bool
-        If this argument is True, the model function should return the pressure
-        and temperature arrays before computing the flux.
-    adaptive_mesh_refinement : bool
-        If this parameter is True, your model should allow for reshaping of the
-        pressure and temperature arrays based on the position of the clouds or
-        the location of the photosphere, increasing the resolution where required.
-        The differentiable runtime path uses a fixed-size pressure-grid redistribution.
+    ModelContext : ModelContext
+        An object that contains the static information about the retrieval,
+        including the Radtrans object.
+    PhysicalParams : PhysicalParams
+        An object containing all of the physical parameters of the model,
+        which can be free parameters, or fixed values.
+    pt_plot_mode : bool
+        If this argument is True, the model function will return the pressure
+        and temperature arrays instead of computing the flux.
 """
 
 import re
@@ -30,7 +25,7 @@ from functools import wraps
 from numbers import Number
 from types import SimpleNamespace
 import numpy as np
-from jax import vmap
+from jax import core as jax_core, vmap
 import jax.numpy as jnp
 
 from petitRADTRANS.chemistry import clouds
@@ -94,6 +89,33 @@ _WRAPPED_LEGACY_MODEL_ATTRIBUTE = "_prt_wrapped_legacy_model"
 # Naming-convention patterns for automatic time-series parameter detection
 _TIME_INDEXED_PATTERN = re.compile(r"^(.+)_t_(\d+)$")
 _SINUSOIDAL_SUFFIXES = ("_amplitude", "_period", "_phase", "_offset")
+
+
+def _as_structural_int(value, parameter_name: str) -> int:
+    """Return a Python int for parameters that define model structure.
+
+    Counts such as ``nnodes``, ``N_layers``, and ``N_time`` are used in Python
+    control flow and array-shape construction, so they must remain compile-time
+    constants under JAX transforms.
+    """
+    if isinstance(value, Number):
+        return int(value)
+
+    if isinstance(value, np.ndarray):
+        if value.ndim != 0:
+            raise TypeError(
+                f"Parameter '{parameter_name}' must be scalar, got shape {value.shape}"
+            )
+
+        return int(value.item())
+
+    return jax_core.concrete_or_error(
+        lambda x: int(jnp.asarray(x).item()),
+        value,
+        "Parameter "
+        f"'{parameter_name}' must be a compile-time constant integer because "
+        "it controls model structure under JAX.",
+    )
 
 
 def _normalize_legacy_output_value(value):
@@ -642,9 +664,10 @@ def interpolated_profile_emission(
 ) -> ModelResult:
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(physical_params)
+    nnodes = _as_structural_int(physical_params["nnodes"], "nnodes")
 
     temp_arr = jnp.array(
-        [physical_params[f"T{i}"] for i in range(physical_params["nnodes"].astype(int) + 2)]
+        [physical_params[f"T{i}"] for i in range(nnodes + 2)]
     )
 
     def build_temperature_profile(pressures):
@@ -653,14 +676,14 @@ def interpolated_profile_emission(
                 pressures,
                 temp_arr,
                 physical_params["gamma"],
-                physical_params["nnodes"].astype(int),
+                nnodes,
             )
 
         return cubic_spline_temperature_profile(
             pressures,
             temp_arr,
             physical_params["gamma"],
-            physical_params["nnodes"].astype(int),
+            nnodes,
         )
 
     if "linear" in physical_params.keys():
@@ -668,14 +691,14 @@ def interpolated_profile_emission(
             p_use,
             temp_arr,
             physical_params["gamma"],
-            physical_params["nnodes"].astype(int),
+            nnodes,
         )
     else:
         temperatures, log_prior_weight = cubic_spline_temperature_profile(
             p_use,
             temp_arr,
             physical_params["gamma"],
-            physical_params["nnodes"].astype(int),
+            nnodes,
         )
 
     temperature_builder = _wrap_runtime_temperature_builder(
@@ -733,7 +756,7 @@ def gradient_profile_emission(
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(physical_params)
 
-    num_layer = physical_params["N_layers"].astype(int)
+    num_layer = _as_structural_int(physical_params["N_layers"], "N_layers")
     layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
     for index in range(num_layer):
         layer_pt_slopes = layer_pt_slopes.at[index].set(
@@ -901,7 +924,7 @@ def time_series_gradient_emission(
     """
     metadata = model_context.model_metadata
     observation_times = metadata["observation_times"]
-    n_time = physical_params["N_time"].astype(int)
+    n_time = _as_structural_int(physical_params["N_time"], "N_time")
 
     # Build a regular model time grid spanning the observation window
     t_min = jnp.min(observation_times)
@@ -911,7 +934,7 @@ def time_series_gradient_emission(
     # Pressure grid and gravity are constant across timesteps
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(physical_params)
-    num_layer = physical_params["N_layers"].astype(int)
+    num_layer = _as_structural_int(physical_params["N_layers"], "N_layers")
 
     top_of_atmosphere_pressure = -3
     bottom_of_atmosphere_pressure = 3

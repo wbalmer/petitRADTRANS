@@ -879,14 +879,7 @@ class RetrievalPlotter:
                 zorder=0,
                 linewidth=1.2
             )
-            ax.plot(
-                pressures,
-                np.median(temps_sort, axis=0),
-                color='k',
-                alpha=1.0,
-                zorder=10,
-                linewidth=2.0
-            )
+
             ax.fill_betweenx(
                 pressures,
                 x1=temps_sort[0, :],
@@ -923,7 +916,14 @@ class RetrievalPlotter:
                 label=r"$1 \sigma$",
                 zorder=3,
             )
-
+            ax.plot(
+                pressures,
+                np.median(temps_sort, axis=0),
+                color='k',
+                alpha=1.0,
+                zorder=10,
+                linewidth=2.0
+            )
             if self.temp_limits is not None:
                 tlims = self.temp_limits
                 ax.set_xlim(self.temp_limits)
@@ -1784,10 +1784,7 @@ class RetrievalPlotter:
                     length=5,
                 )
             ax_r.yaxis.set_minor_locator(AutoMinorLocator())
-            if has_correlated_noise:
-                ax_r.set_ylabel(r"Whitened residuals [$\sigma$]")
-            else:
-                ax_r.set_ylabel(r"Residuals [$\sigma$]")
+            ax_r.set_ylabel(r"Residuals [$\sigma$]")
             ax_r.set_xlabel(self.spec_xlabel)
             ax.legend(
                 loc="upper center", ncol=len(self.configuration.data.keys()) + 1

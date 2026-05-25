@@ -2519,7 +2519,7 @@ class Retrieval:
             MMW : numpy.ndarray
                 The mean molecular weight at each pressure level in the atmosphere.
         """
-        from petitRADTRANS.chemistry.core import get_abundances
+        from petitRADTRANS.chemistry.core import get_abundances_from_legacy_dict
 
         parameters = self.build_param_dict(sample, parameters_read)
 
@@ -2531,12 +2531,12 @@ class Retrieval:
             Opacity([species]).get_full_name().split(".R")[0]
             for species in self.configuration.data[name].radtrans_object.line_species
         ]
-        abundances, mmw, _, _ = get_abundances(
-            pressures,
-            temps,
-            copy.copy(species),
-            copy.copy(self.configuration.data[name].radtrans_object.cloud_species),
-            parameters,
+        abundances, mmw, small_index, p_bases = get_abundances_from_legacy_dict(
+            pressures=pressures,
+            temperatures=temps,
+            parameters=parameters,
+            line_species=species,
+            cloud_species=self.configuration.data[name].radtrans_object.cloud_species,
             adaptive_mesh_refinement=False,
         )
 
