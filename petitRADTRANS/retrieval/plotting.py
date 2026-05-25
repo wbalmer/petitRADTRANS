@@ -769,7 +769,7 @@ class RetrievalPlotter:
         import matplotlib.pyplot as plt
 
         if self._is_plotting_root():
-            fig, ax = plt.subplots(figsize=(10, 6))
+            fig, ax = plt.subplots(figsize=(14, 7))
             for name, data in self.configuration.data.items():
                 if isinstance(data, PhotometryData):
                     wavelengths = np.mean(data.photometric_bin_edges)
@@ -862,7 +862,7 @@ class RetrievalPlotter:
                 raise ValueError("no valid temperature profiles available for PT plot")
 
             len_samp = temps_sort.shape[0]
-            fig, ax = plt.subplots(figsize=(16, 10))
+            fig, ax = plt.subplots(figsize=(12, 6))
             ax.plot(
                 pressures,
                 temps_sort[0, :],
@@ -1122,7 +1122,7 @@ class RetrievalPlotter:
                 scattering_in_emission=self.configuration.scattering_in_emission,
             )
 
-            fig, ax = plt.subplots(figsize=(16, 10))
+            fig, ax = plt.subplots(figsize=(14, 7))
             n_samples = nsample
 
             if nsample is None:
@@ -1384,9 +1384,9 @@ class RetrievalPlotter:
                 _best_fit_wavelengths,
                 _best_fit_spectrum * _y_axis_scaling,
                 label=rf"{_spectrum_type_label} model, $\chi^2/\nu$={_chi2:.2f}",
-                linewidth=4,
-                alpha=0.5,
-                color="r",
+                linewidth=3,
+                alpha=0.8,
+                color="k",
             )
 
         if marker_cmap is None:
@@ -1408,7 +1408,7 @@ class RetrievalPlotter:
                 sharex="col",
                 sharey=False,
                 gridspec_kw={"height_ratios": [2.5, 1], "hspace": 0.1},
-                figsize=(18, 9),
+                figsize=(14, 7),
             )
 
             ax = axes[0]

@@ -11,6 +11,7 @@ import numpy.typing as npt
 from typing import Callable
 
 from scipy.stats import binned_statistic
+from jax import errors as jax_errors
 from jax import vmap, lax, numpy as jnp
 
 import petitRADTRANS
@@ -87,6 +88,17 @@ _SAMPLER_CLASS_NAMES: dict[str, str] = {
     "jaxnsshardedstaticnestedsampler": "JAXNSShardedStaticNestedSampler",
     "jaxnsshardedstaticsestedsampler": "JAXNSShardedStaticNestedSampler",
 }
+
+_VMAP_FALLBACK_JAX_ERRORS = (jax_errors.ConcretizationTypeError,)
+
+for _error_name in (
+    "TracerBoolConversionError",
+    "TracerIntegerConversionError",
+    "NonConcreteBooleanIndexError",
+):
+    _error_type = getattr(jax_errors, _error_name, None)
+    if _error_type is not None:
+        _VMAP_FALLBACK_JAX_ERRORS += (_error_type,)
 
 
 def _resolve_sampler_class(sampler_type: str) -> type[Sampler] | None:
@@ -199,7 +211,6 @@ class Retrieval:
 
         self.samples = {}
         self.param_dictionary = {}
-        # TODO reference_data_name should be in retrieval not in plotter
         self.plotter = RetrievalPlotter(self, reference_data_name=reference_data_name)
 
         # Set up pretty plotting
@@ -611,7 +622,6 @@ class Retrieval:
                         ].transform_prior_cube_coordinate
                         is not None
                     ):
-                        # TODO: tfp distributions enforce this natively?
                         lower_boundary = configuration_parameters[
                             parameter_name
                         ].get_param_uniform(0)
@@ -2261,8 +2271,10 @@ class Retrieval:
         """Return batched model outputs for a batch of sampled free parameters.
 
         Model functions are evaluated with a single static model
-        context and ``jax.vmap`` over the leading sample dimension. Legacy model
-        adapters fall back to scalar evaluation to preserve compatibility.
+        context and ``jax.vmap`` over the leading sample dimension when
+        possible. Legacy adapters and differentiable models that still require
+        Python-side concretization fall back to scalar evaluation to preserve
+        compatibility.
 
         When ``pt_plot_mode=False`` this returns batched wavelength and spectrum
         arrays. When ``pt_plot_mode=True`` this returns a shared pressure grid and
@@ -2325,7 +2337,7 @@ class Retrieval:
             dtype=float,
         )
 
-        if resolved_contract != MODEL_CONTRACT_DIFFERENTIABLE:
+        def _evaluate_scalar_batch():
             batched_first_output = []
             batched_second_output = []
 
@@ -2387,6 +2399,9 @@ class Retrieval:
                 np.asarray(batched_second_output, dtype=float),
             )
 
+        if resolved_contract != MODEL_CONTRACT_DIFFERENTIABLE:
+            return _evaluate_scalar_batch()
+
         context_parameters = self.build_param_dict(sample_matrix[0], free_param_names)
         context_parameters["contribution"] = Parameter(
             "contribution", False, value=contribution
@@ -2409,14 +2424,27 @@ class Retrieval:
             parameter_layout.physical_params_from_free_values
         )(jnp.asarray(ordered_sample_matrix, dtype=JAX_DTYPE))
 
-        batched_model_results = vmap(
-            lambda physical_params: run_runtime_model_adapter(
-                runtime_ready_model_function,
-                model_context,
-                physical_params,
-                pt_plot_mode=pt_plot_mode,
+        try:
+            batched_model_results = vmap(
+                lambda physical_params: run_runtime_model_adapter(
+                    runtime_ready_model_function,
+                    model_context,
+                    physical_params,
+                    pt_plot_mode=pt_plot_mode,
+                )
+            )(batched_physical_params)
+        except _VMAP_FALLBACK_JAX_ERRORS as error:
+            model_name = getattr(
+                model_function,
+                "__name__",
+                type(model_function).__name__,
             )
-        )(batched_physical_params)
+            warnings.warn(
+                "Falling back to scalar full-range model evaluation for "
+                f"'{model_name}' because it is not vmap-safe for this call: {error}",
+                RuntimeWarning,
+            )
+            return _evaluate_scalar_batch()
 
         if pt_plot_mode:
             batched_pressures = np.asarray(batched_model_results.pressures, dtype=float)
@@ -2987,7 +3015,6 @@ class Retrieval:
             samples[name] = np.array(list(samples_.values()))
             param_dict[name] = list(samples_.keys())[:-1]  # do not add the likelihood
 
-        # TODO: JAXNS
         return samples, param_dict
 
     def get_samples_dict(
@@ -3268,8 +3295,6 @@ class Retrieval:
                             resolution_array = (
                                 data.wavelengths * resolution_slope
                             ) + resolution_intersect
-                            # TODO: interpolate resolution_array and use standard convolve function.
-                            # TODO: compare different convolution and binning methods
                             model_spectrum_rebinned = (
                                 convolve_and_sample_variable_resolution_breads(
                                     data.wavelengths,
@@ -3500,7 +3525,7 @@ class Retrieval:
         if "log_prior_weight" in self.configuration.parameters.keys():
             log_prior += self.configuration.parameters[
                 "log_prior_weight"
-            ].value  # TODO why not using log_likelihood?
+            ].value
 
         if log_likelihood + log_prior < invalid_value:
             return invalid_value
