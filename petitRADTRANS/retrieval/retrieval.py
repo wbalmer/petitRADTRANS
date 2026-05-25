@@ -644,15 +644,12 @@ class Retrieval:
             data = {data: self.configuration.data[data]}
 
         for name, _data in data.items():
-            if (
-                return_dict or len(data) > 1
-            ):
-                if _data.external_radtrans_reference is not None:
-                    radtrans_object = self.configuration.data[
-                        _data.external_radtrans_reference
-                    ].radtrans_object
-                else:
-                    radtrans_object = _data.radtrans_object
+            if _data.external_radtrans_reference is not None:
+                radtrans_object = self.configuration.data[
+                    _data.external_radtrans_reference
+                ].radtrans_object
+            else:
+                radtrans_object = _data.radtrans_object
 
             model_returned_values[name] = self._call_model_generating_function(
                 _data.model_generating_function,
