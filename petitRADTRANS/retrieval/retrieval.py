@@ -2523,9 +2523,9 @@ class Retrieval:
 
         parameters = self.build_param_dict(sample, parameters_read)
 
-        pressures, temps = self.calculate_temperature_profile(sample)
 
         name = self.plotter.get_reference_radtrans_name()
+        pressures, temps = self.calculate_temperature_profile(sample)[name]
 
         species = [
             Opacity([species]).get_full_name().split(".R")[0]
