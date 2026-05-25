@@ -3858,6 +3858,10 @@ def calculate_emission_spectrum_runtime(
         cloud_fraction=model_inputs.cloud_fraction,
         patchy_clouds=model_inputs.patchy_clouds,
         cloud_particle_radius_distribution=model_inputs.cloud_particle_radius_distribution,
+        return_contribution=model_context.return_contribution,
+        return_cloud_contribution=model_context.return_cloud_contribution,
+        return_abundances=model_context.return_abundances,
+        return_opacities=model_context.return_opacities,
     )
 
     wavelengths_model, flux, additional_outputs = results
