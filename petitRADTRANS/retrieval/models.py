@@ -644,7 +644,7 @@ def interpolated_profile_emission(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     temp_arr = jnp.array(
-        [physical_params[f"T{i}"] for i in range(int(physical_params["nnodes"]) + 2)]
+        [physical_params[f"T{i}"] for i in range(physical_params["nnodes"].astype(int) + 2)]
     )
 
     def build_temperature_profile(pressures):
@@ -653,14 +653,14 @@ def interpolated_profile_emission(
                 pressures,
                 temp_arr,
                 physical_params["gamma"],
-                int(physical_params["nnodes"]),
+                physical_params["nnodes"].astype(int),
             )
 
         return cubic_spline_temperature_profile(
             pressures,
             temp_arr,
             physical_params["gamma"],
-            int(physical_params["nnodes"]),
+            physical_params["nnodes"].astype(int),
         )
 
     if "linear" in physical_params.keys():
@@ -668,14 +668,14 @@ def interpolated_profile_emission(
             p_use,
             temp_arr,
             physical_params["gamma"],
-            int(physical_params["nnodes"]),
+            physical_params["nnodes"].astype(int),
         )
     else:
         temperatures, log_prior_weight = cubic_spline_temperature_profile(
             p_use,
             temp_arr,
             physical_params["gamma"],
-            int(physical_params["nnodes"]),
+            physical_params["nnodes"].astype(int),
         )
 
     temperature_builder = _wrap_runtime_temperature_builder(
@@ -733,7 +733,7 @@ def gradient_profile_emission(
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(physical_params)
 
-    num_layer = int(physical_params["N_layers"])
+    num_layer = physical_params["N_layers"].astype(int)
     layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
     for index in range(num_layer):
         layer_pt_slopes = layer_pt_slopes.at[index].set(
@@ -901,7 +901,7 @@ def time_series_gradient_emission(
     """
     metadata = model_context.model_metadata
     observation_times = metadata["observation_times"]
-    n_time = int(physical_params["N_time"])
+    n_time = physical_params["N_time"].astype(int)
 
     # Build a regular model time grid spanning the observation window
     t_min = jnp.min(observation_times)
@@ -911,7 +911,7 @@ def time_series_gradient_emission(
     # Pressure grid and gravity are constant across timesteps
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(physical_params)
-    num_layer = int(physical_params["N_layers"])
+    num_layer = physical_params["N_layers"].astype(int)
 
     top_of_atmosphere_pressure = -3
     bottom_of_atmosphere_pressure = 3
@@ -1531,7 +1531,6 @@ def legacy_molliere_2020_emission(
 
     # Calculate the spectrum
     if pressures.shape[0] != prt_object.pressures.shape[0]:
-        print("Incorrect output shape!")
         return None, None
 
     # Get cloud properties

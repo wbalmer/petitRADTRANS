@@ -1239,9 +1239,9 @@ class RetrievalPlotter:
                 best_fit_spectrum * self.y_axis_scaling,
                 marker=None,
                 label=rf"Best fit, $\chi^{{2}}$={chi2:.2f}",
-                linewidth=4,
-                alpha=0.5,
-                color="r",
+                linewidth=3,
+                alpha=0.8,
+                color="k",
             )
 
             for name, data in self.configuration.data.items():
