@@ -647,12 +647,12 @@ class Retrieval:
             if (
                 return_dict or len(data) > 1
             ):
-            if _data.external_radtrans_reference is not None:
-                radtrans_object = self.configuration.data[
-                    _data.external_radtrans_reference
-                ].radtrans_object
-            else:
-                radtrans_object = _data.radtrans_object
+                if _data.external_radtrans_reference is not None:
+                    radtrans_object = self.configuration.data[
+                        _data.external_radtrans_reference
+                    ].radtrans_object
+                else:
+                    radtrans_object = _data.radtrans_object
 
             model_returned_values[name] = self._call_model_generating_function(
                 _data.model_generating_function,
@@ -2263,7 +2263,7 @@ class Retrieval:
     ) -> tuple[np.ndarray, np.ndarray]:
         """Return batched model outputs for a batch of sampled free parameters.
 
-        Runtime-native model functions are evaluated with a single static model
+        Model functions are evaluated with a single static model
         context and ``jax.vmap`` over the leading sample dimension. Legacy model
         adapters fall back to scalar evaluation to preserve compatibility.
 
@@ -3601,7 +3601,7 @@ class Retrieval:
     def _ensure_jax_sampler_model_support(self, sampler_name: str) -> None:
         if self._has_only_legacy_model_groups():
             raise ValueError(
-                f"{sampler_name} requires at least one runtime-native model group; legacy-only retrievals are not supported."
+                f"{sampler_name} requires at least one differentiable model group; legacy-only retrievals are not supported."
             )
 
     def _get_ultranest_vectorization_disable_reason(self) -> str | None:
