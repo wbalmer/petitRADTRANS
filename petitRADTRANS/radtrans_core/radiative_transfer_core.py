@@ -2302,7 +2302,7 @@ def compute_radius_hydrostatic_equilibrium(
     def compute_reference_radius_offset() -> ArrayLike:
 
         def layer_true() -> ArrayLike:
-            return (
+            return jnp.asarray(
                 radius_hydrostatic_equilibrium[reference_index + 1]
                 - integ_parab(
                     pressures[reference_index],
@@ -2314,23 +2314,31 @@ def compute_radius_hydrostatic_equilibrium(
                     reference_pressure,
                     pressures[reference_index + 1],
                 )
-                * coefficient
+                * coefficient,
+                dtype=dtype,
             )
 
         def layer_false() -> ArrayLike:
-            return radius_hydrostatic_equilibrium[reference_index + 1] - (
-                (inv_rho[reference_index] + inv_rho[reference_index + 1])
-                * (pressures[reference_index + 1] - reference_pressure)
-                * coefficient
-                * 0.5
+            return jnp.asarray(
+                radius_hydrostatic_equilibrium[reference_index + 1]
+                - (
+                    (inv_rho[reference_index] + inv_rho[reference_index + 1])
+                    * (pressures[reference_index + 1] - reference_pressure)
+                    * coefficient
+                    * 0.5
+                ),
+                dtype=dtype,
             )
 
-        return lax.cond(reference_index <= n_layers - 3, layer_true, layer_false)
+        return jnp.asarray(
+            lax.cond(reference_index <= n_layers - 3, layer_true, layer_false),
+            dtype=dtype,
+        )
 
     R0 = lax.cond(
         jnp.any(reference_layer_mask),
         compute_reference_radius_offset,
-        lambda: jnp.zeros((), dtype=dtype),
+        lambda: jnp.asarray(0.0, dtype=dtype),
     )
 
     if variable_gravity:

@@ -17,6 +17,9 @@ import numpy as np
 import optax  # pyright: ignore[reportMissingImports]
 
 
+_DEFAULT_VALIDATION_DIAGNOSTIC_BATCHES = 4
+
+
 def _get_device_mesh() -> Any:
     """Return a JAX device mesh for data-parallel training, or None if single-device."""
     devices = jax.devices()
@@ -59,6 +62,45 @@ def _write_epoch_metrics(
             values.append(metric_value)
 
 
+def _aggregate_diagnostic_metrics(
+    diagnostic_metrics_by_batch: list[Mapping[str, float]],
+) -> dict[str, float]:
+    if not diagnostic_metrics_by_batch:
+        return {}
+
+    metrics_by_name: dict[str, list[float]] = {}
+    for batch_metrics in diagnostic_metrics_by_batch:
+        for key, value in batch_metrics.items():
+            metrics_by_name.setdefault(str(key), []).append(float(value))
+
+    aggregated: dict[str, float] = {}
+    for key, values in metrics_by_name.items():
+        metric_values = np.asarray(values, dtype=float)
+        finite_values = metric_values[np.isfinite(metric_values)]
+        if finite_values.size == 0:
+            aggregated[key] = float('nan')
+            continue
+
+        if (
+            'max_' in key
+            or key.endswith('_max_abs_error')
+            or key.endswith('_max_abs_residual')
+            or key.endswith('_max_bracket_width')
+            or key.endswith('_max_expansion_steps')
+        ):
+            aggregated[key] = float(np.max(finite_values))
+        elif (
+            'min_' in key
+            or key.startswith('spline_global_min_')
+            or key.startswith('spline_mean_min_')
+        ):
+            aggregated[key] = float(np.min(finite_values))
+        else:
+            aggregated[key] = float(np.mean(finite_values))
+
+    return aggregated
+
+
 def _log_scale_from_metadata(metadata: object) -> float:
     if not isinstance(metadata, dict):
         return 0.0
@@ -67,17 +109,23 @@ def _log_scale_from_metadata(metadata: object) -> float:
     return float(metadata.get("log_median_flux", 0.0))
 
 
-def _absolute_values_from_metadata(metadata: object, target: int) -> np.ndarray:
-    if not isinstance(metadata, dict) or "absolute_values" not in metadata:
+def _spectral_auxiliary_values_from_metadata(
+    metadata: object, target: int
+) -> np.ndarray:
+    if not isinstance(metadata, dict):
         return np.zeros(target, dtype=np.float32)
 
-    absolute_values = np.ravel(np.asarray(metadata.get("absolute_values"), dtype=np.float32))
-    if absolute_values.shape[0] == target:
-        return absolute_values
-    if absolute_values.shape[0] > target:
-        return absolute_values[:target]
+    key = "relative_values" if "relative_values" in metadata else "absolute_values"
+    if key not in metadata:
+        return np.zeros(target, dtype=np.float32)
+
+    auxiliary_values = np.ravel(np.asarray(metadata.get(key), dtype=np.float32))
+    if auxiliary_values.shape[0] == target:
+        return auxiliary_values
+    if auxiliary_values.shape[0] > target:
+        return auxiliary_values[:target]
     return np.concatenate(
-        [absolute_values, np.zeros(target - absolute_values.shape[0], dtype=np.float32)]
+        [auxiliary_values, np.zeros(target - auxiliary_values.shape[0], dtype=np.float32)]
     )
 
 
@@ -166,7 +214,7 @@ def _prestack_observation_blocks(blocks_batch: Any) -> Any:
             m_list.append(raw_m)
             lmf = _log_scale_from_metadata(block.metadata)
             lmf_list.append(np.float32(lmf))
-            av_list.append(_absolute_values_from_metadata(block.metadata, n_wl))
+            av_list.append(_spectral_auxiliary_values_from_metadata(block.metadata, n_wl))
             gsf_list.append(np.float32(_global_scale_from_metadata(block.metadata)))
         stacked.append((
             np.stack(v_list),
@@ -214,6 +262,7 @@ class TrainingConfig:
     verbose_diagnostics: bool = False
     diagnostics_output_directory: str | None = None
     diagnostics_plot_interval: int = 1
+    n_validation_diagnostic_batches: int = _DEFAULT_VALIDATION_DIAGNOSTIC_BATCHES
 
 
 def _resolve_diagnostics_output_directory(config: TrainingConfig) -> Path | None:
@@ -792,6 +841,7 @@ class SBITrainer:
         best_selection_validation_loss = float('inf')
         best_selection_validation_metrics: dict[str, float] = {}
         best_selection_epoch = -1
+        best_selection_is_stable = False
         best_loss_model = model
         best_loss_validation_loss = float('inf')
         best_loss_validation_metrics: dict[str, float] = {}
@@ -825,6 +875,7 @@ class SBITrainer:
             'best_selection_metric': float('inf'),
             'best_selection_validation_loss': float('inf'),
             'best_selection_validation_metrics': {},
+            'best_selection_is_stable': False,
             'best_loss_epoch': -1,
             'best_loss_validation_loss': float('inf'),
             'best_loss_validation_metrics': {},
@@ -898,6 +949,12 @@ class SBITrainer:
                         best_validation_metrics,
                     ).items()
                 }
+                best_selection_is_stable = bool(
+                    restored_state.get(
+                        'best_selection_is_stable',
+                        restored_metadata.get('best_selection_is_stable', False),
+                    )
+                )
                 best_loss_epoch = int(restored_state.get('best_loss_epoch', best_epoch))
                 best_loss_validation_loss = float(
                     restored_state.get('best_loss_validation_loss', best_validation_loss)
@@ -1088,6 +1145,7 @@ class SBITrainer:
                 'best_selection_metric': best_selection_metric,
                 'best_selection_validation_loss': best_selection_validation_loss,
                 'best_selection_validation_metrics': dict(best_selection_validation_metrics),
+                'best_selection_is_stable': best_selection_is_stable,
                 'best_loss_epoch': best_loss_epoch,
                 'best_loss_validation_loss': best_loss_validation_loss,
                 'best_loss_validation_metrics': dict(best_loss_validation_metrics),
@@ -1122,6 +1180,7 @@ class SBITrainer:
                 'best_selection_metric': best_selection_metric,
                 'best_selection_validation_loss': best_selection_validation_loss,
                 'best_selection_validation_metrics': dict(best_selection_validation_metrics),
+                'best_selection_is_stable': best_selection_is_stable,
                 'best_loss_epoch': best_loss_epoch + 1 if best_loss_epoch >= 0 else None,
                 'best_loss_validation_loss': best_loss_validation_loss,
                 'best_loss_validation_metrics': dict(best_loss_validation_metrics),
@@ -1248,10 +1307,40 @@ class SBITrainer:
             selection_metric = float('nan')
             if has_validation:
                 validation_losses = []
-                diagnostic_batch: PosteriorBatch | None = None
+                diagnostic_batches: list[PosteriorBatch] = []
+                diagnostic_rng = np.random.default_rng(self.config.seed + epoch)
+                n_diagnostic_batches = max(
+                    int(self.config.n_validation_diagnostic_batches),
+                    1,
+                )
                 if preloaded_val is not None:
                     _val_params, _val_all_obs = preloaded_val
                     n_val = _val_params.shape[0]
+                    if n_val > 0:
+                        diagnostic_size = min(effective_batch_size, n_val)
+                        from .observation import PreStackedObservations
+
+                        for _diagnostic_batch_index in range(n_diagnostic_batches):
+                            diagnostic_indices = np.sort(
+                                diagnostic_rng.choice(
+                                    n_val,
+                                    size=diagnostic_size,
+                                    replace=False,
+                                )
+                            )
+                            diagnostic_batches.append(
+                                PosteriorBatch(
+                                    parameters=_val_params[diagnostic_indices],
+                                    observations=PreStackedObservations(
+                                        stacked_blocks=tuple(
+                                            tuple(arr[diagnostic_indices] for arr in block_tuple)
+                                            for block_tuple in _val_all_obs.stacked_blocks
+                                        ),
+                                        modalities=_val_all_obs.modalities,
+                                    ),
+                                    metadata=batch_metadata,
+                                )
+                            )
                     for _start in range(0, n_val, effective_batch_size):
                         _idx = np.arange(_start, min(_start + effective_batch_size, n_val))
                         _vp = _val_params[_idx]
@@ -1263,16 +1352,11 @@ class SBITrainer:
                             ),
                             modalities=_val_all_obs.modalities,
                         )
-                        if diagnostic_batch is None:
-                            diagnostic_batch = PosteriorBatch(
-                                parameters=_vp,
-                                observations=_vo,
-                                metadata=batch_metadata,
-                            )
                         if mesh is not None:
                             _vp, _vo = _maybe_pad_and_shard(_vp, _vo)
                         validation_losses.append(float(_jit_eval_loss(model, _vp, _vo)))
                 else:
+                    seen_validation_batches = 0
                     for batch in dataset.iter_batches(
                         split=DatasetSplit.VALIDATION,
                         batch_size=effective_batch_size,
@@ -1282,29 +1366,39 @@ class SBITrainer:
                         prestacked_val = _prestack_observation_blocks(batch.observations)
                         _val_obs = prestacked_val if prestacked_val is not None else batch.observations
                         val_params = batch.parameters
-                        if diagnostic_batch is None:
-                            diagnostic_batch = PosteriorBatch(
-                                parameters=val_params,
-                                observations=_val_obs,
-                                metadata=batch_metadata,
+                        diagnostic_candidate = PosteriorBatch(
+                            parameters=val_params,
+                            observations=_val_obs,
+                            metadata=batch_metadata,
+                        )
+                        seen_validation_batches += 1
+                        if len(diagnostic_batches) < n_diagnostic_batches:
+                            diagnostic_batches.append(diagnostic_candidate)
+                        else:
+                            replace_index = int(
+                                diagnostic_rng.integers(seen_validation_batches)
                             )
+                            if replace_index < n_diagnostic_batches:
+                                diagnostic_batches[replace_index] = diagnostic_candidate
                         if mesh is not None:
                             val_params, _val_obs = _maybe_pad_and_shard(val_params, _val_obs)
                         validation_losses.append(float(_jit_eval_loss(model, val_params, _val_obs)))
                 validation_metric = float(np.mean(validation_losses)) if validation_losses else float('nan')
                 epoch_validation_metrics = {'validation_loss': validation_metric}
-                if eval_diagnostic_fn is not None and diagnostic_batch is not None:
-                    diagnostic_metrics = {
-                        str(key): float(value)
-                        for key, value in eval_diagnostic_fn(model, diagnostic_batch).items()
-                    }
+                if eval_diagnostic_fn is not None and diagnostic_batches:
+                    diagnostic_metrics = _aggregate_diagnostic_metrics(
+                        [
+                            {
+                                str(key): float(value)
+                                for key, value in eval_diagnostic_fn(
+                                    model,
+                                    diagnostic_batch,
+                                ).items()
+                            }
+                            for diagnostic_batch in diagnostic_batches
+                        ]
+                    )
                     epoch_validation_metrics.update(diagnostic_metrics)
-                selection_metric = (
-                    float(selection_metric_fn(validation_metric, epoch_validation_metrics))
-                    if selection_metric_fn is not None
-                    else validation_metric
-                )
-                epoch_validation_metrics[effective_selection_metric_name] = selection_metric
                 if stability_metric_fn is not None:
                     stability_metrics = {
                         str(key): float(value)
@@ -1314,6 +1408,12 @@ class SBITrainer:
                         ).items()
                     }
                     epoch_validation_metrics.update(stability_metrics)
+                selection_metric = (
+                    float(selection_metric_fn(validation_metric, epoch_validation_metrics))
+                    if selection_metric_fn is not None
+                    else validation_metric
+                )
+                epoch_validation_metrics[effective_selection_metric_name] = selection_metric
                 _write_epoch_metrics(
                     validation_metrics_history,
                     epoch,
@@ -1441,14 +1541,34 @@ class SBITrainer:
                 flush=True,
             )
 
-            selection_monitor_metric = selection_metric if has_validation else train_metric
-            selection_improved = best_selection_epoch < 0 or (
-                np.isfinite(selection_monitor_metric)
-                and (
-                    selection_monitor_metric < best_selection_metric - self._min_delta
-                    or not np.isfinite(best_selection_metric)
-                )
+            current_selection_is_stable = is_stable_checkpoint if has_validation else True
+            selection_monitor_metric = (
+                validation_metric
+                if (has_validation and current_selection_is_stable)
+                else (selection_metric if has_validation else train_metric)
             )
+            selection_improved = best_selection_epoch < 0
+            if best_selection_epoch >= 0:
+                if has_validation:
+                    if current_selection_is_stable and not best_selection_is_stable:
+                        selection_improved = True
+                    elif current_selection_is_stable == best_selection_is_stable:
+                        best_reference_metric = (
+                            best_selection_validation_loss
+                            if current_selection_is_stable
+                            else best_selection_metric
+                        )
+                        selection_improved = np.isfinite(selection_monitor_metric) and (
+                            selection_monitor_metric < best_reference_metric - self._min_delta
+                            or not np.isfinite(best_reference_metric)
+                        )
+                    else:
+                        selection_improved = False
+                else:
+                    selection_improved = np.isfinite(selection_monitor_metric) and (
+                        selection_monitor_metric < best_selection_metric - self._min_delta
+                        or not np.isfinite(best_selection_metric)
+                    )
             if selection_improved:
                 best_selection_metric = selection_monitor_metric
                 if has_validation and np.isfinite(validation_metric):
@@ -1456,6 +1576,7 @@ class SBITrainer:
                 best_selection_validation_metrics = dict(epoch_validation_metrics)
                 best_selection_epoch = epoch
                 best_selection_model = model
+                best_selection_is_stable = current_selection_is_stable
                 patience_counter = 0
                 self._save_checkpoint(
                     'best_selection',
@@ -1603,6 +1724,17 @@ class SBITrainer:
             if self._should_stop(patience_counter):
                 break
 
+        if self.config.verbose_diagnostics and validation_metrics_history:
+            diagnostics_output_directory = _resolve_diagnostics_output_directory(
+                self.config
+            )
+            if diagnostics_output_directory is not None:
+                _write_verbose_diagnostic_artifacts(
+                    validation_metrics_history,
+                    diagnostics_output_directory,
+                    len(train_loss_history),
+                )
+
         return (
             best_model,
             {'train_loss': train_loss_history},
@@ -1618,6 +1750,7 @@ class SBITrainer:
                 'best_selection_metric': best_selection_metric,
                 'best_selection_validation_loss': best_selection_validation_loss,
                 'best_selection_validation_metrics': dict(best_selection_validation_metrics),
+                'best_selection_is_stable': best_selection_is_stable,
                 'best_loss_epoch': best_loss_epoch + 1 if best_loss_epoch >= 0 else None,
                 'best_loss_validation_loss': best_loss_validation_loss,
                 'best_loss_validation_metrics': dict(best_loss_validation_metrics),

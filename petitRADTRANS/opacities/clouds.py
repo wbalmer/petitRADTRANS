@@ -415,6 +415,16 @@ def _maybe_compute_cloud_branch(
             _cloud_particle_mean_radii,
         )
 
+    def _cast_branch_outputs(args):
+        return (
+            jnp.asarray(args[0], dtype=JAX_DTYPE),
+            jnp.asarray(args[1], dtype=JAX_DTYPE),
+            jnp.asarray(args[2], dtype=JAX_DTYPE),
+            jnp.asarray(args[3], dtype=JAX_DTYPE),
+            jnp.asarray(args[4], dtype=JAX_DTYPE),
+            jnp.asarray(args[5], dtype=JAX_DTYPE),
+        )
+
     (
         base_continuum_opacities,
         base_continuum_opacities_scattering,
@@ -424,14 +434,16 @@ def _maybe_compute_cloud_branch(
         cloud_particle_mean_radii,
     ) = lax.cond(
         selected_clouds_have_effect,
-        _compute_branch,
-        lambda args: (
-            args[0],
-            args[1],
-            args[2],
-            args[3],
-            args[4],
-            selected_cloud_particle_mean_radii,
+        lambda args: _cast_branch_outputs(_compute_branch(args)),
+        lambda args: _cast_branch_outputs(
+            (
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+                selected_cloud_particle_mean_radii,
+            )
         ),
         (
             base_continuum_opacities,

@@ -44,7 +44,7 @@ class _PosteriorModel(eqx.Module):
     spline_max_derivative_target: float = eqx.field(static=True)
 
 
-_VALIDATION_DIAGNOSTIC_SAMPLES = 16
+_VALIDATION_DIAGNOSTIC_SAMPLES = 64
 _DIAGNOSTIC_EDGE_THRESHOLD = 1e-6
 _REGULARIZATION_TAIL_FRACTION = 0.25
 _DIAGNOSTIC_FLOOR_RELATIVE_TOLERANCE = 1.05
@@ -815,6 +815,25 @@ def _flow_validation_selection_metric(
     if not np.isfinite(selection_metric) or diagnostics is None:
         return selection_metric
 
+    checkpoint_is_stable = float(diagnostics.get("checkpoint_is_stable", float("nan")))
+    if np.isfinite(checkpoint_is_stable) and checkpoint_is_stable >= 0.5:
+        return selection_metric
+
+    def _threshold_excess(metric_name: str) -> tuple[float, float]:
+        metric_value = float(diagnostics.get(metric_name, float("nan")))
+        margin = float(
+            diagnostics.get(
+                f"checkpoint_stability_margin_{metric_name}",
+                float("nan"),
+            )
+        )
+        if np.isfinite(metric_value) and np.isfinite(margin):
+            threshold = max(metric_value + margin, 1e-8)
+            return max(-margin, 0.0), threshold
+        if np.isfinite(metric_value) and metric_value > 0.0:
+            return metric_value, max(metric_value, 1e-8)
+        return 0.0, 1e-8
+
     penalty = 0.0
 
     for key in (
@@ -823,17 +842,20 @@ def _flow_validation_selection_metric(
         "forward_inverse_logdet_closure_max_abs_error",
         "inverse_forward_logdet_closure_max_abs_error",
     ):
-        value = float(diagnostics.get(key, float("nan")))
-        if np.isfinite(value) and value > 0.0:
-            penalty += 1e3 * float(np.log1p(value))
+        excess, threshold = _threshold_excess(key)
+        if excess > 0.0:
+            penalty += 50.0 * float(np.log1p(excess / threshold))
 
-    edge_hit_rate = float(diagnostics.get("cube_edge_hit_rate", float("nan")))
-    if np.isfinite(edge_hit_rate) and edge_hit_rate > 0.0:
-        penalty += 1e4 * edge_hit_rate
+    edge_hit_excess, edge_hit_threshold = _threshold_excess("cube_edge_hit_rate")
+    if edge_hit_excess > 0.0:
+        penalty += 250.0 * (edge_hit_excess / edge_hit_threshold)
 
     max_derivative = float(diagnostics.get("spline_max_derivative", float("nan")))
     if np.isfinite(max_derivative) and max_derivative > 0.0:
         penalty += 100.0 * max(0.0, float(np.log10(max_derivative)) - 6.0)
+
+    if penalty <= 0.0:
+        penalty = 1e3
 
     return selection_metric + penalty
 
@@ -1665,6 +1687,14 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                             jnp.power(jnp.asarray(10.0, dtype=v.dtype), safe_log_scale),
                             jnp.asarray(1e-30, dtype=v.dtype),
                         )
+                        if len(block_tuple) > 6:
+                            global_scale = jnp.asarray(block_tuple[6], dtype=v.dtype)
+                        else:
+                            global_scale = sample_scale
+                        global_scale = jnp.maximum(
+                            jnp.where(jnp.isfinite(global_scale), global_scale, sample_scale),
+                            jnp.asarray(1e-30, dtype=v.dtype),
+                        )
                         noise_scale = jnp.maximum(
                             noise_std * jnp.abs(u),
                             jnp.asarray(noise_min_scale, dtype=v.dtype),
@@ -1674,20 +1704,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
 
                         if len(block_tuple) > 5:
                             absolute_values = jnp.asarray(block_tuple[5], dtype=v.dtype)
-                            if len(block_tuple) > 6:
-                                global_scale = jnp.asarray(block_tuple[6], dtype=v.dtype)
-                            else:
-                                global_scale = sample_scale
-                            global_scale = jnp.maximum(
-                                jnp.where(jnp.isfinite(global_scale), global_scale, sample_scale),
-                                jnp.asarray(1e-30, dtype=v.dtype),
-                            )
                             raw_uncertainty = (
                                 jnp.abs(u)
-                                * sample_scale[:, None]
+                                * global_scale[:, None]
                                 * jnp.cosh(v)
                             )
-                            absolute_local_scale = global_scale[:, None] * jnp.cosh(absolute_values)
+                            absolute_local_scale = sample_scale[:, None] * jnp.cosh(absolute_values)
                             absolute_noise_scale = raw_uncertainty / jnp.maximum(
                                 absolute_local_scale,
                                 jnp.asarray(1e-30, dtype=v.dtype),

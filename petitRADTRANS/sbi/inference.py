@@ -19,6 +19,39 @@ from .simulator import RuntimeSimulator
 from .task import SBITask
 
 
+def _coerce_block_array(values: Any, target_size: int) -> np.ndarray | None:
+    if values is None:
+        return None
+
+    array = np.asarray(values, dtype=float).reshape(-1)
+    if array.size == target_size:
+        return array
+    if array.size == 0:
+        return np.full(target_size, np.nan, dtype=float)
+    if array.size < target_size:
+        return np.concatenate(
+            [array, np.full(target_size - array.size, np.nan, dtype=float)]
+        )
+    return array[:target_size]
+
+
+def _robust_score_summary(
+    values: np.ndarray,
+    center: np.ndarray,
+    scale: np.ndarray,
+    valid_mask: np.ndarray,
+) -> tuple[float, float]:
+    safe_scale = np.where(np.isfinite(scale) & (scale > 0.0), scale, np.nan)
+    z_scores = np.abs(values - center) / safe_scale
+    finite_valid = valid_mask & np.isfinite(z_scores)
+    if not np.any(finite_valid):
+        return 0.0, 0.0
+    return (
+        float(np.nanquantile(z_scores[finite_valid], 0.95)),
+        float(np.nanmax(z_scores[finite_valid])),
+    )
+
+
 @dataclass(frozen=True)
 class OODDiagnostic:
     """Describe whether an observation is inside the training support.
@@ -179,6 +212,7 @@ class AmortizedRetrieval:
         AmortizedRetrievalResult
             Posterior samples and any optional predictive metadata.
         """
+        ood_diagnostic = self.diagnose_domain(observation_blocks)
         prepared_observation_blocks = self.prepare_observation_blocks(
             observation_blocks
         )
@@ -226,12 +260,24 @@ class AmortizedRetrieval:
         return AmortizedRetrievalResult(
             posterior=posterior,
             posterior_predictive=posterior_predictive,
+            ood_diagnostic=ood_diagnostic,
             metadata={
                 "preprocessing_applied": self.preprocessing_metadata is not None,
                 "preprocessing_version": (
                     None
                     if self.preprocessing_metadata is None
                     else self.preprocessing_metadata.version
+                ),
+                "ood_score": (
+                    None if ood_diagnostic is None else float(ood_diagnostic.score)
+                ),
+                "ood_threshold": (
+                    None
+                    if ood_diagnostic is None or ood_diagnostic.threshold is None
+                    else float(ood_diagnostic.threshold)
+                ),
+                "ood_passed": (
+                    None if ood_diagnostic is None else ood_diagnostic.passed
                 ),
                 "parameter_space": "physical",
             },
@@ -294,8 +340,146 @@ class AmortizedRetrieval:
         Returns
         -------
         OODDiagnostic | None
-            Currently ``None`` in the base implementation. Subclasses may return
-            concrete domain-diagnostic results.
+            Robust support-distance diagnostic derived from preprocessing
+            statistics, or ``None`` when preprocessing metadata is unavailable.
         """
-        del observation_blocks
-        return None
+        if self.preprocessing_metadata is None:
+            return None
+
+        per_block_scores: dict[str, float] = {}
+        per_block_details: dict[str, Mapping[str, float]] = {}
+        global_score = 0.0
+        threshold = 8.0
+
+        for block in observation_blocks:
+            block_name = str(block.name)
+            stats = self.preprocessing_metadata.blocks.get(block_name)
+            if stats is None:
+                continue
+
+            block_values = np.asarray(block.values, dtype=float).reshape(-1)
+            if block_values.size == 0:
+                continue
+
+            valid_mask = np.isfinite(block_values)
+            block_mask = _coerce_block_array(block.mask, block_values.size)
+            if block_mask is not None:
+                valid_mask &= ~np.asarray(block_mask, dtype=bool)
+
+            value_center = _coerce_block_array(
+                stats.value_median_per_wl,
+                block_values.size,
+            )
+            if value_center is None:
+                value_center = np.full(
+                    block_values.size,
+                    float(
+                        stats.value_median
+                        if stats.value_median is not None
+                        else stats.value_mean
+                    ),
+                    dtype=float,
+                )
+            value_scale = _coerce_block_array(
+                stats.value_iqr_per_wl,
+                block_values.size,
+            )
+            if value_scale is None:
+                value_scale = np.full(
+                    block_values.size,
+                    float(
+                        stats.value_iqr
+                        if stats.value_iqr is not None and stats.value_iqr > 0.0
+                        else max(float(stats.value_std), 1e-8)
+                    ),
+                    dtype=float,
+                )
+
+            value_score_p95, value_score_max = _robust_score_summary(
+                block_values,
+                value_center,
+                value_scale,
+                valid_mask,
+            )
+            block_score = value_score_p95
+            block_details: dict[str, float] = {
+                "value_robust_z_p95": value_score_p95,
+                "value_robust_z_max": value_score_max,
+            }
+
+            block_uncertainties = _coerce_block_array(
+                block.uncertainties,
+                block_values.size,
+            )
+            if block_uncertainties is not None:
+                uncertainty_valid_mask = (
+                    valid_mask
+                    & np.isfinite(block_uncertainties)
+                    & (block_uncertainties > 0.0)
+                )
+                uncertainty_center = _coerce_block_array(
+                    stats.uncertainty_median_per_wl,
+                    block_values.size,
+                )
+                if uncertainty_center is None:
+                    default_uncertainty_center = (
+                        stats.uncertainty_median
+                        if stats.uncertainty_median is not None
+                        else stats.uncertainty_mean
+                    )
+                    if default_uncertainty_center is not None:
+                        uncertainty_center = np.full(
+                            block_values.size,
+                            float(default_uncertainty_center),
+                            dtype=float,
+                        )
+                uncertainty_scale = _coerce_block_array(
+                    stats.uncertainty_iqr_per_wl,
+                    block_values.size,
+                )
+                if uncertainty_scale is None:
+                    default_uncertainty_scale = (
+                        stats.uncertainty_iqr
+                        if stats.uncertainty_iqr is not None
+                        and stats.uncertainty_iqr > 0.0
+                        else stats.uncertainty_std
+                    )
+                    if default_uncertainty_scale is not None:
+                        uncertainty_scale = np.full(
+                            block_values.size,
+                            max(float(default_uncertainty_scale), 1e-8),
+                            dtype=float,
+                        )
+
+                if uncertainty_center is not None and uncertainty_scale is not None:
+                    uncertainty_score_p95, uncertainty_score_max = (
+                        _robust_score_summary(
+                            block_uncertainties,
+                            uncertainty_center,
+                            uncertainty_scale,
+                            uncertainty_valid_mask,
+                        )
+                    )
+                    block_score = max(block_score, uncertainty_score_p95)
+                    block_details["uncertainty_robust_z_p95"] = (
+                        uncertainty_score_p95
+                    )
+                    block_details["uncertainty_robust_z_max"] = (
+                        uncertainty_score_max
+                    )
+
+            per_block_scores[block_name] = block_score
+            per_block_details[block_name] = block_details
+            global_score = max(global_score, block_score)
+
+        return OODDiagnostic(
+            score=float(global_score),
+            threshold=threshold,
+            passed=bool(global_score <= threshold),
+            metadata={
+                "method": "robust_blockwise_z_p95",
+                "preprocessing_version": self.preprocessing_metadata.version,
+                "per_block_scores": per_block_scores,
+                "per_block_details": per_block_details,
+            },
+        )

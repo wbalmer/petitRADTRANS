@@ -174,6 +174,12 @@ def _metadata_vector(metadata: Any, key: str, size: int) -> jnp.ndarray:
     return jnp.concatenate((values, padding), axis=0)
 
 
+def _spectral_auxiliary_vector(metadata: Any, size: int) -> jnp.ndarray:
+    if isinstance(metadata, dict) and "relative_values" in metadata:
+        return _metadata_vector(metadata, "relative_values", size)
+    return _metadata_vector(metadata, "absolute_values", size)
+
+
 def _amplitude_features(
     absolute_values: jnp.ndarray,
     mask: jnp.ndarray,
@@ -262,8 +268,6 @@ class SpectralPatchEncoder(eqx.Module):
         uncertainties = _as_vector(block.uncertainties)
         coordinates = _as_vector(block.coordinates)
         mask = _safe_mask(block.mask, values.shape[0])
-        absolute_values = _metadata_vector(block.metadata, "absolute_values", values.shape[0])
-
         if values.shape[0] == 0:
             return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
 
@@ -322,7 +326,7 @@ class SpectralPatchEncoder(eqx.Module):
         amplitude_embedding = jax.nn.gelu(
             self.amplitude_projection(
                 _amplitude_features(
-                    absolute_values,
+                    values,
                     mask,
                     _log_scale_from_metadata(block.metadata),
                 )
@@ -436,7 +440,7 @@ class SpectralPatchEncoder(eqx.Module):
         pooled = jnp.mean(patch_embeddings, axis=0)
         amplitude_embedding = jax.nn.gelu(
             self.amplitude_projection(
-                _amplitude_features(absolute_values, mask, log_median_flux)
+                _amplitude_features(values, mask, log_median_flux)
             )
         )
         scale_embedding = jax.nn.gelu(
@@ -494,8 +498,9 @@ class SpectralConv1DEncoder(eqx.Module):
         self.n_wavelengths = int(n_wavelengths)
         ch1, ch2 = hidden_channels
 
-        # 5 input channels: normalized values, uncertainties, coordinates,
-        # absolute-depth profile, and a broadcast log-scale channel.
+        # 5 input channels: globally normalized values, uncertainties,
+        # coordinates, a sample-scale contrast profile, and a broadcast
+        # log-scale channel.
         # Explicitly use float32 so weights are not promoted to float64
         # when jax_enable_x64 is active.
         self.conv1 = eqx.nn.Conv1d(5, ch1, kernel_size=7, padding=3, key=k1, dtype=jnp.float32)
@@ -544,8 +549,9 @@ class SpectralConv1DEncoder(eqx.Module):
         absolute_values = absolute_values * valid
         scale_channel = _broadcast_scalar_feature(log_median_flux, values.shape[0]) * valid
 
-        # Keep absolute-depth information in the main spectral branch instead
-        # of relegating it entirely to side-channel projections.
+        # The main spectral branch sees both the global absolute spectrum and
+        # a sample-scale contrast profile so it can learn amplitude and local
+        # structure jointly.
         x = jnp.stack(
             [values, uncertainties, coordinates, absolute_values, scale_channel],
             axis=0,
@@ -561,7 +567,7 @@ class SpectralConv1DEncoder(eqx.Module):
         pooled = jnp.sum(x, axis=-1) / jnp.maximum(jnp.sum(valid), 1.0)
         amplitude_embedding = jax.nn.gelu(
             self.amplitude_projection(
-                _amplitude_features(absolute_values, mask, log_median_flux)
+                _amplitude_features(values, mask, log_median_flux)
             )
         )
         scale_embedding = jax.nn.gelu(
@@ -602,7 +608,7 @@ class SpectralConv1DEncoder(eqx.Module):
         values = _as_vector(block.values)
         uncertainties = _as_vector(block.uncertainties)
         coordinates = _as_vector(block.coordinates)
-        absolute_values = _metadata_vector(block.metadata, "absolute_values", values.shape[0])
+        absolute_values = _spectral_auxiliary_vector(block.metadata, values.shape[0])
         n = values.shape[0]
         mask = _safe_mask(block.mask, n)
 
@@ -1016,7 +1022,7 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
                 for obs in blocks_batch
             ]
             av_list = [
-                _metadata_vector(obs[j].metadata, "absolute_values", n_wl)
+                _spectral_auxiliary_vector(obs[j].metadata, n_wl)
                 for obs in blocks_batch
             ]
             stacked_per_block.append(

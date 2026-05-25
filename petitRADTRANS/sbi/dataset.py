@@ -321,10 +321,6 @@ def _validate_preprocessing_metadata(
 _STREAMING_THRESHOLD = 10_000
 
 # Observation fields consumed by build_observation_block_batch / the encoder.
-# Fields like 'covariance' (42 GB for 100k sims) and 'deterministic_values' are
-# stored in the dataset but never read during training.  Loading them per batch
-# would dominate the epoch time by 100x.  Any field not in this set is skipped
-# when iterating over training/validation/test splits for model fitting.
 _OBSERVATION_TRAINING_FIELDS: frozenset[str] = frozenset(
     {"values", "uncertainties", "coordinates", "mask"}
 )

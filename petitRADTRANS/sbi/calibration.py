@@ -103,6 +103,9 @@ class PosteriorPredictiveReport:
     interval_upper: Mapping[str, np.ndarray]
     interval_coverage: Mapping[str, float]
     mean_absolute_error: Mapping[str, float]
+    mean_absolute_error_sigma: Mapping[str, float] = field(default_factory=dict)
+    median_interval_width_over_uncertainty: Mapping[str, float] = field(default_factory=dict)
+    crps: Mapping[str, float] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -230,10 +233,259 @@ def _coerce_truth_array(truths: Any) -> np.ndarray:
     return truth_array
 
 
-def _selected_case_indices(n_cases: int, max_cases: int | None) -> list[int]:
+def _selected_case_indices(
+    n_cases: int,
+    max_cases: int | None,
+    seed: int | None = None,
+) -> list[int]:
     if max_cases is None:
         return list(range(n_cases))
-    return list(range(min(int(max_cases), n_cases)))
+    n_selected = min(int(max_cases), n_cases)
+    if n_selected <= 0:
+        return []
+    rng = np.random.default_rng(0 if seed is None else seed)
+    return sorted(rng.choice(n_cases, size=n_selected, replace=False).tolist())
+
+
+def _predictive_valid_sample_mask(predictive_batch: Any) -> np.ndarray:
+    n_samples = int(getattr(predictive_batch, "n_samples", 0))
+    if n_samples <= 0:
+        return np.zeros((0,), dtype=bool)
+
+    valid_mask = np.ones((n_samples,), dtype=bool)
+    diagnostics = getattr(predictive_batch, "diagnostics", {}) or {}
+    invalid_mask = diagnostics.get("invalid_sample_mask")
+    if invalid_mask is not None:
+        invalid_array = np.asarray(invalid_mask, dtype=bool).reshape(-1)
+        if invalid_array.shape[0] == n_samples:
+            valid_mask &= ~invalid_array
+
+    for payload in getattr(predictive_batch, "observations", {}).values():
+        predictive_values = np.asarray(payload.get("values"), dtype=float)
+        if predictive_values.ndim == 0:
+            predictive_values = predictive_values.reshape(1, 1)
+        if predictive_values.ndim >= 1 and predictive_values.shape[0] == n_samples:
+            finite_mask = np.all(
+                np.isfinite(predictive_values.reshape(n_samples, -1)),
+                axis=1,
+            )
+            valid_mask &= finite_mask
+
+    return valid_mask
+
+
+def _coerce_optional_observation_array(
+    values: Any,
+    target_shape: tuple[int, ...],
+) -> np.ndarray | None:
+    if values is None:
+        return None
+
+    array = np.asarray(values, dtype=float)
+    if array.shape == target_shape:
+        return array
+
+    target_size = int(np.prod(target_shape))
+    flat = array.reshape(-1)
+    if flat.size == 0:
+        return np.full(target_shape, np.nan, dtype=float)
+    if flat.size < target_size:
+        flat = np.concatenate(
+            [
+                flat,
+                np.full(target_size - flat.size, np.nan, dtype=float),
+            ]
+        )
+    elif flat.size > target_size:
+        flat = flat[:target_size]
+
+    return flat.reshape(target_shape)
+
+
+def _empirical_crps(
+    predictive_values: np.ndarray,
+    observed_value: np.ndarray,
+) -> np.ndarray:
+    sample_array = np.asarray(predictive_values, dtype=float)
+    observed_array = np.asarray(observed_value, dtype=float)
+
+    if observed_array.ndim == 0:
+        sample_matrix = sample_array.reshape(sample_array.shape[0], 1)
+        observed_flat = observed_array.reshape(1)
+        observed_shape: tuple[int, ...] = ()
+    else:
+        sample_matrix = sample_array.reshape(sample_array.shape[0], -1)
+        observed_flat = observed_array.reshape(-1)
+        observed_shape = observed_array.shape
+
+    n_samples = int(sample_matrix.shape[0])
+    if n_samples <= 0:
+        return np.full(observed_shape, np.nan, dtype=float)
+
+    first_term = np.mean(np.abs(sample_matrix - observed_flat[None, :]), axis=0)
+    sorted_samples = np.sort(sample_matrix, axis=0)
+    weights = (
+        (2.0 * np.arange(1, n_samples + 1, dtype=float)) - n_samples - 1.0
+    )[:, None]
+    second_term = np.sum(weights * sorted_samples, axis=0) / float(n_samples * n_samples)
+    crps = first_term - second_term
+    return crps.reshape(observed_shape)
+
+
+def _summarize_predictive_observation(
+    predictive_values: np.ndarray,
+    observed_value: np.ndarray,
+    observed_uncertainty: np.ndarray | None,
+    *,
+    interval_level: float,
+) -> dict[str, Any]:
+    lower, upper = central_credible_interval(predictive_values, level=interval_level)
+    predictive_mean = np.mean(predictive_values, axis=0)
+    predictive_std = np.std(predictive_values, axis=0)
+
+    absolute_error = np.abs(np.asarray(predictive_mean, dtype=float) - observed_value)
+    interval_width = np.asarray(upper, dtype=float) - np.asarray(lower, dtype=float)
+
+    mean_absolute_error_sigma = float('nan')
+    median_interval_width_over_uncertainty = float('nan')
+    if observed_uncertainty is not None:
+        uncertainty_flat = np.asarray(observed_uncertainty, dtype=float).reshape(-1)
+        safe_uncertainty = np.isfinite(uncertainty_flat) & (uncertainty_flat > 0.0)
+        if np.any(safe_uncertainty):
+            absolute_error_flat = np.asarray(absolute_error, dtype=float).reshape(-1)
+            interval_width_flat = np.asarray(interval_width, dtype=float).reshape(-1)
+            mean_absolute_error_sigma = float(
+                np.mean(absolute_error_flat[safe_uncertainty] / uncertainty_flat[safe_uncertainty])
+            )
+            median_interval_width_over_uncertainty = float(
+                np.median(interval_width_flat[safe_uncertainty] / uncertainty_flat[safe_uncertainty])
+            )
+
+    crps_value = float(
+        np.nanmean(np.asarray(_empirical_crps(predictive_values, observed_value), dtype=float))
+    )
+
+    return {
+        'predictive_mean': predictive_mean,
+        'predictive_std': predictive_std,
+        'interval_lower': lower,
+        'interval_upper': upper,
+        'interval_coverage': float(
+            np.mean((observed_value >= lower) & (observed_value <= upper))
+        ),
+        'mean_absolute_error': float(np.mean(absolute_error)),
+        'mean_absolute_error_sigma': mean_absolute_error_sigma,
+        'median_interval_width_over_uncertainty': median_interval_width_over_uncertainty,
+        'crps': crps_value,
+    }
+
+
+def _collect_valid_predictive_draws(
+    simulator: RuntimeSimulator,
+    physical_parameters: np.ndarray,
+    *,
+    requested_valid_samples: int | None,
+    seed: int | None,
+) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+    parameter_array = np.asarray(physical_parameters, dtype=float)
+    if parameter_array.ndim != 2 or parameter_array.shape[0] <= 0:
+        raise ValueError(
+            'Posterior-predictive simulation requires at least one parameter draw.'
+        )
+
+    desired_valid_samples = (
+        int(parameter_array.shape[0])
+        if requested_valid_samples is None
+        else max(int(requested_valid_samples), 1)
+    )
+    rng = np.random.default_rng(seed)
+    permutation = rng.permutation(parameter_array.shape[0])
+    cursor = 0
+    total_forward_draws = 0
+    total_invalid_forward_draws = 0
+    total_valid_forward_draws = 0
+    discarded_valid_forward_draws = 0
+    collected_valid_draws = 0
+    rounds_used = 0
+    max_rounds = max(
+        8,
+        int(np.ceil(desired_valid_samples / max(parameter_array.shape[0], 1))) + 4,
+    )
+    collected_values: dict[str, list[np.ndarray]] = {}
+
+    while collected_valid_draws < desired_valid_samples and rounds_used < max_rounds:
+        remaining = desired_valid_samples - collected_valid_draws
+        batch_size = max(remaining, 1)
+        if cursor < parameter_array.shape[0]:
+            take = min(batch_size, parameter_array.shape[0] - cursor)
+            batch_parameters = parameter_array[permutation[cursor: cursor + take]]
+            cursor += take
+        else:
+            batch_parameters = parameter_array[
+                rng.choice(parameter_array.shape[0], size=batch_size, replace=True)
+            ]
+
+        predictive_batch = simulator.simulate_from_parameters(batch_parameters)
+        valid_mask = _predictive_valid_sample_mask(predictive_batch)
+        n_total_predictive = int(valid_mask.shape[0])
+        valid_indices = np.flatnonzero(valid_mask)
+        total_forward_draws += n_total_predictive
+        total_invalid_forward_draws += max(
+            n_total_predictive - int(valid_indices.size),
+            0,
+        )
+        total_valid_forward_draws += int(valid_indices.size)
+
+        if valid_indices.size > remaining:
+            discarded_valid_forward_draws += int(valid_indices.size - remaining)
+            valid_indices = valid_indices[:remaining]
+
+        if valid_indices.size > 0:
+            for observation_name, payload in predictive_batch.observations.items():
+                predictive_values = np.asarray(payload.get('values'), dtype=float)
+                if predictive_values.ndim == 0:
+                    predictive_values = predictive_values.reshape(1, 1)
+                if (
+                    predictive_values.ndim >= 1
+                    and predictive_values.shape[0] == n_total_predictive
+                ):
+                    collected_values.setdefault(observation_name, []).append(
+                        predictive_values[valid_indices]
+                    )
+            collected_valid_draws += int(valid_indices.size)
+
+        rounds_used += 1
+
+    if collected_valid_draws < desired_valid_samples:
+        raise ValueError(
+            'Posterior-predictive simulation could not collect the requested '
+            f'number of valid forward draws: requested={desired_valid_samples}, '
+            f'collected={collected_valid_draws}, simulated={total_forward_draws}.'
+        )
+
+    if not collected_values:
+        raise ValueError(
+            'Posterior-predictive simulation produced no valid observation payloads.'
+        )
+
+    return (
+        {
+            name: np.concatenate(chunks, axis=0)
+            for name, chunks in collected_values.items()
+        },
+        {
+            'requested_valid_forward_model_samples': desired_valid_samples,
+            'n_forward_model_samples': total_forward_draws,
+            'n_valid_forward_model_samples': collected_valid_draws,
+            'invalid_forward_model_sample_count': total_invalid_forward_draws,
+            'invalid_forward_model_sample_fraction': float(
+                total_invalid_forward_draws / max(total_forward_draws, 1)
+            ),
+            'discarded_valid_forward_model_sample_count': discarded_valid_forward_draws,
+            'simulated_valid_forward_model_sample_count': total_valid_forward_draws,
+            'valid_forward_model_resampling_rounds': rounds_used,
+        },
+    )
 
 
 def _posterior_space_to_physical(
@@ -1091,15 +1343,13 @@ def posterior_predictive_report_from_samples(
     physical_parameters = _posterior_space_to_physical(
         task, sample_array, parameter_space
     )
-    if n_predictive_forward_model_samples is not None:
-        n_use = min(
-            int(n_predictive_forward_model_samples), physical_parameters.shape[0]
-        )
-        rng = np.random.default_rng(seed)
-        indices = rng.choice(physical_parameters.shape[0], size=n_use, replace=False)
-        physical_parameters = physical_parameters[indices]
     simulator = simulator or RuntimeSimulator(task=task, seed=seed)
-    predictive_batch = simulator.simulate_from_parameters(physical_parameters)
+    predictive_observations, predictive_metadata = _collect_valid_predictive_draws(
+        simulator,
+        physical_parameters,
+        requested_valid_samples=n_predictive_forward_model_samples,
+        seed=seed,
+    )
 
     observed_values: dict[str, np.ndarray] = {}
     predictive_mean: dict[str, np.ndarray] = {}
@@ -1108,32 +1358,56 @@ def posterior_predictive_report_from_samples(
     interval_upper: dict[str, np.ndarray] = {}
     interval_coverage: dict[str, float] = {}
     mean_absolute_error: dict[str, float] = {}
+    mean_absolute_error_sigma: dict[str, float] = {}
+    median_interval_width_over_uncertainty: dict[str, float] = {}
+    crps: dict[str, float] = {}
 
     blocks_by_name = {block.name: block for block in observation_blocks}
 
-    for observation_name, payload in predictive_batch.observations.items():
+    for observation_name, predictive_values in predictive_observations.items():
         if observation_name not in blocks_by_name:
             continue
 
-        predictive_values = np.asarray(payload["values"], dtype=float)
-        lower, upper = central_credible_interval(
-            predictive_values, level=interval_level
-        )
         observed_value = np.asarray(
             blocks_by_name[observation_name].values, dtype=float
         )
+        observed_uncertainty = _coerce_optional_observation_array(
+            blocks_by_name[observation_name].uncertainties,
+            observed_value.shape,
+        )
+        summary = _summarize_predictive_observation(
+            np.asarray(predictive_values, dtype=float),
+            observed_value,
+            observed_uncertainty,
+            interval_level=interval_level,
+        )
 
         observed_values[observation_name] = observed_value
-        predictive_mean[observation_name] = np.mean(predictive_values, axis=0)
-        predictive_std[observation_name] = np.std(predictive_values, axis=0)
-        interval_lower[observation_name] = lower
-        interval_upper[observation_name] = upper
-        interval_coverage[observation_name] = float(
-            np.mean((observed_value >= lower) & (observed_value <= upper))
+        predictive_mean[observation_name] = np.asarray(
+            summary['predictive_mean'],
+            dtype=float,
         )
-        mean_absolute_error[observation_name] = float(
-            np.mean(np.abs(predictive_mean[observation_name] - observed_value))
+        predictive_std[observation_name] = np.asarray(
+            summary['predictive_std'],
+            dtype=float,
         )
+        interval_lower[observation_name] = np.asarray(
+            summary['interval_lower'],
+            dtype=float,
+        )
+        interval_upper[observation_name] = np.asarray(
+            summary['interval_upper'],
+            dtype=float,
+        )
+        interval_coverage[observation_name] = float(summary['interval_coverage'])
+        mean_absolute_error[observation_name] = float(summary['mean_absolute_error'])
+        mean_absolute_error_sigma[observation_name] = float(
+            summary['mean_absolute_error_sigma']
+        )
+        median_interval_width_over_uncertainty[observation_name] = float(
+            summary['median_interval_width_over_uncertainty']
+        )
+        crps[observation_name] = float(summary['crps'])
 
     return PosteriorPredictiveReport(
         observed_values=observed_values,
@@ -1143,9 +1417,13 @@ def posterior_predictive_report_from_samples(
         interval_upper=interval_upper,
         interval_coverage=interval_coverage,
         mean_absolute_error=mean_absolute_error,
+        mean_absolute_error_sigma=mean_absolute_error_sigma,
+        median_interval_width_over_uncertainty=median_interval_width_over_uncertainty,
+        crps=crps,
         metadata={
             "n_cases": 1,
             "n_posterior_samples": int(sample_array.shape[0]),
+            **predictive_metadata,
             "interval_level": float(interval_level),
             "parameter_space": parameter_space,
             "task_name": task.name,
@@ -1213,7 +1491,7 @@ def generate_posterior_predictive_report(
     """
 
     split_size = int(dataset_reader.dataset.manifest.splits.get(split.value, 0))
-    selected_indices = _selected_case_indices(split_size, max_cases)
+    selected_indices = _selected_case_indices(split_size, max_cases, seed=seed)
 
     if not selected_indices:
         raise ValueError(
@@ -1229,10 +1507,19 @@ def generate_posterior_predictive_report(
     interval_lower: dict[str, list[np.ndarray]] = {}
     interval_upper: dict[str, list[np.ndarray]] = {}
     interval_hits: dict[str, list[np.ndarray]] = {}
+    mean_absolute_error_sigma_values: dict[str, list[float]] = {}
+    median_interval_width_over_uncertainty_values: dict[str, list[float]] = {}
+    crps_values: dict[str, list[float]] = {}
 
     base_seed = 0 if seed is None else int(seed)
     n_cases = len(selected_indices)
-    rng = np.random.default_rng(seed)
+    skipped_invalid_cases = 0
+    included_cases = 0
+    total_forward_draws = 0
+    total_invalid_forward_draws = 0
+    total_valid_forward_draws = 0
+    total_discarded_valid_forward_draws = 0
+    total_resampling_rounds = 0
     has_batch_encode = hasattr(posterior, "batch_encode_observation")
     observation_fields = frozenset({"values", "uncertainties", "coordinates", "mask"})
 
@@ -1254,9 +1541,59 @@ def generate_posterior_predictive_report(
                     flush=True,
                 )
                 restored = np.load(ckpt_file, allow_pickle=False)
-                restored_obs_names = str(
+                restored_obs_names = [
+                    name
+                    for name in str(
                     restored["_observation_names_joined"].item()
-                ).split(",")
+                    ).split(",")
+                    if name
+                ]
+                restored_total_forward_draws = int(
+                    np.asarray(
+                        restored.get(
+                            "_total_forward_draw_count",
+                            np.array([0], dtype=np.int32),
+                        )
+                    ).reshape(-1)[0]
+                )
+                restored_valid_forward_draws = int(
+                    np.asarray(
+                        restored.get(
+                            "_valid_forward_draw_count",
+                            np.array([0], dtype=np.int32),
+                        )
+                    ).reshape(-1)[0]
+                )
+                restored_discarded_valid_forward_draws = int(
+                    np.asarray(
+                        restored.get(
+                            "_discarded_valid_forward_draw_count",
+                            np.array([0], dtype=np.int32),
+                        )
+                    ).reshape(-1)[0]
+                )
+                restored_resampling_rounds = int(
+                    np.asarray(
+                        restored.get(
+                            "_valid_forward_model_resampling_rounds",
+                            np.array([0], dtype=np.int32),
+                        )
+                    ).reshape(-1)[0]
+                )
+                total_forward_draws += restored_total_forward_draws
+                total_valid_forward_draws += restored_valid_forward_draws
+                total_invalid_forward_draws += max(
+                    restored_total_forward_draws - restored_valid_forward_draws,
+                    0,
+                )
+                total_discarded_valid_forward_draws += (
+                    restored_discarded_valid_forward_draws
+                )
+                total_resampling_rounds += restored_resampling_rounds
+                if not restored_obs_names:
+                    skipped_invalid_cases += 1
+                    continue
+                included_cases += 1
                 for obs_name in restored_obs_names:
                     observed_values.setdefault(obs_name, []).append(
                         restored[f"{obs_name}_observed"]
@@ -1275,6 +1612,42 @@ def generate_posterior_predictive_report(
                     )
                     interval_hits.setdefault(obs_name, []).append(
                         restored[f"{obs_name}_hits"]
+                    )
+                    mean_absolute_error_sigma_values.setdefault(obs_name, []).append(
+                        float(
+                            np.asarray(
+                                restored.get(
+                                    f"{obs_name}_mean_absolute_error_sigma",
+                                    np.array(np.nan, dtype=float),
+                                ),
+                                dtype=float,
+                            )
+                        )
+                    )
+                    median_interval_width_over_uncertainty_values.setdefault(
+                        obs_name,
+                        [],
+                    ).append(
+                        float(
+                            np.asarray(
+                                restored.get(
+                                    f"{obs_name}_median_interval_width_over_uncertainty",
+                                    np.array(np.nan, dtype=float),
+                                ),
+                                dtype=float,
+                            )
+                        )
+                    )
+                    crps_values.setdefault(obs_name, []).append(
+                        float(
+                            np.asarray(
+                                restored.get(
+                                    f"{obs_name}_crps",
+                                    np.array(np.nan, dtype=float),
+                                ),
+                                dtype=float,
+                            )
+                        )
                     )
                 continue
 
@@ -1330,32 +1703,93 @@ def generate_posterior_predictive_report(
                 physical_parameters = _posterior_space_to_physical(
                     task, posterior_samples, resolved_parameter_space
                 )
-                if n_predictive_forward_model_samples is not None:
-                    n_use = min(
-                        int(n_predictive_forward_model_samples),
-                        physical_parameters.shape[0],
-                    )
-                    indices = rng.choice(
-                        physical_parameters.shape[0], size=n_use, replace=False
-                    )
-                    physical_parameters = physical_parameters[indices]
-                predictive_batch = simulator.simulate_from_parameters(physical_parameters)
+                predictive_observations, predictive_metadata = _collect_valid_predictive_draws(
+                    simulator,
+                    physical_parameters,
+                    requested_valid_samples=n_predictive_forward_model_samples,
+                    seed=base_seed + case_offset,
+                )
+                total_forward_draws += int(
+                    predictive_metadata["n_forward_model_samples"]
+                )
+                total_valid_forward_draws += int(
+                    predictive_metadata["n_valid_forward_model_samples"]
+                )
+                total_invalid_forward_draws += int(
+                    predictive_metadata["invalid_forward_model_sample_count"]
+                )
+                total_discarded_valid_forward_draws += int(
+                    predictive_metadata[
+                        "discarded_valid_forward_model_sample_count"
+                    ]
+                )
+                total_resampling_rounds += int(
+                    predictive_metadata["valid_forward_model_resampling_rounds"]
+                )
                 raw_blocks_by_name = {block.name: block for block in raw_blocks}
 
                 case_save_arrays: dict[str, np.ndarray] = {}
                 case_observation_names: list[str] = []
+                case_save_arrays["_total_forward_draw_count"] = np.array(
+                    [int(predictive_metadata["n_forward_model_samples"])],
+                    dtype=np.int32,
+                )
+                case_save_arrays["_valid_forward_draw_count"] = np.array(
+                    [int(predictive_metadata["n_valid_forward_model_samples"])],
+                    dtype=np.int32,
+                )
+                case_save_arrays["_invalid_forward_draw_fraction"] = np.array(
+                    [float(predictive_metadata["invalid_forward_model_sample_fraction"])],
+                    dtype=float,
+                )
+                case_save_arrays["_discarded_valid_forward_draw_count"] = np.array(
+                    [
+                        int(
+                            predictive_metadata[
+                                "discarded_valid_forward_model_sample_count"
+                            ]
+                        )
+                    ],
+                    dtype=np.int32,
+                )
+                case_save_arrays["_valid_forward_model_resampling_rounds"] = np.array(
+                    [int(predictive_metadata["valid_forward_model_resampling_rounds"])],
+                    dtype=np.int32,
+                )
+                case_save_arrays["_requested_valid_forward_draw_count"] = np.array(
+                    [
+                        int(
+                            predictive_metadata[
+                                "requested_valid_forward_model_samples"
+                            ]
+                        )
+                    ],
+                    dtype=np.int32,
+                )
 
-                for observation_name, payload in predictive_batch.observations.items():
-                    predictive_values = np.asarray(payload["values"], dtype=float)
-                    lower, upper = central_credible_interval(
-                        predictive_values, level=interval_level
-                    )
+                included_cases += 1
+
+                for observation_name, predictive_values in predictive_observations.items():
+                    if observation_name not in raw_blocks_by_name:
+                        continue
                     observed_value = np.asarray(
                         raw_blocks_by_name[observation_name].values,
                         dtype=float,
                     )
-                    pred_mean = np.mean(predictive_values, axis=0)
-                    pred_std = np.std(predictive_values, axis=0)
+                    observed_uncertainty = _coerce_optional_observation_array(
+                        raw_blocks_by_name[observation_name].uncertainties,
+                        observed_value.shape,
+                    )
+                    summary = _summarize_predictive_observation(
+                        np.asarray(predictive_values, dtype=float),
+                        observed_value,
+                        observed_uncertainty,
+                        interval_level=interval_level,
+                    )
+                    pred_mean = np.asarray(summary["predictive_mean"], dtype=float)
+                    pred_std = np.asarray(summary["predictive_std"], dtype=float)
+                    lower = np.asarray(summary["interval_lower"], dtype=float)
+                    upper = np.asarray(summary["interval_upper"], dtype=float)
                     hits = (observed_value >= lower) & (observed_value <= upper)
 
                     observed_values.setdefault(observation_name, []).append(observed_value)
@@ -1364,6 +1798,19 @@ def generate_posterior_predictive_report(
                     interval_lower.setdefault(observation_name, []).append(lower)
                     interval_upper.setdefault(observation_name, []).append(upper)
                     interval_hits.setdefault(observation_name, []).append(hits)
+                    mean_absolute_error_sigma_values.setdefault(
+                        observation_name,
+                        [],
+                    ).append(float(summary["mean_absolute_error_sigma"]))
+                    median_interval_width_over_uncertainty_values.setdefault(
+                        observation_name,
+                        [],
+                    ).append(
+                        float(summary["median_interval_width_over_uncertainty"])
+                    )
+                    crps_values.setdefault(observation_name, []).append(
+                        float(summary["crps"])
+                    )
 
                     case_observation_names.append(observation_name)
                     case_save_arrays[f"{observation_name}_observed"] = observed_value
@@ -1372,6 +1819,22 @@ def generate_posterior_predictive_report(
                     case_save_arrays[f"{observation_name}_lower"] = lower
                     case_save_arrays[f"{observation_name}_upper"] = upper
                     case_save_arrays[f"{observation_name}_hits"] = hits
+                    case_save_arrays[
+                        f"{observation_name}_mean_absolute_error_sigma"
+                    ] = np.asarray(
+                        summary["mean_absolute_error_sigma"],
+                        dtype=float,
+                    )
+                    case_save_arrays[
+                        f"{observation_name}_median_interval_width_over_uncertainty"
+                    ] = np.asarray(
+                        summary["median_interval_width_over_uncertainty"],
+                        dtype=float,
+                    )
+                    case_save_arrays[f"{observation_name}_crps"] = np.asarray(
+                        summary["crps"],
+                        dtype=float,
+                    )
 
                 if ckpt_file is not None:
                     case_save_arrays["_observation_names_joined"] = np.array(
@@ -1408,6 +1871,23 @@ def generate_posterior_predictive_report(
         )
         for name in observed_arrays
     }
+    mean_absolute_error_sigma = {
+        name: float(np.nanmean(np.asarray(values, dtype=float)))
+        for name, values in mean_absolute_error_sigma_values.items()
+    }
+    median_interval_width_over_uncertainty = {
+        name: float(np.nanmedian(np.asarray(values, dtype=float)))
+        for name, values in median_interval_width_over_uncertainty_values.items()
+    }
+    crps = {
+        name: float(np.nanmean(np.asarray(values, dtype=float)))
+        for name, values in crps_values.items()
+    }
+
+    if not observed_arrays:
+        raise ValueError(
+            "Posterior-predictive evaluation produced no cases with valid forward draws."
+        )
 
     return PosteriorPredictiveReport(
         observed_values=observed_arrays,
@@ -1417,10 +1897,30 @@ def generate_posterior_predictive_report(
         interval_upper=interval_upper_arrays,
         interval_coverage=interval_coverage,
         mean_absolute_error=mean_absolute_error,
+        mean_absolute_error_sigma=mean_absolute_error_sigma,
+        median_interval_width_over_uncertainty=median_interval_width_over_uncertainty,
+        crps=crps,
         metadata={
             "split": split.value,
-            "n_cases": len(selected_indices),
+            "n_cases": included_cases,
+            "requested_cases": len(selected_indices),
+            "skipped_invalid_cases": skipped_invalid_cases,
             "n_posterior_samples": int(n_posterior_samples),
+            "n_forward_model_samples": int(total_forward_draws),
+            "n_valid_forward_model_samples": int(total_valid_forward_draws),
+            "requested_valid_forward_model_samples_per_case": (
+                int(n_posterior_samples)
+                if n_predictive_forward_model_samples is None
+                else int(n_predictive_forward_model_samples)
+            ),
+            "invalid_forward_model_sample_count": int(total_invalid_forward_draws),
+            "invalid_forward_model_sample_fraction": float(
+                total_invalid_forward_draws / max(total_forward_draws, 1)
+            ),
+            "discarded_valid_forward_model_sample_count": int(
+                total_discarded_valid_forward_draws
+            ),
+            "valid_forward_model_resampling_rounds": int(total_resampling_rounds),
             "interval_level": float(interval_level),
             "parameter_space": resolved_parameter_space,
             "task_name": task.name,

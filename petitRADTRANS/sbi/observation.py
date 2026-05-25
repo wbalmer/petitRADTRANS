@@ -179,9 +179,10 @@ class PreStackedObservations:
     ----------
     stacked_blocks:
         One ``(values, uncertainties, coordinates, mask, log_median_flux,
-        absolute_values)`` tuple per observation block. ``values``,
-        ``uncertainties``, ``coordinates``, ``mask``, and ``absolute_values``
-        have shape ``(batch_size, n_wl)``. ``log_median_flux`` has shape
+        spectral_auxiliary_values, global_spectrum_scale)`` tuple per
+        observation block. ``values``, ``uncertainties``, ``coordinates``,
+        ``mask``, and ``spectral_auxiliary_values`` have shape ``(batch_size,
+        n_wl)``. ``log_median_flux`` and ``global_spectrum_scale`` have shape
         ``(batch_size,)``.
     modalities:
         Modality value string for each block, e.g. ``'spectrum'``.
@@ -189,7 +190,7 @@ class PreStackedObservations:
         batches since it is constant for a given SBI task).
     """
 
-    stacked_blocks: tuple  # tuple[(v, u, c, m, lmf), ...], one entry per block
+    stacked_blocks: tuple  # tuple[(v, u, c, m, lmf, aux, gsf), ...], one entry per block
     modalities: tuple  # tuple[str, ...] – static pytree aux data
 
 

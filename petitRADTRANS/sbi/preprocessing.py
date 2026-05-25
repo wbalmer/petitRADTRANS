@@ -89,17 +89,17 @@ def _global_spectral_scale(stats: Any) -> float:
     )
 
 
-def _apply_spectral_value_transform(values: Any, sample_scale: float) -> np.ndarray:
-    scale = max(float(sample_scale), _NORMALIZATION_SCALE_FLOOR)
+def _apply_spectral_value_transform(values: Any, scale_value: float) -> np.ndarray:
+    scale = max(float(scale_value), _NORMALIZATION_SCALE_FLOOR)
     raw_values = np.asarray(values, dtype=float)
     return np.arcsinh(raw_values / scale)
 
 
-def _apply_absolute_spectral_value_transform(
+def _apply_relative_spectral_value_transform(
     values: Any,
-    global_scale: float,
+    sample_scale: float,
 ) -> np.ndarray:
-    scale = max(float(global_scale), _NORMALIZATION_SCALE_FLOOR)
+    scale = max(float(sample_scale), _NORMALIZATION_SCALE_FLOOR)
     raw_values = np.asarray(values, dtype=float)
     return np.arcsinh(raw_values / scale)
 
@@ -388,6 +388,7 @@ def normalize_observation_block(
     )
     sample_robust_scale = None
     global_spectral_scale = None
+    spectral_value_scale = None
 
     if is_spectral_block:
         sample_robust_scale = _sample_robust_scale(raw_values, block.mask)
@@ -400,9 +401,14 @@ def normalize_observation_block(
                 stats.value_mean,
                 default=1.0,
             )
+        spectral_value_scale = (
+            global_spectral_scale
+            if global_spectral_scale is not None
+            else sample_robust_scale
+        )
         normalized_values = _apply_spectral_value_transform(
             raw_values,
-            sample_robust_scale,
+            spectral_value_scale,
         )
     else:
         if stats.value_median is not None and stats.value_iqr is not None and stats.value_iqr > 0:
@@ -420,11 +426,11 @@ def normalize_observation_block(
     normalized_uncertainties = block.uncertainties
     if block.uncertainties is not None:
         raw_unc = np.asarray(block.uncertainties, dtype=float)
-        if is_spectral_block and sample_robust_scale is not None:
+        if is_spectral_block and spectral_value_scale is not None:
             normalized_uncertainties = _transform_spectral_uncertainties(
                 raw_unc,
                 raw_values,
-                sample_robust_scale,
+                spectral_value_scale,
             )
         else:
             if (
@@ -464,17 +470,23 @@ def normalize_observation_block(
         sample_log_scale = float(
             np.log10(max(sample_robust_scale, _NORMALIZATION_SCALE_FLOOR))
         )
-        metadata["absolute_values"] = _apply_absolute_spectral_value_transform(
+        absolute_values = _apply_spectral_value_transform(
             raw_values,
-            global_spectral_scale if global_spectral_scale is not None else sample_robust_scale,
+            spectral_value_scale if spectral_value_scale is not None else sample_robust_scale,
+        )
+        metadata["absolute_values"] = absolute_values
+        metadata["relative_values"] = _apply_relative_spectral_value_transform(
+            raw_values,
+            sample_robust_scale,
         )
         metadata["global_spectrum_scale"] = float(
-            global_spectral_scale if global_spectral_scale is not None else sample_robust_scale
+            spectral_value_scale if spectral_value_scale is not None else sample_robust_scale
         )
         metadata["spectrum_scale"] = float(sample_robust_scale)
         metadata["log_spectrum_scale"] = sample_log_scale
         metadata["log_median_flux"] = sample_log_scale
-        metadata["value_transform"] = "asinh_sample_scale"
+        metadata["value_transform"] = "asinh_global_scale"
+        metadata["relative_value_transform"] = "asinh_sample_scale"
         metadata["absolute_value_transform"] = "asinh_global_scale"
     elif sample_log_median_flux is not None:
         metadata["log_median_flux"] = sample_log_median_flux
