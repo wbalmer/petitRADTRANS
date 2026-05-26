@@ -458,6 +458,64 @@ class Sampler(abc.ABC):
         """Optional hook to persist sampler-specific diagnostics plots."""
         return {}
 
+    def _get_samples_archive_path(self):
+        return os.path.join(
+            self.output_directory,
+            "out_samples",
+            f"{self.retrieval_name}_samples.npz",
+        )
+
+    def _load_sample_archive_results(self):
+        archive_path = self._get_samples_archive_path()
+
+        if not os.path.exists(archive_path):
+            return None, []
+
+        with np.load(archive_path, allow_pickle=False) as archive:
+            if "sample_matrix" not in archive.files or "log_likelihood" not in archive.files:
+                return None, []
+
+            samples = np.asarray(archive["sample_matrix"], dtype=float)
+            if samples.ndim == 1:
+                samples = samples.reshape(-1, 1)
+            elif samples.ndim != 2:
+                return None, []
+
+            log_likelihood = np.asarray(archive["log_likelihood"], dtype=float).reshape(-1)
+            if log_likelihood.shape[0] != samples.shape[0]:
+                return None, []
+
+            parameter_names = []
+            if "parameter_names" in archive.files:
+                parameter_names = [
+                    str(parameter_name)
+                    for parameter_name in archive["parameter_names"].tolist()
+                ]
+
+        sample_count = samples.shape[0]
+        if sample_count > 0:
+            log_weights = np.full(sample_count, -np.log(sample_count), dtype=float)
+        else:
+            log_weights = np.array([], dtype=float)
+
+        return (
+            {
+                "samples": samples,
+                "log_likelihood": log_likelihood,
+                "log_weights": log_weights,
+                "output_file": archive_path,
+            },
+            parameter_names,
+        )
+
+    def load_results(self):
+        results, _parameter_names = self._load_sample_archive_results()
+
+        if results is not None:
+            self.results = results
+
+        return results
+
     @staticmethod
     def _extract_figure(plot_output):
         if plot_output is None:
@@ -927,6 +985,75 @@ class BlackJAXSampler(Sampler):
         return self.results
 
     def get_results(self):
+        return self.results
+
+    def load_results(self):
+        samples_file = self._get_output_prefix() + "_samples.npz"
+        metadata_file = self._get_output_prefix() + "_metadata.json"
+
+        if not os.path.exists(samples_file):
+            archived_results, _parameter_names = self._load_sample_archive_results()
+
+            if archived_results is None:
+                return None
+
+            archived_log_likelihood = np.asarray(
+                archived_results["log_likelihood"], dtype=float
+            )
+            archived_samples = np.asarray(archived_results["samples"], dtype=float)
+            self.results = BlackJAXSamplingResults(
+                algorithm=self.algorithm_name,
+                samples=archived_samples,
+                unconstrained_samples=archived_samples,
+                logdensity=archived_log_likelihood,
+                model_log_likelihood=archived_log_likelihood,
+                warmup_parameters={},
+                acceptance_rate=None,
+                is_divergent=None,
+                num_integration_steps=None,
+                output_file=archived_results.get("output_file"),
+                metadata_file=None,
+            )
+            return self.results
+
+        metadata = {}
+        if os.path.exists(metadata_file):
+            with open(metadata_file, "r") as handle:
+                metadata = json.load(handle)
+
+        with np.load(samples_file, allow_pickle=False) as archive:
+            self.results = BlackJAXSamplingResults(
+                algorithm=str(metadata.get("algorithm", self.algorithm_name)),
+                samples=np.asarray(archive["samples"], dtype=float),
+                unconstrained_samples=np.asarray(
+                    archive["unconstrained_samples"], dtype=float
+                ),
+                logdensity=np.asarray(archive["logdensity"], dtype=float),
+                model_log_likelihood=(
+                    np.asarray(archive["model_log_likelihood"], dtype=float)
+                    if "model_log_likelihood" in archive.files
+                    else None
+                ),
+                warmup_parameters=dict(metadata.get("warmup_parameters", {})),
+                acceptance_rate=(
+                    np.asarray(archive["acceptance_rate"], dtype=float)
+                    if "acceptance_rate" in archive.files
+                    else None
+                ),
+                is_divergent=(
+                    np.asarray(archive["is_divergent"])
+                    if "is_divergent" in archive.files
+                    else None
+                ),
+                num_integration_steps=(
+                    np.asarray(archive["num_integration_steps"], dtype=float)
+                    if "num_integration_steps" in archive.files
+                    else None
+                ),
+                output_file=samples_file,
+                metadata_file=metadata_file if os.path.exists(metadata_file) else None,
+            )
+
         return self.results
 
     def pretty_print_results(self):
@@ -1424,6 +1551,83 @@ class NumPyroSampler(Sampler):
     def get_results(self):
         return self.results
 
+    def load_results(self):
+        samples_file = self._get_output_prefix() + "_samples.npz"
+        params_file = self._get_output_prefix() + "_params.json"
+        metadata_file = self._get_output_prefix() + "_metadata.json"
+
+        if not os.path.exists(samples_file):
+            archived_results, parameter_names = self._load_sample_archive_results()
+
+            if archived_results is None:
+                return None
+
+            if parameter_names:
+                self.parameter_names = list(parameter_names)
+
+            archived_log_likelihood = np.asarray(
+                archived_results["log_likelihood"], dtype=float
+            )
+            archived_samples = np.asarray(archived_results["samples"], dtype=float)
+            self.results = NumPyroSamplingResults(
+                algorithm=self.algorithm_name,
+                samples=archived_samples,
+                unconstrained_samples=archived_samples,
+                logdensity=archived_log_likelihood,
+                model_log_likelihood=archived_log_likelihood,
+                warmup_parameters={},
+                acceptance_rate=None,
+                is_divergent=None,
+                num_integration_steps=None,
+                output_file=archived_results.get("output_file"),
+                metadata_file=None,
+            )
+            return self.results
+
+        if os.path.exists(params_file):
+            with open(params_file, "r") as handle:
+                self.parameter_names = list(json.load(handle))
+
+        metadata = {}
+        if os.path.exists(metadata_file):
+            with open(metadata_file, "r") as handle:
+                metadata = json.load(handle)
+
+        with np.load(samples_file, allow_pickle=False) as archive:
+            self.results = NumPyroSamplingResults(
+                algorithm=str(metadata.get("algorithm", self.algorithm_name)),
+                samples=np.asarray(archive["samples"], dtype=float),
+                unconstrained_samples=np.asarray(
+                    archive["unconstrained_samples"], dtype=float
+                ),
+                logdensity=np.asarray(archive["logdensity"], dtype=float),
+                model_log_likelihood=(
+                    np.asarray(archive["model_log_likelihood"], dtype=float)
+                    if "model_log_likelihood" in archive.files
+                    else None
+                ),
+                warmup_parameters=dict(metadata.get("warmup_parameters", {})),
+                acceptance_rate=(
+                    np.asarray(archive["acceptance_rate"], dtype=float)
+                    if "acceptance_rate" in archive.files
+                    else None
+                ),
+                is_divergent=(
+                    np.asarray(archive["is_divergent"])
+                    if "is_divergent" in archive.files
+                    else None
+                ),
+                num_integration_steps=(
+                    np.asarray(archive["num_integration_steps"], dtype=float)
+                    if "num_integration_steps" in archive.files
+                    else None
+                ),
+                output_file=samples_file,
+                metadata_file=metadata_file if os.path.exists(metadata_file) else None,
+            )
+
+        return self.results
+
     def pretty_print_results(self):
         if self.results is None:
             return
@@ -1768,6 +1972,34 @@ class PymultinestSampler(Sampler):
             )
         return self.analyzer
 
+    def load_results(self):
+        params_file = self.outputfiles_basename + "params.json"
+        sample_file = self.outputfiles_basename + "post_equal_weights.dat"
+
+        if not os.path.exists(params_file) or not os.path.exists(sample_file):
+            return super().load_results()
+
+        with open(params_file, "r") as handle:
+            parameter_names = list(json.load(handle))
+
+        self._n_dims = len(parameter_names)
+        self._free_parameter_names = list(parameter_names)
+        self._prefix = self.outputfiles_basename
+
+        try:
+            self.analyzer = pymultinest.Analyzer(
+                outputfiles_basename=self.outputfiles_basename,
+                n_params=self._n_dims,
+            )
+        except Exception as error:
+            warnings.warn(
+                f"Unable to construct PyMultiNest analyzer for '{self.retrieval_name}' while loading saved results: {error}",
+                RuntimeWarning,
+            )
+            return super().load_results()
+
+        return self.analyzer
+
     def pretty_print(self, free_parameter_names, prefix):
         if self.analyzer is None:
             warnings.warn(
@@ -1838,6 +2070,11 @@ class UltranestSampler(Sampler):
         )
         _require_ultranest()
         self.results = None
+
+    def _get_log_dir(self):
+        return os.path.join(
+            self.output_directory, "out_" + self.retrieval_name + "_ultranest"
+        )
 
     @classmethod
     def _resolve_vectorized(cls, context: SamplerContext, requested: bool) -> bool:
@@ -1912,6 +2149,61 @@ class UltranestSampler(Sampler):
             "vectorized": vectorized,
         }
         return sampler, run_kwargs, summary_parameters
+
+    def load_results(self):
+        log_dir = self._get_log_dir()
+        results_file = os.path.join(log_dir, "info", "results.json")
+        equal_weighted_file = os.path.join(
+            log_dir, "chains", "equal_weighted_post.txt"
+        )
+        weighted_file = os.path.join(log_dir, "chains", "weighted_post.txt")
+
+        if not any(
+            os.path.exists(path)
+            for path in (results_file, equal_weighted_file, weighted_file)
+        ):
+            return super().load_results()
+
+        results = {}
+
+        if os.path.exists(results_file):
+            with open(results_file, "r") as handle:
+                results = json.load(handle)
+
+        if os.path.exists(equal_weighted_file):
+            results["samples"] = np.loadtxt(
+                equal_weighted_file,
+                dtype=float,
+                ndmin=2,
+                skiprows=1,
+            )
+
+        if os.path.exists(weighted_file):
+            weighted_rows = np.loadtxt(
+                weighted_file,
+                dtype=float,
+                ndmin=2,
+                skiprows=1,
+            )
+
+            if weighted_rows.shape[1] >= 3:
+                weights = np.asarray(weighted_rows[:, 0], dtype=float)
+                weighted_log_likelihood = np.asarray(weighted_rows[:, 1], dtype=float)
+                weighted_points = np.asarray(weighted_rows[:, 2:], dtype=float)
+                results["weighted_samples"] = {
+                    "points": weighted_points,
+                    "logl": weighted_log_likelihood,
+                    "log_weights": np.log(
+                        np.clip(weights, np.finfo(float).tiny, None)
+                    ),
+                }
+
+                if "samples" not in results:
+                    results["samples"] = weighted_points
+                    results["log_likelihood"] = weighted_log_likelihood
+
+        self.results = results if results else None
+        return self.results
 
     def run_sampler(self, parameter_names, **kwargs):
         log_dir = os.path.join(
@@ -2565,7 +2857,7 @@ class DynestySampler(Sampler):
         metadata_file = self._get_output_prefix() + "_metadata.json"
 
         if not os.path.exists(samples_file) or not os.path.exists(params_file):
-            return None
+            return super().load_results()
 
         with open(params_file, "r") as handle:
             self.parameter_names = list(json.load(handle))
@@ -3323,8 +3615,13 @@ class JAXNSSampler(Sampler):
         return self.results
 
     def load_results(self):
+        raw_results_path = self._get_raw_results_path()
+
+        if not os.path.exists(raw_results_path):
+            return super().load_results()
+
         _require_jaxns()
-        self.raw_results = load_results(self._get_raw_results_path())
+        self.raw_results = load_results(raw_results_path)
 
         parameter_names_path = self._get_parameter_names_path()
         if os.path.exists(parameter_names_path):

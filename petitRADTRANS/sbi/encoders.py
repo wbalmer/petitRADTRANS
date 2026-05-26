@@ -90,6 +90,23 @@ def _merge_embedding_branches(*branches: jnp.ndarray) -> jnp.ndarray:
     )
 
 
+def _spectral_local_structure(
+    values: jnp.ndarray,
+    mask: jnp.ndarray,
+) -> jnp.ndarray:
+    if values.shape[0] == 0:
+        return jnp.zeros((0,), dtype=jnp.float32)
+
+    valid = ~mask
+    next_valid = jnp.concatenate((valid[1:], jnp.zeros((1,), dtype=bool)), axis=0)
+    pair_valid = valid & next_valid
+    forward_difference = jnp.concatenate(
+        (values[1:] - values[:-1], jnp.zeros((1,), dtype=values.dtype)),
+        axis=0,
+    )
+    return jnp.where(pair_valid, forward_difference, 0.0).astype(jnp.float32)
+
+
 def _masked_bin_means(
     values: jnp.ndarray,
     mask: jnp.ndarray,
@@ -477,6 +494,7 @@ class SpectralConv1DEncoder(eqx.Module):
     conv2: eqx.nn.Conv1d
     conv3: eqx.nn.Conv1d
     amplitude_projection: eqx.nn.MLP
+    pool_projection: eqx.nn.Linear
     branch_projection: eqx.nn.Linear
     output_projection: eqx.nn.Linear
     scale_projection: eqx.nn.Linear
@@ -493,20 +511,27 @@ class SpectralConv1DEncoder(eqx.Module):
         if key is None:
             key = random.PRNGKey(0)
 
-        k1, k2, k3, k_amp, k_branch, k_proj, k_scale = random.split(key, 7)
+        k1, k2, k3, k_amp, k_pool, k_branch, k_proj, k_scale = random.split(key, 8)
         self.embedding_dim = int(embedding_dim)
         self.n_wavelengths = int(n_wavelengths)
         ch1, ch2 = hidden_channels
 
-        # 5 input channels: globally normalized values, uncertainties,
-        # coordinates, a sample-scale contrast profile, and a broadcast
+        # 6 input channels: globally normalized values, uncertainties,
+        # coordinates, a sample-scale contrast profile, a local-structure
+        # gradient channel derived from that contrast profile, and a broadcast
         # log-scale channel.
         # Explicitly use float32 so weights are not promoted to float64
         # when jax_enable_x64 is active.
-        self.conv1 = eqx.nn.Conv1d(5, ch1, kernel_size=7, padding=3, key=k1, dtype=jnp.float32)
+        self.conv1 = eqx.nn.Conv1d(6, ch1, kernel_size=7, padding=3, key=k1, dtype=jnp.float32)
         self.conv2 = eqx.nn.Conv1d(ch1, ch2, kernel_size=5, padding=2, key=k2, dtype=jnp.float32)
         self.conv3 = eqx.nn.Conv1d(ch2, self.embedding_dim, kernel_size=3, padding=1, key=k3, dtype=jnp.float32)
         self.amplitude_projection = eqx.nn.MLP(_AMPLITUDE_FEATURE_DIM, self.embedding_dim, max(self.embedding_dim, ch2), 1, key=k_amp, dtype=jnp.float32)
+        self.pool_projection = eqx.nn.Linear(
+            self.embedding_dim * 2,
+            self.embedding_dim,
+            key=k_pool,
+            dtype=jnp.float32,
+        )
         self.branch_projection = eqx.nn.Linear(
             self.embedding_dim * 3,
             self.embedding_dim,
@@ -547,13 +572,21 @@ class SpectralConv1DEncoder(eqx.Module):
         if absolute_values is None or absolute_values.shape[0] == 0:
             absolute_values = jnp.zeros_like(values)
         absolute_values = absolute_values * valid
+        local_structure = _spectral_local_structure(absolute_values, mask) * valid
         scale_channel = _broadcast_scalar_feature(log_median_flux, values.shape[0]) * valid
 
         # The main spectral branch sees both the global absolute spectrum and
-        # a sample-scale contrast profile so it can learn amplitude and local
-        # structure jointly.
+        # a sample-scale contrast profile plus its local gradient so it can
+        # learn amplitude and wavelength-local structure jointly.
         x = jnp.stack(
-            [values, uncertainties, coordinates, absolute_values, scale_channel],
+            [
+                values,
+                uncertainties,
+                coordinates,
+                absolute_values,
+                local_structure,
+                scale_channel,
+            ],
             axis=0,
         )
 
@@ -561,10 +594,23 @@ class SpectralConv1DEncoder(eqx.Module):
         x = jax.nn.gelu(self.conv2(x))   # (ch2, n_wavelengths)
         x = jax.nn.gelu(self.conv3(x))   # (embedding_dim, n_wavelengths)
 
-        # Global average pooling over spatial dimension (masked)
+        # Combine mean and max pooling so narrow spectral features survive the
+        # global reduction stage instead of being averaged away.
         valid_expanded = valid[None, :]  # (1, n_wavelengths)
         x = x * valid_expanded
-        pooled = jnp.sum(x, axis=-1) / jnp.maximum(jnp.sum(valid), 1.0)
+        pooled_mean = jnp.sum(x, axis=-1) / jnp.maximum(jnp.sum(valid), 1.0)
+        masked_for_max = jnp.where(
+            valid_expanded > 0.0,
+            x,
+            jnp.asarray(-jnp.inf, dtype=x.dtype),
+        )
+        pooled_max = jnp.max(masked_for_max, axis=-1)
+        pooled_max = jnp.where(jnp.any(valid), pooled_max, jnp.zeros_like(pooled_max))
+        pooled = jax.nn.gelu(
+            self.pool_projection(
+                _merge_embedding_branches(pooled_mean, pooled_max)
+            )
+        )
         amplitude_embedding = jax.nn.gelu(
             self.amplitude_projection(
                 _amplitude_features(values, mask, log_median_flux)

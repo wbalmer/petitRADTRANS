@@ -1645,9 +1645,7 @@ class Retrieval:
 
         return archive_path
 
-    def _finalize_sampler_run(
-        self, sampler, results, stats=None, sampler_parameters=None
-    ):
+    def _register_sampler_results(self, sampler, results):
         self.sampler = sampler
         self.latest_sampler_results = results
 
@@ -1664,6 +1662,13 @@ class Retrieval:
             self.analyzer = analyzer
         else:
             self.analyzer = None
+
+        return results
+
+    def _finalize_sampler_run(
+        self, sampler, results, stats=None, sampler_parameters=None
+    ):
+        self._register_sampler_results(sampler, results)
 
         if self.rank == 0:
             try:
@@ -4381,15 +4386,68 @@ class Retrieval:
         """
         sampler_type = self.configuration.sampler_type
         sampler_type_normalized = sampler_type.lower()
-        print(
-            f"Starting retrieval {self.configuration.retrieval_name} with {sampler_type}"
-        )
+        run_mode = getattr(self.configuration, "run_mode", "retrieval")
+
+        if run_mode == "evaluate":
+            print(
+                f"Loading saved retrieval results for {self.configuration.retrieval_name} with {sampler_type}"
+            )
+        else:
+            print(
+                f"Starting retrieval {self.configuration.retrieval_name} with {sampler_type}"
+            )
+
         mpi, comm, rank = get_mpi_context()
 
-        if mpi is None and sampler_type_normalized == "pymultinest":
+        if (
+            run_mode != "evaluate"
+            and mpi is None
+            and sampler_type_normalized == "pymultinest"
+        ):
             print(
                 "Unable to import mpi4py, using slow (single process) mode for pymultinest."
             )
+
+        if run_mode == "evaluate":
+            if sampler_object is None:
+                sampler_cls = _resolve_sampler_class(sampler_type_normalized)
+                if sampler_cls is None:
+                    raise ValueError(f"Unknown sampler_type: {sampler_type}")
+
+                sampler = sampler_cls(
+                    log_likelihood_func=None,
+                    prior_func=None,
+                    output_directory=self.output_directory,
+                    retrieval_name=self.configuration.retrieval_name,
+                )
+            else:
+                sampler = sampler_object
+
+            load_results = getattr(sampler, "load_results", None)
+            if not callable(load_results):
+                raise TypeError(
+                    f"Sampler '{sampler.__class__.__name__}' does not implement load_results(), "
+                    "which is required for evaluate mode."
+                )
+
+            try:
+                results = load_results()
+            except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError) as error:
+                raise FileNotFoundError(
+                    f"Evaluate mode requested for retrieval '{self.configuration.retrieval_name}', "
+                    f"but saved results for sampler '{sampler_type}' could not be loaded from "
+                    f"'{self.output_directory}'."
+                ) from error
+
+            if results is None:
+                raise FileNotFoundError(
+                    f"Evaluate mode requested for retrieval '{self.configuration.retrieval_name}', "
+                    f"but no saved results were found for sampler '{sampler_type}' in "
+                    f"'{self.output_directory}'."
+                )
+
+            return self._register_sampler_results(sampler, results)
+
         sampler = self.sampler
         error_checking = sampler_kwargs.pop("error_checking", True)
         force_serial_error_checking = sampler_kwargs.pop(

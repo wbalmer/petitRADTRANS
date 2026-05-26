@@ -109,6 +109,18 @@ class PosteriorPredictiveReport:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
+class PredictiveResamplingExhaustedError(RuntimeError):
+    def __init__(self, metadata: Mapping[str, Any]):
+        self.metadata = dict(metadata)
+        super().__init__(
+            'Posterior-predictive simulation could not collect the requested '
+            'number of valid forward draws: '
+            f"requested={self.metadata['requested_valid_forward_model_samples']}, "
+            f"collected={self.metadata['n_valid_forward_model_samples']}, "
+            f"simulated={self.metadata['n_forward_model_samples']}."
+        )
+
+
 @dataclass(frozen=True)
 class LocalSensitivityPointReport:
     """Local linear-identifiability summary around one representative point.
@@ -407,15 +419,38 @@ def _collect_valid_predictive_draws(
     discarded_valid_forward_draws = 0
     collected_valid_draws = 0
     rounds_used = 0
-    max_rounds = max(
-        8,
-        int(np.ceil(desired_valid_samples / max(parameter_array.shape[0], 1))) + 4,
+    max_attempted_forward_draws = max(
+        desired_valid_samples * 16,
+        desired_valid_samples + max(parameter_array.shape[0], 64),
+    )
+    minimum_accepted_valid_samples = max(
+        desired_valid_samples - (1 if desired_valid_samples >= 128 else 0),
+        1,
     )
     collected_values: dict[str, list[np.ndarray]] = {}
+    tolerated_shortfall_rounds = 0
 
-    while collected_valid_draws < desired_valid_samples and rounds_used < max_rounds:
+    while (
+        collected_valid_draws < desired_valid_samples
+        and total_forward_draws < max_attempted_forward_draws
+    ):
         remaining = desired_valid_samples - collected_valid_draws
-        batch_size = max(remaining, 1)
+        if total_forward_draws > 0:
+            estimated_valid_fraction = np.clip(
+                total_valid_forward_draws / max(total_forward_draws, 1),
+                0.05,
+                1.0,
+            )
+            batch_size = int(np.ceil(remaining / estimated_valid_fraction))
+        else:
+            batch_size = remaining
+        batch_size = max(batch_size, remaining, 1)
+        batch_size = min(
+            batch_size,
+            max_attempted_forward_draws - total_forward_draws,
+        )
+        if batch_size <= 0:
+            break
         if cursor < parameter_array.shape[0]:
             take = min(batch_size, parameter_array.shape[0] - cursor)
             batch_parameters = parameter_array[permutation[cursor: cursor + take]]
@@ -455,13 +490,34 @@ def _collect_valid_predictive_draws(
             collected_valid_draws += int(valid_indices.size)
 
         rounds_used += 1
+        if collected_valid_draws >= desired_valid_samples:
+            break
+        if collected_valid_draws >= minimum_accepted_valid_samples:
+            tolerated_shortfall_rounds += 1
+            if tolerated_shortfall_rounds >= 2:
+                break
+        else:
+            tolerated_shortfall_rounds = 0
 
-    if collected_valid_draws < desired_valid_samples:
-        raise ValueError(
-            'Posterior-predictive simulation could not collect the requested '
-            f'number of valid forward draws: requested={desired_valid_samples}, '
-            f'collected={collected_valid_draws}, simulated={total_forward_draws}.'
-        )
+    predictive_metadata = {
+        'requested_valid_forward_model_samples': desired_valid_samples,
+        'n_forward_model_samples': total_forward_draws,
+        'n_valid_forward_model_samples': collected_valid_draws,
+        'invalid_forward_model_sample_count': total_invalid_forward_draws,
+        'invalid_forward_model_sample_fraction': float(
+            total_invalid_forward_draws / max(total_forward_draws, 1)
+        ),
+        'discarded_valid_forward_model_sample_count': discarded_valid_forward_draws,
+        'simulated_valid_forward_model_sample_count': total_valid_forward_draws,
+        'valid_forward_model_resampling_rounds': rounds_used,
+        'max_attempted_forward_model_samples': int(max_attempted_forward_draws),
+        'accepted_valid_forward_model_shortfall_count': int(
+            max(desired_valid_samples - collected_valid_draws, 0)
+        ),
+    }
+
+    if collected_valid_draws < minimum_accepted_valid_samples:
+        raise PredictiveResamplingExhaustedError(predictive_metadata)
 
     if not collected_values:
         raise ValueError(
@@ -473,18 +529,7 @@ def _collect_valid_predictive_draws(
             name: np.concatenate(chunks, axis=0)
             for name, chunks in collected_values.items()
         },
-        {
-            'requested_valid_forward_model_samples': desired_valid_samples,
-            'n_forward_model_samples': total_forward_draws,
-            'n_valid_forward_model_samples': collected_valid_draws,
-            'invalid_forward_model_sample_count': total_invalid_forward_draws,
-            'invalid_forward_model_sample_fraction': float(
-                total_invalid_forward_draws / max(total_forward_draws, 1)
-            ),
-            'discarded_valid_forward_model_sample_count': discarded_valid_forward_draws,
-            'simulated_valid_forward_model_sample_count': total_valid_forward_draws,
-            'valid_forward_model_resampling_rounds': rounds_used,
-        },
+        predictive_metadata,
     )
 
 
@@ -1514,12 +1559,14 @@ def generate_posterior_predictive_report(
     base_seed = 0 if seed is None else int(seed)
     n_cases = len(selected_indices)
     skipped_invalid_cases = 0
+    skipped_predictive_collection_failures = 0
     included_cases = 0
     total_forward_draws = 0
     total_invalid_forward_draws = 0
     total_valid_forward_draws = 0
     total_discarded_valid_forward_draws = 0
     total_resampling_rounds = 0
+    total_accepted_valid_shortfall = 0
     has_batch_encode = hasattr(posterior, "batch_encode_observation")
     observation_fields = frozenset({"values", "uncertainties", "coordinates", "mask"})
 
@@ -1564,6 +1611,23 @@ def generate_posterior_predictive_report(
                         )
                     ).reshape(-1)[0]
                 )
+                restored_invalid_forward_draws = int(
+                    np.asarray(
+                        restored.get(
+                            "_invalid_forward_draw_count",
+                            np.array(
+                                [
+                                    max(
+                                        restored_total_forward_draws
+                                        - restored_valid_forward_draws,
+                                        0,
+                                    )
+                                ],
+                                dtype=np.int32,
+                            ),
+                        )
+                    ).reshape(-1)[0]
+                )
                 restored_discarded_valid_forward_draws = int(
                     np.asarray(
                         restored.get(
@@ -1580,18 +1644,35 @@ def generate_posterior_predictive_report(
                         )
                     ).reshape(-1)[0]
                 )
+                restored_accepted_shortfall = int(
+                    np.asarray(
+                        restored.get(
+                            "_accepted_valid_forward_draw_shortfall_count",
+                            np.array([0], dtype=np.int32),
+                        )
+                    ).reshape(-1)[0]
+                )
+                restored_collection_error = str(
+                    np.asarray(
+                        restored.get(
+                            "_predictive_collection_error",
+                            np.array([""], dtype=np.str_),
+                        )
+                    ).reshape(-1)[0]
+                )
                 total_forward_draws += restored_total_forward_draws
                 total_valid_forward_draws += restored_valid_forward_draws
-                total_invalid_forward_draws += max(
-                    restored_total_forward_draws - restored_valid_forward_draws,
-                    0,
-                )
+                total_invalid_forward_draws += restored_invalid_forward_draws
                 total_discarded_valid_forward_draws += (
                     restored_discarded_valid_forward_draws
                 )
                 total_resampling_rounds += restored_resampling_rounds
+                total_accepted_valid_shortfall += restored_accepted_shortfall
                 if not restored_obs_names:
-                    skipped_invalid_cases += 1
+                    if restored_collection_error:
+                        skipped_predictive_collection_failures += 1
+                    else:
+                        skipped_invalid_cases += 1
                     continue
                 included_cases += 1
                 for obs_name in restored_obs_names:
@@ -1703,12 +1784,103 @@ def generate_posterior_predictive_report(
                 physical_parameters = _posterior_space_to_physical(
                     task, posterior_samples, resolved_parameter_space
                 )
-                predictive_observations, predictive_metadata = _collect_valid_predictive_draws(
-                    simulator,
-                    physical_parameters,
-                    requested_valid_samples=n_predictive_forward_model_samples,
-                    seed=base_seed + case_offset,
-                )
+                try:
+                    predictive_observations, predictive_metadata = _collect_valid_predictive_draws(
+                        simulator,
+                        physical_parameters,
+                        requested_valid_samples=n_predictive_forward_model_samples,
+                        seed=base_seed + case_offset,
+                    )
+                except PredictiveResamplingExhaustedError as error:
+                    predictive_metadata = dict(error.metadata)
+                    total_forward_draws += int(
+                        predictive_metadata["n_forward_model_samples"]
+                    )
+                    total_valid_forward_draws += int(
+                        predictive_metadata["n_valid_forward_model_samples"]
+                    )
+                    total_invalid_forward_draws += int(
+                        predictive_metadata["invalid_forward_model_sample_count"]
+                    )
+                    total_discarded_valid_forward_draws += int(
+                        predictive_metadata[
+                            "discarded_valid_forward_model_sample_count"
+                        ]
+                    )
+                    total_resampling_rounds += int(
+                        predictive_metadata["valid_forward_model_resampling_rounds"]
+                    )
+                    total_accepted_valid_shortfall += int(
+                        predictive_metadata[
+                            "accepted_valid_forward_model_shortfall_count"
+                        ]
+                    )
+                    skipped_predictive_collection_failures += 1
+                    if ckpt_file is not None:
+                        np.savez_compressed(
+                            ckpt_file,
+                            _observation_names_joined=np.array([""], dtype=np.str_),
+                            _predictive_collection_error=np.array([str(error)], dtype=np.str_),
+                            _total_forward_draw_count=np.array(
+                                [int(predictive_metadata["n_forward_model_samples"])],
+                                dtype=np.int32,
+                            ),
+                            _valid_forward_draw_count=np.array(
+                                [int(predictive_metadata["n_valid_forward_model_samples"])],
+                                dtype=np.int32,
+                            ),
+                            _invalid_forward_draw_count=np.array(
+                                [
+                                    int(
+                                        predictive_metadata[
+                                            "invalid_forward_model_sample_count"
+                                        ]
+                                    )
+                                ],
+                                dtype=np.int32,
+                            ),
+                            _discarded_valid_forward_draw_count=np.array(
+                                [
+                                    int(
+                                        predictive_metadata[
+                                            "discarded_valid_forward_model_sample_count"
+                                        ]
+                                    )
+                                ],
+                                dtype=np.int32,
+                            ),
+                            _valid_forward_model_resampling_rounds=np.array(
+                                [
+                                    int(
+                                        predictive_metadata[
+                                            "valid_forward_model_resampling_rounds"
+                                        ]
+                                    )
+                                ],
+                                dtype=np.int32,
+                            ),
+                            _requested_valid_forward_draw_count=np.array(
+                                [
+                                    int(
+                                        predictive_metadata[
+                                            "requested_valid_forward_model_samples"
+                                        ]
+                                    )
+                                ],
+                                dtype=np.int32,
+                            ),
+                            _accepted_valid_forward_draw_shortfall_count=np.array(
+                                [
+                                    int(
+                                        predictive_metadata[
+                                            "accepted_valid_forward_model_shortfall_count"
+                                        ]
+                                    )
+                                ],
+                                dtype=np.int32,
+                            ),
+                        )
+                    continue
                 total_forward_draws += int(
                     predictive_metadata["n_forward_model_samples"]
                 )
@@ -1726,6 +1898,11 @@ def generate_posterior_predictive_report(
                 total_resampling_rounds += int(
                     predictive_metadata["valid_forward_model_resampling_rounds"]
                 )
+                total_accepted_valid_shortfall += int(
+                    predictive_metadata[
+                        "accepted_valid_forward_model_shortfall_count"
+                    ]
+                )
                 raw_blocks_by_name = {block.name: block for block in raw_blocks}
 
                 case_save_arrays: dict[str, np.ndarray] = {}
@@ -1738,6 +1915,10 @@ def generate_posterior_predictive_report(
                     [int(predictive_metadata["n_valid_forward_model_samples"])],
                     dtype=np.int32,
                 )
+                case_save_arrays["_invalid_forward_draw_count"] = np.array(
+                    [int(predictive_metadata["invalid_forward_model_sample_count"])],
+                    dtype=np.int32,
+                )
                 case_save_arrays["_invalid_forward_draw_fraction"] = np.array(
                     [float(predictive_metadata["invalid_forward_model_sample_fraction"])],
                     dtype=float,
@@ -1747,6 +1928,18 @@ def generate_posterior_predictive_report(
                         int(
                             predictive_metadata[
                                 "discarded_valid_forward_model_sample_count"
+                            ]
+                        )
+                    ],
+                    dtype=np.int32,
+                )
+                case_save_arrays[
+                    "_accepted_valid_forward_draw_shortfall_count"
+                ] = np.array(
+                    [
+                        int(
+                            predictive_metadata[
+                                "accepted_valid_forward_model_shortfall_count"
                             ]
                         )
                     ],
@@ -1905,6 +2098,7 @@ def generate_posterior_predictive_report(
             "n_cases": included_cases,
             "requested_cases": len(selected_indices),
             "skipped_invalid_cases": skipped_invalid_cases,
+            "skipped_predictive_collection_failures": skipped_predictive_collection_failures,
             "n_posterior_samples": int(n_posterior_samples),
             "n_forward_model_samples": int(total_forward_draws),
             "n_valid_forward_model_samples": int(total_valid_forward_draws),
@@ -1919,6 +2113,9 @@ def generate_posterior_predictive_report(
             ),
             "discarded_valid_forward_model_sample_count": int(
                 total_discarded_valid_forward_draws
+            ),
+            "accepted_valid_forward_model_shortfall_count": int(
+                total_accepted_valid_shortfall
             ),
             "valid_forward_model_resampling_rounds": int(total_resampling_rounds),
             "interval_level": float(interval_level),

@@ -1516,10 +1516,6 @@ def _compute_feautrier_radiative_transfer_chunk(
     # ------------------------------------------------------------------
     # 15. Contribution function (optional)
     # ------------------------------------------------------------------
-    emission_contribution_lf = jnp.zeros(
-        (n_layers, n_freq_bins), dtype=WORKING_JAX_DTYPE
-    )
-
     def compute_contribution() -> ArrayLike:
         weights_gauss_work = jnp.asarray(weights_gauss, dtype=WORKING_JAX_DTYPE)
         final_source_work = jnp.asarray(final_source_gfl, dtype=WORKING_JAX_DTYPE)
@@ -1582,6 +1578,8 @@ def _compute_feautrier_radiative_transfer_chunk(
 
     if return_contribution:
         emission_contribution_lf = compute_contribution()
+    else:
+        emission_contribution_lf = None
 
     solver_diagnostics = {
         "total_solve_count": solve_count,
@@ -1816,85 +1814,26 @@ def compute_feautrier_radiative_transfer(
     )(_chunk_starts)
 
     if return_solver_diagnostics:
+        if return_contribution:
 
-        def _chunk_body(
-            _: None, chunk_inputs: tuple[ArrayLike, ...]
-        ) -> tuple[None, tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]]:
-            (
-                chunk_frequency_bin_edges,
-                chunk_optical_depths,
-                chunk_photon_destruction_probabilities,
-                chunk_stellar_intensity,
-                chunk_reflectances,
-                chunk_emissivities,
-            ) = chunk_inputs
+            def _chunk_body(
+                _: None, chunk_inputs: tuple[ArrayLike, ...]
+            ) -> tuple[None, tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]]:
+                (
+                    chunk_frequency_bin_edges,
+                    chunk_optical_depths,
+                    chunk_photon_destruction_probabilities,
+                    chunk_stellar_intensity,
+                    chunk_reflectances,
+                    chunk_emissivities,
+                ) = chunk_inputs
 
-            (
-                chunk_flux,
-                chunk_emission_contribution,
-                chunk_angle_dependent_intensities,
-                chunk_solver_diagnostics,
-            ) = _compute_feautrier_radiative_transfer_chunk(
-                frequencies_bin_edges=chunk_frequency_bin_edges,
-                temperatures=temperatures,
-                weights_gauss=weights_gauss,
-                emission_cos_angles=emission_cos_angles,
-                emission_cos_angles_weights=emission_cos_angles_weights,
-                optical_depths_in=chunk_optical_depths,
-                photon_destruction_probabilities_in=chunk_photon_destruction_probabilities,
-                stellar_intensity=chunk_stellar_intensity,
-                star_irradiation_cos_angle=star_irradiation_cos_angle,
-                reflectances=chunk_reflectances,
-                emissivities=chunk_emissivities,
-                adaptive_feautrier_iterations=adaptive_feautrier_iterations,
-                irradiation_geometry_str=irradiation_geometry_str,
-                return_contribution=return_contribution,
-                return_solver_diagnostics=True,
-                iter_scat_max=iter_scat_max,
-                convergence_threshold=convergence_threshold,
-            )
-
-            return None, (
-                chunk_flux,
-                chunk_emission_contribution,
-                chunk_angle_dependent_intensities,
-                chunk_solver_diagnostics,
-            )
-
-        _, (
-            flux_chunks,
-            emission_contribution_chunks,
-            angle_dependent_intensities_chunks,
-            solver_diagnostics_chunks,
-        ) = lax.scan(
-            _chunk_body,
-            None,
-            (
-                frequencies_bin_edges_chunks,
-                optical_depths_chunks,
-                photon_destruction_probabilities_chunks,
-                stellar_intensity_chunks,
-                reflectances_chunks,
-                emissivities_chunks,
-            ),
-        )
-    else:
-
-        def _chunk_body(
-            _: None, chunk_inputs: tuple[ArrayLike, ...]
-        ) -> tuple[None, tuple[ArrayLike, ArrayLike, ArrayLike]]:
-            (
-                chunk_frequency_bin_edges,
-                chunk_optical_depths,
-                chunk_photon_destruction_probabilities,
-                chunk_stellar_intensity,
-                chunk_reflectances,
-                chunk_emissivities,
-            ) = chunk_inputs
-
-            chunk_result = cast(
-                tuple[ArrayLike, ArrayLike, ArrayLike],
-                _compute_feautrier_radiative_transfer_chunk(
+                (
+                    chunk_flux,
+                    chunk_emission_contribution,
+                    chunk_angle_dependent_intensities,
+                    chunk_solver_diagnostics,
+                ) = _compute_feautrier_radiative_transfer_chunk(
                     frequencies_bin_edges=chunk_frequency_bin_edges,
                     temperatures=temperatures,
                     weights_gauss=weights_gauss,
@@ -1908,47 +1847,229 @@ def compute_feautrier_radiative_transfer(
                     emissivities=chunk_emissivities,
                     adaptive_feautrier_iterations=adaptive_feautrier_iterations,
                     irradiation_geometry_str=irradiation_geometry_str,
-                    return_contribution=return_contribution,
-                    return_solver_diagnostics=False,
+                    return_contribution=True,
+                    return_solver_diagnostics=True,
                     iter_scat_max=iter_scat_max,
                     convergence_threshold=convergence_threshold,
+                )
+
+                return None, (
+                    chunk_flux,
+                    chunk_emission_contribution,
+                    chunk_angle_dependent_intensities,
+                    chunk_solver_diagnostics,
+                )
+
+            _, (
+                flux_chunks,
+                emission_contribution_chunks,
+                angle_dependent_intensities_chunks,
+                solver_diagnostics_chunks,
+            ) = lax.scan(
+                _chunk_body,
+                None,
+                (
+                    frequencies_bin_edges_chunks,
+                    optical_depths_chunks,
+                    photon_destruction_probabilities_chunks,
+                    stellar_intensity_chunks,
+                    reflectances_chunks,
+                    emissivities_chunks,
+                ),
+            )
+        else:
+
+            def _chunk_body(
+                _: None, chunk_inputs: tuple[ArrayLike, ...]
+            ) -> tuple[None, tuple[ArrayLike, ArrayLike, dict[str, ArrayLike]]]:
+                (
+                    chunk_frequency_bin_edges,
+                    chunk_optical_depths,
+                    chunk_photon_destruction_probabilities,
+                    chunk_stellar_intensity,
+                    chunk_reflectances,
+                    chunk_emissivities,
+                ) = chunk_inputs
+
+                (
+                    chunk_flux,
+                    _,
+                    chunk_angle_dependent_intensities,
+                    chunk_solver_diagnostics,
+                ) = _compute_feautrier_radiative_transfer_chunk(
+                    frequencies_bin_edges=chunk_frequency_bin_edges,
+                    temperatures=temperatures,
+                    weights_gauss=weights_gauss,
+                    emission_cos_angles=emission_cos_angles,
+                    emission_cos_angles_weights=emission_cos_angles_weights,
+                    optical_depths_in=chunk_optical_depths,
+                    photon_destruction_probabilities_in=chunk_photon_destruction_probabilities,
+                    stellar_intensity=chunk_stellar_intensity,
+                    star_irradiation_cos_angle=star_irradiation_cos_angle,
+                    reflectances=chunk_reflectances,
+                    emissivities=chunk_emissivities,
+                    adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+                    irradiation_geometry_str=irradiation_geometry_str,
+                    return_contribution=False,
+                    return_solver_diagnostics=True,
+                    iter_scat_max=iter_scat_max,
+                    convergence_threshold=convergence_threshold,
+                )
+
+                return None, (
+                    chunk_flux,
+                    chunk_angle_dependent_intensities,
+                    chunk_solver_diagnostics,
+                )
+
+            _, (
+                flux_chunks,
+                angle_dependent_intensities_chunks,
+                solver_diagnostics_chunks,
+            ) = lax.scan(
+                _chunk_body,
+                None,
+                (
+                    frequencies_bin_edges_chunks,
+                    optical_depths_chunks,
+                    photon_destruction_probabilities_chunks,
+                    stellar_intensity_chunks,
+                    reflectances_chunks,
+                    emissivities_chunks,
+                ),
+            )
+    else:
+        if return_contribution:
+
+            def _chunk_body(
+                _: None, chunk_inputs: tuple[ArrayLike, ...]
+            ) -> tuple[None, tuple[ArrayLike, ArrayLike, ArrayLike]]:
+                (
+                    chunk_frequency_bin_edges,
+                    chunk_optical_depths,
+                    chunk_photon_destruction_probabilities,
+                    chunk_stellar_intensity,
+                    chunk_reflectances,
+                    chunk_emissivities,
+                ) = chunk_inputs
+
+                chunk_result = cast(
+                    tuple[ArrayLike, ArrayLike, ArrayLike],
+                    _compute_feautrier_radiative_transfer_chunk(
+                        frequencies_bin_edges=chunk_frequency_bin_edges,
+                        temperatures=temperatures,
+                        weights_gauss=weights_gauss,
+                        emission_cos_angles=emission_cos_angles,
+                        emission_cos_angles_weights=emission_cos_angles_weights,
+                        optical_depths_in=chunk_optical_depths,
+                        photon_destruction_probabilities_in=chunk_photon_destruction_probabilities,
+                        stellar_intensity=chunk_stellar_intensity,
+                        star_irradiation_cos_angle=star_irradiation_cos_angle,
+                        reflectances=chunk_reflectances,
+                        emissivities=chunk_emissivities,
+                        adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+                        irradiation_geometry_str=irradiation_geometry_str,
+                        return_contribution=True,
+                        return_solver_diagnostics=False,
+                        iter_scat_max=iter_scat_max,
+                        convergence_threshold=convergence_threshold,
+                    ),
+                )
+
+                chunk_flux = chunk_result[0]
+                chunk_emission_contribution = chunk_result[1]
+                chunk_angle_dependent_intensities = chunk_result[2]
+
+                return None, (
+                    chunk_flux,
+                    chunk_emission_contribution,
+                    chunk_angle_dependent_intensities,
+                )
+
+            _, (
+                flux_chunks,
+                emission_contribution_chunks,
+                angle_dependent_intensities_chunks,
+            ) = lax.scan(
+                _chunk_body,
+                None,
+                (
+                    frequencies_bin_edges_chunks,
+                    optical_depths_chunks,
+                    photon_destruction_probabilities_chunks,
+                    stellar_intensity_chunks,
+                    reflectances_chunks,
+                    emissivities_chunks,
+                ),
+            )
+        else:
+
+            def _chunk_body(
+                _: None, chunk_inputs: tuple[ArrayLike, ...]
+            ) -> tuple[None, tuple[ArrayLike, ArrayLike]]:
+                (
+                    chunk_frequency_bin_edges,
+                    chunk_optical_depths,
+                    chunk_photon_destruction_probabilities,
+                    chunk_stellar_intensity,
+                    chunk_reflectances,
+                    chunk_emissivities,
+                ) = chunk_inputs
+
+                chunk_flux, _, chunk_angle_dependent_intensities = (
+                    _compute_feautrier_radiative_transfer_chunk(
+                        frequencies_bin_edges=chunk_frequency_bin_edges,
+                        temperatures=temperatures,
+                        weights_gauss=weights_gauss,
+                        emission_cos_angles=emission_cos_angles,
+                        emission_cos_angles_weights=emission_cos_angles_weights,
+                        optical_depths_in=chunk_optical_depths,
+                        photon_destruction_probabilities_in=chunk_photon_destruction_probabilities,
+                        stellar_intensity=chunk_stellar_intensity,
+                        star_irradiation_cos_angle=star_irradiation_cos_angle,
+                        reflectances=chunk_reflectances,
+                        emissivities=chunk_emissivities,
+                        adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+                        irradiation_geometry_str=irradiation_geometry_str,
+                        return_contribution=False,
+                        return_solver_diagnostics=False,
+                        iter_scat_max=iter_scat_max,
+                        convergence_threshold=convergence_threshold,
+                    )
+                )
+
+                return None, (
+                    chunk_flux,
+                    chunk_angle_dependent_intensities,
+                )
+
+            _, (
+                flux_chunks,
+                angle_dependent_intensities_chunks,
+            ) = lax.scan(
+                _chunk_body,
+                None,
+                (
+                    frequencies_bin_edges_chunks,
+                    optical_depths_chunks,
+                    photon_destruction_probabilities_chunks,
+                    stellar_intensity_chunks,
+                    reflectances_chunks,
+                    emissivities_chunks,
                 ),
             )
 
-            chunk_flux = chunk_result[0]
-            chunk_emission_contribution = chunk_result[1]
-            chunk_angle_dependent_intensities = chunk_result[2]
-
-            return None, (
-                chunk_flux,
-                chunk_emission_contribution,
-                chunk_angle_dependent_intensities,
-            )
-
-        _, (
-            flux_chunks,
-            emission_contribution_chunks,
-            angle_dependent_intensities_chunks,
-        ) = lax.scan(
-            _chunk_body,
-            None,
-            (
-                frequencies_bin_edges_chunks,
-                optical_depths_chunks,
-                photon_destruction_probabilities_chunks,
-                stellar_intensity_chunks,
-                reflectances_chunks,
-                emissivities_chunks,
-            ),
-        )
-
     flux_f = flux_chunks.reshape(padded_n_freq_bins)[:n_freq_bins]
-    emission_contribution_lf = jnp.transpose(
-        emission_contribution_chunks, (1, 0, 2)
-    ).reshape(n_layers, padded_n_freq_bins,)[:, :n_freq_bins]
     angle_dependent_intensities = jnp.transpose(
         angle_dependent_intensities_chunks, (1, 0, 2)
     ).reshape(n_angles, padded_n_freq_bins,)[:, :n_freq_bins]
+
+    if return_contribution:
+        emission_contribution_lf = jnp.transpose(
+            emission_contribution_chunks, (1, 0, 2)
+        ).reshape(n_layers, padded_n_freq_bins,)[:, :n_freq_bins]
+    else:
+        emission_contribution_lf = None
 
     if return_solver_diagnostics:
         solver_diagnostics = {

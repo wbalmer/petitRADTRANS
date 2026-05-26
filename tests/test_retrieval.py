@@ -77,8 +77,12 @@ from petitRADTRANS.retrieval.runtime import (
     project_model_to_observation_space,
 )
 from petitRADTRANS.retrieval.sampler import (
+    BlackJAXNUTSSampler,
+    BlackJAXSamplingResults,
     JAXNSSampler,
     JAXNSShardedStaticNestedSampler,
+    NumPyroNUTSSampler,
+    NumPyroSamplingResults,
     NumPyroSampler,
     UltranestSampler,
 )
@@ -231,6 +235,44 @@ class _RecordingPosteriorSampler:
                 },
             ],
         }
+
+
+class _EvaluateLoadingSampler:
+    last_instance = None
+    results_to_load = {"status": "loaded"}
+
+    def __init__(self, log_likelihood_func, prior_func, output_directory, retrieval_name):
+        self.log_likelihood_func = log_likelihood_func
+        self.prior_func = prior_func
+        self.output_directory = output_directory
+        self.retrieval_name = retrieval_name
+        self.load_results_calls = 0
+        self.run_sampler_calls = 0
+        type(self).last_instance = self
+
+    def load_results(self):
+        self.load_results_calls += 1
+        return type(self).results_to_load
+
+    def run_sampler(self, **kwargs):
+        del kwargs
+        self.run_sampler_calls += 1
+        raise AssertionError("evaluate mode must not start sampling")
+
+
+class _MissingEvaluateSampler:
+    def __init__(self):
+        self.load_results_calls = 0
+        self.run_sampler_calls = 0
+
+    def load_results(self):
+        self.load_results_calls += 1
+        return None
+
+    def run_sampler(self, **kwargs):
+        del kwargs
+        self.run_sampler_calls += 1
+        raise AssertionError("evaluate mode must not start sampling")
 
 
 class _JAXNSLikeResults:
@@ -2511,6 +2553,197 @@ def test_run_regenerates_summary_for_non_pymultinest_sampler(tmp_path):
     assert "sampler = _RecordingPosteriorSampler" in summary_text
     assert "num_live_points = 32" in summary_text
     assert "amplitude" in summary_text
+
+
+def test_run_evaluate_mode_loads_saved_results_without_sampling(monkeypatch, tmp_path):
+    retrieval = _seed_retrieval_mpi_state(
+        object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    )
+    retrieval.configuration = SimpleNamespace(
+        sampler_type="blackjaxnuts",
+        retrieval_name="evaluate_only",
+        run_mode="evaluate",
+    )
+    retrieval.output_directory = str(tmp_path)
+    retrieval.sampler = None
+    retrieval.latest_sampler_results = None
+    retrieval.analyzer = None
+    retrieval._check_errors = lambda: pytest.fail(
+        "evaluate mode must not run error checks"
+    )
+
+    expected_results = {
+        "samples": np.array([[1.0]], dtype=float),
+        "log_likelihood": np.array([-1.0], dtype=float),
+    }
+    _EvaluateLoadingSampler.results_to_load = expected_results
+    monkeypatch.setattr(
+        petitRADTRANS.retrieval.retrieval,
+        "_resolve_sampler_class",
+        lambda _sampler_type: _EvaluateLoadingSampler,
+    )
+
+    results = retrieval.run(error_checking=True)
+
+    assert results is expected_results
+    assert retrieval.sampler is _EvaluateLoadingSampler.last_instance
+    assert retrieval.latest_sampler_results is expected_results
+    assert _EvaluateLoadingSampler.last_instance.load_results_calls == 1
+    assert _EvaluateLoadingSampler.last_instance.run_sampler_calls == 0
+
+
+def test_run_evaluate_mode_raises_when_saved_results_are_missing(tmp_path):
+    retrieval = _seed_retrieval_mpi_state(
+        object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    )
+    retrieval.configuration = SimpleNamespace(
+        sampler_type="blackjaxnuts",
+        retrieval_name="evaluate_missing",
+        run_mode="evaluate",
+    )
+    retrieval.output_directory = str(tmp_path)
+    retrieval.sampler = None
+    retrieval.latest_sampler_results = None
+    retrieval.analyzer = None
+    retrieval._check_errors = lambda: pytest.fail(
+        "evaluate mode must not run error checks"
+    )
+
+    sampler = _MissingEvaluateSampler()
+
+    with pytest.raises(FileNotFoundError, match="no saved results were found"):
+        retrieval.run(sampler_object=sampler, error_checking=True)
+
+    assert sampler.load_results_calls == 1
+    assert sampler.run_sampler_calls == 0
+
+
+def test_blackjax_sampler_load_results_reads_saved_outputs(tmp_path):
+    sampler = object.__new__(BlackJAXNUTSSampler)
+    sampler.output_directory = str(tmp_path)
+    sampler.retrieval_name = "blackjax_saved"
+    sampler.results = None
+
+    output_directory = tmp_path / "out_BlackJAX"
+    output_directory.mkdir(parents=True, exist_ok=True)
+
+    np.savez(
+        output_directory / "blackjax_saved_samples.npz",
+        samples=np.array([[1.0], [2.0]], dtype=float),
+        unconstrained_samples=np.array([[0.1], [0.2]], dtype=float),
+        logdensity=np.array([-1.0, -2.0], dtype=float),
+        model_log_likelihood=np.array([-1.5, -2.5], dtype=float),
+        acceptance_rate=np.array([0.8, 0.9], dtype=float),
+        is_divergent=np.array([False, True]),
+        num_integration_steps=np.array([3.0, 4.0], dtype=float),
+    )
+    (output_directory / "blackjax_saved_metadata.json").write_text(
+        json.dumps(
+            {
+                "algorithm": "nuts",
+                "warmup_parameters": {"step_size": 0.5},
+            }
+        )
+    )
+
+    results = sampler.load_results()
+
+    assert isinstance(results, BlackJAXSamplingResults)
+    assert results.algorithm == "nuts"
+    np.testing.assert_allclose(results.samples, np.array([[1.0], [2.0]]))
+    np.testing.assert_allclose(results.logdensity, np.array([-1.0, -2.0]))
+    np.testing.assert_allclose(
+        results.model_log_likelihood, np.array([-1.5, -2.5])
+    )
+    np.testing.assert_allclose(results.acceptance_rate, np.array([0.8, 0.9]))
+    np.testing.assert_array_equal(results.is_divergent, np.array([False, True]))
+
+
+def test_numpyro_sampler_load_results_reads_saved_outputs(tmp_path):
+    sampler = object.__new__(NumPyroNUTSSampler)
+    sampler.output_directory = str(tmp_path)
+    sampler.retrieval_name = "numpyro_saved"
+    sampler.results = None
+    sampler.parameter_names = None
+
+    output_directory = tmp_path / "out_NumPyro"
+    output_directory.mkdir(parents=True, exist_ok=True)
+
+    np.savez(
+        output_directory / "numpyro_saved_samples.npz",
+        samples=np.array([[1.0], [2.0]], dtype=float),
+        unconstrained_samples=np.array([[0.1], [0.2]], dtype=float),
+        logdensity=np.array([-1.0, -2.0], dtype=float),
+        model_log_likelihood=np.array([-1.5, -2.5], dtype=float),
+        acceptance_rate=np.array([0.8, 0.9], dtype=float),
+        is_divergent=np.array([False, True]),
+        num_integration_steps=np.array([3.0, 4.0], dtype=float),
+    )
+    (output_directory / "numpyro_saved_params.json").write_text(
+        json.dumps(["amplitude"])
+    )
+    (output_directory / "numpyro_saved_metadata.json").write_text(
+        json.dumps(
+            {
+                "algorithm": "nuts",
+                "warmup_parameters": {"step_size": 0.5},
+            }
+        )
+    )
+
+    results = sampler.load_results()
+
+    assert isinstance(results, NumPyroSamplingResults)
+    assert results.algorithm == "nuts"
+    assert sampler.parameter_names == ["amplitude"]
+    np.testing.assert_allclose(results.samples, np.array([[1.0], [2.0]]))
+    np.testing.assert_allclose(results.logdensity, np.array([-1.0, -2.0]))
+    np.testing.assert_allclose(
+        results.model_log_likelihood, np.array([-1.5, -2.5])
+    )
+    np.testing.assert_allclose(results.acceptance_rate, np.array([0.8, 0.9]))
+    np.testing.assert_array_equal(results.is_divergent, np.array([False, True]))
+
+
+def test_ultranest_sampler_load_results_reads_saved_outputs(tmp_path):
+    sampler = object.__new__(UltranestSampler)
+    sampler.output_directory = str(tmp_path)
+    sampler.retrieval_name = "ultranest_saved"
+    sampler.results = None
+
+    log_directory = tmp_path / "out_ultranest_saved_ultranest"
+    (log_directory / "info").mkdir(parents=True, exist_ok=True)
+    (log_directory / "chains").mkdir(parents=True, exist_ok=True)
+
+    (log_directory / "info" / "results.json").write_text(
+        json.dumps({"logz": 1.2, "logzerr": 0.3, "ess": 7, "ncall": 9})
+    )
+    np.savetxt(
+        log_directory / "chains" / "equal_weighted_post.txt",
+        np.array([[1.0], [2.0]], dtype=float),
+        header="amplitude",
+        comments="",
+    )
+    np.savetxt(
+        log_directory / "chains" / "weighted_post.txt",
+        np.array([[0.6, -1.0, 1.0], [0.4, -2.0, 2.0]], dtype=float),
+        header="weight logl amplitude",
+        comments="",
+    )
+
+    results = sampler.load_results()
+
+    assert results["logz"] == 1.2
+    assert results["logzerr"] == 0.3
+    assert results["ess"] == 7
+    assert results["ncall"] == 9
+    np.testing.assert_allclose(results["samples"], np.array([[1.0], [2.0]]))
+    np.testing.assert_allclose(
+        results["weighted_samples"]["points"], np.array([[1.0], [2.0]])
+    )
+    np.testing.assert_allclose(
+        results["weighted_samples"]["logl"], np.array([-1.0, -2.0])
+    )
 
 
 def test_run_saves_named_sample_archive_for_completed_retrieval(tmp_path):

@@ -1584,7 +1584,10 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         non-spectral blocks still reconstruct raw measurement uncertainties so
         noise is injected at the correct physical scale in normalized-value
         space. ``noise_std`` acts as a multiplier on the observational noise
-        level (1.0 = exact observational noise, >1 = regularising over-noise).
+        level (1.0 = exact observational noise, >1 = regularising over-noise),
+        and ``noise_min_scale`` is treated as a minimum fraction of the
+        typical transformed uncertainty for the block rather than as an
+        absolute floor in normalized-value units.
 
         When preprocessing metadata is unavailable, a flat Gaussian noise with
         scale ``noise_std`` is applied as a fallback.
@@ -1650,6 +1653,16 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             parameters = jnp.asarray(batch.parameters, dtype=jnp.float32)
             observations = batch.observations
 
+            def _relative_noise_floor(scale: jnp.ndarray) -> jnp.ndarray:
+                scale = jnp.asarray(scale, dtype=jnp.float32)
+                finite_positive = jnp.isfinite(scale) & (scale > 0.0)
+                safe_scale = jnp.where(finite_positive, scale, 0.0)
+                reference_scale = jnp.sum(safe_scale, axis=-1, keepdims=True) / jnp.maximum(
+                    jnp.sum(finite_positive, axis=-1, keepdims=True),
+                    1.0,
+                )
+                return jnp.asarray(noise_min_scale, dtype=jnp.float32) * reference_scale
+
             # Derive a noise key from the batch content so each step gets
             # unique but reproducible noise without needing external state.
             key = random.fold_in(
@@ -1695,9 +1708,10 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                             jnp.where(jnp.isfinite(global_scale), global_scale, sample_scale),
                             jnp.asarray(1e-30, dtype=v.dtype),
                         )
+                        spectral_noise_floor = _relative_noise_floor(jnp.abs(u))
                         noise_scale = jnp.maximum(
                             noise_std * jnp.abs(u),
-                            jnp.asarray(noise_min_scale, dtype=v.dtype),
+                            jnp.asarray(spectral_noise_floor, dtype=v.dtype),
                         )
                         v_noisy = v + noise_scale * noise
                         updated_block[0] = v_noisy
@@ -1714,9 +1728,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                                 absolute_local_scale,
                                 jnp.asarray(1e-30, dtype=v.dtype),
                             )
+                            absolute_noise_floor = _relative_noise_floor(
+                                absolute_noise_scale
+                            )
                             absolute_noise = jnp.maximum(
                                 noise_std * absolute_noise_scale,
-                                jnp.asarray(noise_min_scale, dtype=v.dtype),
+                                jnp.asarray(absolute_noise_floor, dtype=v.dtype),
                             )
                             updated_block[5] = absolute_values + absolute_noise * noise
                     elif block_idx < len(_block_noise_params):
@@ -1726,9 +1743,10 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                         _unc_scale, _value_scale = _block_noise_params[block_idx]
                         u_raw = u * jnp.asarray(_unc_scale, dtype=u.dtype)
                         noise_scale = jnp.abs(u_raw) / jnp.asarray(_value_scale, dtype=u.dtype)
+                        noise_floor = _relative_noise_floor(noise_scale)
                         effective_noise_scale = jnp.maximum(
                             noise_std * noise_scale,
-                            jnp.asarray(noise_min_scale, dtype=v.dtype),
+                            jnp.asarray(noise_floor, dtype=v.dtype),
                         )
                         v_noisy = v + effective_noise_scale * noise
                         updated_block[0] = v_noisy
