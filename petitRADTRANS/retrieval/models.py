@@ -3363,6 +3363,24 @@ def _as_auxiliary_outputs(outputs):
     return {"runtime_output": outputs}
 
 
+_EMISSION_RUNTIME_AUXILIARY_OUTPUT_EXCLUSIONS = frozenset(
+    {"stellar_intensities", "angle_dependent_intensities"}
+)
+
+
+def _as_filtered_auxiliary_outputs(outputs, excluded_keys=()):
+    auxiliary_outputs = _as_auxiliary_outputs(outputs)
+
+    if not excluded_keys:
+        return auxiliary_outputs
+
+    return {
+        key: value
+        for key, value in auxiliary_outputs.items()
+        if key not in excluded_keys
+    }
+
+
 def _is_scalar_like(value):
     if value is None:
         return False
@@ -3932,7 +3950,10 @@ def calculate_emission_spectrum_runtime(
         kind="spectrum",
         wavelengths=wavelengths_model,
         spectrum=spectrum_model,
-        auxiliary_outputs=_as_auxiliary_outputs(additional_outputs),
+        auxiliary_outputs=_as_filtered_auxiliary_outputs(
+            additional_outputs,
+            excluded_keys=_EMISSION_RUNTIME_AUXILIARY_OUTPUT_EXCLUSIONS,
+        ),
     )
 
 

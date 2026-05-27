@@ -1,4 +1,3 @@
-import copy
 import jax.numpy as jnp
 from jax import debug
 from interpax import interp1d
@@ -8,6 +7,33 @@ from petitRADTRANS.opacities.clouds import compute_species_optical_depths
 from petitRADTRANS.physics import frequency2wavelength
 
 from petitRADTRANS.jax_dtype import WORKING_JAX_DTYPE
+
+
+def _total_absorption_opacity(opacities):
+    return jnp.asarray(opacities[:, :, :1, :], dtype=WORKING_JAX_DTYPE)
+
+
+def _compute_total_optical_depths(
+    pressures,
+    reference_gravity,
+    opacities,
+    continuum_opacities_scattering,
+    scattering_in_emission,
+):
+    optical_depths, photon_destruction_probabilities = (
+        radiative_transfer_core.compute_optical_depths(
+            reference_gravity=reference_gravity,
+            pressures=pressures,
+            opacities=_total_absorption_opacity(opacities),
+            scattering_in_emission=scattering_in_emission,
+            continuum_opacities_scattering=continuum_opacities_scattering,
+        )
+    )
+
+    return (
+        jnp.asarray(optical_depths, dtype=WORKING_JAX_DTYPE),
+        jnp.asarray(photon_destruction_probabilities, dtype=WORKING_JAX_DTYPE),
+    )
 
 
 def compute_optical_depths(
@@ -21,7 +47,6 @@ def compute_optical_depths(
     absorber_present=True,
     **custom_cloud_parameters,
 ):
-    optical_depths = jnp.zeros(opacities.shape, dtype=WORKING_JAX_DTYPE)
     photon_destruction_probabilities = None
     relative_cloud_scaling_factor = None
 
@@ -46,21 +71,14 @@ def compute_optical_depths(
                 _continuum_opacities_scattering = jnp.zeros(
                     continuum_opacities_scattering.shape, dtype=WORKING_JAX_DTYPE
                 )
-            temp_opt_depths, photon_destruction_probabilities = (
-                radiative_transfer_core.compute_optical_depths(
-                    reference_gravity=reference_gravity,
+            optical_depths, photon_destruction_probabilities = (
+                _compute_total_optical_depths(
                     pressures=pressures,
-                    opacities=opacities[:, :, :1, :],
-                    scattering_in_emission=scattering_in_emission,
+                    reference_gravity=reference_gravity,
+                    opacities=opacities,
                     continuum_opacities_scattering=_continuum_opacities_scattering,
+                    scattering_in_emission=scattering_in_emission,
                 )
-            )
-            photon_destruction_probabilities = jnp.asarray(
-                photon_destruction_probabilities, dtype=WORKING_JAX_DTYPE
-            )
-
-            optical_depths = optical_depths.at[:, :, :1, :].set(
-                jnp.asarray(temp_opt_depths, dtype=WORKING_JAX_DTYPE)
             )
 
         # Handle cases without any absorbers, where opacities are zero
@@ -120,21 +138,19 @@ def compute_optical_depths_with_photospheric_cloud(
     photospheric_cloud_optical_depths,
     scattering_in_emission,
 ):
-    optical_depths = jnp.zeros(opacities.shape, dtype=WORKING_JAX_DTYPE)
     relative_cloud_scaling_factor = None
+    total_absorption_opacities = _total_absorption_opacity(opacities)
 
     if scattering_in_emission:
-        continuum_opacities_scattering_emission = copy.deepcopy(
-            continuum_opacities_scattering
+        continuum_opacities_scattering_emission = jnp.asarray(
+            continuum_opacities_scattering, dtype=WORKING_JAX_DTYPE
         )
     else:
         continuum_opacities_scattering_emission = jnp.zeros(
             continuum_opacities_scattering.shape, dtype=WORKING_JAX_DTYPE
         )
 
-    n_species = opacities.shape[2]
-
-    _mass_fractions_1 = jnp.ones((pressures.size, n_species), dtype=WORKING_JAX_DTYPE)
+    _mass_fractions_1 = jnp.ones((pressures.size, 1), dtype=WORKING_JAX_DTYPE)
 
     if (
         cloud_anisotropic_scattering_opacities is not None
@@ -145,27 +161,19 @@ def compute_optical_depths_with_photospheric_cloud(
             cloud_anisotropic_scattering_opacities
         )
 
-        opacities = combine_opacities(
+        total_absorption_opacities = combine_opacities(
             line_species_mass_fractions=_mass_fractions_1,
-            opacities=opacities,
+            opacities=total_absorption_opacities,
             continuum_opacities=-cloud_absorption_opacities,
         )
 
     # Calculate optical depths without clouds
-    temp_optical_depths, photon_destruction_probabilities = (
-        radiative_transfer_core.compute_optical_depths(
-            reference_gravity=reference_gravity,
-            pressures=pressures,
-            opacities=opacities[:, :, :1, :],
-            scattering_in_emission=scattering_in_emission,
-            continuum_opacities_scattering=continuum_opacities_scattering_emission,
-        )
-    )
-    photon_destruction_probabilities = jnp.asarray(
-        photon_destruction_probabilities, dtype=WORKING_JAX_DTYPE
-    )
-    optical_depths = optical_depths.at[:, :, :1, :].set(
-        jnp.asarray(temp_optical_depths, dtype=WORKING_JAX_DTYPE)
+    optical_depths, photon_destruction_probabilities = _compute_total_optical_depths(
+        pressures=pressures,
+        reference_gravity=reference_gravity,
+        opacities=total_absorption_opacities,
+        continuum_opacities_scattering=continuum_opacities_scattering_emission,
+        scattering_in_emission=scattering_in_emission,
     )
 
     # If there are no cloud opacities, return the optical depths without clouds
@@ -175,33 +183,19 @@ def compute_optical_depths_with_photospheric_cloud(
     ):
         return optical_depths, photon_destruction_probabilities, None
 
-    # Calculate optical depths for cloud only
-    total_tau_cloud = jnp.zeros_like(optical_depths, dtype=WORKING_JAX_DTYPE)
-
-    # Reduce total (absorption) line opacity by continuum absorption opacity
-    # (those two were added in before)
-    mock_line_cloud_continuum_only = jnp.zeros_like(
-        opacities, dtype=WORKING_JAX_DTYPE
-    )
-
-    mock_line_cloud_continuum_only = combine_opacities(
+    cloud_only_absorption_opacities = combine_opacities(
         line_species_mass_fractions=_mass_fractions_1,
-        opacities=mock_line_cloud_continuum_only,
+        opacities=jnp.zeros_like(total_absorption_opacities, dtype=WORKING_JAX_DTYPE),
         continuum_opacities=cloud_absorption_opacities,
     )
 
     # Calculate optical depth of cloud only
-    temp_total_tau_cloud, photon_destruction_prob_cloud = (
-        radiative_transfer_core.compute_optical_depths(
-            reference_gravity=reference_gravity,
-            pressures=pressures,
-            opacities=opacities[:, :, :1, :],
-            scattering_in_emission=scattering_in_emission,
-            continuum_opacities_scattering=cloud_anisotropic_scattering_opacities,
-        )
-    )
-    total_tau_cloud = total_tau_cloud.at[:, :, :1, :].set(
-        jnp.asarray(temp_total_tau_cloud, dtype=WORKING_JAX_DTYPE)
+    total_tau_cloud, _ = _compute_total_optical_depths(
+        pressures=pressures,
+        reference_gravity=reference_gravity,
+        opacities=cloud_only_absorption_opacities,
+        continuum_opacities_scattering=cloud_anisotropic_scattering_opacities,
+        scattering_in_emission=scattering_in_emission,
     )
 
     # Calculate photospheric position of atmo without cloud, determine cloud optical depth there, compare to
@@ -300,29 +294,23 @@ def compute_optical_depths_with_photospheric_cloud(
         + cloud_scaling_factor * cloud_anisotropic_scattering_opacities
     )
 
-    opacities = combine_opacities(
+    total_absorption_opacities = combine_opacities(
         line_species_mass_fractions=_mass_fractions_1,
-        opacities=opacities,
+        opacities=total_absorption_opacities,
         continuum_opacities=cloud_scaling_factor * cloud_absorption_opacities,
     )
 
     # Calculate total optical depth, including clouds
-    updated_optical_depths, photon_destruction_probabilities, _ = compute_optical_depths(
+    updated_optical_depths, photon_destruction_probabilities = _compute_total_optical_depths(
         pressures=pressures,
         reference_gravity=reference_gravity,
-        opacities=opacities[:, :, :1, :],
+        opacities=total_absorption_opacities,
         continuum_opacities_scattering=continuum_opacities_scattering_emission,
         scattering_in_emission=scattering_in_emission,
     )
-    photon_destruction_probabilities = jnp.asarray(
-        photon_destruction_probabilities, dtype=WORKING_JAX_DTYPE
-    )
-    optical_depths = optical_depths.at[:, :, :1, :].set(
-        jnp.asarray(updated_optical_depths, dtype=WORKING_JAX_DTYPE)
-    )
 
     return (
-        optical_depths,
+        updated_optical_depths,
         photon_destruction_probabilities,
         relative_cloud_scaling_factor,
     )

@@ -192,6 +192,49 @@ def _interpolate_stacked_species_opacities_flat(
     )
 
 
+@jit
+def _interpolate_stacked_species_opacities_summed(
+    pressures,
+    temperatures,
+    line_opacities_grid,
+    line_opacities_temperature_pressure_grid,
+    line_opacities_temperature_grid_size,
+    line_opacities_pressure_grid_size,
+    line_species_mass_fractions,
+):
+    total_opacities = jnp.zeros(
+        (
+            line_opacities_grid.shape[1],
+            line_opacities_grid.shape[2],
+            pressures.size,
+        ),
+        dtype=WORKING_JAX_DTYPE,
+    )
+
+    def _accumulate_species(total, species_index):
+        species_opacity = interpolate_line_opacities(
+            pressures,
+            temperatures,
+            line_opacities_temperature_pressure_grid[species_index],
+            line_opacities_grid[species_index],
+            line_opacities_temperature_grid_size[species_index],
+            line_opacities_pressure_grid_size[species_index],
+        )
+        species_opacity = jnp.asarray(species_opacity, dtype=WORKING_JAX_DTYPE)
+        species_weight = line_species_mass_fractions[:, species_index][None, None, :]
+
+        return total + species_opacity * species_weight
+
+    total_opacities = lax.fori_loop(
+        0,
+        line_opacities_grid.shape[0],
+        lambda species_index, total: _accumulate_species(total, species_index),
+        total_opacities,
+    )
+
+    return total_opacities[:, :, None, :]
+
+
 def interpolate_species_opacities(
     pressures,
     temperatures,
@@ -259,6 +302,61 @@ def interpolate_species_opacities(
             line_opacities_temperature_pressure_grid=line_opacities_temperature_pressure_grid,
             line_opacities_temperature_grid_size=line_opacities_temperature_grid_size,
             line_opacities_pressure_grid_size=line_opacities_pressure_grid_size,
+        )
+
+    return jnp.zeros((n_g, n_frequencies, 1, n_layers), dtype=WORKING_JAX_DTYPE)
+
+
+def interpolate_species_opacities_summed(
+    pressures,
+    temperatures,
+    n_g,
+    n_frequencies,
+    line_opacities_grid,
+    line_opacities_temperature_pressure_grid,
+    line_opacities_temperature_grid_size,
+    line_opacities_pressure_grid_size,
+    line_species_mass_fractions,
+):
+    n_layers = pressures.size
+
+    if isinstance(line_opacities_grid, dict):
+        total_opacities = jnp.zeros(
+            (n_g, n_frequencies, n_layers), dtype=WORKING_JAX_DTYPE
+        )
+
+        for i, species in enumerate(line_opacities_grid):
+            line_opacities_tp_grid = line_opacities_temperature_pressure_grid[
+                species
+            ].reshape(
+                line_opacities_temperature_grid_size[species],
+                line_opacities_pressure_grid_size[species],
+                2,
+            )
+            species_opacity = interpolate_line_opacities(
+                pressures,
+                temperatures,
+                line_opacities_tp_grid,
+                line_opacities_grid[species],
+                line_opacities_temperature_grid_size[species],
+                line_opacities_pressure_grid_size[species],
+            )
+            species_opacity = jnp.asarray(species_opacity, dtype=WORKING_JAX_DTYPE)
+            total_opacities = total_opacities + species_opacity * line_species_mass_fractions[
+                :, i
+            ][None, None, :]
+
+        return total_opacities[:, :, None, :]
+
+    if line_opacities_grid.shape[0] > 0:
+        return _interpolate_stacked_species_opacities_summed(
+            pressures=pressures,
+            temperatures=temperatures,
+            line_opacities_grid=line_opacities_grid,
+            line_opacities_temperature_pressure_grid=line_opacities_temperature_pressure_grid,
+            line_opacities_temperature_grid_size=line_opacities_temperature_grid_size,
+            line_opacities_pressure_grid_size=line_opacities_pressure_grid_size,
+            line_species_mass_fractions=line_species_mass_fractions,
         )
 
     return jnp.zeros((n_g, n_frequencies, 1, n_layers), dtype=WORKING_JAX_DTYPE)

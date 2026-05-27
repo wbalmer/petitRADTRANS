@@ -884,6 +884,43 @@ def test_calculate_emission_spectrum_runtime_returns_model_result():
     )
 
 
+def test_calculate_emission_spectrum_runtime_filters_large_auxiliary_arrays():
+    radtrans = _DummyRadtrans()
+
+    def calculate_flux_with_large_auxiliary_outputs(**kwargs):
+        radtrans.calculate_flux_kwargs = kwargs
+        return (
+            jnp.array([1.0e-4, 2.0e-4]),
+            jnp.array([2.0, 4.0]),
+            {
+                "source": "emission",
+                "stellar_intensities": jnp.array([5.0, 6.0]),
+                "angle_dependent_intensities": jnp.array([[1.0, 2.0]]),
+            },
+        )
+
+    radtrans.calculate_flux = calculate_flux_with_large_auxiliary_outputs
+    model_context = ModelContext(
+        name="emission",
+        mode="emission",
+        radtrans=radtrans,
+        adaptive_mesh_refinement=False,
+    )
+    model_inputs = ModelInputs(
+        pressures=jnp.array([1.0]),
+        temperatures=jnp.array([1000.0]),
+        abundances={"H2O": jnp.array([1e-3])},
+        mean_molar_masses=jnp.array([2.3]),
+        gravity=jnp.array(1e3),
+        planet_radius=jnp.array(2.0),
+        distance_to_system=jnp.array(4.0),
+    )
+
+    result = calculate_emission_spectrum_runtime(model_context, model_inputs)
+
+    assert result.auxiliary_outputs == {"source": "emission"}
+
+
 def test_calculate_transmission_spectrum_runtime_returns_model_result():
     radtrans = _DummyRadtrans()
     model_context = ModelContext(

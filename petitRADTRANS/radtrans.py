@@ -16,6 +16,7 @@ from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.radtrans_core.interpolate_line_opacities import (
     interpolate_species_opacities,
+    interpolate_species_opacities_summed,
 )
 from petitRADTRANS.radtrans_core import radiative_transfer_core
 from petitRADTRANS.radtrans_core.spectrum_utils import compute_bins_edges
@@ -1004,8 +1005,6 @@ class Radtrans:
         emission contribution function.
 
         Args:
-            temperatures:
-                Atmospheric temperature profile in K with one entry per layer.
             reference_gravity:
                 Reference gravity in cgs units used in the optical-depth
                 calculation.
@@ -1179,6 +1178,20 @@ class Radtrans:
     ):
         if planet_radius is None or not return_photosphere_radius:
             return None
+        return self.calculate_photosphere_radius(
+            temperatures=temperatures,
+            mean_molar_masses=mean_molar_masses,
+            reference_gravity=reference_gravity,
+            planet_radius=planet_radius,
+            opacities=opacities,
+            continuum_opacities_scattering=continuum_opacities_scattering,
+            cloud_f_sed=cloud_f_sed,
+            cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
+            cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
+            cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
+            cloud_absorption_opacities=cloud_absorption_opacities,
+            optical_depths=optical_depths,
+        )
 
         return self.calculate_photosphere_radius(
             temperatures=temperatures,
@@ -1300,11 +1313,11 @@ class Radtrans:
 
     @jit(
         static_argnames=[
-            "self",
             "cloud_particle_radius_distribution",
             "patchy_clouds",
             "additional_absorption_opacities_function",
             "additional_scattering_opacities_function",
+            "return_opacities",
             "sum_opacities",
             "anisotropic_cloud_scattering",
             "compute_clear_opacities",
@@ -1335,6 +1348,7 @@ class Radtrans:
         cloud_fraction=1.0,
         patchy_clouds=None,
         return_cloud_contribution=False,
+        return_opacities=False,
         additional_absorption_opacities_function=None,
         additional_scattering_opacities_function=None,
         compute_clear_opacities=False,
@@ -1552,23 +1566,57 @@ class Radtrans:
 
         # Line opacities (calculating them just before calculating the combined opacities reduces peak memory usage)
         ck_flattened_layout = self._line_opacity_mode == "c-k" and sum_opacities
-        line_opacities = interpolate_species_opacities(
-            pressures=pressures,
-            temperatures=temperatures,
-            n_g=self._lines_loaded_opacities["g_gauss"].size,
-            n_frequencies=self._frequencies.size,
-            line_opacities_grid=self._lines_loaded_opacities["opacity_grid_stacked"],
-            line_opacities_temperature_pressure_grid=self._lines_loaded_opacities[
-                "temperature_pressure_grid_stacked"
-            ],
-            line_opacities_temperature_grid_size=self._lines_loaded_opacities[
-                "temperature_grid_size_array"
-            ],
-            line_opacities_pressure_grid_size=self._lines_loaded_opacities[
-                "pressure_grid_size_array"
-            ],
-            output_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
+        collapse_lbl_species_axis = (
+            self._line_opacity_mode == "lbl"
+            and sum_opacities
+            and not return_opacities
+            and len(self._line_species) > 1
         )
+
+        if collapse_lbl_species_axis:
+            line_opacities = interpolate_species_opacities_summed(
+                pressures=pressures,
+                temperatures=temperatures,
+                n_g=self._lines_loaded_opacities["g_gauss"].size,
+                n_frequencies=self._frequencies.size,
+                line_opacities_grid=self._lines_loaded_opacities[
+                    "opacity_grid_stacked"
+                ],
+                line_opacities_temperature_pressure_grid=self._lines_loaded_opacities[
+                    "temperature_pressure_grid_stacked"
+                ],
+                line_opacities_temperature_grid_size=self._lines_loaded_opacities[
+                    "temperature_grid_size_array"
+                ],
+                line_opacities_pressure_grid_size=self._lines_loaded_opacities[
+                    "pressure_grid_size_array"
+                ],
+                line_species_mass_fractions=line_species_mass_fractions,
+            )
+            combined_line_species_mass_fractions = jnp.ones(
+                (pressures.size, 1), dtype=WORKING_JAX_DTYPE
+            )
+        else:
+            line_opacities = interpolate_species_opacities(
+                pressures=pressures,
+                temperatures=temperatures,
+                n_g=self._lines_loaded_opacities["g_gauss"].size,
+                n_frequencies=self._frequencies.size,
+                line_opacities_grid=self._lines_loaded_opacities[
+                    "opacity_grid_stacked"
+                ],
+                line_opacities_temperature_pressure_grid=self._lines_loaded_opacities[
+                    "temperature_pressure_grid_stacked"
+                ],
+                line_opacities_temperature_grid_size=self._lines_loaded_opacities[
+                    "temperature_grid_size_array"
+                ],
+                line_opacities_pressure_grid_size=self._lines_loaded_opacities[
+                    "pressure_grid_size_array"
+                ],
+                output_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
+            )
+            combined_line_species_mass_fractions = line_species_mass_fractions
 
         cloudy_continuum_opacities = (
             continuum_opacities + cloudy_cloud_continuum_opacities
@@ -1584,7 +1632,7 @@ class Radtrans:
             opacities=line_opacities,
             continuum_opacities=cloudy_continuum_opacities,
             line_species=self._line_species,
-            line_species_mass_fractions=line_species_mass_fractions,
+            line_species_mass_fractions=combined_line_species_mass_fractions,
             line_opacity_mode=self._line_opacity_mode,
             sum_opacities=sum_opacities,
             g_gauss=self._lines_loaded_opacities["g_gauss"],
@@ -1609,7 +1657,7 @@ class Radtrans:
                 opacities=line_opacities,
                 continuum_opacities=clear_continuum_opacities,
                 line_species=self._line_species,
-                line_species_mass_fractions=line_species_mass_fractions,
+                line_species_mass_fractions=combined_line_species_mass_fractions,
                 line_opacity_mode=self._line_opacity_mode,
                 sum_opacities=sum_opacities,
                 g_gauss=self._lines_loaded_opacities["g_gauss"],
@@ -1977,13 +2025,22 @@ class Radtrans:
         return frequencies, frequency_bins_edges
 
     def _tree_flatten(self):
+        cia_children = tuple(
+            (
+                collision_dict["weight"],
+                collision_dict["lambda"],
+                collision_dict["temperature"],
+                collision_dict["alpha"],
+            )
+            for collision_dict in self._cias_loaded_opacities.values()
+        )
         children = (
             self._pressures,
             self._wavelength_boundaries,
             self._frequencies,
             self._frequency_bins_edges,
             self._lines_loaded_opacities,
-            self._cias_loaded_opacities,
+            cia_children,
             self._clouds_loaded_opacities,
             self._emission_angle_grid,
         )
@@ -1998,6 +2055,13 @@ class Radtrans:
             "anisotropic_cloud_scattering": self._anisotropic_cloud_scattering,
             "retain_line_opacities_for_plotting": self._retain_line_opacities_for_plotting,
             "path_input_data": self._path_input_data,
+            "cia_collision_names": tuple(self._cias_loaded_opacities.keys()),
+            "cia_collision_molecules": tuple(
+                None
+                if collision_dict["molecules"] is None
+                else tuple(collision_dict["molecules"])
+                for collision_dict in self._cias_loaded_opacities.values()
+            ),
             "scattering_in_transmission": self.__scattering_in_transmission,
             "sum_opacities": self.__sum_opacities,
             "absorber_present": self.__absorber_present,
@@ -2015,10 +2079,28 @@ class Radtrans:
             instance._frequencies,
             instance._frequency_bins_edges,
             instance._lines_loaded_opacities,
-            instance._cias_loaded_opacities,
+            cia_children,
             instance._clouds_loaded_opacities,
             instance._emission_angle_grid,
         ) = children
+        cia_loaded_opacities = LockedDict()
+        for collision_name, molecules, collision_children in zip(
+            aux_data["cia_collision_names"],
+            aux_data["cia_collision_molecules"],
+            cia_children,
+        ):
+            weight, wavelengths, temperatures, alpha = collision_children
+            cia_loaded_opacities[collision_name] = LockedDict.build_and_lock(
+                {
+                    "molecules": molecules,
+                    "weight": weight,
+                    "lambda": wavelengths,
+                    "temperature": temperatures,
+                    "alpha": alpha,
+                }
+            )
+        cia_loaded_opacities.lock()
+        instance._cias_loaded_opacities = cia_loaded_opacities
         instance._line_species = aux_data["line_species"]
         instance._gas_continuum_contributors = aux_data["gas_continuum_contributors"]
         instance._rayleigh_species = aux_data["rayleigh_species"]
@@ -2604,7 +2686,6 @@ class Radtrans:
 
     @jit(
         static_argnames=[
-            "self",
             "cloud_particle_radius_distribution",
             "adaptive_feautrier_iterations",
             "irradiation_geometry",
@@ -2797,6 +2878,7 @@ class Radtrans:
                 "additional_scattering_opacities_function"
             ],
             compute_clear_opacities=should_compute_clear_opacities,
+            return_opacities=return_opacities,
             sum_opacities=sum_opacities,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             target_particle_radii=sanitized_inputs["target_particle_radii"],
@@ -3391,6 +3473,7 @@ class Radtrans:
                 "additional_scattering_opacities_function"
             ],
             compute_clear_opacities=False,
+            return_opacities=False,
             target_particle_radii=sanitized_inputs["target_particle_radii"],
             target_pressure=sanitized_inputs["target_pressure"],
         )
@@ -3665,7 +3748,6 @@ class Radtrans:
 
     @jit(
         static_argnames=[
-            "self",
             "cloud_particle_radius_distribution",
             "variable_gravity",
             "frequencies_to_wavelengths",
@@ -3828,6 +3910,7 @@ class Radtrans:
                 "additional_scattering_opacities_function"
             ],
             compute_clear_opacities=should_compute_clear_opacities,
+            return_opacities=return_opacities,
             sum_opacities=sum_opacities,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             target_particle_radii=sanitized_inputs["target_particle_radii"],
