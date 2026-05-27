@@ -3061,8 +3061,10 @@ def compute_transmission_spectrum_contribution(
     )
     weights_gauss_work = jnp.asarray(weights_gauss, dtype=WORKING_JAX_DTYPE)
 
-    opacity_times_rho = opacities_work * rho_work[None, None, None, :]
-    pair_opacity_times_rho = opacity_times_rho[..., :-1] + opacity_times_rho[..., 1:]
+    pair_opacity_times_rho = (
+        opacities_work[..., :-1] * rho_work[:-1][None, None, None, :]
+        + opacities_work[..., 1:] * rho_work[1:][None, None, None, :]
+    )
 
     impact_radius_squared = radius_squared[1:, None]
     upper_shell_boundaries = radius_squared[:-1][None, :]
@@ -3077,20 +3079,16 @@ def compute_transmission_spectrum_contribution(
     )
 
     if scattering_in_transmission:
-        continuum_times_rho = continuum_opacities_scattering_work * rho_work[None, :]
         pair_continuum_times_rho = (
-            continuum_times_rho[:, :-1] + continuum_times_rho[:, 1:]
+            continuum_opacities_scattering_work[:, :-1] * rho_work[:-1][None, :]
+            + continuum_opacities_scattering_work[:, 1:] * rho_work[1:][None, :]
         )
         scattering_optical_depths_active = jnp.einsum(
             "fl,ml->fm", pair_continuum_times_rho, diff_s_active, optimize=True
         )
-        continuum_times_rho_by_layer = jnp.swapaxes(continuum_times_rho, 0, 1)
     else:
         scattering_optical_depths_active = jnp.zeros(
             (opacities.shape[1], n_layers - 1), dtype=opacities.dtype
-        )
-        continuum_times_rho_by_layer = jnp.zeros(
-            (n_layers, opacities.shape[1]), dtype=opacities.dtype
         )
 
     # Only the two shells adjacent to a removed layer change, so precompute the
@@ -3099,8 +3097,6 @@ def compute_transmission_spectrum_contribution(
         diff_s_active, ((0, 0), (0, 1))
     )
     layer_path_weights_by_layer = jnp.swapaxes(layer_path_weights, 0, 1)
-    opacity_times_rho_by_layer = jnp.moveaxis(opacity_times_rho, -1, 0)
-    weights_gauss_expanded = weights_gauss[:, None, None, None]
     weights_gauss_expanded = weights_gauss_work[:, None, None, None]
     annulus_radius_increments = (
         radius_hydrostatic_equilibrium[:-1] - radius_hydrostatic_equilibrium[1:]
@@ -3111,8 +3107,10 @@ def compute_transmission_spectrum_contribution(
 
     def _leave_one_out_contribution(i_leave_str_idx: ArrayLike) -> ArrayLike:
         path_by_layer = layer_path_weights_by_layer[i_leave_str_idx]
+        rho_by_layer = rho_work[i_leave_str_idx]
+        gas_opacity_times_rho = opacities_work[..., i_leave_str_idx] * rho_by_layer
         gas_optical_depths_leave_one_out = gas_optical_depths_active - (
-            opacity_times_rho_by_layer[i_leave_str_idx][..., None] * path_by_layer
+            gas_opacity_times_rho[..., None] * path_by_layer
         )
 
         gas_transmission_active = jnp.exp(-gas_optical_depths_leave_one_out)
@@ -3123,9 +3121,12 @@ def compute_transmission_spectrum_contribution(
         total_transmission_active = jnp.prod(gas_transmission_by_species, axis=1)
 
         if scattering_in_transmission:
+            continuum_opacity_times_rho = (
+                continuum_opacities_scattering_work[:, i_leave_str_idx] * rho_by_layer
+            )
             scattering_optical_depths_leave_one_out = (
                 scattering_optical_depths_active
-                - continuum_times_rho_by_layer[i_leave_str_idx][:, None] * path_by_layer
+                - continuum_opacity_times_rho[:, None] * path_by_layer
             )
             total_transmission_active = total_transmission_active * jnp.exp(
                 -scattering_optical_depths_leave_one_out
