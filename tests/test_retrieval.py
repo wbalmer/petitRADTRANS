@@ -561,11 +561,10 @@ def test_runtime_scores_shared_grid_time_series_by_projecting_model_times_first(
         "time_series",
         {},
         model_wavelengths,
-        jnp.full_like(interpolated_model, -10.0),
+        model_spectra,
         0.0,
         model_auxiliary_outputs={
             "model_times": model_times,
-            "model_spectra": model_spectra,
         },
     )
 

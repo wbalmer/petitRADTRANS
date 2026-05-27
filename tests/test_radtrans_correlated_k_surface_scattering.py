@@ -64,6 +64,7 @@ def test_correlated_k_emission_spectrum_surface_scattering():
         ],
         star_irradiation_angle=test_parameters["stellar_parameters"]["incidence_angle"],
         reflectances=test_parameters["planetary_parameters"]["surface_reflectance"],
+        return_stellar_intensities=True,
         frequencies_to_wavelengths=False,
     )
 
@@ -92,6 +93,7 @@ def test_correlated_k_emission_spectrum_surface_scattering_with_adaptive_feautri
         ],
         star_irradiation_angle=test_parameters["stellar_parameters"]["incidence_angle"],
         reflectances=test_parameters["planetary_parameters"]["surface_reflectance"],
+        return_stellar_intensities=True,
         frequencies_to_wavelengths=False,
         adaptive_feautrier_iterations=True,
     )

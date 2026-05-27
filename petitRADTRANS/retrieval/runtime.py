@@ -841,14 +841,11 @@ class RetrievalRuntime:
 
                 if model_auxiliary_outputs is not None:
                     model_times = model_auxiliary_outputs.get("model_times")
-                    model_spectra_sequence = model_auxiliary_outputs.get(
-                        "model_spectra"
-                    )
 
-                    if model_times is not None and model_spectra_sequence is not None:
+                    if model_times is not None and jnp.ndim(spectrum_model) == 2:
                         projected_model = project_model_time_series_to_observation_space(
                             wavelengths_model,
-                            model_spectra_sequence,
+                            spectrum_model,
                             model_times,
                             observation,
                             parameters,
@@ -1121,16 +1118,13 @@ class RetrievalRuntime:
         uncertainties_mode: str = "default",
         print_log_likelihood_for_debugging: bool = False,
     ) -> Any:
-        """Evaluate a batch of parameter vectors with an explicit per-stage vmap.
+        """Evaluate a batch of parameter vectors by vmapping the scalar JAX path.
 
         For model groups using ``MODEL_CONTRACT_DIFFERENTIABLE`` this method
-        makes the batch structure explicit to XLA:
-
-        1. The model-generating function is vmapped with ``model_context`` as
-           a *static* axis (``in_axes=(None, 0)``), so the ``Radtrans`` object
-           and all pre-built flags are never re-traced across samples.
-        2. Scoring (``_score_dataset``) is vmapped over the resulting batched
-           spectra.
+        applies ``jax.vmap`` to the single-sample :meth:`evaluate_jax` path.
+        This keeps model generation and scoring adjacent inside each mapped
+        sample, which avoids retaining a fully materialized batched
+        ``ModelResult`` tree before likelihood accumulation.
 
         For non-native groups the method falls back to
         :meth:`evaluate_vectorized_jax`, which applies a single vmap over the
@@ -1146,25 +1140,20 @@ class RetrievalRuntime:
         Returns:
             Log-posterior contributions, shape ``(n_samples,)`` or scalar.
         """
-        from petitRADTRANS.retrieval.models import (
-            MODEL_CONTRACT_DIFFERENTIABLE,
-            calculate_emission_spectra_batched,
-        )
+        from petitRADTRANS.retrieval.models import MODEL_CONTRACT_DIFFERENTIABLE
 
-        free_parameter_values = jnp.asarray(free_parameter_values, dtype=JAX_DTYPE)
         if jnp.ndim(free_parameter_values) == 1:
-            # Single-sample path — delegate to evaluate_jax directly.
             physical_params = self.parameter_layout.physical_params_from_free_values(
                 free_parameter_values
             )
             return self.evaluate_jax(
                 physical_params=physical_params,
                 uncertainties_mode=uncertainties_mode,
-                print_log_likelihood_for_debugging=print_log_likelihood_for_debugging,
+                print_log_likelihood_for_debugging=(
+                    print_log_likelihood_for_debugging
+                ),
             )
 
-        # Check whether all model groups use the runtime-native contract so we
-        # can apply the explicit per-stage vmap.
         all_native = all(
             g.model_contract == MODEL_CONTRACT_DIFFERENTIABLE for g in self.model_groups
         )
@@ -1172,105 +1161,24 @@ class RetrievalRuntime:
             return self.evaluate_vectorized_jax(
                 free_parameter_values,
                 uncertainties_mode=uncertainties_mode,
-                print_log_likelihood_for_debugging=print_log_likelihood_for_debugging,
+                print_log_likelihood_for_debugging=(
+                    print_log_likelihood_for_debugging
+                ),
             )
 
-        # Build batched PhysicalParams by vmapping the parameter layout transform.
-        # Each leaf of batched_physical_params has shape (n_samples, ...).
         batched_physical_params = vmap(
             self.parameter_layout.physical_params_from_free_values
         )(free_parameter_values)
 
-        invalid_value = INVALID_LOG_LIKELIHOOD
-        tiny = jnp.asarray(jnp.finfo(JAX_DTYPE).tiny, dtype=JAX_DTYPE)
-
-        batched_log_priors = jnp.zeros(free_parameter_values.shape[0], dtype=JAX_DTYPE)
-        batched_has_invalid = jnp.zeros(free_parameter_values.shape[0], dtype=bool)
-        batched_contributions = []
-
-        for group in self.model_groups:
-            # Stage 1: vmap the model-generating function with model_context
-            # as a *static* outer argument.  Only physical_params is batched.
-            batched_model_results = vmap(
-                group.model_generating_function, in_axes=(None, 0)
-            )(group.model_context, batched_physical_params)
-
-            # Validity: any sample with a NaN spectrum is flagged invalid.
-            batched_valid = ~jnp.isnan(batched_model_results.spectrum).all(axis=-1)
-            batched_has_invalid = jnp.logical_or(batched_has_invalid, ~batched_valid)
-
-            batched_group_contributions = jnp.zeros(
-                free_parameter_values.shape[0], dtype=JAX_DTYPE
+        return vmap(
+            lambda physical_params_single: self.evaluate_jax(
+                physical_params=physical_params_single,
+                uncertainties_mode=uncertainties_mode,
+                print_log_likelihood_for_debugging=(
+                    print_log_likelihood_for_debugging
+                ),
             )
-
-            # Stage 2: vmap _score_dataset over the batched spectra.
-            # additional_log_likelihood is now a proper batched leaf (shape
-            # (n_samples,)) thanks to ModelResult's pytree registration.
-            batched_additional_ll = jnp.asarray(
-                batched_model_results.additional_log_likelihood, dtype=JAX_DTYPE
-            )
-            if batched_additional_ll.ndim == 0:
-                batched_additional_ll = jnp.broadcast_to(
-                    batched_additional_ll, (free_parameter_values.shape[0],)
-                )
-            for observation_name in group.observation_names:
-
-                def score_one(
-                    physical_params_single, wavelengths, spectrum, additional_ll
-                ):
-                    return self._score_dataset(
-                        observation_name,
-                        physical_params_single,
-                        wavelengths,
-                        spectrum,
-                        additional_ll,
-                    )
-
-                batched_scores = vmap(score_one)(
-                    batched_physical_params,
-                    batched_model_results.wavelengths,
-                    batched_model_results.spectrum,
-                    batched_additional_ll,
-                )
-                contribution_invalid = batched_scores <= invalid_value
-                batched_has_invalid = jnp.logical_or(
-                    batched_has_invalid, contribution_invalid
-                )
-                batched_group_contributions = jnp.where(
-                    contribution_invalid,
-                    invalid_value,
-                    batched_group_contributions + batched_scores,
-                )
-
-            batched_contributions.append(batched_group_contributions)
-
-            # Accumulate per-sample log-prior contributions.
-            if batched_model_results.auxiliary_outputs:
-                log_prior_weights = batched_model_results.auxiliary_outputs.get(
-                    "log_prior_weight", 0.0
-                )
-                batched_log_priors = batched_log_priors + jnp.asarray(
-                    log_prior_weights, dtype=JAX_DTYPE
-                )
-
-        batched_log_likelihood = jnp.sum(
-            jnp.stack(batched_contributions, axis=-1), axis=-1
-        )
-        batched_log_likelihood = jnp.where(
-            batched_has_invalid, invalid_value, batched_log_likelihood
-        )
-
-        if "log_prior_weight" in batched_physical_params:
-            batched_log_priors = (
-                batched_log_priors + batched_physical_params["log_prior_weight"]
-            )
-
-        totals = batched_log_likelihood + batched_log_priors
-        totals = jnp.where(totals < invalid_value, invalid_value, totals)
-        totals = jnp.where(
-            jnp.abs(totals) < tiny, jnp.asarray(tiny, dtype=JAX_DTYPE), totals
-        )
-        return totals
+        )(batched_physical_params)
 
     def _project_dataset_observation(
         self,

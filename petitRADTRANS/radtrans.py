@@ -994,6 +994,7 @@ class Radtrans:
         cloud_absorption_opacities,
         adaptive_feautrier_iterations,
         return_contribution=False,
+        return_angle_dependent_intensities=False,
         sum_opacities=True,
         chunk_feautrier=False,
         feautrier_chunk_size=1024,
@@ -1044,6 +1045,9 @@ class Radtrans:
                 Feautrier solver.
             return_contribution:
                 If ``True``, also return the emission contribution function.
+            return_angle_dependent_intensities:
+                If ``True``, return angle-dependent intensities. Non-scattering
+                emission returns a zero placeholder with the correct shape.
             chunk_feautrier:
                 If ``True``, evaluate the Feautrier solver in frequency chunks.
             feautrier_chunk_size:
@@ -1079,17 +1083,7 @@ class Radtrans:
             cloud_absorption_opacities=cloud_absorption_opacities,
             photospheric_cloud_optical_depths=photospheric_cloud_optical_depths,
         )
-        angle_dependent_intensities = jnp.zeros(
-            (
-                self._emission_angle_grid["cos_angles"].shape[0],
-                self._frequencies.shape[0],
-            ),
-            dtype=(
-                FEAUTRIER_JAX_DTYPE
-                if self._scattering_in_emission
-                else WORKING_JAX_DTYPE
-            ),
-        )
+        angle_dependent_intensities = None
         if self._scattering_in_emission:
             flux, emission_contribution, angle_dependent_intensities = (
                 radiative_transfer_core.compute_feautrier_radiative_transfer(
@@ -1152,6 +1146,14 @@ class Radtrans:
                 _optical_depths,
                 return_contribution,
             )
+            if return_angle_dependent_intensities:
+                angle_dependent_intensities = jnp.zeros(
+                    (
+                        self._emission_angle_grid["cos_angles"].shape[0],
+                        self._frequencies.shape[0],
+                    ),
+                    dtype=WORKING_JAX_DTYPE,
+                )
         return (
             flux,
             emission_contribution,
@@ -2446,6 +2448,8 @@ class Radtrans:
         return_cloud_contribution: bool = False,
         return_opacities: bool = False,
         return_abundances: bool = False,
+        return_stellar_intensities: bool = False,
+        return_angle_dependent_intensities: bool = False,
         return_particle_radii_bins: bool = False,
         return_particle_radii: bool = False,
         target_particle_radii: ArrayLike = None,
@@ -2588,6 +2592,12 @@ class Radtrans:
                 as optical depths
             return_abundances (Optional[bool]):
                 If True, return the mass fractions.
+            return_stellar_intensities (Optional[bool]):
+                If True, include the stellar intensities used by the emission
+                solver in the auxiliary output mapping.
+            return_angle_dependent_intensities (Optional[bool]):
+                If True, include the angle-dependent intensities in the
+                auxiliary output mapping.
             return_particle_radii_bins (Optional[bool]):
                 If True, return the particle radii bins.
             return_particle_radii (Optional[bool]):
@@ -2676,6 +2686,8 @@ class Radtrans:
             return_cloud_contribution=return_cloud_contribution,
             return_opacities=return_opacities,
             return_abundances=return_abundances,
+            return_stellar_intensities=return_stellar_intensities,
+            return_angle_dependent_intensities=return_angle_dependent_intensities,
             return_particle_radii_bins=return_particle_radii_bins,
             return_particle_radii=return_particle_radii,
             target_particle_radii=target_particle_radii,
@@ -2701,6 +2713,8 @@ class Radtrans:
             "return_cloud_contribution",
             "return_opacities",
             "return_abundances",
+            "return_stellar_intensities",
+            "return_angle_dependent_intensities",
             "return_particle_radii_bins",
             "return_particle_radii",
         ]
@@ -2751,6 +2765,8 @@ class Radtrans:
         return_cloud_contribution=False,
         return_opacities=False,
         return_abundances=False,
+        return_stellar_intensities=False,
+        return_angle_dependent_intensities=False,
         return_particle_radii_bins=False,
         return_particle_radii=False,
         target_particle_radii=None,
@@ -2903,6 +2919,7 @@ class Radtrans:
             reflectances=emission_inputs["reflectances"],
             emissivities=emission_inputs["emissivities"],
             return_contribution=return_contribution,
+            return_angle_dependent_intensities=return_angle_dependent_intensities,
             cloud_f_sed=cloud_f_sed,
             photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
             cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
@@ -3006,9 +3023,10 @@ class Radtrans:
                 "particle_radii"
             ]
 
-        additional_outputs["stellar_intensities"] = emission_inputs[
-            "stellar_intensities"
-        ]
+        if return_stellar_intensities:
+            additional_outputs["stellar_intensities"] = emission_inputs[
+                "stellar_intensities"
+            ]
 
         if return_contribution:
             additional_outputs["emission_contribution"] = emission_contribution
@@ -3053,7 +3071,10 @@ class Radtrans:
                     cloud_opacities=cloud_opacities,
                 )
             )
-        additional_outputs["angle_dependent_intensities"] = angle_dependent_intensities
+        if return_angle_dependent_intensities:
+            additional_outputs["angle_dependent_intensities"] = (
+                angle_dependent_intensities
+            )
         if return_opacities:
             additional_outputs["opacities"] = opacities
             additional_outputs["continuum_opacities_scattering"] = (

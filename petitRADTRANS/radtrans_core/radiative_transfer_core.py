@@ -55,7 +55,7 @@ def _prepare_ck_opacity_inputs(
     line_species_mass_fractions: ArrayLike,
     continuum_opacities: ArrayLike,
     input_layout: str,
-) -> tuple[ArrayLike, ArrayLike, int, int, int, int]:
+) -> tuple[ArrayLike, ArrayLike, ArrayLike, int, int, int, int]:
     """Prepare flattened c-k inputs shared by the CPU and GPU implementations."""
     if input_layout == "fl_s_ng":
         opacities_flat = opacities_fortran_order
@@ -78,9 +78,15 @@ def _prepare_ck_opacity_inputs(
     ).reshape(n_fl, n_species)
     continuum_flat = continuum_opacities.reshape(n_fl)
 
-    weighted_all = opacities_flat * abundance_weights_flat[:, :, None]
-
-    return weighted_all, continuum_flat, n_frequencies, n_layers, n_species, n_g
+    return (
+        opacities_flat,
+        abundance_weights_flat,
+        continuum_flat,
+        n_frequencies,
+        n_layers,
+        n_species,
+        n_g,
+    )
 
 
 def _finalize_ck_opacity_shape(
@@ -145,7 +151,15 @@ def _combine_ck_opacities_jax(
             "line_species_mass_fractions and continuum_opacities are required"
         )
 
-    weighted_all, continuum_flat, n_frequencies, n_layers, n_species, n_g = (
+    (
+        opacities_flat,
+        abundance_weights_flat,
+        continuum_flat,
+        n_frequencies,
+        n_layers,
+        n_species,
+        n_g,
+    ) = (
         _prepare_ck_opacity_inputs(
             opacities_fortran_order,
             line_species_mass_fractions,
@@ -221,8 +235,13 @@ def _combine_ck_opacities_jax(
     # C2 + C3: Vectorized threshold & species loop.
     # ------------------------------------------------------------------
 
+    def _weight_species(species_index: int) -> ArrayLike:
+        return opacities_flat[:, species_index, :] * abundance_weights_flat[
+            :, species_index : species_index + 1
+        ]
+
     # Initialize with first species + continuum  (n_fl, n_g)
-    current = weighted_all[:, 0, :] + continuum_flat[:, None]
+    current = _weight_species(0) + continuum_flat[:, None]
 
     if n_species > 1:
         # C2: Vectorized threshold matching Fortran structure.
@@ -230,13 +249,17 @@ def _combine_ck_opacities_jax(
         # then checks g=n_g (last/strongest) against it. The continuum has
         # already been added to species 0 in the Fortran input, so fold it
         # into the threshold probe here as well.
-        threshold_input = weighted_all[:, :, 0].at[:, 0].add(continuum_flat)
+        threshold_input = (opacities_flat[:, :, 0] * abundance_weights_flat).at[
+            :, 0
+        ].add(continuum_flat)
         threshold = jnp.max(threshold_input, axis=1) * 1e-2  # (n_fl,)
-        active_mask = weighted_all[:, :, -1] >= threshold[:, None]  # (n_fl, n_species)
+        active_mask = (
+            opacities_flat[:, :, -1] * abundance_weights_flat
+        ) >= threshold[:, None]  # (n_fl, n_species)
 
         # Batched species loop — no vmap, single sort kernel per species.
         for s in range(1, n_species):
-            spec_s = weighted_all[:, s, :]  # (n_fl, n_g)
+            spec_s = _weight_species(s)  # (n_fl, n_g)
             combined = _perform_combination_batched(current, spec_s)  # (n_fl, n_g)
             current = jnp.where(active_mask[:, s : s + 1], combined, current)
 
@@ -902,33 +925,52 @@ def _compute_feautrier_radiative_transfer_chunk(
     # 3. Stellar attenuation  J_star_ini_gfl (g, f, l)
     # ------------------------------------------------------------------
     if geom > 0:
-        # exp_over_mu: (g, f, a, l)
-        exp_over_mu_gfal = jnp.exp(
-            -optical_depths_in[:, :, None, :] / emission_cos_angles[None, None, :, None]
+        stellar_intensity_abs_f = jnp.abs(stellar_intensity)
+
+        # Accumulate each angle contribution in sequence to avoid a full
+        # (g, f, angle, layer) exponential cube.
+        def _accumulate_stellar_angle(
+            carry: tuple[ArrayLike, ArrayLike],
+            angle_inputs: tuple[ArrayLike, ArrayLike, ArrayLike],
+        ) -> tuple[tuple[ArrayLike, ArrayLike], None]:
+            j_star_accum_gfl, surface_reflection_accum_gf = carry
+            mu, angle_weight, mu_weight = angle_inputs
+
+            exp_over_mu_gfl = jnp.exp(-optical_depths_in / mu)
+            j_star_accum_gfl = j_star_accum_gfl + angle_weight * exp_over_mu_gfl
+            surface_reflection_accum_gf = (
+                surface_reflection_accum_gf
+                + mu_weight * exp_over_mu_gfl[:, :, n_layers - 1]
+            )
+
+            return (
+                j_star_accum_gfl,
+                surface_reflection_accum_gf,
+            ), None
+
+        (j_star_angle_sum_gfl, surface_reflection_angle_sum_gf), _ = lax.scan(
+            _accumulate_stellar_angle,
+            (
+                jnp.zeros_like(optical_depths_in),
+                jnp.zeros((n_g, n_freq_bins), dtype=optical_depths_in.dtype),
+            ),
+            (
+                emission_cos_angles,
+                emission_cos_angles_weights,
+                mu_weight_a,
+            ),
         )
 
         J_star_ini_gfl = (
-            0.5
+            0.5 * geom * stellar_intensity_abs_f[None, :, None] * j_star_angle_sum_gfl
+        )
+
+        I_surface_reflection_gf = (
+            surf_refl_2[None, :]
             * geom
-            * jnp.abs(stellar_intensity)[None, :, None, None]
-            * emission_cos_angles_weights[None, None, :, None]
-            * exp_over_mu_gfal
-        ).sum(
-            axis=2
-        )  # (g, f, l)
-
-        # Surface reflection — slice exp at surface before releasing
-        exp_surf_gfa = exp_over_mu_gfal[:, :, :, n_layers - 1]  # (g, f, a)
-        del exp_over_mu_gfal
-
-        I_surface_reflection_gf = surf_refl_2[None, :] * (
-            geom
-            * jnp.abs(stellar_intensity)[None, :, None]
-            * exp_surf_gfa
-            * mu_weight_a[None, None, :]
-        ).sum(
-            axis=2
-        )  # (g, f)
+            * stellar_intensity_abs_f[None, :]
+            * surface_reflection_angle_sum_gf
+        )
 
     else:  # non-isotropic
         exp_gfl = jnp.exp(-optical_depths_in / star_irradiation_cos_angle)
@@ -2561,18 +2603,21 @@ def compute_transit_radii(
     )
     weights_gauss_work = jnp.asarray(weights_gauss, dtype=WORKING_JAX_DTYPE)
 
-    # Scale continuum scattering once, then broadcast it only onto the first species slot.
-    continuum_opa_scat_reshaped = (
-        continuum_opacities_scattering_work * rho_work
-    ).reshape(
-        (1, continuum_opacities_scattering_work.shape[0], 1, pressures.size)
+    # Build adjacent-layer extinction pairs directly so we do not retain both
+    # the full opacity*rho cube and a second paired copy at the same time.
+    pair_continuum_transparencies = (
+        continuum_opacities_scattering_work[:, :-1] * rho_work[:-1][None, :]
+        + continuum_opacities_scattering_work[:, 1:] * rho_work[1:][None, :]
     )
 
-    transparencies = opacities_work * rho_work[None, None, None, :]
-    transparencies = transparencies.at[:, :, :1, :].add(continuum_opa_scat_reshaped)
-
     # Factor 1/2 is omitted because it cancels with effective planet area integration below.
-    pair_transparencies = transparencies[..., 1:] + transparencies[..., :-1]
+    pair_transparencies = (
+        opacities_work[..., :-1] * rho_work[:-1][None, None, None, :]
+        + opacities_work[..., 1:] * rho_work[1:][None, None, None, :]
+    )
+    pair_transparencies = pair_transparencies.at[:, :, :1, :].add(
+        pair_continuum_transparencies[None, :, None, :]
+    )
 
     # Only the active shell-path block contributes; avoid building the padded
     # (n_layers, n_layers) matrix whose first row and column are identically zero.
@@ -2714,21 +2759,18 @@ def compute_transit_radii_summed(
     )
     weights_gauss_work = jnp.asarray(weights_gauss, dtype=WORKING_JAX_DTYPE)
 
-    # Bring continuum scattering opacities in right shape for matrix operations later.
-    # Reminder: when calling this function, continuum absorption opacities have already
-    # been added to line_struc_kappas.
-    continuum_opa_scat_reshaped = (
-        continuum_opacities_scattering_work * rho_work
-    ).reshape(
-        (1, continuum_opacities_scattering_work.shape[0], 1, pressures.size)
+    pair_continuum_transparencies = (
+        continuum_opacities_scattering_work[:, :-1] * rho_work[:-1][None, :]
+        + continuum_opacities_scattering_work[:, 1:] * rho_work[1:][None, :]
     )
 
-    transparencies = opacities_work * rho_work[None, None, None, :]
-    transparencies = transparencies + continuum_opa_scat_reshaped
-
-    # Calculate average mean free path between neighboring layers for later integration
+    # Calculate average mean free path between neighboring layers for later integration.
     # Factor 1/2 is omitted because it cancels with effective planet area integration below.
-    pair_transparencies = transparencies[..., 1:] + transparencies[..., :-1]
+    pair_transparencies = (
+        opacities_work[..., :-1] * rho_work[:-1][None, None, None, :]
+        + opacities_work[..., 1:] * rho_work[1:][None, None, None, :]
+        + pair_continuum_transparencies[None, :, None, :]
+    )
 
     # Only the active shell-path block contributes; avoid building the padded
     # (n_layers, n_layers) matrix whose first row and column are identically zero.

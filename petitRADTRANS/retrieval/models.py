@@ -917,7 +917,10 @@ def time_series_gradient_emission(
     -------
     ModelResult
         When ``pt_plot_mode=False``: ``spectrum`` has shape
-        ``(N_obs, N_wavelength)`` aligned with ``observation_times``.
+        ``(N_time, N_wavelength)`` on the shared model time grid, and
+        ``auxiliary_outputs['model_times']`` stores that grid. The runtime
+        scorer projects each epoch to observation space before interpolating in
+        time, so the model only needs to carry one spectral representation.
         When ``pt_plot_mode=True``: ``temperatures`` has shape
         ``(N_time, N_pressure)`` and ``auxiliary_outputs['model_times']``
         gives the corresponding model time grid.
@@ -1019,22 +1022,11 @@ def time_series_gradient_emission(
     model_spectra_2d = jnp.stack(model_spectra)
     wavelengths = step_result.wavelengths
 
-    # Interpolate along the time axis for each wavelength bin to produce
-    # spectra at the actual observation times: (N_obs, N_wavelength)
-    observed_spectra = vmap(
-        lambda wl_col: jnp.interp(observation_times, model_times, wl_col),
-        in_axes=1,
-        out_axes=1,
-    )(model_spectra_2d)
-
     return ModelResult(
         kind="spectrum",
         wavelengths=wavelengths,
-        spectrum=observed_spectra,
-        auxiliary_outputs={
-            "model_times": model_times,
-            "model_spectra": model_spectra_2d,
-        },
+        spectrum=model_spectra_2d,
+        auxiliary_outputs={"model_times": model_times},
     )
 
 

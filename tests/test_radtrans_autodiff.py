@@ -322,6 +322,42 @@ def test_calculate_flux_jit_correlated_k_scattering():
     assert np.isfinite(np.asarray(flux)).all()
 
 
+def test_calculate_flux_emission_auxiliaries_are_opt_in():
+    flux_inputs = _build_flux_inputs()
+    base_temperatures = jnp.array(temperature_guillot_2010)
+
+    _, _, default_outputs = atmosphere_ck_scattering.calculate_flux(
+        temperatures=base_temperatures,
+        mass_fractions=flux_inputs["mass_fractions"],
+        mean_molar_masses=flux_inputs["mean_molar_masses"],
+        reference_gravity=flux_inputs["reference_gravity"],
+        **flux_inputs["cloud_parameters"],
+        frequencies_to_wavelengths=False,
+    )
+
+    assert "stellar_intensities" not in default_outputs
+    assert "angle_dependent_intensities" not in default_outputs
+
+    _, _, requested_outputs = atmosphere_ck_scattering.calculate_flux(
+        temperatures=base_temperatures,
+        mass_fractions=flux_inputs["mass_fractions"],
+        mean_molar_masses=flux_inputs["mean_molar_masses"],
+        reference_gravity=flux_inputs["reference_gravity"],
+        **flux_inputs["cloud_parameters"],
+        frequencies_to_wavelengths=False,
+        return_stellar_intensities=True,
+        return_angle_dependent_intensities=True,
+    )
+
+    assert "stellar_intensities" in requested_outputs
+    assert "angle_dependent_intensities" in requested_outputs
+    assert requested_outputs["stellar_intensities"].ndim == 1
+    assert requested_outputs["angle_dependent_intensities"].ndim == 2
+    assert requested_outputs["stellar_intensities"].shape[0] in requested_outputs[
+        "angle_dependent_intensities"
+    ].shape
+
+
 def test_calculate_flux_autodiff_matches_calculate_flux_scattering():
     flux_inputs = _build_flux_inputs()
     base_temperatures = jnp.array(temperature_guillot_2010)

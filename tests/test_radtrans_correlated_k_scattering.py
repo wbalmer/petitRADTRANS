@@ -237,6 +237,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         orbit_semi_major_axis=test_parameters["planetary_parameters"][
             "orbit_semi_major_axis"
         ],
+        return_stellar_intensities=True,
         frequencies_to_wavelengths=False,
     )
 
@@ -272,6 +273,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         orbit_semi_major_axis=test_parameters["planetary_parameters"][
             "orbit_semi_major_axis"
         ],
+        return_stellar_intensities=True,
         frequencies_to_wavelengths=False,
     )
 
@@ -308,6 +310,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
             "orbit_semi_major_axis"
         ],
         star_irradiation_angle=test_parameters["stellar_parameters"]["incidence_angle"],
+        return_stellar_intensities=True,
         frequencies_to_wavelengths=False,
     )
 
@@ -362,6 +365,7 @@ def test_correlated_k_emission_spectrum_complete_coverage_calculated_radius_stel
             "orbit_semi_major_axis"
         ],
         star_irradiation_angle=test_parameters["stellar_parameters"]["incidence_angle"],
+        return_stellar_intensities=True,
         frequencies_to_wavelengths=False,
     )
 
@@ -405,6 +409,7 @@ def test_correlated_k_emission_spectrum_partial_cloud_calculated_radius_stellar_
             "orbit_semi_major_axis"
         ],
         star_irradiation_angle=test_parameters["stellar_parameters"]["incidence_angle"],
+        return_stellar_intensities=True,
         frequencies_to_wavelengths=False,
     )
 
