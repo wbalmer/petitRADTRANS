@@ -33,6 +33,104 @@ def _build_cloud_species_mass_fractions(mass_fractions, selected_cloud_species):
     return cloud_species_mass_fractions
 
 
+def _resolve_cloud_parameter_key(parameter, cloud_name):
+    if cloud_name in parameter:
+        return cloud_name
+
+    cloud_opacity = CloudOpacity([cloud_name], natural_abundance=False)
+    species_full_name = cloud_opacity.species_full_name
+    cloud_short_name = species_full_name.split("_")[0]
+
+    for candidate in (species_full_name, cloud_short_name):
+        if candidate in parameter:
+            return candidate
+
+    return None
+
+
+def _expand_cloud_parameter_column(value, pressures, parameter_name, cloud_name):
+    value = jnp.asarray(value, dtype=JAX_DTYPE)
+
+    if value.ndim == 0:
+        return jnp.full((pressures.size,), value, dtype=JAX_DTYPE)
+
+    if value.ndim == 1:
+        if value.shape[0] == 1:
+            return jnp.full((pressures.size,), value[0], dtype=JAX_DTYPE)
+
+        if value.shape[0] == pressures.size:
+            return value
+
+    raise ValueError(
+        f"{parameter_name} for cloud species '{cloud_name}' must be a scalar or an array "
+        f"with shape {(pressures.size,)}, but was of shape {value.shape}"
+    )
+
+
+def _standardize_cloud_species_parameter(
+    parameter,
+    cloud_species,
+    pressures,
+    parameter_name,
+):
+    if parameter is None or parameter is _MISSING_FLOAT:
+        return parameter
+
+    n_layers = pressures.size
+    n_clouds = len(cloud_species)
+
+    if isinstance(parameter, dict):
+        parameter_grid = jnp.zeros((n_layers, n_clouds), dtype=JAX_DTYPE)
+        missing_species = []
+
+        for i_spec, cloud_name in enumerate(cloud_species):
+            parameter_key = _resolve_cloud_parameter_key(parameter, cloud_name)
+
+            if parameter_key is None:
+                missing_species.append(cloud_name)
+                continue
+
+            parameter_grid = parameter_grid.at[:, i_spec].set(
+                _expand_cloud_parameter_column(
+                    parameter[parameter_key],
+                    pressures=pressures,
+                    parameter_name=parameter_name,
+                    cloud_name=cloud_name,
+                )
+            )
+
+        if len(missing_species) > 0:
+            raise ValueError(
+                f"{parameter_name} is missing values for cloud species: {', '.join(missing_species)}"
+            )
+
+        return parameter_grid
+
+    parameter = jnp.asarray(parameter, dtype=JAX_DTYPE)
+
+    if parameter.ndim == 0:
+        return jnp.full((n_layers, n_clouds), parameter, dtype=JAX_DTYPE)
+
+    if parameter.ndim == 1:
+        if parameter.shape[0] == n_layers:
+            return jnp.tile(parameter[:, None], (1, n_clouds))
+
+        if parameter.shape[0] == n_clouds:
+            return jnp.tile(parameter[None, :], (n_layers, 1))
+
+    if parameter.ndim == 2:
+        if parameter.shape == (n_layers, n_clouds):
+            return parameter
+
+        if parameter.shape == (n_clouds, n_layers):
+            return parameter.T
+
+    raise ValueError(
+        f"{parameter_name} must be a scalar, a dict keyed by cloud species, or an array "
+        f"with shape {(n_layers, n_clouds)}, but was of shape {parameter.shape}"
+    )
+
+
 def _filter_patchy_clouds(cloud_species, patchy_clouds):
     return tuple(species for species in cloud_species if species in patchy_clouds)
 
@@ -467,38 +565,24 @@ def _maybe_compute_cloud_branch(
 
 
 def _initialize_hansen_b(
-    cloud_hansen_b, cloud_particle_radius_distribution, pressures, n_clouds
+    cloud_hansen_b,
+    cloud_particle_radius_distribution,
+    cloud_species,
+    pressures,
 ):
     if "hansen" not in cloud_particle_radius_distribution.lower():
         return cloud_hansen_b
+    if cloud_hansen_b is None:
+        raise ValueError(
+            "The Hansen distribution width (cloud_hansen_b) must be set when "
+            "using the Hansen particle radius distribution"
+        )
 
-    if isinstance(cloud_hansen_b, jnp.ndarray):
-        if cloud_hansen_b.ndim == 0:
-            # Scalar jnp.ndarray (e.g. from JIT tracing) — treat like float
-            return jnp.array(
-                jnp.tile(cloud_hansen_b * jnp.ones_like(pressures), (n_clouds, 1)),
-                dtype=JAX_DTYPE,
-            ).T
-        if cloud_hansen_b.shape != (pressures.size, n_clouds):
-            raise ValueError(
-                "cloud_hansen_b must be a float, a dictionary with arrays for each cloud species, "
-                f"or an array with shape {(pressures.shape[0], n_clouds)}, "
-                f"but was of shape {jnp.shape(cloud_hansen_b)}"
-            )
-        return cloud_hansen_b
-
-    if isinstance(cloud_hansen_b, dict):
-        return jnp.array(list(cloud_hansen_b.values()), dtype=JAX_DTYPE)
-
-    if isinstance(cloud_hansen_b, float):
-        return jnp.array(
-            jnp.tile(cloud_hansen_b * jnp.ones_like(pressures), (n_clouds, 1)),
-            dtype=JAX_DTYPE,
-        ).T
-
-    raise ValueError(
-        f"The Hansen distribution width (cloud_hansen_b) must be an array, a dict, "
-        f"or a float, but is of type '{type(cloud_hansen_b)}' ({cloud_hansen_b})"
+    return _standardize_cloud_species_parameter(
+        parameter=cloud_hansen_b,
+        cloud_species=cloud_species,
+        pressures=pressures,
+        parameter_name="cloud_hansen_b",
     )
 
 
@@ -527,10 +611,6 @@ def _initialize_cloud_species_inputs(
         if cloud_name not in cloud_species_mass_fractions:
             continue
 
-        cloud_opacity = CloudOpacity([cloud_name], natural_abundance=False)
-        species_full_name = cloud_opacity.species_full_name
-        cloud_short_name = species_full_name.split("_")[0]
-
         species_mass_fractions = species_mass_fractions.at[:, i_spec].set(
             cloud_species_mass_fractions[cloud_name]
         )
@@ -545,24 +625,20 @@ def _initialize_cloud_species_inputs(
                 clouds_loaded_opacities["particle_densities"][i_spec]
             )
 
-        if cloud_particle_mean_radii is not None:
-            if cloud_name in cloud_particle_mean_radii.keys():
-                cloud_particle_mean_radii_grid = cloud_particle_mean_radii_grid.at[
-                    :, i_spec
-                ].set(cloud_particle_mean_radii[cloud_name])
-            elif cloud_short_name in cloud_particle_mean_radii.keys():
-                cloud_particle_mean_radii_grid = cloud_particle_mean_radii_grid.at[
-                    :, i_spec
-                ].set(cloud_particle_mean_radii[cloud_short_name])
-        elif cloud_hansen_a is not None:
-            if cloud_name in cloud_hansen_a.keys():
-                cloud_particle_mean_radii_grid = cloud_particle_mean_radii_grid.at[
-                    :, i_spec
-                ].set(cloud_hansen_a[cloud_name])
-            elif cloud_short_name in cloud_hansen_a.keys():
-                cloud_particle_mean_radii_grid = cloud_particle_mean_radii_grid.at[
-                    :, i_spec
-                ].set(cloud_hansen_a[cloud_short_name])
+    radii_source = cloud_particle_mean_radii
+    radii_parameter_name = "cloud_particle_mean_radii"
+
+    if radii_source is None and cloud_hansen_a is not None:
+        radii_source = cloud_hansen_a
+        radii_parameter_name = "cloud_hansen_a"
+
+    if radii_source is not None:
+        cloud_particle_mean_radii_grid = _standardize_cloud_species_parameter(
+            parameter=radii_source,
+            cloud_species=cloud_species,
+            pressures=pressures,
+            parameter_name=radii_parameter_name,
+        )
 
     return (
         species_mass_fractions,
@@ -1327,8 +1403,8 @@ def _compute_cloud_opacities(
     cloud_hansen_b = _initialize_hansen_b(
         cloud_hansen_b=cloud_hansen_b,
         cloud_particle_radius_distribution=cloud_particle_radius_distribution,
+        cloud_species=cloud_species,
         pressures=pressures,
-        n_clouds=n_clouds,
     )
     (
         _cloud_species_mass_fractions,
@@ -1342,6 +1418,12 @@ def _compute_cloud_opacities(
         clouds_particle_porosity_factor=clouds_particle_porosity_factor,
         cloud_particle_mean_radii=cloud_particle_mean_radii,
         cloud_hansen_a=cloud_hansen_a,
+    )
+    cloud_particle_radius_distribution_std = _standardize_cloud_species_parameter(
+        parameter=cloud_particle_radius_distribution_std,
+        cloud_species=cloud_species,
+        pressures=pressures,
+        parameter_name="cloud_particle_radius_distribution_std",
     )
 
     if cloud_particle_mean_radii is not None or cloud_hansen_a is not None:

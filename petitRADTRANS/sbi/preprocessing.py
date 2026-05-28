@@ -98,10 +98,11 @@ def _apply_spectral_value_transform(values: Any, scale_value: float) -> np.ndarr
 def _apply_relative_spectral_value_transform(
     values: Any,
     sample_scale: float,
+    sample_center: float,
 ) -> np.ndarray:
     scale = max(float(sample_scale), _NORMALIZATION_SCALE_FLOOR)
     raw_values = np.asarray(values, dtype=float)
-    return np.arcsinh(raw_values / scale)
+    return np.arcsinh((raw_values - float(sample_center)) / scale)
 
 
 def _transform_spectral_uncertainties(
@@ -467,6 +468,12 @@ def normalize_observation_block(
     metadata = dict(block.metadata)
     sample_log_median_flux = _sample_log_median_flux(raw_values, block.mask)
     if is_spectral_block and sample_robust_scale is not None:
+        valid_sample_values = _valid_sample_values(raw_values, block.mask)
+        sample_center = (
+            float(np.nanmedian(valid_sample_values))
+            if valid_sample_values.size > 0
+            else 0.0
+        )
         sample_log_scale = float(
             np.log10(max(sample_robust_scale, _NORMALIZATION_SCALE_FLOOR))
         )
@@ -478,7 +485,9 @@ def normalize_observation_block(
         metadata["relative_values"] = _apply_relative_spectral_value_transform(
             raw_values,
             sample_robust_scale,
+            sample_center,
         )
+        metadata["relative_spectrum_center"] = sample_center
         metadata["global_spectrum_scale"] = float(
             spectral_value_scale if spectral_value_scale is not None else sample_robust_scale
         )
@@ -486,7 +495,7 @@ def normalize_observation_block(
         metadata["log_spectrum_scale"] = sample_log_scale
         metadata["log_median_flux"] = sample_log_scale
         metadata["value_transform"] = "asinh_global_scale"
-        metadata["relative_value_transform"] = "asinh_sample_scale"
+        metadata["relative_value_transform"] = "asinh_centered_sample_scale"
         metadata["absolute_value_transform"] = "asinh_global_scale"
     elif sample_log_median_flux is not None:
         metadata["log_median_flux"] = sample_log_median_flux

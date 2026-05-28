@@ -421,10 +421,14 @@ def plot_posterior_predictive_report(
                 color="tab:blue",
             )
 
-        axis.set_title(
-            f"{dataset_name} | coverage={report.interval_coverage.get(dataset_name, float('nan')):.3f}, "
-            f"mae={report.mean_absolute_error.get(dataset_name, float('nan')):.3e}"
-        )
+        title_parts = [
+            f"coverage={report.interval_coverage.get(dataset_name, float('nan')):.3f}",
+            f"mae={report.mean_absolute_error.get(dataset_name, float('nan')):.3e}",
+        ]
+        mae_sigma = report.mean_absolute_error_sigma.get(dataset_name, float("nan"))
+        if np.isfinite(mae_sigma):
+            title_parts.append(f"mae_sigma={mae_sigma:.2f}")
+        axis.set_title(f"{dataset_name} | " + ", ".join(title_parts))
         axis.set_xlabel("Index")
         axis.set_ylabel("Observation scale")
         axis.legend(loc="best")

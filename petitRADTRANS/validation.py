@@ -414,6 +414,28 @@ def _normalize_optional_scalar(value, missing_value, dtype=WORKING_JAX_DTYPE):
     return jnp.array(value, dtype=dtype)
 
 
+def _normalize_optional_mapping_or_scalar(
+    value,
+    missing_value,
+    dtype=WORKING_JAX_DTYPE,
+):
+    if value is None:
+        return missing_value
+
+    if isinstance(value, (np.ndarray, jnp.ndarray)):
+        return jnp.array(value, dtype=dtype)
+
+    if isinstance(value, dict):
+        normalized_mapping = {}
+
+        for key, item in list(value.items()):
+            normalized_mapping[key] = jnp.array(item, dtype=dtype)
+
+        return normalized_mapping
+
+    return jnp.array(value, dtype=dtype)
+
+
 def _normalize_cloud_species_selection(selection, default_species):
     if selection is None:
         return tuple(default_species)
@@ -505,9 +527,9 @@ def _sanitize_flux_opacity_inputs(
         "opaque_cloud_top_pressure": _normalize_optional_scalar(
             opaque_cloud_top_pressure, missing_float
         ),
-        "cloud_particle_radius_distribution_std": _normalize_optional_scalar(
+        "cloud_particle_radius_distribution_std": _normalize_optional_mapping_or_scalar(
             cloud_particle_radius_distribution_std,
-            missing_float,
+            None,
             dtype=FEAUTRIER_JAX_DTYPE,
         ),
         "power_law_opacity_350nm": _normalize_optional_scalar(

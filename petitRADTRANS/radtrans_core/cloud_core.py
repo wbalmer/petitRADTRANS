@@ -147,6 +147,47 @@ def compute_cloud_particle_mean_radius(
     """
     n_layers = atmospheric_densities.shape[0]
     n_clouds = clouds_particle_densities.shape[0]
+    cloud_particle_radius_distribution_std = jnp.asarray(
+        cloud_particle_radius_distribution_std,
+        dtype=atmospheric_densities.dtype,
+    )
+
+    if cloud_particle_radius_distribution_std.ndim == 0:
+        cloud_particle_radius_distribution_std = jnp.full(
+            (n_layers, n_clouds),
+            cloud_particle_radius_distribution_std,
+            dtype=atmospheric_densities.dtype,
+        )
+    elif cloud_particle_radius_distribution_std.ndim == 1:
+        if cloud_particle_radius_distribution_std.shape[0] == n_layers:
+            cloud_particle_radius_distribution_std = jnp.tile(
+                cloud_particle_radius_distribution_std[:, None],
+                (1, n_clouds),
+            )
+        elif cloud_particle_radius_distribution_std.shape[0] == n_clouds:
+            cloud_particle_radius_distribution_std = jnp.tile(
+                cloud_particle_radius_distribution_std[None, :],
+                (n_layers, 1),
+            )
+        else:
+            raise ValueError(
+                "cloud_particle_radius_distribution_std must be a scalar or have shape "
+                f"({n_layers},) or ({n_clouds},), but was {cloud_particle_radius_distribution_std.shape}"
+            )
+    elif cloud_particle_radius_distribution_std.ndim == 2:
+        if cloud_particle_radius_distribution_std.shape == (n_clouds, n_layers):
+            cloud_particle_radius_distribution_std = (
+                cloud_particle_radius_distribution_std.T
+            )
+        elif cloud_particle_radius_distribution_std.shape != (n_layers, n_clouds):
+            raise ValueError(
+                "cloud_particle_radius_distribution_std must have shape "
+                f"({n_layers}, {n_clouds}), but was {cloud_particle_radius_distribution_std.shape}"
+            )
+    else:
+        raise ValueError(
+            "cloud_particle_radius_distribution_std must be a scalar or at most 2-dimensional"
+        )
 
     # Prepare flattened inputs for vmap
     rho_flat = jnp.repeat(atmospheric_densities, n_clouds)
@@ -155,11 +196,12 @@ def compute_cloud_particle_mean_radius(
     mean_molar_mass_flat = jnp.repeat(mean_molar_masses, n_clouds)
 
     f_sed_flat = f_seds.flatten()
+    lognormal_std_flat = cloud_particle_radius_distribution_std.flatten()
     eddy_diff_flat = jnp.repeat(eddy_diffusion_coefficients, n_clouds)
 
     # Vmap the core function over the flattened dimension
     mean_radius_flat = vmap(
-        _compute_mean_radius_single, in_axes=(None, 0, 0, 0, 0, 0, None, 0)
+        _compute_mean_radius_single, in_axes=(None, 0, 0, 0, 0, 0, 0, 0)
     )(
         reference_gravity,
         rho_flat,
@@ -167,7 +209,7 @@ def compute_cloud_particle_mean_radius(
         temp_flat,
         mean_molar_mass_flat,
         f_sed_flat,
-        cloud_particle_radius_distribution_std,
+        lognormal_std_flat,
         eddy_diff_flat,
     )
 

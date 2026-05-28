@@ -2410,7 +2410,7 @@ class Radtrans:
         planet_radius: float = None,
         opaque_cloud_top_pressure: float = None,
         cloud_particle_mean_radii: dict[str, ArrayLike] = None,
-        cloud_particle_radius_distribution_std: float = None,
+        cloud_particle_radius_distribution_std: float | dict[str, ArrayLike] = None,
         cloud_particle_radius_distribution: str = "lognormal",
         cloud_hansen_a: dict[str, ArrayLike] = None,
         cloud_hansen_b: dict[str, ArrayLike] = None,
@@ -2477,8 +2477,10 @@ class Radtrans:
             cloud_particle_mean_radii (Optional):
                 Dictionary of mean particle radii for all cloud species.
                 Dictionary keys are the cloud species names. Every radius array has same length as pressure array.
-            cloud_particle_radius_distribution_std (Optional[float]):
-                Width of the log-normal cloud particle size distribution
+            cloud_particle_radius_distribution_std:
+                Width of the log-normal cloud particle size distribution.
+                May be a shared scalar or a per-species dictionary whose
+                values are scalars or layer profiles.
             cloud_particle_radius_distribution (Optional[string]):
                 The cloud particle size distribution to use.
                 Can be either 'lognormal' (default) or 'hansen'.
@@ -3322,10 +3324,10 @@ class Radtrans:
         reference_gravity: float,
         opaque_cloud_top_pressure: float = None,
         cloud_particle_mean_radii: dict[str, ArrayLike] = None,
-        cloud_particle_radius_distribution_std: float = None,
+        cloud_particle_radius_distribution_std: float | dict[str, ArrayLike] = None,
         cloud_particle_radius_distribution: str = "lognormal",
-        cloud_hansen_a: float = None,
-        cloud_hansen_b: float = None,
+        cloud_hansen_a: dict[str, ArrayLike] = None,
+        cloud_hansen_b: dict[str, ArrayLike] = None,
         clouds_particle_porosity_factor: dict[str, float] = None,
         cloud_f_sed: float = None,
         eddy_diffusion_coefficients: float = None,
@@ -3359,8 +3361,10 @@ class Radtrans:
                 dictionary of mean particle radii for all cloud species.
                 Dictionary keys are the cloud species names.
                 Every radius array has same length as pressure array.
-            cloud_particle_radius_distribution_std (Optional[float]):
-                width of the log-normal cloud particle size distribution
+            cloud_particle_radius_distribution_std:
+                Width of the log-normal cloud particle size distribution.
+                May be a shared scalar or a per-species dictionary whose
+                values are scalars or layer profiles.
             cloud_particle_radius_distribution (Optional[string]):
                 The cloud particle size distribution to use.
                 Can be either 'lognormal' (default) or 'hansen'.
@@ -3534,10 +3538,10 @@ class Radtrans:
         variable_gravity: bool = True,
         opaque_cloud_top_pressure: float = None,
         cloud_particle_mean_radii: dict[str, ArrayLike] = None,
-        cloud_particle_radius_distribution_std: float = None,
+        cloud_particle_radius_distribution_std: float | dict[str, ArrayLike] = None,
         cloud_particle_radius_distribution: str = "lognormal",
-        cloud_hansen_a: float = None,
-        cloud_hansen_b: float = None,
+        cloud_hansen_a: dict[str, ArrayLike] = None,
+        cloud_hansen_b: dict[str, ArrayLike] = None,
         cloud_particle_number_density_grid: dict[str, ArrayLike] = None,
         clouds_particle_porosity_factor: dict[str, float] = None,
         cloud_f_sed: float = None,
@@ -3601,8 +3605,10 @@ class Radtrans:
                     dictionary of mean particle radii for all cloud species.
                     Dictionary keys are the cloud species names.
                     Every radius array has same length as pressure array.
-                cloud_particle_radius_distribution_std (Optional[float]):
-                    width of the log-normal cloud particle size distribution
+                cloud_particle_radius_distribution_std:
+                    Width of the log-normal cloud particle size distribution.
+                    May be a shared scalar or a per-species dictionary whose
+                    values are scalars or layer profiles.
                 cloud_particle_radius_distribution (Optional[string]):
                     The cloud particle size distribution to use.
                     Can be either 'lognormal' (default) or 'hansen'.
