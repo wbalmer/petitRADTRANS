@@ -1603,6 +1603,15 @@ class SBITrainer:
                     best_loss_validation_loss = validation_metric
                     best_loss_validation_metrics = dict(epoch_validation_metrics)
                     best_loss_model = model
+                    # Early stopping tracks real quality: any improvement in the
+                    # primary validation loss resets patience, even if the
+                    # stability-gated selection metric did not improve this
+                    # epoch. This prevents premature stopping when a sharpening
+                    # posterior keeps improving val_loss while transiently
+                    # tripping the (strict) invertibility stability gate -- the
+                    # failure mode that previously froze selection on a weak
+                    # early epoch and stopped training long before convergence.
+                    patience_counter = 0
                     self._save_checkpoint(
                         'best_loss',
                         _checkpoint_state(best_loss_model, epoch + 1),

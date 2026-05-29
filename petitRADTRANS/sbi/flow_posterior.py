@@ -836,6 +836,15 @@ def _flow_validation_selection_metric(
             return metric_value, max(metric_value, 1e-8)
         return 0.0, 1e-8
 
+    # Soft, bounded penalty. Each violation contributes a smooth, saturating
+    # term (in nats) rather than a steep linear/constant cliff. The previous
+    # +50/+250/+1e3 scheme catapulted an unstable epoch's selection metric to
+    # several hundred, so a checkpoint with dramatically better validation loss
+    # could never be chosen once any earlier epoch was flagged stable. Here the
+    # total penalty is capped, so selection still prefers a stable checkpoint
+    # over an otherwise-equal unstable one, but a much-better-loss checkpoint is
+    # not discarded purely because an iterative-inverse diagnostic is marginally
+    # over threshold.
     penalty = 0.0
 
     for key in (
@@ -846,18 +855,19 @@ def _flow_validation_selection_metric(
     ):
         excess, threshold = _threshold_excess(key)
         if excess > 0.0:
-            penalty += 50.0 * float(np.log1p(excess / threshold))
+            penalty += 2.0 * float(np.log1p(excess / threshold))
 
     edge_hit_excess, edge_hit_threshold = _threshold_excess("cube_edge_hit_rate")
     if edge_hit_excess > 0.0:
-        penalty += 250.0 * (edge_hit_excess / edge_hit_threshold)
+        penalty += 2.0 * float(np.log1p(edge_hit_excess / edge_hit_threshold))
 
     max_derivative = float(diagnostics.get("spline_max_derivative", float("nan")))
     if np.isfinite(max_derivative) and max_derivative > 0.0:
-        penalty += 100.0 * max(0.0, float(np.log10(max_derivative)) - 6.0)
+        penalty += 2.0 * max(0.0, float(np.log10(max_derivative)) - 6.0)
 
+    penalty = min(penalty, 25.0)
     if penalty <= 0.0:
-        penalty = 1e3
+        penalty = 1.0
 
     return selection_metric + penalty
 
