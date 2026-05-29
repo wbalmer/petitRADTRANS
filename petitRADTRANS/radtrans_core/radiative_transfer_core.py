@@ -1662,7 +1662,7 @@ def compute_feautrier_radiative_transfer(
     iter_scat_max: int = 100,
     convergence_threshold: float = 1e-2,
     chunk_feautrier: bool = True,
-    feautrier_chunk_size: int = 1024,
+    feautrier_chunk_size: int = 1536,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike]: ...
 
 
@@ -1686,7 +1686,7 @@ def compute_feautrier_radiative_transfer(
     iter_scat_max: int = 100,
     convergence_threshold: float = 1e-2,
     chunk_feautrier: bool = True,
-    feautrier_chunk_size: int = 1024,
+    feautrier_chunk_size: int = 1536,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]: ...
 
 
@@ -1720,7 +1720,7 @@ def compute_feautrier_radiative_transfer(
     iter_scat_max: int = 100,
     convergence_threshold: float = 1e-2,
     chunk_feautrier: bool = True,
-    feautrier_chunk_size: int = 1024,
+    feautrier_chunk_size: int = 1536,
 ) -> (
     tuple[ArrayLike, ArrayLike, ArrayLike]
     | tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]
@@ -1784,8 +1784,10 @@ def compute_feautrier_radiative_transfer(
             weights_gauss=weights_gauss,
             emission_cos_angles=emission_cos_angles,
             emission_cos_angles_weights=emission_cos_angles_weights,
-            optical_depths_in=optical_depths_in,
-            photon_destruction_probabilities_in=photon_destruction_probabilities_in,
+            optical_depths_in=optical_depths_in.astype(FEAUTRIER_JAX_DTYPE),
+            photon_destruction_probabilities_in=photon_destruction_probabilities_in.astype(
+                FEAUTRIER_JAX_DTYPE
+            ),
             stellar_intensity=stellar_intensity,
             star_irradiation_cos_angle=star_irradiation_cos_angle,
             reflectances=reflectances,
@@ -1804,56 +1806,71 @@ def compute_feautrier_radiative_transfer(
         )
 
     n_chunks = (n_freq_bins + feautrier_chunk_size - 1) // feautrier_chunk_size
-    padded_n_freq_bins = n_chunks * feautrier_chunk_size
-    pad_freq_bins = padded_n_freq_bins - n_freq_bins
 
-    optical_depths_padded = jnp.pad(
-        optical_depths_in, ((0, 0), (0, pad_freq_bins), (0, 0))
+    # Frequency-chunk start indices. The final chunk's start is clamped so that
+    # every chunk reads a full ``feautrier_chunk_size`` window that stays within
+    # bounds; the last chunk therefore overlaps the previous one. Overlapping
+    # bins are recomputed identically and overwritten during reassembly, so the
+    # result is exact while avoiding any full-resolution padded copy of the
+    # large optical-depth / photon-destruction arrays.
+    # Use the canonical integer dtype (matches the Python int literals used as
+    # the other dynamic_slice start indices, in both x32 and x64 modes).
+    chunk_starts = jnp.minimum(
+        jnp.arange(n_chunks) * feautrier_chunk_size,
+        n_freq_bins - feautrier_chunk_size,
     )
-    photon_destruction_probabilities_padded = jnp.pad(
-        photon_destruction_probabilities_in,
-        ((0, 0), (0, pad_freq_bins), (0, 0)),
-    )
-    stellar_intensity_padded = jnp.pad(stellar_intensity, (0, pad_freq_bins))
-    reflectances_padded = jnp.pad(reflectances, (0, pad_freq_bins))
-    emissivities_padded = jnp.pad(emissivities, (0, pad_freq_bins))
 
-    if pad_freq_bins > 0:
-        last_bin_width = frequencies_bin_edges[-1] - frequencies_bin_edges[-2]
-        extra_frequency_edges = frequencies_bin_edges[-1] + last_bin_width * jnp.arange(
-            1, pad_freq_bins + 1
+    def _extract_chunk(start):
+        # Slice a single frequency window directly out of the unpadded inputs.
+        # The large optical-depth / photon-destruction arrays are passed in the
+        # compact WORKING dtype and upcast to FEAUTRIER_JAX_DTYPE one chunk at a
+        # time, so their full-resolution float64 copies are never materialised.
+        chunk_optical_depths = lax.dynamic_slice(
+            optical_depths_in,
+            (0, start, 0),
+            (n_g, feautrier_chunk_size, n_layers),
+        ).astype(FEAUTRIER_JAX_DTYPE)
+        chunk_photon_destruction_probabilities = lax.dynamic_slice(
+            photon_destruction_probabilities_in,
+            (0, start, 0),
+            (n_g, feautrier_chunk_size, n_layers),
+        ).astype(FEAUTRIER_JAX_DTYPE)
+        chunk_stellar_intensity = lax.dynamic_slice(
+            stellar_intensity, (start,), (feautrier_chunk_size,)
         )
-        frequencies_bin_edges_padded = jnp.concatenate(
-            (frequencies_bin_edges, extra_frequency_edges)
+        chunk_reflectances = lax.dynamic_slice(
+            reflectances, (start,), (feautrier_chunk_size,)
         )
-    else:
-        frequencies_bin_edges_padded = frequencies_bin_edges
+        chunk_emissivities = lax.dynamic_slice(
+            emissivities, (start,), (feautrier_chunk_size,)
+        )
+        chunk_frequency_bin_edges = lax.dynamic_slice(
+            frequencies_bin_edges, (start,), (feautrier_chunk_size + 1,)
+        )
+        return (
+            chunk_frequency_bin_edges,
+            chunk_optical_depths,
+            chunk_photon_destruction_probabilities,
+            chunk_stellar_intensity,
+            chunk_reflectances,
+            chunk_emissivities,
+        )
 
-    optical_depths_chunks = jnp.moveaxis(
-        optical_depths_padded.reshape(n_g, n_chunks, feautrier_chunk_size, n_layers),
-        1,
-        0,
-    )
-    photon_destruction_probabilities_chunks = jnp.moveaxis(
-        photon_destruction_probabilities_padded.reshape(
-            n_g, n_chunks, feautrier_chunk_size, n_layers
-        ),
-        1,
-        0,
-    )
-    stellar_intensity_chunks = stellar_intensity_padded.reshape(
-        n_chunks, feautrier_chunk_size
-    )
-    reflectances_chunks = reflectances_padded.reshape(n_chunks, feautrier_chunk_size)
-    emissivities_chunks = emissivities_padded.reshape(n_chunks, feautrier_chunk_size)
-    # Vectorised sliding-window construction — avoids Python for-loop
-    # that would be unrolled at trace time.
-    _chunk_starts = jnp.arange(n_chunks) * feautrier_chunk_size
-    frequencies_bin_edges_chunks = vmap(
-        lambda s: lax.dynamic_slice(
-            frequencies_bin_edges_padded, (s,), (feautrier_chunk_size + 1,)
-        )
-    )(_chunk_starts)
+    def _scatter_chunks(chunks, out_shape, freq_axis):
+        # Reassemble per-chunk outputs (stacked along axis 0 by lax.scan) into a
+        # single ``out_shape`` array by placing each chunk at its (clamped)
+        # frequency offset along ``freq_axis``. ``freq_axis`` is the position of
+        # the (length feautrier_chunk_size) frequency dimension inside each
+        # per-chunk array. The overlapping tail of the final chunk overwrites
+        # identical recomputed values, so the result is exact.
+        output = jnp.zeros(out_shape, dtype=chunks.dtype)
+
+        def _place(i, acc):
+            return lax.dynamic_update_slice_in_dim(
+                acc, chunks[i], chunk_starts[i], axis=freq_axis
+            )
+
+        return lax.fori_loop(0, n_chunks, _place, output)
 
     if return_solver_diagnostics:
         if return_contribution:
@@ -1868,7 +1885,7 @@ def compute_feautrier_radiative_transfer(
                     chunk_stellar_intensity,
                     chunk_reflectances,
                     chunk_emissivities,
-                ) = chunk_inputs
+                ) = _extract_chunk(chunk_inputs)
 
                 (
                     chunk_flux,
@@ -1910,14 +1927,7 @@ def compute_feautrier_radiative_transfer(
             ) = lax.scan(
                 _chunk_body,
                 None,
-                (
-                    frequencies_bin_edges_chunks,
-                    optical_depths_chunks,
-                    photon_destruction_probabilities_chunks,
-                    stellar_intensity_chunks,
-                    reflectances_chunks,
-                    emissivities_chunks,
-                ),
+                chunk_starts,
             )
         else:
 
@@ -1931,7 +1941,7 @@ def compute_feautrier_radiative_transfer(
                     chunk_stellar_intensity,
                     chunk_reflectances,
                     chunk_emissivities,
-                ) = chunk_inputs
+                ) = _extract_chunk(chunk_inputs)
 
                 (
                     chunk_flux,
@@ -1971,14 +1981,7 @@ def compute_feautrier_radiative_transfer(
             ) = lax.scan(
                 _chunk_body,
                 None,
-                (
-                    frequencies_bin_edges_chunks,
-                    optical_depths_chunks,
-                    photon_destruction_probabilities_chunks,
-                    stellar_intensity_chunks,
-                    reflectances_chunks,
-                    emissivities_chunks,
-                ),
+                chunk_starts,
             )
     else:
         if return_contribution:
@@ -1993,7 +1996,7 @@ def compute_feautrier_radiative_transfer(
                     chunk_stellar_intensity,
                     chunk_reflectances,
                     chunk_emissivities,
-                ) = chunk_inputs
+                ) = _extract_chunk(chunk_inputs)
 
                 chunk_result = cast(
                     tuple[ArrayLike, ArrayLike, ArrayLike],
@@ -2035,14 +2038,7 @@ def compute_feautrier_radiative_transfer(
             ) = lax.scan(
                 _chunk_body,
                 None,
-                (
-                    frequencies_bin_edges_chunks,
-                    optical_depths_chunks,
-                    photon_destruction_probabilities_chunks,
-                    stellar_intensity_chunks,
-                    reflectances_chunks,
-                    emissivities_chunks,
-                ),
+                chunk_starts,
             )
         else:
 
@@ -2056,7 +2052,7 @@ def compute_feautrier_radiative_transfer(
                     chunk_stellar_intensity,
                     chunk_reflectances,
                     chunk_emissivities,
-                ) = chunk_inputs
+                ) = _extract_chunk(chunk_inputs)
 
                 chunk_flux, _, chunk_angle_dependent_intensities = (
                     _compute_feautrier_radiative_transfer_chunk(
@@ -2091,25 +2087,21 @@ def compute_feautrier_radiative_transfer(
             ) = lax.scan(
                 _chunk_body,
                 None,
-                (
-                    frequencies_bin_edges_chunks,
-                    optical_depths_chunks,
-                    photon_destruction_probabilities_chunks,
-                    stellar_intensity_chunks,
-                    reflectances_chunks,
-                    emissivities_chunks,
-                ),
+                chunk_starts,
             )
 
-    flux_f = flux_chunks.reshape(padded_n_freq_bins)[:n_freq_bins]
-    angle_dependent_intensities = jnp.transpose(
-        angle_dependent_intensities_chunks, (1, 0, 2)
-    ).reshape(n_angles, padded_n_freq_bins,)[:, :n_freq_bins]
+    # flux per chunk: (cs,)            -> (n_freq_bins,),           freq axis 0
+    # angle per chunk: (cs, n_angles)  -> (n_freq_bins, n_angles),  freq axis 0
+    # contribution per chunk: (n_layers, cs) -> (n_layers, n_freq_bins), freq axis 1
+    flux_f = _scatter_chunks(flux_chunks, (n_freq_bins,), 0)
+    angle_dependent_intensities = _scatter_chunks(
+        angle_dependent_intensities_chunks, (n_freq_bins, n_angles), 0
+    )
 
     if return_contribution:
-        emission_contribution_lf = jnp.transpose(
-            emission_contribution_chunks, (1, 0, 2)
-        ).reshape(n_layers, padded_n_freq_bins,)[:, :n_freq_bins]
+        emission_contribution_lf = _scatter_chunks(
+            emission_contribution_chunks, (n_layers, n_freq_bins), 1
+        )
     else:
         emission_contribution_lf = None
 

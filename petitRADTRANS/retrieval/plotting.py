@@ -901,11 +901,12 @@ class RetrievalPlotter:
             )
             ax.plot(
                 pressures,
-                np.median(temps_sort, axis=0),
+                temps_sort[int(len_samp * 0.5), :],
                 color='k',
                 alpha=1.0,
                 zorder=10,
-                linewidth=2.0
+                linewidth=2.0,
+                linestyle="-",
             )
             if self.temp_limits is not None:
                 tlims = self.temp_limits

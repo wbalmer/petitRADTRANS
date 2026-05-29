@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a36] - 2026-05-25
+## [4.0.0a37] - 2026-05-29
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -14,13 +14,10 @@ As of version 4.0.0a10 everything required for a retrieval should be JIT compila
 Ready for beta testing with version 4.0.0.a16.
 
 ### TODO
-- Feature completion: Implement hansen cloud opacities in `cloud_core`.
 - Feature completion: New cloud opacities to be compatible with new condensation curves.
 - Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
 - Feature completion: Re-implement `additional_absorption_opacities_function`
-- Optimisation: Ensure imports are optimised.
 - Testing: generate new reference files where necessary, once commited to changes (e.g. chemistry update).
-- Testing: Optimise Feautrier chunk size hyper parameters for GPU.
 - Testing: Further testing on AMD GPUs, possibly TPUs.
 - Documentation: Add typing throughout
 - Documentation: Add further example scripts (ready-to-use) to examples directory.
@@ -34,6 +31,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
 
 ### Changed
+- a37: Memory optimisation - Feautrier chunking enabled by default.
 - a36: array input to fortran ck mixing is strictly typed
 - a36: plotting functions to vmap over samples
 - a35: Transition to mixed precision to reduce memory use and computation time.

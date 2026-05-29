@@ -36,7 +36,9 @@ class _PosteriorModel(eqx.Module):
     encoder: HierarchicalObservationEncoder
     flow: Any
     scale_head: eqx.nn.Linear
+    parameter_head: eqx.nn.MLP
     aux_scale_loss_weight: float = eqx.field(static=True)
+    aux_parameter_loss_weight: float = eqx.field(static=True)
     spline_small_bin_regularization_weight: float = eqx.field(static=True)
     spline_derivative_regularization_weight: float = eqx.field(static=True)
     spline_min_bin_ratio_target: float = eqx.field(static=True)
@@ -1007,6 +1009,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         embedding_noise_std: float = 0.0,
         embedding_noise_min_scale: float = 0.0,
         aux_scale_loss_weight: float = 0.0,
+        aux_parameter_loss_weight: float = 0.0,
         spline_small_bin_regularization_weight: float | None = None,
         spline_min_bin_ratio_target: float = 0.2,
         spline_entropy_regularization_weight: float = 0.0,
@@ -1080,6 +1083,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.embedding_noise_std = float(embedding_noise_std)
         self.embedding_noise_min_scale = float(embedding_noise_min_scale)
         self.aux_scale_loss_weight = float(aux_scale_loss_weight)
+        self.aux_parameter_loss_weight = float(aux_parameter_loss_weight)
         self.spline_entropy_regularization_weight = float(
             spline_entropy_regularization_weight
         )
@@ -1154,6 +1158,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             raise ValueError("neural_autoregressive_min_slope must be positive")
         if self.embedding_noise_min_scale < 0.0:
             raise ValueError("embedding_noise_min_scale must be non-negative")
+        if self.aux_parameter_loss_weight < 0.0:
+            raise ValueError("aux_parameter_loss_weight must be non-negative")
         if self.warmup_epochs is not None and self.warmup_epochs < 0.0:
             raise ValueError("warmup_epochs must be non-negative when provided")
         if (
@@ -1192,7 +1198,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         ):
             raise ValueError("stable_cube_edge_hit_rate_threshold must be non-negative")
 
-        encoder_key, flow_key, scale_key = random.split(random.PRNGKey(self.seed), 3)
+        encoder_key, flow_key, scale_key, parameter_head_key = random.split(
+            random.PRNGKey(self.seed), 4
+        )
         self.model = _PosteriorModel(
             encoder=HierarchicalObservationEncoder(
                 embedding_dim=self.embedding_dim,
@@ -1211,7 +1219,22 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 key=scale_key,
                 dtype=jnp.float32,
             ),
+            # Auxiliary head that predicts the (cube-space) parameters directly
+            # from the observation embedding. Its gradient flows only into the
+            # encoder, pressuring the embedding to retain parameter-discriminative
+            # spectral-shape information instead of collapsing to an
+            # amplitude-only summary. The flow itself is still trained purely on
+            # the NPE log-likelihood, so posterior calibration is preserved.
+            parameter_head=eqx.nn.MLP(
+                in_size=self.embedding_dim,
+                out_size=self.parameter_dim,
+                width_size=self.encoder_hidden_dim,
+                depth=2,
+                key=parameter_head_key,
+                dtype=jnp.float32,
+            ),
             aux_scale_loss_weight=self.aux_scale_loss_weight,
+            aux_parameter_loss_weight=self.aux_parameter_loss_weight,
             spline_small_bin_regularization_weight=self.spline_small_bin_regularization_weight,
             spline_derivative_regularization_weight=self.spline_derivative_regularization_weight,
             spline_min_bin_ratio_target=self.spline_min_bin_ratio_target,
@@ -1366,6 +1389,23 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 + model.spline_small_bin_regularization_weight * small_bin_penalty
                 + model.spline_derivative_regularization_weight * derivative_penalty
             )
+
+        # Auxiliary parameter-prediction objective. Predicting the cube-space
+        # parameters from the embedding gives a dense, per-parameter gradient
+        # that forces the encoder to encode the spectral shape (not just the
+        # amplitude). This breaks the lazy-learning trap where the flow settles
+        # for constraining the overall transit depth and returns the prior for
+        # every shape-driven parameter. Only meaningful in cube space, where the
+        # targets lie in [0, 1].
+        if model.aux_parameter_loss_weight > 0.0 and parameter_space == "cube":
+            cube_targets = jnp.clip(parameters, 0.0, 1.0)
+            parameter_predictions = vmap(
+                lambda embedding: nn.sigmoid(model.parameter_head(embedding))
+            )(embeddings)
+            parameter_loss = jnp.mean(
+                jnp.sum(jnp.square(parameter_predictions - cube_targets), axis=-1)
+            )
+            total_loss = total_loss + model.aux_parameter_loss_weight * parameter_loss
 
         if model.aux_scale_loss_weight <= 0.0:
             return total_loss
@@ -1914,6 +1954,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "checkpoint_backend": self.checkpoint_backend,
             "resume_from_checkpoint": self.resume_from_checkpoint,
             "aux_scale_loss_weight": self.aux_scale_loss_weight,
+            "aux_parameter_loss_weight": self.aux_parameter_loss_weight,
             "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
             "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
             "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -1973,6 +2014,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "checkpoint_backend": self.checkpoint_backend,
                 "resume_from_checkpoint": self.resume_from_checkpoint,
                 "aux_scale_loss_weight": self.aux_scale_loss_weight,
+                "aux_parameter_loss_weight": self.aux_parameter_loss_weight,
                 "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
                 "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
                 "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -2055,6 +2097,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "resume_from_checkpoint": metadata.get("resume_from_checkpoint", False),
             "conditioner_depth": metadata.get("conditioner_depth", 2),
             "aux_scale_loss_weight": metadata.get("aux_scale_loss_weight", 0.0),
+            "aux_parameter_loss_weight": metadata.get("aux_parameter_loss_weight", 0.0),
             "spline_small_bin_regularization_weight": small_bin_weight,
             "spline_min_bin_ratio_target": metadata.get("spline_min_bin_ratio_target", 0.2),
             "spline_entropy_regularization_weight": metadata.get(
@@ -2163,6 +2206,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             ),
             aux_scale_loss_weight=float(
                 estimator_config.get("aux_scale_loss_weight", 0.0)
+            ),
+            aux_parameter_loss_weight=float(
+                estimator_config.get("aux_parameter_loss_weight", 0.0)
             ),
             spline_small_bin_regularization_weight=float(
                 estimator_config.get(

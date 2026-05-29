@@ -107,6 +107,33 @@ def _spectral_local_structure(
     return jnp.where(pair_valid, forward_difference, 0.0).astype(jnp.float32)
 
 
+def _within_spectrum_standardized(
+    values: jnp.ndarray,
+    valid: jnp.ndarray,
+) -> jnp.ndarray:
+    """Standardize a spectrum across its own valid wavelengths.
+
+    Subtracting the per-spectrum mean removes the overall amplitude (which is
+    a near-constant offset across wavelengths for a single transmission
+    observation, set mostly by the planet radius), and dividing by the
+    per-spectrum standard deviation rescales the residual molecular features to
+    order unity. This exposes the wavelength-dependent *shape* that is
+    otherwise a sub-percent ripple riding on top of the dominant amplitude in
+    the globally normalized value channel, so the conditioner can actually see
+    the information that constrains composition, temperature, and clouds.
+    """
+    if values.shape[0] == 0:
+        return values
+    valid = valid.astype(values.dtype)
+    count = jnp.maximum(jnp.sum(valid), jnp.asarray(1.0, dtype=values.dtype))
+    mean = jnp.sum(values * valid) / count
+    centered = (values - mean) * valid
+    variance = jnp.sum(jnp.square(centered)) / count
+    scale = jnp.sqrt(variance + jnp.asarray(1e-12, dtype=values.dtype))
+    standardized = centered / jnp.maximum(scale, jnp.asarray(1e-6, dtype=values.dtype))
+    return standardized * valid
+
+
 def _masked_bin_means(
     values: jnp.ndarray,
     mask: jnp.ndarray,
@@ -516,13 +543,14 @@ class SpectralConv1DEncoder(eqx.Module):
         self.n_wavelengths = int(n_wavelengths)
         ch1, ch2 = hidden_channels
 
-        # 6 input channels: globally normalized values, uncertainties,
+        # 7 input channels: globally normalized values, uncertainties,
         # coordinates, a sample-scale contrast profile, a local-structure
-        # gradient channel derived from that contrast profile, and a broadcast
-        # log-scale channel.
+        # gradient channel derived from the within-spectrum shape profile, a
+        # broadcast log-scale channel, and the within-spectrum standardized
+        # shape profile itself (amplitude removed, features rescaled to O(1)).
         # Explicitly use float32 so weights are not promoted to float64
         # when jax_enable_x64 is active.
-        self.conv1 = eqx.nn.Conv1d(6, ch1, kernel_size=7, padding=3, key=k1, dtype=jnp.float32)
+        self.conv1 = eqx.nn.Conv1d(7, ch1, kernel_size=7, padding=3, key=k1, dtype=jnp.float32)
         self.conv2 = eqx.nn.Conv1d(ch1, ch2, kernel_size=5, padding=2, key=k2, dtype=jnp.float32)
         self.conv3 = eqx.nn.Conv1d(ch2, self.embedding_dim, kernel_size=3, padding=1, key=k3, dtype=jnp.float32)
         self.amplitude_projection = eqx.nn.MLP(_AMPLITUDE_FEATURE_DIM, self.embedding_dim, max(self.embedding_dim, ch2), 1, key=k_amp, dtype=jnp.float32)
@@ -572,12 +600,20 @@ class SpectralConv1DEncoder(eqx.Module):
         if absolute_values is None or absolute_values.shape[0] == 0:
             absolute_values = jnp.zeros_like(values)
         absolute_values = absolute_values * valid
-        local_structure = _spectral_local_structure(absolute_values, mask) * valid
+        # Within-spectrum standardized shape profile: amplitude removed, the
+        # molecular features rescaled to order unity. This is the channel that
+        # actually carries the wavelength-dependent information distinguishing
+        # composition/temperature/cloud parameters, which is otherwise buried
+        # as a sub-percent ripple under the dominant transit-depth amplitude.
+        shape_profile = _within_spectrum_standardized(values, valid)
+        local_structure = _spectral_local_structure(shape_profile, mask) * valid
         scale_channel = _broadcast_scalar_feature(log_median_flux, values.shape[0]) * valid
 
-        # The main spectral branch sees both the global absolute spectrum and
-        # a sample-scale contrast profile plus its local gradient so it can
-        # learn amplitude and wavelength-local structure jointly.
+        # The main spectral branch sees the global absolute spectrum, a
+        # sample-scale contrast profile, the within-spectrum shape profile, and
+        # the shape profile's local gradient, so it can learn amplitude and
+        # wavelength-local structure jointly without the amplitude swamping the
+        # shape.
         x = jnp.stack(
             [
                 values,
@@ -586,6 +622,7 @@ class SpectralConv1DEncoder(eqx.Module):
                 absolute_values,
                 local_structure,
                 scale_channel,
+                shape_profile,
             ],
             axis=0,
         )

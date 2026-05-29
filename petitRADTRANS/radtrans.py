@@ -996,8 +996,8 @@ class Radtrans:
         return_contribution=False,
         return_angle_dependent_intensities=False,
         sum_opacities=True,
-        chunk_feautrier=False,
-        feautrier_chunk_size=1024,
+        chunk_feautrier=True,
+        feautrier_chunk_size=1536,
     ):
         """Compute the emission flux for the already-prepared opacity state.
 
@@ -1105,12 +1105,16 @@ class Radtrans:
                         self._emission_angle_grid["weights"],
                         dtype=FEAUTRIER_JAX_DTYPE,
                     ),
+                    # Pass the large optical-depth and photon-destruction arrays
+                    # in the compact WORKING (float32) dtype. The Feautrier solver
+                    # upcasts each frequency chunk to FEAUTRIER_JAX_DTYPE internally,
+                    # so the full-resolution float64 copies are never materialised.
                     optical_depths_in=jnp.asarray(
-                        optical_depths[:, :, 0, :], dtype=FEAUTRIER_JAX_DTYPE
+                        optical_depths[:, :, 0, :], dtype=WORKING_JAX_DTYPE
                     ),
                     photon_destruction_probabilities_in=jnp.asarray(
                         photon_destruction_probabilities,
-                        dtype=FEAUTRIER_JAX_DTYPE,
+                        dtype=WORKING_JAX_DTYPE,
                     ),
                     stellar_intensity=jnp.asarray(
                         stellar_intensity, dtype=FEAUTRIER_JAX_DTYPE
@@ -2438,8 +2442,8 @@ class Radtrans:
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
         adaptive_feautrier_iterations: bool = False,
-        chunk_feautrier: bool = False,
-        feautrier_chunk_size: int = 1024,
+        chunk_feautrier: bool = True,
+        feautrier_chunk_size: int = 1536,
         frequencies_to_wavelengths: bool = True,
         return_contribution: bool = False,
         return_clear_spectrum: bool = False,
@@ -2758,8 +2762,8 @@ class Radtrans:
         additional_absorption_opacities_function=None,
         additional_scattering_opacities_function=None,
         adaptive_feautrier_iterations=False,
-        chunk_feautrier=False,
-        feautrier_chunk_size=1024,
+        chunk_feautrier=True,
+        feautrier_chunk_size=1536,
         frequencies_to_wavelengths=True,
         return_contribution=False,
         return_clear_spectrum=False,
@@ -3123,8 +3127,8 @@ class Radtrans:
         emissivities: ArrayLike = None,
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
-        chunk_feautrier: bool = False,
-        feautrier_chunk_size: int = 1024,
+        chunk_feautrier: bool = True,
+        feautrier_chunk_size: int = 1536,
         frequencies_to_wavelengths: bool = True,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, any]]:
         r"""Autodiff-oriented emission-spectrum API with grouped cloud controls.
