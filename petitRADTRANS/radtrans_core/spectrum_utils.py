@@ -173,35 +173,72 @@ def convolve_constant_resolution(
     return flux_lsf[..., 0].reshape(input_flux.shape)
 
 
-def convolve_variable_resolution(input_wavelength, input_flux, resolutions):
+# Half-width (in *model grid points*) of the sliding Gaussian-LSF window used by
+# convolve_variable_resolution. For a log-uniform (constant resolving power) model
+# grid the number of model samples spanned by +/-num_sigma of the LSF is
+#     num_sigma * R_model / (R_data * 2.3548)
+# which is wavelength-independent. With R_model up to ~5e4 and R_data >~ 1.5e3 this
+# is < ~60, so a half-window of 128 covers well beyond +/-num_sigma everywhere while
+# keeping the kernel matrix O(N_model * 257) instead of O(N_model^2).
+_DEFAULT_CONV_HALF_WINDOW = 128
+
+
+def convolve_variable_resolution(
+    input_wavelength, input_flux, resolutions, half_window=None
+):
     """
-    Convolve a spectrum with a variable with gaussian kernel.
+    Convolve a spectrum with a variable-width Gaussian kernel.
     Based on implementation from Ben Burningham for Brewster.
     https://github.com/fwang23nh/brewster_v2/blob/master/bbconv.f90
 
+    Memory-bounded sliding-window implementation: the original built the full
+    dense (N x N) Gaussian-LSF matrix over the entire input grid, which is
+    O(N_model^2) in memory and made reverse-mode AD (NUTS gradients) allocate
+    hundreds of GB at line-by-line model resolution. Because a Gaussian LSF has
+    finite support, each output channel only needs the model points within a few
+    sigma of it, so we evaluate the kernel on a fixed +/-half_window slice of the
+    grid centred on each channel. This is O(N_model * (2*half_window + 1)) and
+    returns the same result as the full-matrix version to within the negligible
+    far-wing contribution (window edges carry weight ~exp(-half_window^2/...) ~ 0).
+    Output grid == input grid, so the surrounding RV-shift / rebin pipeline is
+    unchanged.
+
     Args:
-        input_wavelength - units of micron
+        input_wavelength - units of micron (the model grid; also the output grid)
         input_flux - arbitrary units
-        resolutions - spectral resolving power, R
+        resolutions - spectral resolving power, R, per input wavelength
+        half_window - number of grid points on each side of a channel to include
+            in the kernel. Defaults to _DEFAULT_CONV_HALF_WINDOW.
 
     Returns:
-        convolved_spectrum - same units as input_flux
+        convolved_spectrum - same units / grid as input_flux
     """
+    if half_window is None:
+        half_window = _DEFAULT_CONV_HALF_WINDOW
 
-    # Vectorized implementation using vmap to replace the explicit Python loop.
-    # For each output channel (center wavelength and corresponding R) compute
-    # the Gaussian LSF over the full input wavelength grid, normalize it and
-    # take the dot-product with the input flux.
-    def _convolve_at(center_wv, res):
-        # sigma is FWHM / 2.355
-        sigma = (center_wv / res) / 2.355
-        gauss = jnp.exp(-((input_wavelength - center_wv) ** 2) / (2 * sigma**2))
-        gauss = gauss / jnp.sum(gauss)
-        return jnp.sum(gauss * input_flux)
+    n = input_wavelength.shape[0]
+    half_window = int(min(half_window, n - 1))
 
-    convolved_spectrum = vmap(_convolve_at)(input_wavelength, resolutions)
+    # For each output index i, gather the window i-half_window ... i+half_window.
+    offsets = jnp.arange(-half_window, half_window + 1)
+    raw_idx = jnp.arange(n)[:, None] + offsets[None, :]  # (n, 2H+1)
+    valid = (raw_idx >= 0) & (raw_idx < n)
+    idx = jnp.clip(raw_idx, 0, n - 1)
 
-    return convolved_spectrum
+    wv_window = input_wavelength[idx]  # (n, 2H+1)
+    flux_window = input_flux[idx]  # (n, 2H+1)
+
+    # sigma is FWHM / 2.3548 (= 2 * sqrt(2 * ln 2)).
+    sigma = (input_wavelength / resolutions) / 2.354820045030949  # (n,)
+    delta = wv_window - input_wavelength[:, None]
+    gauss = jnp.exp(-(delta**2) / (2.0 * sigma[:, None] ** 2))
+
+    # Drop out-of-grid neighbours (clip duplicates them) so edges truncate-and-
+    # renormalize exactly as the original full-grid version did.
+    gauss = jnp.where(valid, gauss, 0.0)
+    gauss = gauss / jnp.sum(gauss, axis=1, keepdims=True)
+
+    return jnp.sum(gauss * flux_window, axis=1)
 
 
 def convolve(

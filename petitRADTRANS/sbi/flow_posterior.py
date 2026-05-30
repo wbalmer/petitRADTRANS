@@ -21,6 +21,7 @@ from .flows import (
     ConditionalScalarSplineTransform,
     ConditionalSplineFlow,
     _normalize_bin_sizes,
+    _spline_boundary_derivatives,
 )
 from .observation import EncodedObservation, ObservationBlock
 from .posterior_base import (
@@ -659,7 +660,11 @@ def _spline_parameter_statistics(
                 )
             )(heights_raw)
             derivatives = jnp.asarray(
-                spline_layer.min_derivative + nn.softplus(derivatives_raw)
+                _spline_boundary_derivatives(
+                    derivatives_raw,
+                    spline_layer.min_derivative,
+                    spline_layer.max_derivative,
+                )
             )
             width_entropy_sum += float(
                 _weighted_average(
@@ -721,7 +726,11 @@ def _spline_parameter_statistics(
                     2.0 * scalar_layer.bound,
                 )
             )(heights_raw)
-            derivatives = scalar_layer.min_derivative + nn.softplus(derivatives_raw)
+            derivatives = _spline_boundary_derivatives(
+                derivatives_raw,
+                scalar_layer.min_derivative,
+                scalar_layer.max_derivative,
+            )
             width_entropy_sum += float(_weighted_average(_normalized_categorical_entropy(widths_raw)))
             height_entropy_sum += float(_weighted_average(_normalized_categorical_entropy(heights_raw)))
             abs_log_derivative_sum += float(
@@ -820,6 +829,12 @@ def _flow_validation_selection_metric(
     checkpoint_is_stable = float(diagnostics.get("checkpoint_is_stable", float("nan")))
     if np.isfinite(checkpoint_is_stable) and checkpoint_is_stable >= 0.5:
         return selection_metric
+
+    # A collapsed (pathological) checkpoint must never win selection, regardless
+    # of how negative its loss is. Return a large constant so any usable
+    # checkpoint -- and the early epochs before collapse -- rank strictly better.
+    if float(diagnostics.get("checkpoint_is_pathological", 0.0)) >= 0.5:
+        return 1.0e6
 
     def _threshold_excess(metric_name: str) -> tuple[float, float]:
         metric_value = float(diagnostics.get(metric_name, float("nan")))
@@ -933,6 +948,26 @@ def _flow_validation_stability_metrics(
 
     metrics["checkpoint_is_stable"] = 1.0 if stable else 0.0
     metrics["checkpoint_stability_violation_count"] = float(violation_count)
+
+    # Hard-pathology flag (distinct from the soft "stable" gate). This marks
+    # density collapse -- the dominant failure of an unbounded flow on a
+    # low-noise task: most samples piled at the cube edges, exploded spline
+    # derivatives, or an inverse error so large the map is non-invertible in
+    # practice. These are categorically different from a marginally-over-
+    # threshold-but-usable checkpoint, so they are handled separately:
+    # disqualified from selection and barred from resetting early-stop patience,
+    # which stops a collapsing run instead of letting its diverging loss
+    # masquerade as improvement.
+    edge_hit_rate = float(diagnostics.get("cube_edge_hit_rate", float("nan")))
+    max_derivative = float(diagnostics.get("spline_max_derivative", float("nan")))
+    inverse_error = float(diagnostics.get("inverse_forward_max_abs_error", float("nan")))
+    is_pathological = (
+        not np.isfinite(float(validation_loss))
+        or (np.isfinite(edge_hit_rate) and edge_hit_rate > 0.5)
+        or (np.isfinite(max_derivative) and max_derivative > 1.0e4)
+        or (np.isfinite(inverse_error) and inverse_error > 0.1)
+    )
+    metrics["checkpoint_is_pathological"] = 1.0 if is_pathological else 0.0
     return metrics
 
 
@@ -1020,6 +1055,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         embedding_noise_min_scale: float = 0.0,
         aux_scale_loss_weight: float = 0.0,
         aux_parameter_loss_weight: float = 0.0,
+        parameter_noise_floor: float = 0.0,
         spline_small_bin_regularization_weight: float | None = None,
         spline_min_bin_ratio_target: float = 0.2,
         spline_entropy_regularization_weight: float = 0.0,
@@ -1094,6 +1130,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.embedding_noise_min_scale = float(embedding_noise_min_scale)
         self.aux_scale_loss_weight = float(aux_scale_loss_weight)
         self.aux_parameter_loss_weight = float(aux_parameter_loss_weight)
+        self.parameter_noise_floor = float(parameter_noise_floor)
         self.spline_entropy_regularization_weight = float(
             spline_entropy_regularization_weight
         )
@@ -1170,6 +1207,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             raise ValueError("embedding_noise_min_scale must be non-negative")
         if self.aux_parameter_loss_weight < 0.0:
             raise ValueError("aux_parameter_loss_weight must be non-negative")
+        if self.parameter_noise_floor < 0.0:
+            raise ValueError("parameter_noise_floor must be non-negative")
         if self.warmup_epochs is not None and self.warmup_epochs < 0.0:
             raise ValueError("warmup_epochs must be non-negative when provided")
         if (
@@ -1297,6 +1336,11 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 conditioner_depth=self.conditioner_depth,
                 num_bins=self.num_spline_bins,
                 bound=self.spline_bound,
+                # Hard cap on the spline boundary derivatives (reusing the
+                # derivative-target knob): structurally bounds the spline slope
+                # and hence the density, preventing the unbounded-density
+                # collapse, and keeping the analytic inverse numerically valid.
+                max_derivative=self.spline_max_derivative_target,
                 key=key,
             )
         raise ValueError(f"Unsupported flow_family: {self.flow_family!r}")
@@ -1617,6 +1661,61 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         return diagnostics
 
     @staticmethod
+    def _make_parameter_noise_loss(
+        base_loss_fn: Callable[[_PosteriorModel, PosteriorBatch], jnp.ndarray],
+        noise_floor: float,
+        parameter_space: str,
+    ) -> Callable[[_PosteriorModel, PosteriorBatch], jnp.ndarray]:
+        """Wrap a training loss so the parameter *targets* are jittered.
+
+        Minimizing the conditional NLL in a very-low-noise regime with a highly
+        parameter-predictive embedding drives the learned conditional density
+        toward a delta (NLL -> -inf), which an over-sharp flow realizes as
+        exploded transforms (and, for spline flows, cube-edge collapse). A small
+        Gaussian jitter on the parameter targets gives the conditional a hard
+        minimum width, capping sharpness so the NLL has a finite minimum and the
+        flow's inverse stays well-conditioned.
+
+        The jitter is applied in *unconstrained* (logit) space -- the space the
+        flow actually models -- not in cube space. Additive cube-space noise is
+        asymmetric near the [0, 1] bounds: clipping piles jittered targets onto
+        the edges, and the cube->logit Jacobian rewards edge mass, so it
+        worsens the very edge-collapse it was meant to prevent. Jittering in
+        logit space is symmetric and boundary-free. Applied only during
+        training; evaluation and checkpoint selection use the clean targets.
+        """
+
+        def _loss(model: _PosteriorModel, batch: PosteriorBatch) -> jnp.ndarray:
+            if noise_floor <= 0.0 or parameter_space != "cube":
+                return base_loss_fn(model, batch)
+            parameters = jnp.asarray(batch.parameters, dtype=jnp.float32)
+            # Reproducible per-batch key derived from the batch contents, mirroring
+            # the spectrum-noise path so the jitter needs no external RNG state.
+            key = random.fold_in(
+                random.PRNGKey(1),
+                jnp.bitwise_xor(
+                    jax.lax.bitcast_convert_type(parameters[0, 0], jnp.int32),
+                    jax.lax.bitcast_convert_type(parameters[-1, -1], jnp.int32),
+                ),
+            )
+            noise = random.normal(key, shape=parameters.shape, dtype=parameters.dtype)
+            epsilon = _cube_epsilon(parameters.dtype)
+            clipped = jnp.clip(parameters, epsilon, 1.0 - epsilon)
+            unconstrained = jnp.log(clipped) - jnp.log1p(-clipped)
+            jittered_unconstrained = (
+                unconstrained + jnp.asarray(noise_floor, dtype=parameters.dtype) * noise
+            )
+            jittered = nn.sigmoid(jittered_unconstrained)
+            jittered_batch = PosteriorBatch(
+                parameters=jittered,
+                observations=batch.observations,
+                metadata=batch.metadata,
+            )
+            return base_loss_fn(model, jittered_batch)
+
+        return _loss
+
+    @staticmethod
     def _make_noisy_loss(
         noise_std: float,
         preprocessing_metadata: Any = None,
@@ -1900,6 +1999,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             if self.embedding_noise_std > 0 or self.embedding_noise_min_scale > 0
             else self._training_loss
         )
+        if self.parameter_noise_floor > 0.0:
+            train_loss_fn = self._make_parameter_noise_loss(
+                train_loss_fn,
+                self.parameter_noise_floor,
+                self.parameter_space,
+            )
         self.model, history, validation_metrics, training_metadata = trainer.fit(
             self.model,
             dataset,
@@ -1965,6 +2070,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "resume_from_checkpoint": self.resume_from_checkpoint,
             "aux_scale_loss_weight": self.aux_scale_loss_weight,
             "aux_parameter_loss_weight": self.aux_parameter_loss_weight,
+            "parameter_noise_floor": self.parameter_noise_floor,
             "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
             "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
             "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -2025,6 +2131,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "resume_from_checkpoint": self.resume_from_checkpoint,
                 "aux_scale_loss_weight": self.aux_scale_loss_weight,
                 "aux_parameter_loss_weight": self.aux_parameter_loss_weight,
+                "parameter_noise_floor": self.parameter_noise_floor,
                 "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
                 "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
                 "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -2108,6 +2215,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "conditioner_depth": metadata.get("conditioner_depth", 2),
             "aux_scale_loss_weight": metadata.get("aux_scale_loss_weight", 0.0),
             "aux_parameter_loss_weight": metadata.get("aux_parameter_loss_weight", 0.0),
+            "parameter_noise_floor": metadata.get("parameter_noise_floor", 0.0),
             "spline_small_bin_regularization_weight": small_bin_weight,
             "spline_min_bin_ratio_target": metadata.get("spline_min_bin_ratio_target", 0.2),
             "spline_entropy_regularization_weight": metadata.get(
@@ -2219,6 +2327,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             ),
             aux_parameter_loss_weight=float(
                 estimator_config.get("aux_parameter_loss_weight", 0.0)
+            ),
+            parameter_noise_floor=float(
+                estimator_config.get("parameter_noise_floor", 0.0)
             ),
             spline_small_bin_regularization_weight=float(
                 estimator_config.get(

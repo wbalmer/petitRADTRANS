@@ -8,6 +8,7 @@ py.install_sources([
     'parameter.py',
     'plotting.py',
     'log_likelihood.py',
+    'optimal_estimation.py',
     'preparing.py',
     'retrieval.py',
     'retrieval_config.py',

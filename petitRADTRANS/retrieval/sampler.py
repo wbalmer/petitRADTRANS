@@ -690,6 +690,33 @@ class BlackJAXSampler(Sampler):
             log_jacobian,
         ) = _build_unconstrained_mcmc_interface(context)
 
+        # Optional optax warm-up (see NumPyro variant for details): replace the
+        # prior-median initial_position with a MAP estimate. Defaults to Adam.
+        optimize_init = sampler_kwargs.pop("optimize_init", False)
+        warmup_optimizer_kwargs = dict(sampler_kwargs.pop("optimizer_kwargs", {}))
+        warmup_best_logdensity = None
+        if optimize_init and "initial_position" not in sampler_kwargs:
+            from petitRADTRANS.retrieval.optimal_estimation import (
+                optimize_unconstrained_position,
+                make_walker_inits,
+            )
+
+            walker_jitter = warmup_optimizer_kwargs.pop("walker_jitter", 0.0)
+            requested_num_chains = sampler_kwargs.get("num_chains", 1)
+            warmup_seed = warmup_optimizer_kwargs.pop(
+                "seed", sampler_kwargs.get("seed", 42654)
+            )
+            optimize_result = optimize_unconstrained_position(
+                logdensity, initial_position, seed=warmup_seed, **warmup_optimizer_kwargs
+            )
+            warmup_best_logdensity = float(optimize_result.best_logdensity)
+            initial_position = make_walker_inits(
+                optimize_result.best_position,
+                requested_num_chains,
+                jitter=walker_jitter,
+                seed=warmup_seed,
+            )
+
         run_kwargs = {
             "initial_position": sampler_kwargs.pop(
                 "initial_position", initial_position
@@ -740,6 +767,9 @@ class BlackJAXSampler(Sampler):
             summary_parameters["num_integration_steps"] = run_kwargs[
                 "num_integration_steps"
             ]
+        if optimize_init:
+            summary_parameters["optimize_init"] = True
+            summary_parameters["warmup_best_logdensity"] = warmup_best_logdensity
 
         return sampler, run_kwargs, summary_parameters
 
@@ -1167,6 +1197,34 @@ class NumPyroSampler(Sampler):
             log_jacobian,
         ) = _build_unconstrained_mcmc_interface(context)
 
+        # Optional optax warm-up: replace the prior-median initial_position with a
+        # MAP estimate so the gradient sampler starts inside the bulk of the
+        # posterior. Defaults to Adam; see optimal_estimation.build_optimizer.
+        optimize_init = sampler_kwargs.pop("optimize_init", False)
+        warmup_optimizer_kwargs = dict(sampler_kwargs.pop("optimizer_kwargs", {}))
+        warmup_best_logdensity = None
+        if optimize_init and "initial_position" not in sampler_kwargs:
+            from petitRADTRANS.retrieval.optimal_estimation import (
+                optimize_unconstrained_position,
+                make_walker_inits,
+            )
+
+            walker_jitter = warmup_optimizer_kwargs.pop("walker_jitter", 0.0)
+            requested_num_chains = sampler_kwargs.get("num_chains", 1)
+            warmup_seed = warmup_optimizer_kwargs.pop(
+                "seed", sampler_kwargs.get("seed", 42654)
+            )
+            optimize_result = optimize_unconstrained_position(
+                logdensity, initial_position, seed=warmup_seed, **warmup_optimizer_kwargs
+            )
+            warmup_best_logdensity = float(optimize_result.best_logdensity)
+            initial_position = make_walker_inits(
+                optimize_result.best_position,
+                requested_num_chains,
+                jitter=walker_jitter,
+                seed=warmup_seed,
+            )
+
         run_kwargs = {
             "initial_position": sampler_kwargs.pop(
                 "initial_position", initial_position
@@ -1225,6 +1283,9 @@ class NumPyroSampler(Sampler):
             summary_parameters["num_integration_steps"] = run_kwargs["num_steps"]
         if "trajectory_length" in run_kwargs:
             summary_parameters["trajectory_length"] = run_kwargs["trajectory_length"]
+        if optimize_init:
+            summary_parameters["optimize_init"] = True
+            summary_parameters["warmup_best_logdensity"] = warmup_best_logdensity
 
         return sampler, run_kwargs, summary_parameters
 

@@ -82,6 +82,10 @@ Choosing a sampler
      - Gradient MCMC
      - BlackJAX, JAX
      - JAX-native HMC for differentiable models with explicit integration-step control.
+   * - ``optimal_estimation`` / ``optax`` / ``map``
+     - Optimisation (MAP + Laplace)
+     - optax, JAX
+     - Fast maximum-a-posteriori fit with an optional Laplace (Gaussian) posterior. Also the engine behind the ``optimize_init`` warm-start for the NUTS/HMC samplers.
 
 
 Backend-specific parameters
@@ -287,6 +291,146 @@ Additional HMC control:
 * ``num_integration_steps``: leapfrog steps for HMC.
 
 BlackJAX is useful when you want a thinner wrapper around JAX-native HMC or NUTS with explicit warmup and multi-chain control.
+
+Optimal estimation (optax)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``optimal_estimation`` backend (aliases ``optax`` and ``map``) does not sample
+the posterior with a Markov chain or nested sampling. Instead it uses `optax
+<https://optax.readthedocs.io>`_ to find the maximum-a-posteriori (MAP) point by
+gradient descent on the (negative) log-posterior, and — by default — builds a
+Laplace approximation of the posterior from the curvature at that optimum. This is
+the classic *optimal estimation* idea (Rodgers): near the mode the posterior is
+approximately Gaussian with covariance equal to the inverse Hessian of the negative
+log-posterior. It is implemented in
+:mod:`petitRADTRANS.retrieval.optimal_estimation`.
+
+Like the gradient-MCMC backends, it requires a fully differentiable retrieval
+runtime and operates in the *unconstrained* parameter space (so all prior bounds are
+respected automatically through the change-of-variables that pRT already applies).
+
+Key parameters:
+
+* ``optimizer``: the optax optimiser. Accepts ``None`` (defaults to Adam), an optax
+  name string such as ``"adam"``, ``"adamw"``, or ``"adabelief"``, an already-built
+  ``optax.GradientTransformation``, or a callable factory ``optimizer(learning_rate)``.
+* ``learning_rate``: scalar or optax learning-rate schedule.
+* ``clip_norm``: global-norm gradient-clipping threshold (prepended to the optimiser).
+  This matters in practice: at the prior median a high-resolution petitRADTRANS
+  log-posterior can have gradients of order :math:`10^{11}`, and clipping keeps the
+  first steps bounded. Set to ``None`` to disable.
+* ``n_steps``: maximum optimisation steps (alias ``num_steps``).
+* ``tol``: optional gradient infinity-norm tolerance for early stopping.
+* ``patience``: stop after this many steps without improvement (``None`` disables).
+* ``n_starts`` / ``start_jitter``: number of random restarts and the jitter width for
+  the extra starts (start 0 is always the prior median). The best optimum is kept,
+  which guards against local optima.
+* ``lbfgs_polish_steps``: if ``> 0``, refine the best optax optimum with this many
+  ``optax.lbfgs`` (zoom line-search) iterations. This is recommended for tightening
+  very flat or ill-conditioned directions that first-order methods converge slowly.
+* ``compute_laplace``: if ``True`` (default), compute the inverse-Hessian covariance
+  and draw a Gaussian posterior from it. If ``False``, the result is the single MAP
+  point.
+* ``n_posterior_samples``: number of draws from the Laplace Gaussian (the first draw
+  is the MAP itself).
+* ``seed``: random seed for restarts and the Laplace draws.
+
+Outputs and caveats:
+
+* Results are written to ``out_OptimalEstimation/<retrieval_name>_*`` (samples,
+  parameters, covariance, and a metadata JSON with the MAP best fit), and the
+  generic ``out_samples`` archive is saved as usual so the standard plotting and
+  ``Retrieval.get_samples()`` paths work.
+* For a Laplace run, ``samples`` are physical-space draws from the Gaussian posterior
+  and ``log_likelihood`` is the *Gaussian* (Laplace) log-density of each draw — this
+  avoids one forward-model evaluation per draw. The true model log-posterior at the
+  MAP is reported separately as ``best_logdensity``.
+* This is a *local* optimiser and a *Gaussian* posterior approximation: it is fast and
+  ideal for a quick best fit, a sanity check, or an initial guess, but it will not
+  capture multimodal or strongly non-Gaussian posteriors. Use a nested sampler or
+  gradient-MCMC backend for the full posterior.
+* If the Hessian at the optimum is not positive definite (a poor or saddle-like
+  optimum), its eigenvalues are floored before inversion and a warning is emitted;
+  treat the error bars as approximate in that case.
+
+A typical run with multi-start, an L-BFGS polish, and a Laplace posterior:
+
+.. code-block:: python
+
+   rc = RetrievalConfig(
+       retrieval_name="my_run",
+       run_mode="retrieval",
+       pressures=pressures,
+       sampler_type="optimal_estimation",
+   )
+
+   retrieval = Retrieval(rc, model_generating_function=my_model)
+   retrieval.run(
+       optimizer="adam",
+       learning_rate=1e-2,
+       clip_norm=1.0,
+       n_steps=500,
+       n_starts=4,
+       lbfgs_polish_steps=50,
+       compute_laplace=True,
+       n_posterior_samples=2000,
+   )
+
+Warm-starting NUTS and HMC
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Gradient-MCMC samplers are *local*: they explore from wherever they are initialised.
+By default pRT initialises the NumPyro and BlackJAX walkers at the prior median
+(the origin of the unconstrained space). For a poorly-constrained starting model this
+can sit in a region where the log-posterior is extremely steep, so the very first
+leapfrog step diverges and the chain never moves — a failure mode that shows up as a
+near-zero acceptance rate, 100% divergences, and "samples" frozen at the prior median.
+
+To avoid this, the NumPyro and BlackJAX backends accept an optional optax warm-up that
+replaces the prior-median initial position with a MAP estimate before sampling starts.
+Enable it with ``optimize_init=True`` and configure the optimiser through
+``optimizer_kwargs`` (forwarded to
+:func:`petitRADTRANS.retrieval.optimal_estimation.optimize_unconstrained_position`,
+so it accepts the same ``optimizer``, ``learning_rate``, ``clip_norm``, ``n_steps``,
+``patience``, ``n_starts``, and ``lbfgs_polish_steps`` keys as above). The optimiser
+defaults to Adam.
+
+.. code-block:: python
+
+   rc = RetrievalConfig(
+       retrieval_name="my_run",
+       run_mode="retrieval",
+       pressures=pressures,
+       sampler_type="numpyro_nuts",   # or "blackjaxnuts", "numpyro_hmc", "blackjaxhmc"
+   )
+
+   retrieval = Retrieval(rc, model_generating_function=my_model)
+   retrieval.run(
+       num_warmup=1000,
+       num_samples=1500,
+       target_acceptance_rate=0.9,
+       optimize_init=True,
+       optimizer_kwargs={
+           "optimizer": "adam",
+           "n_steps": 300,
+           "learning_rate": 1e-2,
+           "clip_norm": 1.0,
+           "lbfgs_polish_steps": 50,
+       },
+   )
+
+Notes:
+
+* ``optimize_init`` is ignored if you pass your own ``initial_position`` explicitly.
+* For multi-chain runs, add ``"walker_jitter": <sigma>`` to ``optimizer_kwargs`` to
+  spread the chains around the MAP (chain 0 stays exactly at the optimum, the rest get
+  Gaussian jitter of width ``sigma``). This keeps multi-chain convergence diagnostics
+  such as R-hat meaningful.
+* The warm-up seed defaults to the sampler ``seed``; override it with
+  ``"seed": <int>`` inside ``optimizer_kwargs``.
+* The achieved MAP log-posterior is recorded in the run summary as
+  ``warmup_best_logdensity`` so you can confirm the warm-up moved the walkers into the
+  bulk of the posterior.
 
 Defining a custom sampler
 -------------------------

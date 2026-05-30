@@ -1542,33 +1542,27 @@ class SBITrainer:
             )
 
             current_selection_is_stable = is_stable_checkpoint if has_validation else True
+            # Track the selection metric monotonically. The flow's selection
+            # metric already encodes usability: it is the raw validation loss for
+            # a stable checkpoint, the validation loss plus a small bounded
+            # penalty for a marginally-unstable-but-usable one, and a huge
+            # constant for a pathological (collapsed/non-invertible) one. Picking
+            # the minimum therefore selects the best-loss *usable* checkpoint and
+            # never a pathological one. This replaces the previous hard
+            # "stable beats unstable" rule, which locked selection onto the last
+            # strictly-stable epoch and discarded better-trained, still-usable
+            # checkpoints whose inverse was only marginally over the (strict)
+            # stability threshold.
             selection_monitor_metric = (
-                validation_metric
-                if (has_validation and current_selection_is_stable)
-                else (selection_metric if has_validation else train_metric)
+                selection_metric if has_validation else train_metric
             )
-            selection_improved = best_selection_epoch < 0
-            if best_selection_epoch >= 0:
-                if has_validation:
-                    if current_selection_is_stable and not best_selection_is_stable:
-                        selection_improved = True
-                    elif current_selection_is_stable == best_selection_is_stable:
-                        best_reference_metric = (
-                            best_selection_validation_loss
-                            if current_selection_is_stable
-                            else best_selection_metric
-                        )
-                        selection_improved = np.isfinite(selection_monitor_metric) and (
-                            selection_monitor_metric < best_reference_metric - self._min_delta
-                            or not np.isfinite(best_reference_metric)
-                        )
-                    else:
-                        selection_improved = False
-                else:
-                    selection_improved = np.isfinite(selection_monitor_metric) and (
-                        selection_monitor_metric < best_selection_metric - self._min_delta
-                        or not np.isfinite(best_selection_metric)
-                    )
+            if best_selection_epoch < 0:
+                selection_improved = True
+            else:
+                selection_improved = np.isfinite(selection_monitor_metric) and (
+                    selection_monitor_metric < best_selection_metric - self._min_delta
+                    or not np.isfinite(best_selection_metric)
+                )
             if selection_improved:
                 best_selection_metric = selection_monitor_metric
                 if has_validation and np.isfinite(validation_metric):
@@ -1603,15 +1597,27 @@ class SBITrainer:
                     best_loss_validation_loss = validation_metric
                     best_loss_validation_metrics = dict(epoch_validation_metrics)
                     best_loss_model = model
-                    # Early stopping tracks real quality: any improvement in the
+                    # Early stopping tracks real quality: an improvement in the
                     # primary validation loss resets patience, even if the
                     # stability-gated selection metric did not improve this
                     # epoch. This prevents premature stopping when a sharpening
                     # posterior keeps improving val_loss while transiently
-                    # tripping the (strict) invertibility stability gate -- the
-                    # failure mode that previously froze selection on a weak
-                    # early epoch and stopped training long before convergence.
-                    patience_counter = 0
+                    # tripping the (strict) invertibility stability gate.
+                    #
+                    # The reset is suppressed for *pathological* (collapsed)
+                    # checkpoints: a density-collapsing run drives val_loss
+                    # arbitrarily negative, which is not real improvement. Not
+                    # resetting patience there lets early stopping halt the
+                    # collapse instead of running to the epoch budget and
+                    # selecting a degenerate model.
+                    is_pathological_checkpoint = bool(
+                        epoch_validation_metrics.get(
+                            'checkpoint_is_pathological', 0.0
+                        )
+                        >= 0.5
+                    )
+                    if not is_pathological_checkpoint:
+                        patience_counter = 0
                     self._save_checkpoint(
                         'best_loss',
                         _checkpoint_state(best_loss_model, epoch + 1),

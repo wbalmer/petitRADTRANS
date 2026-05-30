@@ -152,6 +152,31 @@ def _neural_autoregressive_scalar_forward(
     return transformed, jnp.log(derivative)
 
 
+def _spline_boundary_derivatives(
+    unnormalized_derivatives: jnp.ndarray,
+    min_derivative: float,
+    max_derivative: float | None,
+) -> jnp.ndarray:
+    """Positive, optionally hard-capped boundary derivatives for an RQS.
+
+    ``softplus`` keeps the derivatives positive (strict monotonicity). When
+    ``max_derivative`` is set they are also clamped from above, which bounds the
+    spline's local slope and therefore the implied density: this is the
+    structural cap (analogous to the neural-autoregressive flow's residual
+    floor) that prevents the unbounded-density collapse -- derivative explosion
+    to ~1e11 and cube-edge pile-up -- seen in the un-capped spline run. Forward
+    and inverse must call this identical routine, or the analytic inverse stops
+    matching the forward map.
+    """
+    derivatives = min_derivative + nn.softplus(unnormalized_derivatives)
+    if max_derivative is not None:
+        derivatives = jnp.minimum(
+            derivatives,
+            jnp.asarray(max_derivative, dtype=derivatives.dtype),
+        )
+    return derivatives
+
+
 def _rational_quadratic_spline_forward(
     value: jnp.ndarray,
     unnormalized_widths: jnp.ndarray,
@@ -161,6 +186,7 @@ def _rational_quadratic_spline_forward(
     min_bin_width: float,
     min_bin_height: float,
     min_derivative: float,
+    max_derivative: float | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     dtype = value.dtype
     bound_value = jnp.asarray(bound, dtype=dtype)
@@ -168,7 +194,9 @@ def _rational_quadratic_spline_forward(
 
     widths = _normalize_bin_sizes(unnormalized_widths, min_bin_width, 2.0 * bound)
     heights = _normalize_bin_sizes(unnormalized_heights, min_bin_height, 2.0 * bound)
-    derivatives = min_derivative + nn.softplus(unnormalized_derivatives)
+    derivatives = _spline_boundary_derivatives(
+        unnormalized_derivatives, min_derivative, max_derivative
+    )
 
     cumwidths = jnp.concatenate(
         (jnp.asarray([-bound], dtype=dtype), -bound_value + jnp.cumsum(widths, axis=0)),
@@ -231,6 +259,7 @@ def _rational_quadratic_spline_inverse(
     min_bin_width: float,
     min_bin_height: float,
     min_derivative: float,
+    max_derivative: float | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     dtype = value.dtype
     bound_value = jnp.asarray(bound, dtype=dtype)
@@ -238,7 +267,9 @@ def _rational_quadratic_spline_inverse(
 
     widths = _normalize_bin_sizes(unnormalized_widths, min_bin_width, 2.0 * bound)
     heights = _normalize_bin_sizes(unnormalized_heights, min_bin_height, 2.0 * bound)
-    derivatives = min_derivative + nn.softplus(unnormalized_derivatives)
+    derivatives = _spline_boundary_derivatives(
+        unnormalized_derivatives, min_derivative, max_derivative
+    )
 
     cumwidths = jnp.concatenate(
         (jnp.asarray([-bound], dtype=dtype), -bound_value + jnp.cumsum(widths, axis=0)),
@@ -389,6 +420,7 @@ class ConditionalRationalQuadraticSplineCoupling(eqx.Module):
     min_bin_width: float = eqx.field(static=True)
     min_bin_height: float = eqx.field(static=True)
     min_derivative: float = eqx.field(static=True)
+    max_derivative: float | None = eqx.field(static=True, default=None)
 
     def _parameters(
         self,
@@ -433,6 +465,7 @@ class ConditionalRationalQuadraticSplineCoupling(eqx.Module):
                 self.min_bin_width,
                 self.min_bin_height,
                 self.min_derivative,
+                self.max_derivative,
             )
         )(x, widths, heights, derivatives)
         y = masked_x + inverse_mask * transformed
@@ -469,6 +502,7 @@ class ConditionalRationalQuadraticSplineCoupling(eqx.Module):
                 self.min_bin_width,
                 self.min_bin_height,
                 self.min_derivative,
+                self.max_derivative,
             )
         )(y, widths, heights, derivatives)
         x = masked_y + inverse_mask * transformed
@@ -490,6 +524,7 @@ class ConditionalScalarSplineTransform(eqx.Module):
     min_bin_width: float = eqx.field(static=True)
     min_bin_height: float = eqx.field(static=True)
     min_derivative: float = eqx.field(static=True)
+    max_derivative: float | None = eqx.field(static=True, default=None)
 
     def _parameters(
         self, context: jnp.ndarray
@@ -531,6 +566,7 @@ class ConditionalScalarSplineTransform(eqx.Module):
             self.min_bin_width,
             self.min_bin_height,
             self.min_derivative,
+            self.max_derivative,
         )
         return jnp.asarray([transformed], dtype=jnp.asarray(x).dtype), log_det
 
@@ -561,6 +597,7 @@ class ConditionalScalarSplineTransform(eqx.Module):
             self.min_bin_width,
             self.min_bin_height,
             self.min_derivative,
+            self.max_derivative,
         )
         return jnp.asarray([transformed], dtype=jnp.asarray(y).dtype), log_det
 
@@ -735,6 +772,7 @@ class ConditionalNeuralAutoregressiveTransform(eqx.Module):
     inverse_base_bound: float = eqx.field(static=True)
     inverse_bisection_steps: int = eqx.field(static=True)
     inverse_expansion_steps: int = eqx.field(static=True)
+    inverse_newton_steps: int = eqx.field(static=True)
 
     def __init__(
         self,
@@ -748,7 +786,8 @@ class ConditionalNeuralAutoregressiveTransform(eqx.Module):
         min_residual: float = 0.05,
         inverse_base_bound: float = 4.0,
         inverse_bisection_steps: int = 48,
-        inverse_expansion_steps: int = 8,
+        inverse_expansion_steps: int = 16,
+        inverse_newton_steps: int = 3,
     ):
         self.parameter_dim = int(parameter_dim)
         self.transform_units = int(transform_units)
@@ -757,6 +796,7 @@ class ConditionalNeuralAutoregressiveTransform(eqx.Module):
         self.inverse_base_bound = float(inverse_base_bound)
         self.inverse_bisection_steps = int(inverse_bisection_steps)
         self.inverse_expansion_steps = int(inverse_expansion_steps)
+        self.inverse_newton_steps = int(inverse_newton_steps)
         conditioner_keys = random.split(key, self.parameter_dim)
         self.conditioners = tuple(
             _NeuralAutoregressiveDimensionConditioner(
@@ -910,6 +950,35 @@ class ConditionalNeuralAutoregressiveTransform(eqx.Module):
             (lower, upper),
         )
         recovered = 0.5 * (lower + upper)
+
+        # Newton polish. Bisection brackets the root but converges only
+        # linearly, so the recovered point can sit a small distance from the
+        # true inverse when the scalar map is steep (a sharpened posterior).
+        # The map is strictly monotonic with an analytically available
+        # derivative (exp of the returned log-derivative, bounded below by
+        # ``min_residual``), so a few Newton steps refine the estimate to near
+        # machine precision -- keeping the sampling inverse tight as the flow
+        # sharpens, which is the failure mode that previously degraded the
+        # neural-autoregressive inverse. Each step is clipped to the bracket so
+        # it can never leave the region that is guaranteed to contain the root.
+        def _newton_step(
+            _: Any,
+            value: jnp.ndarray,
+        ) -> jnp.ndarray:
+            current_value, current_log_det = evaluate(value)
+            derivative = jnp.maximum(
+                jnp.exp(current_log_det),
+                jnp.asarray(1e-8, dtype=dtype),
+            )
+            refined = value - (current_value - target) / derivative
+            return jnp.clip(refined, lower, upper)
+
+        recovered = lax.fori_loop(
+            0,
+            self.inverse_newton_steps,
+            _newton_step,
+            recovered,
+        )
         recovered_target, forward_log_det = evaluate(recovered)
         residual_abs = jnp.abs(recovered_target - target)
         bracket_width = jnp.abs(upper - lower)
@@ -1213,6 +1282,7 @@ class ConditionalNeuralAutoregressiveFlow(_ConditionalFlowStack):
     min_slope: float = eqx.field(static=True)
     min_residual: float = eqx.field(static=True)
     inverse_bisection_steps: int = eqx.field(static=True)
+    inverse_newton_steps: int = eqx.field(static=True)
 
     def __init__(
         self,
@@ -1225,6 +1295,7 @@ class ConditionalNeuralAutoregressiveFlow(_ConditionalFlowStack):
         min_slope: float = 1e-3,
         min_residual: float = 0.05,
         inverse_bisection_steps: int = 48,
+        inverse_newton_steps: int = 3,
         key: Array | None = None,
     ):
         if key is None:
@@ -1236,6 +1307,7 @@ class ConditionalNeuralAutoregressiveFlow(_ConditionalFlowStack):
         self.min_slope = float(min_slope)
         self.min_residual = float(min_residual)
         self.inverse_bisection_steps = int(inverse_bisection_steps)
+        self.inverse_newton_steps = int(inverse_newton_steps)
         layer_keys = random.split(key, num_layers)
         self.layers = tuple(
             ConditionalNeuralAutoregressiveTransform(
@@ -1248,6 +1320,7 @@ class ConditionalNeuralAutoregressiveFlow(_ConditionalFlowStack):
                 min_slope=self.min_slope,
                 min_residual=self.min_residual,
                 inverse_bisection_steps=self.inverse_bisection_steps,
+                inverse_newton_steps=self.inverse_newton_steps,
             )
             for layer_key in layer_keys
         )
@@ -1348,6 +1421,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
     min_bin_width: float = eqx.field(static=True)
     min_bin_height: float = eqx.field(static=True)
     min_derivative: float = eqx.field(static=True)
+    max_derivative: float | None = eqx.field(static=True)
 
     def __init__(
         self,
@@ -1361,6 +1435,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
         min_bin_width: float = 1e-3,
         min_bin_height: float = 1e-3,
         min_derivative: float = 1e-3,
+        max_derivative: float | None = None,
         key: Array | None = None,
     ):
         if key is None:
@@ -1373,6 +1448,9 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
         self.min_bin_width = float(min_bin_width)
         self.min_bin_height = float(min_bin_height)
         self.min_derivative = float(min_derivative)
+        self.max_derivative = (
+            None if max_derivative is None else float(max_derivative)
+        )
 
         layer_keys = random.split(key, num_layers)
         layers = []
@@ -1393,6 +1471,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
                         min_bin_width=self.min_bin_width,
                         min_bin_height=self.min_bin_height,
                         min_derivative=self.min_derivative,
+                        max_derivative=self.max_derivative,
                     )
                 )
 
@@ -1424,6 +1503,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
                     min_bin_width=self.min_bin_width,
                     min_bin_height=self.min_bin_height,
                     min_derivative=self.min_derivative,
+                    max_derivative=self.max_derivative,
                 )
             )
 

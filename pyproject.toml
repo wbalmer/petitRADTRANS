@@ -11,7 +11,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "4.0.0a37"
+version = "4.0.0a38"
 description = "Exopanet spectral synthesis tool for retrievals"
 authors = [
     {name = "Paul Mollière", email = "molliere@mpia.de"},
@@ -93,6 +93,7 @@ retrieval = [
     "pymultinest",
     "blackjax",
     "numpyro",
+    "optax>=0.2",
     "ultranest",
 ]
 

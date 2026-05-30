@@ -87,6 +87,20 @@ _SAMPLER_CLASS_NAMES: dict[str, str] = {
     "jaxns": "JAXNSSampler",
     "jaxnsshardedstaticnestedsampler": "JAXNSShardedStaticNestedSampler",
     "jaxnsshardedstaticsestedsampler": "JAXNSShardedStaticNestedSampler",
+    "optimal_estimation": "OptimalEstimationSampler",
+    "optimalestimation": "OptimalEstimationSampler",
+    "optax": "OptimalEstimationSampler",
+    "map": "OptimalEstimationSampler",
+}
+
+# Samplers that live outside sampler.py. Maps sampler_type -> module to import the
+# class from (default: the main sampler module). Keeping the optimiser in its own
+# module avoids an import cycle (optimal_estimation imports from sampler).
+_SAMPLER_MODULE_NAMES: dict[str, str] = {
+    "optimal_estimation": "petitRADTRANS.retrieval.optimal_estimation",
+    "optimalestimation": "petitRADTRANS.retrieval.optimal_estimation",
+    "optax": "petitRADTRANS.retrieval.optimal_estimation",
+    "map": "petitRADTRANS.retrieval.optimal_estimation",
 }
 
 _VMAP_FALLBACK_JAX_ERRORS = (jax_errors.ConcretizationTypeError,)
@@ -107,7 +121,10 @@ def _resolve_sampler_class(sampler_type: str) -> type[Sampler] | None:
     if sampler_class_name is None:
         return None
 
-    sampler_module = importlib.import_module("petitRADTRANS.retrieval.sampler")
+    module_name = _SAMPLER_MODULE_NAMES.get(
+        sampler_type, "petitRADTRANS.retrieval.sampler"
+    )
+    sampler_module = importlib.import_module(module_name)
     return getattr(sampler_module, sampler_class_name)
 
 
