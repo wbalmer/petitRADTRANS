@@ -50,7 +50,12 @@ def zhang_2023_temperature_profile(
     )
 
     # 1.6 compute temperatures
-    temperatures = jnp.ones_like(p_use) * jnp.nan
+    # Initialise finite (every entry is overwritten below). An all-NaN
+    # initialiser is a forward NaN that trips jax_debug_nans and, more
+    # importantly, makes the reverse-mode gradient NaN via 0*NaN in the
+    # initialiser's multiply tangent -- which silently zeroed the whole
+    # warm-start gradient at the prior median.
+    temperatures = jnp.zeros_like(p_use)
     temperatures = temperatures.at[-1].set(t_bottom)
 
     # Note: higher index is lower pressure.

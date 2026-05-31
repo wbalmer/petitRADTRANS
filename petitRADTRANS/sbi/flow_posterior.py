@@ -1045,6 +1045,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         flow_family: str = "spline",
         num_spline_bins: int = 8,
         spline_bound: float = 10.0,
+        base_distribution: str = "gaussian",
+        use_base_affine: bool = False,
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
         checkpoint_directory: str | None = None,
@@ -1109,6 +1111,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.num_epochs = int(num_epochs)
         self.flow_family = str(flow_family)
         self.effective_flow_family = self.flow_family
+        self.base_distribution = str(base_distribution)
+        self.use_base_affine = bool(use_base_affine)
         self.num_spline_bins = int(num_spline_bins)
         requested_spline_bound = float(spline_bound)
         if self.parameter_space == "cube" and self.flow_family == "spline":
@@ -1341,6 +1345,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 # and hence the density, preventing the unbounded-density
                 # collapse, and keeping the analytic inverse numerically valid.
                 max_derivative=self.spline_max_derivative_target,
+                # rec. 3: a logistic base matches logit-of-uniform so the
+                # untrained flow equals the prior (no cube-edge piling).
+                base_distribution=self.base_distribution,
+                # rec. 2: a leading conditional diagonal affine lets the flow
+                # scale sharp directions (fixed-Rs amplitude) without narrow bins.
+                use_base_affine=self.use_base_affine,
                 key=key,
             )
         raise ValueError(f"Unsupported flow_family: {self.flow_family!r}")
@@ -2063,6 +2073,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "effective_flow_family": self.effective_flow_family,
             "num_spline_bins": self.num_spline_bins,
             "spline_bound": self.spline_bound,
+            "base_distribution": self.base_distribution,
+            "use_base_affine": self.use_base_affine,
             "early_stopping_patience": self.early_stopping_patience,
             "early_stopping_min_delta": self.early_stopping_min_delta,
             "checkpoint_directory": self.checkpoint_directory,
@@ -2124,6 +2136,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "effective_flow_family": self.effective_flow_family,
                 "num_spline_bins": self.num_spline_bins,
                 "spline_bound": self.spline_bound,
+                "base_distribution": self.base_distribution,
+                "use_base_affine": self.use_base_affine,
                 "early_stopping_patience": self.early_stopping_patience,
                 "early_stopping_min_delta": self.early_stopping_min_delta,
                 "checkpoint_directory": self.checkpoint_directory,
@@ -2207,6 +2221,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             ),
             "num_spline_bins": metadata.get("num_spline_bins", 8),
             "spline_bound": metadata.get("spline_bound", 10.0),
+            "base_distribution": metadata.get("base_distribution", "gaussian"),
+            "use_base_affine": metadata.get("use_base_affine", False),
             "early_stopping_patience": metadata.get("early_stopping_patience"),
             "early_stopping_min_delta": metadata.get("early_stopping_min_delta", 0.0),
             "checkpoint_directory": metadata.get("checkpoint_directory"),
@@ -2313,6 +2329,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             flow_family=str(estimator_config.get("flow_family", "affine")),
             num_spline_bins=int(estimator_config.get("num_spline_bins", 8)),
             spline_bound=float(estimator_config.get("spline_bound", 10.0)),
+            base_distribution=str(estimator_config.get("base_distribution", "gaussian")),
+            use_base_affine=bool(estimator_config.get("use_base_affine", False)),
             early_stopping_patience=estimator_config.get("early_stopping_patience"),
             early_stopping_min_delta=float(
                 estimator_config.get("early_stopping_min_delta", 0.0)

@@ -1111,6 +1111,34 @@ class _ConditionalFlowStack(eqx.Module):
     layers: tuple[object, ...]
     parameter_dim: int = eqx.field(static=True)
     context_dim: int = eqx.field(static=True)
+    # Base distribution of the latent. Default "gaussian" preserves the original
+    # behaviour for every flow family. "logistic" is the natural base when the
+    # flow operates in logit-of-cube coordinates for a uniform prior: the prior
+    # then maps to the base under the identity, so an untrained flow already
+    # equals the prior and only has to model the (moderate) posterior deviation
+    # -- instead of fighting a Gaussian/logistic tail mismatch that pushes
+    # samples to the cube edges.
+    base_distribution: str = eqx.field(static=True, default="gaussian")
+
+    def _base_log_prob(self, latent: jnp.ndarray) -> jnp.ndarray:
+        if self.base_distribution == "logistic":
+            # Standard logistic log-density: -w - 2*softplus(-w), summed.
+            return jnp.sum(-latent - 2.0 * nn.softplus(-latent))
+        return -0.5 * jnp.sum(latent**2 + math.log(2.0 * math.pi))
+
+    def _base_sample(
+        self, key: Array, shape: tuple[int, ...], dtype: Any
+    ) -> jnp.ndarray:
+        if self.base_distribution == "logistic":
+            uniform = random.uniform(
+                key,
+                shape=shape,
+                dtype=dtype,
+                minval=jnp.asarray(1e-7, dtype=dtype),
+                maxval=jnp.asarray(1.0 - 1e-7, dtype=dtype),
+            )
+            return jnp.log(uniform) - jnp.log1p(-uniform)
+        return random.normal(key, shape=shape, dtype=dtype)
 
     @staticmethod
     def _reverse_vector(values: jnp.ndarray) -> jnp.ndarray:
@@ -1148,12 +1176,11 @@ class _ConditionalFlowStack(eqx.Module):
 
     def log_prob(self, x: jnp.ndarray, context: jnp.ndarray) -> jnp.ndarray:
         latent, log_det = self.forward(x, context)
-        base_log_prob = -0.5 * jnp.sum(latent**2 + math.log(2.0 * math.pi))
-        return base_log_prob + log_det
+        return self._base_log_prob(latent) + log_det
 
     def sample(self, context: jnp.ndarray, n_samples: int, key: Array) -> jnp.ndarray:
-        latent_samples = random.normal(
-            key, shape=(n_samples, self.parameter_dim), dtype=context.dtype
+        latent_samples = self._base_sample(
+            key, (n_samples, self.parameter_dim), context.dtype
         )
 
         def sample_single(latent_sample: jnp.ndarray) -> jnp.ndarray:
@@ -1388,6 +1415,60 @@ class ConditionalNeuralAutoregressiveFlow(_ConditionalFlowStack):
         return transformed, log_det, diagnostics
 
 
+class ConditionalDiagonalAffine(eqx.Module):
+    """Per-dimension affine transform conditioned on the observation embedding.
+
+    Unlike the coupling layers, this transforms every dimension simultaneously
+    with an independent (diagonal) scale and shift predicted from the context.
+    It gives the flow a cheap, exactly-invertible way to match each parameter's
+    posterior location and width -- including directions constrained far more
+    tightly than the prior (e.g. the transit-depth amplitude when the stellar
+    radius is fixed), which a rational-quadratic spline can otherwise only
+    approximate with pathologically narrow bins. The log-scale is soft-bounded
+    so the map stays well-conditioned and exactly invertible.
+    """
+
+    conditioner: eqx.nn.Linear
+    parameter_dim: int = eqx.field(static=True)
+    max_abs_log_scale: float = eqx.field(static=True)
+
+    def __init__(
+        self,
+        parameter_dim: int,
+        context_dim: int,
+        key: Array,
+        max_abs_log_scale: float = 16.0,
+    ):
+        self.parameter_dim = int(parameter_dim)
+        self.max_abs_log_scale = float(max_abs_log_scale)
+        self.conditioner = eqx.nn.Linear(
+            int(context_dim), 2 * self.parameter_dim, key=key, dtype=jnp.float32
+        )
+
+    def _parameters(
+        self, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        outputs = self.conditioner(context)
+        shift, raw_log_scale = jnp.split(outputs, 2)
+        bound = jnp.asarray(self.max_abs_log_scale, dtype=raw_log_scale.dtype)
+        log_scale = bound * jnp.tanh(raw_log_scale / bound)
+        return shift, log_scale
+
+    def forward(
+        self, x: jnp.ndarray, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        shift, log_scale = self._parameters(context)
+        y = x * jnp.exp(log_scale) + shift
+        return y, jnp.sum(log_scale)
+
+    def inverse(
+        self, y: jnp.ndarray, context: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        shift, log_scale = self._parameters(context)
+        x = (y - shift) * jnp.exp(-log_scale)
+        return x, -jnp.sum(log_scale)
+
+
 class ConditionalSplineFlow(_ConditionalFlowStack):
     """Stack of conditional rational-quadratic spline transforms.
 
@@ -1436,10 +1517,13 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
         min_bin_height: float = 1e-3,
         min_derivative: float = 1e-3,
         max_derivative: float | None = None,
+        base_distribution: str = "gaussian",
+        use_base_affine: bool = False,
         key: Array | None = None,
     ):
         if key is None:
             key = random.PRNGKey(0)
+        key, affine_key = random.split(key)
 
         self.parameter_dim = int(parameter_dim)
         self.context_dim = int(context_dim)
@@ -1451,6 +1535,19 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
         self.max_derivative = (
             None if max_derivative is None else float(max_derivative)
         )
+        self.base_distribution = str(base_distribution)
+        # Optional leading conditional diagonal affine: lets the flow set each
+        # parameter's posterior scale/shift directly (rec. 2), so sharp
+        # directions need not be forced through narrow spline bins.
+        base_affine_layers: list[object] = []
+        if use_base_affine:
+            base_affine_layers.append(
+                ConditionalDiagonalAffine(
+                    parameter_dim=self.parameter_dim,
+                    context_dim=self.context_dim,
+                    key=affine_key,
+                )
+            )
 
         layer_keys = random.split(key, num_layers)
         layers = []
@@ -1475,7 +1572,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
                     )
                 )
 
-            self.layers = tuple(layers)
+            self.layers = tuple(base_affine_layers + layers)
             return
 
         for index, layer_key in enumerate(layer_keys):
@@ -1507,7 +1604,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
                 )
             )
 
-        self.layers = tuple(layers)
+        self.layers = tuple(base_affine_layers + layers)
 
 
 __all__ = [

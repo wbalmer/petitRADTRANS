@@ -1,3 +1,4 @@
+import math
 from functools import partial
 
 from jax import default_backend
@@ -667,8 +668,6 @@ def solve_tridiagonal_pcr(a, b, c, d):
         return jnp.where(mask, 0.0, rolled)
 
     # PCR is a loop that doubles the stride at each iteration
-    initial_val = (a_flat, b_flat, c_flat, d_flat, 1)
-
     def pcr_body_fun(val):
         """One step of the parallel cyclic reduction."""
         a_pcr, b_pcr, c_pcr, d_pcr, stride = val
@@ -685,10 +684,19 @@ def solve_tridiagonal_pcr(a, b, c, d):
         d_right = shift_left(d_pcr, stride)
 
         # --- Calculate reduction factors alpha and gamma ---
-        # Use jnp.where to avoid division by zero if b_left/b_right are zero
-        # This is safe for diagonally-dominant systems.
-        alpha = jnp.where(b_left != 0, -a_pcr / b_left, 0.0)
-        gamma = jnp.where(b_right != 0, -c_pcr / b_right, 0.0)
+        # Guard the division so neither the forward value nor its reverse-mode
+        # gradient sees a divide-by-zero. The boundary shifts pad b_left[...,0]
+        # and b_right[...,-1] with exact zeros; a plain
+        # ``jnp.where(b != 0, x / b, 0.0)`` still evaluates ``x / 0 -> inf`` in
+        # the un-taken branch, and reverse-mode then turns the masked-out
+        # ``0 * inf`` into NaN (the forward result is unaffected, which is why
+        # this only surfaced once the GPU PCR path was differentiated). Dividing
+        # by a denominator that is 1.0 wherever the entry is masked keeps both
+        # passes finite; the jnp.where still selects 0.0 at those entries.
+        safe_b_left = jnp.where(b_left != 0, b_left, 1.0)
+        safe_b_right = jnp.where(b_right != 0, b_right, 1.0)
+        alpha = jnp.where(b_left != 0, -a_pcr / safe_b_left, 0.0)
+        gamma = jnp.where(b_right != 0, -c_pcr / safe_b_right, 0.0)
 
         # --- Update the diagonals and the right-hand side ---
         # The update corresponds to climinating off-diagonal elements
@@ -699,15 +707,19 @@ def solve_tridiagonal_pcr(a, b, c, d):
 
         return a_new, b_new, c_new, d_new, stride * 2
 
-    def pcr_cond_fun(val):
-        """Loop until stride is equal to or greater than N."""
-        *_, stride = val
-        return stride < N
-
     # --- Run the reduction loop ---
-    a_final, b_final, c_final, d_final, _ = lax.while_loop(
-        pcr_cond_fun, pcr_body_fun, initial_val
-    )
+    # The stride doubles each sweep until it reaches N, so the reduction always
+    # takes exactly ceil(log2(N)) sweeps. N is the (static) trailing array
+    # dimension, so we unroll those sweeps as a Python loop rather than
+    # lax.while_loop: while_loop is not reverse-mode differentiable (it raises
+    # "does not work for lax.while_loop ... with dynamic start/stop values"
+    # under grad), whereas this static unroll of ~log2(N) sweeps is. That is
+    # what lets the GPU Feautrier solve participate in the retrieval gradient.
+    n_sweeps = 0 if N <= 1 else int(math.ceil(math.log2(N)))
+    val = (a_flat, b_flat, c_flat, d_flat, 1)
+    for _ in range(n_sweeps):
+        val = pcr_body_fun(val)
+    a_final, b_final, c_final, d_final, _ = val
 
     # --- Final solve ---
     # After reduction, the matrix is diagonal (a_final and c_final are zero)

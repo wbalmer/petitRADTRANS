@@ -19,13 +19,14 @@ All models must take the same set of inputs:
         and temperature arrays instead of computing the flux.
 """
 
+import os
 import re
 import inspect
 from functools import wraps
 from numbers import Number
 from types import SimpleNamespace
 import numpy as np
-from jax import core as jax_core, vmap
+from jax import core as jax_core, vmap, checkpoint, lax
 import jax.numpy as jnp
 
 from petitRADTRANS.chemistry import clouds
@@ -757,11 +758,11 @@ def gradient_profile_emission(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     num_layer = _as_structural_int(physical_params["N_layers"], "N_layers")
-    layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
-    for index in range(num_layer):
-        layer_pt_slopes = layer_pt_slopes.at[index].set(
-            physical_params[f"PTslope_{num_layer - index}"]
-        )
+    # Build directly: an all-NaN initialiser + scatter-fill is a forward NaN
+    # that poisons reverse-mode gradients via 0*NaN in the multiply's tangent.
+    layer_pt_slopes = jnp.stack(
+        [physical_params[f"PTslope_{num_layer - index}"] for index in range(num_layer)]
+    )
 
     top_of_atmosphere_pressure = -3
     bottom_of_atmosphere_pressure = 3
@@ -946,23 +947,18 @@ def time_series_gradient_emission(
     if "bottom_of_atmosphere_pressure" in physical_params.keys():
         bottom_of_atmosphere_pressure = physical_params["bottom_of_atmosphere_pressure"]
 
-    model_spectra = []
-    model_temperatures = []
+    def _build_timestep_temperature_builder(snapshot):
+        """Gradient temperature-profile builder for one epoch's parameter snapshot."""
+        # Build the per-layer PT slopes directly. An all-NaN initialiser
+        # (jnp.ones * jnp.nan) followed by scatter-fill is a forward NaN that
+        # trips jax_debug_nans and poisons reverse-mode gradients via 0*NaN in
+        # the multiply's tangent -- it made the whole log-posterior gradient NaN
+        # at the prior median, which the warm-start then silently zeroed.
+        layer_pt_slopes = jnp.stack(
+            [snapshot[f"PTslope_{num_layer - k}"] for k in range(num_layer)]
+        )
 
-    for t_idx in range(n_time):
-        t_val = model_times[t_idx]
-
-        # Resolve parameter values at this timestep
-        snapshot = _build_timestep_params(physical_params, t_idx, t_val)
-
-        # Build the gradient temperature profile
-        layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
-        for k in range(num_layer):
-            layer_pt_slopes = layer_pt_slopes.at[k].set(
-                snapshot[f"PTslope_{num_layer - k}"]
-            )
-
-        temperature_builder = _wrap_runtime_temperature_builder(
+        return _wrap_runtime_temperature_builder(
             snapshot,
             lambda pressures: zhang_2023_temperature_profile(
                 pressures,
@@ -973,11 +969,20 @@ def time_series_gradient_emission(
                 bottom_of_atmosphere_pressure=bottom_of_atmosphere_pressure,
             ),
         )
-        temperatures = temperature_builder(p_use)
 
-        if pt_plot_mode:
-            model_temperatures.append(temperatures)
-            continue
+    # The N_time epochs are otherwise unrolled into one graph, so reverse-mode
+    # autodiff would hold every epoch's (scattering) radiative-transfer
+    # activations resident simultaneously -- the O(N_time) retention that drove
+    # the gradient past 240 GB and triggered the OOM (job 1860396). Wrapping the
+    # per-epoch emission computation in jax.checkpoint rematerialises those
+    # activations during the backward pass instead, cutting retained memory from
+    # O(N_time) to O(1) at the cost of one extra forward evaluation per epoch.
+    # t_idx must stay a *static* argument: _build_timestep_params indexes
+    # parameter names with it (e.g. "{base}_t_{t_idx}").
+    def _emission_spectrum_at_timestep(t_idx, t_val):
+        snapshot = _build_timestep_params(physical_params, t_idx, t_val)
+        temperature_builder = _build_timestep_temperature_builder(snapshot)
+        temperatures = temperature_builder(p_use)
 
         # Resolve chemistry
         result, abundance_state = _resolve_runtime_abundance_state(
@@ -990,7 +995,10 @@ def time_series_gradient_emission(
             pt_plot_mode=False,
         )
         if result is not None:
-            return result
+            # Degenerate/error path (e.g. NaN abundances). Resolved at trace
+            # time, never in the differentiated path; propagate the sentinel
+            # spectrum so the checkpointed helper keeps a uniform return type.
+            return result.spectrum, result.wavelengths
 
         # Clouds
         cloud_properties = clouds.setup_clouds(
@@ -1008,9 +1016,21 @@ def time_series_gradient_emission(
             cloud_properties,
         )
         step_result = calculate_emission_spectrum_runtime(model_context, model_inputs)
-        model_spectra.append(step_result.spectrum)
+        return step_result.spectrum, step_result.wavelengths
+
+    _checkpointed_emission_at_timestep = checkpoint(
+        _emission_spectrum_at_timestep, static_argnums=(0,)
+    )
 
     if pt_plot_mode:
+        # PT-profile-only path: cheap and not differentiated.
+        model_temperatures = []
+        for t_idx in range(n_time):
+            snapshot = _build_timestep_params(
+                physical_params, t_idx, model_times[t_idx]
+            )
+            temperature_builder = _build_timestep_temperature_builder(snapshot)
+            model_temperatures.append(temperature_builder(p_use))
         return ModelResult(
             kind="pt_profile",
             pressures=p_use,
@@ -1018,9 +1038,38 @@ def time_series_gradient_emission(
             auxiliary_outputs={"model_times": model_times},
         )
 
-    # Stack model spectra: (N_time, N_wavelength)
-    model_spectra_2d = jnp.stack(model_spectra)
-    wavelengths = step_result.wavelengths
+    # Per-timestep-keyed parameters ("{base}_t_{i}") need a concrete Python
+    # index to look up, so when they are present the epochs must stay unrolled.
+    # Otherwise the only per-epoch input is the (traced) model time, and the
+    # epochs are evaluated with lax.scan: scan compiles a *single* copy of the
+    # emission body instead of N_time unrolled copies, which collapses the very
+    # large, slow-to-compile graph that was driving the host-RAM OOM, and -- with
+    # the body checkpointed -- keeps reverse-mode activation memory at one
+    # epoch's worth. The body ignores t_idx in this case, so a static dummy
+    # index of 0 is passed.
+    has_time_indexed_params = any(
+        _TIME_INDEXED_PATTERN.match(key) for key in physical_params.keys()
+    )
+
+    if has_time_indexed_params:
+        model_spectra = []
+        wavelengths = None
+        for t_idx in range(n_time):
+            step_spectrum, wavelengths = _checkpointed_emission_at_timestep(
+                t_idx, model_times[t_idx]
+            )
+            model_spectra.append(step_spectrum)
+        model_spectra_2d = jnp.stack(model_spectra)  # (N_time, N_wavelength)
+    else:
+
+        def _emission_scan_body(_carry, t_val):
+            spectrum, step_wavelengths = _emission_spectrum_at_timestep(0, t_val)
+            return _carry, (spectrum, step_wavelengths)
+
+        _, (model_spectra_2d, wavelengths_per_step) = lax.scan(
+            checkpoint(_emission_scan_body), None, model_times
+        )  # model_spectra_2d: (N_time, N_wavelength)
+        wavelengths = wavelengths_per_step[0]
 
     return ModelResult(
         kind="spectrum",
@@ -2309,11 +2358,11 @@ def legacy_gradient_profile_emission(
 
     num_layer = parameters["N_layers"].value
     # 1.4 assemble the P-T slopes for these layers
-    layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
-    for index in range(num_layer):
-        layer_pt_slopes = layer_pt_slopes.at[index].set(
-            parameters[f"PTslope_{num_layer - index}"].value
-        )
+    # Build directly: an all-NaN initialiser + scatter-fill is a forward NaN
+    # that poisons reverse-mode gradients via 0*NaN in the multiply's tangent.
+    layer_pt_slopes = jnp.stack(
+        [parameters[f"PTslope_{num_layer - index}"].value for index in range(num_layer)]
+    )
 
     top_of_atmosphere_presure = -3
     bottom_of_atmosphere_presure = 3
@@ -2455,11 +2504,11 @@ def legacy_power_law_profile_emission(
 
     num_layer = parameters["N_layers"].value
     # 1.4 assemble the P-T slopes for these layers
-    layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
-    for index in range(num_layer):
-        layer_pt_slopes = layer_pt_slopes.at[index].set(
-            parameters[f"PTslope_{num_layer - index}"].value
-        )
+    # Build directly: an all-NaN initialiser + scatter-fill is a forward NaN
+    # that poisons reverse-mode gradients via 0*NaN in the multiply's tangent.
+    layer_pt_slopes = jnp.stack(
+        [parameters[f"PTslope_{num_layer - index}"].value for index in range(num_layer)]
+    )
 
     temperatures = power_law_temperature_profile(
         p_use, parameters["alpha"].value, parameters["T_0"].value
@@ -3876,6 +3925,18 @@ def calculate_emission_spectrum_runtime(
     model_context: ModelContext,
     model_inputs: ModelInputs,
 ) -> ModelResult:
+    # Scattering emission solves the Feautrier system on a tensor whose live
+    # size is ~ n_g * feautrier_chunk_size * n_angles * n_layers (float64). With
+    # the default chunk size (1536 >= the model's frequency-bin count) the whole
+    # frequency grid is solved in one shot, which on GPU produced a single
+    # ~48 GiB allocation that exhausted the 40 GB A100 (job 1860410). The
+    # Feautrier driver chunks the frequency axis with lax.scan -- exact and
+    # reverse-mode differentiable -- so a smaller chunk size cuts the per-chunk
+    # peak roughly proportionally. Tunable via PRT_FEAUTRIER_CHUNK_SIZE so the
+    # CPU/GPU runs can trade memory against the (modest) extra scan overhead
+    # without editing code.
+    feautrier_chunk_size = int(os.environ.get("PRT_FEAUTRIER_CHUNK_SIZE", "128"))
+
     results = model_context.radtrans.calculate_flux(
         pressures=model_inputs.pressures,
         temperatures=model_inputs.temperatures,
@@ -3894,6 +3955,8 @@ def calculate_emission_spectrum_runtime(
         return_cloud_contribution=model_context.return_cloud_contribution,
         return_abundances=model_context.return_abundances,
         return_opacities=model_context.return_opacities,
+        chunk_feautrier=True,
+        feautrier_chunk_size=feautrier_chunk_size,
     )
 
     wavelengths_model, flux, additional_outputs = results

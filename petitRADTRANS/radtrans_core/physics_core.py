@@ -25,6 +25,17 @@ def _compute_planck_spectral_radiance_matrix(temperatures, frequencies):
     frequencies = jnp.asarray(frequencies)
 
     exponent = (cst.h / cst.kB) * frequencies[..., None] / temperatures[None, :]
+    # Clamp the Planck exponent so expm1 cannot overflow to +inf in the Wien
+    # tail. The forward value (prefactor/inf -> 0) is harmless, but the
+    # reverse-mode derivative is -prefactor * exp(x) / expm1(x)**2, which becomes
+    # inf/inf**2 = NaN once expm1(x) overflows -- and because the Planck function
+    # feeds the source function at every frequency/layer, a single deep-Wien
+    # cell turned the entire log-posterior gradient into NaN at the prior median.
+    # The threshold keeps expm1(x)**2 (the gradient denominator) finite; beyond
+    # it the emitted flux is ~0 with ~0 sensitivity, so the clamp is physically
+    # negligible and only flattens an already-vanishing tail.
+    max_exponent = 0.5 * jnp.log(jnp.finfo(exponent.dtype).max) - 1.0
+    exponent = jnp.minimum(exponent, max_exponent)
     prefactor = (2.0 * cst.h / cst.c) * _compute_planck_frequency_cubed_term(
         frequencies
     )
