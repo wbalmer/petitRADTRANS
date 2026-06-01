@@ -13,7 +13,7 @@ import os
 import warnings
 import numpy as np
 from scipy.special import erfcinv, gamma
-from typing import Tuple, Union, Optional
+from typing import Callable, Tuple, Union, Optional
 from jax import lax, numpy as jnp
 from petitRADTRANS.physics import shift_wavelengths_by_radial_velocity
 from petitRADTRANS.radtrans_core.spectrum_utils import (
@@ -302,6 +302,11 @@ def process_spectrum_pipeline(
     parameters: dict,
     data_name: str,
     spectrum_params: Optional[dict] = None,
+    *,
+    convolve_function: Callable | None = None,
+    variable_resolution_binning_function: Callable | None = None,
+    rebin_spectrum_bin_function: Callable | None = None,
+    continuum_subtract_function: Callable | None = None,
 ) -> jnp.ndarray:
     """
     Execute the spectrum processing pipeline: convolution, rebin, RV shift, continuum subtraction.
@@ -320,13 +325,27 @@ def process_spectrum_pipeline(
     Returns:
         Processed spectrum (rebinned, convolved, continuum-subtracted as needed)
     """
+    if convolve_function is None:
+        convolve_function = convolve
+
+    if variable_resolution_binning_function is None:
+        variable_resolution_binning_function = (
+            convolve_and_sample_variable_resolution_breads
+        )
+
+    if rebin_spectrum_bin_function is None:
+        rebin_spectrum_bin_function = rebin_spectrum_bin
+
+    if continuum_subtract_function is None:
+        continuum_subtract_function = continuum_subtract_spectrum
+
     def _resolve_instrument_resolution():
         instrument_resolution = getattr(data, "data_resolution_array_model", None)
 
         if instrument_resolution is not None:
             return instrument_resolution
 
-        instrument_resolution = data.data_resolution
+        instrument_resolution = getattr(data, "data_resolution", None)
 
         if not isinstance(instrument_resolution, (jnp.ndarray, np.ndarray)):
             return instrument_resolution
@@ -367,7 +386,7 @@ def process_spectrum_pipeline(
         spectrum_params = extract_spectrum_parameters(parameters, data_name)
 
     # Handle variable resolution convolution and rebin
-    if data.fit_instrumental_resolution:
+    if getattr(data, "fit_instrumental_resolution", False):
         resolution_slope = _get_parameter_value(spectrum_params, "resolution_slope")
         resolution_intersect = _get_parameter_value(
             spectrum_params, "resolution_intersect"
@@ -376,7 +395,7 @@ def process_spectrum_pipeline(
             resolution_array = (
                 data.wavelengths * resolution_slope
             ) + resolution_intersect
-            model_spectrum_rebinned = convolve_and_sample_variable_resolution_breads(
+            model_spectrum_rebinned = variable_resolution_binning_function(
                 data.wavelengths,
                 resolution_array,
                 wavelengths_model,
@@ -391,7 +410,7 @@ def process_spectrum_pipeline(
     model_spectrum_convolved = spectrum_model
     instrument_resolution = _resolve_instrument_resolution()
     if instrument_resolution is not None:
-        model_spectrum_convolved = convolve(
+        model_spectrum_convolved = convolve_function(
             wavelengths_model, spectrum_model, instrument_resolution
         )
 
@@ -412,7 +431,7 @@ def process_spectrum_pipeline(
                 model_spectrum_convolved,
             )
         else:
-            model_spectrum_rebinned = rebin_spectrum_bin(
+            model_spectrum_rebinned = rebin_spectrum_bin_function(
                 wavelengths_model_shifted,
                 model_spectrum_convolved,
                 data.wavelengths,
@@ -420,12 +439,12 @@ def process_spectrum_pipeline(
             )
 
     # Continuum subtraction if needed
-    if data.subtract_continuum:
+    if getattr(data, "subtract_continuum", False):
         method = (
             _get_parameter_value(spectrum_params, "continuum_subtraction_method")
             or "spline"
         )
-        model_spectrum_rebinned = continuum_subtract_spectrum(
+        model_spectrum_rebinned = continuum_subtract_function(
             wavelengths=data.wavelengths,
             spectrum=model_spectrum_rebinned,
             parameters=parameters,

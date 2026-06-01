@@ -103,6 +103,10 @@ _SAMPLER_MODULE_NAMES: dict[str, str] = {
     "map": "petitRADTRANS.retrieval.optimal_estimation",
 }
 
+# Backward-compatible mutable sampler registry used by tests, docs, and
+# external extensions that register custom sampler backends at runtime.
+SAMPLER_DISPATCH: dict[str, type[Sampler]] = {}
+
 _VMAP_FALLBACK_JAX_ERRORS = (jax_errors.ConcretizationTypeError,)
 
 for _error_name in (
@@ -116,16 +120,24 @@ for _error_name in (
 
 
 def _resolve_sampler_class(sampler_type: str) -> type[Sampler] | None:
-    sampler_class_name = _SAMPLER_CLASS_NAMES.get(sampler_type)
+    sampler_type_normalized = sampler_type.lower()
+
+    sampler_class = SAMPLER_DISPATCH.get(sampler_type_normalized)
+    if sampler_class is not None:
+        return sampler_class
+
+    sampler_class_name = _SAMPLER_CLASS_NAMES.get(sampler_type_normalized)
 
     if sampler_class_name is None:
         return None
 
     module_name = _SAMPLER_MODULE_NAMES.get(
-        sampler_type, "petitRADTRANS.retrieval.sampler"
+        sampler_type_normalized, "petitRADTRANS.retrieval.sampler"
     )
     sampler_module = importlib.import_module(module_name)
-    return getattr(sampler_module, sampler_class_name)
+    sampler_class = getattr(sampler_module, sampler_class_name)
+    SAMPLER_DISPATCH.setdefault(sampler_type_normalized, sampler_class)
+    return sampler_class
 
 
 class Retrieval:
@@ -2736,6 +2748,9 @@ class Retrieval:
                 parameters,
                 name,
                 spectrum_params,
+                convolve_function=convolve,
+                variable_resolution_binning_function=convolve_and_sample_variable_resolution_breads,
+                rebin_spectrum_bin_function=rebin_spectrum_bin,
             )
 
             chi2 += LogLikelihood(
@@ -3882,6 +3897,9 @@ class Retrieval:
                             parameters,
                             data_name,
                             spectrum_params,
+                            convolve_function=convolve,
+                            variable_resolution_binning_function=convolve_and_sample_variable_resolution_breads,
+                            rebin_spectrum_bin_function=rebin_spectrum_bin,
                         )
 
                         # Compute log likelihood
@@ -3964,6 +3982,9 @@ class Retrieval:
                         parameters,
                         data_name_2,
                         spectrum_params,
+                        convolve_function=convolve,
+                        variable_resolution_binning_function=convolve_and_sample_variable_resolution_breads,
+                        rebin_spectrum_bin_function=rebin_spectrum_bin,
                     )
 
                     # Compute log likelihood for secondary data
@@ -4728,6 +4749,9 @@ class Retrieval:
                     parameters=parameters,
                     data_name=name,
                     spectrum_params=spectrum_params,
+                    convolve_function=convolve,
+                    variable_resolution_binning_function=convolve_and_sample_variable_resolution_breads,
+                    rebin_spectrum_bin_function=rebin_spectrum_bin,
                 )
             else:
                 if data.data_resolution_array_model is not None:

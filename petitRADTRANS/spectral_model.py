@@ -9,6 +9,7 @@ import sys
 import warnings
 from typing import Any, Callable
 
+from jax import tree_util
 import jax.numpy as jnp
 import h5py
 import numpy as np
@@ -4573,6 +4574,13 @@ class SpectralModel(Radtrans):
             update_model_parameters=update_model_parameters
         )
 
+    def tree_flatten(self):
+        return self._tree_flatten()
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls._tree_unflatten(aux_data, children)
+
     def update_spectral_calculation_parameters(self, **parameters):
         pressures = self.pressures * 1e-6  # cgs to bar
 
@@ -4797,3 +4805,8 @@ class SpectralModel(Radtrans):
         new_spectral_model.shift_wavelengths = shift_wavelengths_function
 
         return new_spectral_model
+
+
+tree_util.register_pytree_node(
+    SpectralModel, SpectralModel.tree_flatten, SpectralModel.tree_unflatten
+)

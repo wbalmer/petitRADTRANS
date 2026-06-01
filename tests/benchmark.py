@@ -20,6 +20,58 @@ from .context import petitRADTRANS
 from .utils import tests_references_directory, tests_error_directory
 
 
+_REFERENCE_OUTPUT_KEY_ALIASES = {
+    "cloud_particle_mean_radii": ("cloud_particles_mean_radii",),
+    "cloud_particles_mean_radii": ("cloud_particle_mean_radii",),
+}
+
+_REFERENCE_OUTPUT_RETURN_FLAGS = {
+    "stellar_intensities": "return_stellar_intensities",
+    "angle_dependent_intensities": "return_angle_dependent_intensities",
+    "emission_contribution": "return_contribution",
+    "transmission_contribution": "return_contribution",
+    "photosphere_radius": "return_photosphere_radius",
+    "clear_spectrum": "return_clear_spectrum",
+    "cloud_contribution": "return_cloud_contribution",
+    "opacities": "return_opacities",
+    "continuum_opacities_scattering": "return_opacities",
+    "cloud_absorption_opacities": "return_opacities",
+    "cloud_anisotropic_scattering_opacities": "return_opacities",
+    "optical_depths": "return_opacities",
+    "abundances": "return_abundances",
+    "particle_radii_bins": "return_particle_radii_bins",
+    "particle_radii": "return_particle_radii",
+    "particle_densities": "return_particle_densities",
+    "radius_hydrostatic_equilibrium": "return_radius_hydrostatic_equilibrium",
+}
+
+
+def _iter_output_lookup_keys(key):
+    string_key = str(key)
+    yield string_key
+
+    if key != string_key:
+        yield key
+
+    for alias in _REFERENCE_OUTPUT_KEY_ALIASES.get(string_key, ()):
+        yield alias
+
+
+def _collect_reference_output_keys(reference_output) -> set[str]:
+    if not isinstance(reference_output, dict):
+        return set()
+
+    keys = set()
+
+    for key, value in reference_output.items():
+        string_key = str(key)
+        keys.add(string_key)
+        keys.update(_REFERENCE_OUTPUT_KEY_ALIASES.get(string_key, ()))
+        keys.update(_collect_reference_output_keys(value))
+
+    return keys
+
+
 def _align_output_to_reference(test_output, reference_output):
     """Trim extra dict keys from current outputs while preserving reference coverage."""
     if not isinstance(reference_output, dict):
@@ -35,10 +87,10 @@ def _align_output_to_reference(test_output, reference_output):
     for key, reference_value in reference_output.items():
         string_key = str(key)
 
-        if string_key in test_output:
-            value = test_output[string_key]
-        elif key in test_output:
-            value = test_output[key]
+        for candidate_key in _iter_output_lookup_keys(key):
+            if candidate_key in test_output:
+                value = test_output[candidate_key]
+                break
         else:
             raise KeyError(
                 f"reference output key '{string_key}' not in test output dict"
@@ -369,6 +421,28 @@ class Benchmark:
 
         return ReferenceFile.load(reference_file)
 
+    def _infer_reference_output_kwargs(
+        self, reference_outputs: dict, test_parameters: dict
+    ) -> dict:
+        """Infer missing return_* kwargs required to reproduce legacy reference outputs."""
+        supported_parameters = set(inspect.signature(self.function).parameters)
+        expected_output_keys = set()
+
+        for reference_output in reference_outputs.values():
+            expected_output_keys.update(_collect_reference_output_keys(reference_output))
+
+        inferred_parameters = {}
+
+        for output_key, return_flag in _REFERENCE_OUTPUT_RETURN_FLAGS.items():
+            if (
+                output_key in expected_output_keys
+                and return_flag in supported_parameters
+                and return_flag not in test_parameters
+            ):
+                inferred_parameters[return_flag] = True
+
+        return inferred_parameters
+
     def _run(self, **kwargs) -> dict:
         """Run the tested function.
 
@@ -458,6 +532,14 @@ class Benchmark:
             f"from petitRADTRANS-{reference_file.prt_version} ({reference_file.date}) "
             f"and petitRADTRANS-{petitRADTRANS.__version__}..."
         )
+
+        kwargs = {
+            **kwargs,
+            **self._infer_reference_output_kwargs(
+                reference_outputs=reference_file.outputs,
+                test_parameters=kwargs,
+            ),
+        }
 
         # Check if the parameters used in the current test are identical to the parameters used to make the reference
         self._check_parameters(reference_file=reference_file, test_parameters=kwargs)
