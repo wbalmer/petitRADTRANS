@@ -1047,6 +1047,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         spline_bound: float = 10.0,
         base_distribution: str = "gaussian",
         use_base_affine: bool = False,
+        training_objective: str = "npe",
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
         checkpoint_directory: str | None = None,
@@ -1113,6 +1114,18 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.effective_flow_family = self.flow_family
         self.base_distribution = str(base_distribution)
         self.use_base_affine = bool(use_base_affine)
+        self.training_objective = str(training_objective).lower()
+        if self.training_objective not in {"npe", "elbo"}:
+            raise ValueError(
+                "training_objective must be 'npe' (default, conditional NLL) "
+                f"or 'elbo' (amortized variational); got {training_objective!r}"
+            )
+        if self.training_objective == "elbo" and self.parameter_space != "cube":
+            raise ValueError(
+                "training_objective='elbo' requires parameter_space='cube' so the "
+                "prior is uniform on the unit hypercube and the entropy/likelihood "
+                "terms are well defined."
+            )
         self.num_spline_bins = int(num_spline_bins)
         requested_spline_bound = float(spline_bound)
         if self.parameter_space == "cube" and self.flow_family == "spline":
@@ -1726,6 +1739,114 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         return _loss
 
     @staticmethod
+    def _make_elbo_loss(
+        log_likelihood_fn: Callable[[jnp.ndarray, Any], jnp.ndarray],
+        parameter_space: str,
+        *,
+        num_samples: int = 1,
+    ) -> Callable[[_PosteriorModel, PosteriorBatch], jnp.ndarray]:
+        """Return an amortized-variational (ELBO) training loss.
+
+        Maximizes, for observations ``x`` drawn from the (prior-predictive)
+        dataset,
+
+            ELBO(x) = E_{q(theta|x)}[ log p(x|theta) + log p(theta) - log q(theta|x) ]
+
+        with a single- (or few-) sample reparameterized estimator. ``q(theta|x)``
+        is the conditional flow: latents ``z`` are drawn from the flow base and
+        pushed through ``flow.inverse`` to reparameterized samples, so the
+        gradient flows through both the flow and the encoder.
+
+        The ``-log q`` (entropy) term diverges to ``-inf`` as ``q`` collapses to
+        a point mass, so a delta posterior is *structurally* impossible -- the
+        width is set by the likelihood/entropy balance rather than by the
+        (near-deterministic) embedding. ``log p(x|theta)`` is supplied by the
+        injected differentiable forward-model likelihood evaluated at the
+        physical parameters reconstructed from the sampled cube coordinates.
+        With ``parameter_space='cube'`` the prior is uniform on the unit
+        hypercube, so ``log p(theta_cube) = 0`` and is dropped.
+
+        Parameters
+        ----------
+        log_likelihood_fn:
+            ``(theta_cube, observations) -> (batch,)`` returning the Gaussian
+            observational log-likelihood ``log p(x | theta)`` for each batch
+            element. Receives unit-cube coordinates (shape ``(batch, dim)``)
+            and the batch's prestacked observations; it owns the cube->physical
+            transform, the differentiable forward model, and the noise model.
+            Must be JAX-differentiable w.r.t. ``theta_cube``.
+        parameter_space:
+            Must be ``"cube"``.
+        num_samples:
+            Number of reparameterized posterior draws per observation used to
+            estimate the ELBO expectation. ``1`` is standard for amortized VI;
+            larger values reduce gradient variance at a proportional
+            forward-model cost.
+        """
+        if parameter_space != "cube":
+            raise ValueError(
+                "ELBO objective requires parameter_space='cube' (uniform prior)."
+            )
+        n_draws = max(int(num_samples), 1)
+
+        def _elbo_loss(
+            model: _PosteriorModel, batch: PosteriorBatch
+        ) -> jnp.ndarray:
+            observations = batch.observations
+            embeddings = ConditionalFlowPosterior._batch_embeddings(
+                model, observations
+            )
+            embeddings = jnp.asarray(embeddings, dtype=jnp.float32)
+            batch_size = embeddings.shape[0]
+            param_dim = model.flow.parameter_dim
+
+            # Derive a per-step key from the batch contents so that the
+            # reparameterized draws differ across steps/epochs.
+            seed = jnp.bitwise_xor(
+                jax.lax.bitcast_convert_type(embeddings[0, 0], jnp.int32),
+                jax.lax.bitcast_convert_type(embeddings[-1, -1], jnp.int32),
+            )
+            key = random.fold_in(random.PRNGKey(0x5E1B0), seed)
+
+            def _single_draw(draw_key: Array) -> jnp.ndarray:
+                latent = model.flow._base_sample(
+                    draw_key, (batch_size, param_dim), embeddings.dtype
+                )
+                # Reparameterized sample in the flow's unconstrained space and
+                # the log-density of that sample under q.
+                theta_unc, log_det_inv = vmap(model.flow.inverse)(
+                    latent, embeddings
+                )
+                base_log_prob = vmap(model.flow._base_log_prob)(latent)
+                # log q(theta_unc) = log base(z) - log|det d theta_unc / d z|.
+                log_q_unc = base_log_prob - log_det_inv  # (batch,)
+
+                # Map to the unit cube and change variables:
+                # q_cube(c) = q_unc(u) / |d c / d u|, c = sigmoid(u),
+                # |d c / d u| = c (1 - c).
+                theta_cube = nn.sigmoid(theta_unc)
+                clipped = jnp.clip(theta_cube, 1e-7, 1.0 - 1e-7)
+                log_jacobian = jnp.sum(
+                    jnp.log(clipped) + jnp.log1p(-clipped), axis=-1
+                )  # (batch,)
+                log_q_cube = log_q_unc - log_jacobian  # (batch,)
+
+                log_likelihood = log_likelihood_fn(theta_cube, observations)
+                log_likelihood = jnp.reshape(log_likelihood, (batch_size,))
+                # Uniform-cube prior contributes log p(theta_cube) = 0.
+                return log_likelihood - log_q_cube  # (batch,)
+
+            draw_keys = random.split(key, n_draws)
+            elbo_total = jnp.zeros((batch_size,), dtype=jnp.float32)
+            for draw_key in draw_keys:
+                elbo_total = elbo_total + _single_draw(draw_key)
+            elbo = elbo_total / float(n_draws)
+            elbo = jnp.where(jnp.isfinite(elbo), elbo, -1e6)
+            return -jnp.mean(elbo)
+
+        return _elbo_loss
+
+    @staticmethod
     def _make_noisy_loss(
         noise_std: float,
         preprocessing_metadata: Any = None,
@@ -1934,7 +2055,14 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
 
         return _noisy_loss
 
-    def fit(self, dataset: Any) -> TrainingArtifacts:
+    def fit(
+        self,
+        dataset: Any,
+        *,
+        elbo_log_likelihood_fn: Callable[[jnp.ndarray, Any], jnp.ndarray]
+        | None = None,
+        elbo_num_samples: int = 1,
+    ) -> TrainingArtifacts:
         """Train the posterior on one normalized simulation dataset reader.
 
         Parameters
@@ -1943,6 +2071,14 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             Reader-like object that yields :class:`PosteriorBatch` instances via
             ``iter_batches`` and exposes dataset manifest metadata when
             available.
+        elbo_log_likelihood_fn:
+            Required when ``training_objective='elbo'``. A differentiable
+            ``(theta_cube, observations) -> (batch,)`` callable returning the
+            Gaussian observational log-likelihood through the forward model. See
+            :meth:`_make_elbo_loss`. Ignored for the default NPE objective.
+        elbo_num_samples:
+            Number of reparameterized posterior draws per observation for the
+            ELBO estimator (default 1).
 
         Returns
         -------
@@ -1999,32 +2135,80 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 diagnostics_plot_interval=self.diagnostics_plot_interval,
             )
         )
-        train_loss_fn = (
-            self._make_noisy_loss(
-                self.embedding_noise_std,
-                preprocessing_metadata,
-                noise_min_scale=self.embedding_noise_min_scale,
-                include_spline_regularization=True,
-            )
-            if self.embedding_noise_std > 0 or self.embedding_noise_min_scale > 0
-            else self._training_loss
-        )
-        if self.parameter_noise_floor > 0.0:
-            train_loss_fn = self._make_parameter_noise_loss(
-                train_loss_fn,
-                self.parameter_noise_floor,
+        if self.training_objective == "elbo":
+            if elbo_log_likelihood_fn is None:
+                raise ValueError(
+                    "training_objective='elbo' requires an elbo_log_likelihood_fn "
+                    "(a differentiable forward-model likelihood). Build it from the "
+                    "task/runtime and pass it to fit(..., elbo_log_likelihood_fn=...)."
+                )
+            # The ELBO objective sets posterior width via the likelihood/entropy
+            # balance, so observation-noise augmentation and the parameter-noise
+            # floor (NPE-only regularizers) are not applied; train and eval use
+            # the same ELBO so selection tracks the variational objective.
+            elbo_loss_fn = self._make_elbo_loss(
+                elbo_log_likelihood_fn,
                 self.parameter_space,
+                num_samples=elbo_num_samples,
             )
-        self.model, history, validation_metrics, training_metadata = trainer.fit(
-            self.model,
-            dataset,
-            train_loss_fn,
-            eval_loss_fn=self._loss,
-            eval_diagnostic_fn=self._validation_diagnostics,
-            selection_metric_fn=_flow_validation_selection_metric,
-            selection_metric_name="validation_selection_metric",
-            stability_metric_fn=lambda validation_loss, diagnostics: (
-                _flow_validation_stability_metrics(
+            train_loss_fn = elbo_loss_fn
+            eval_loss_fn = elbo_loss_fn
+            # The NPE selection/stability machinery (forward<->inverse round-trip
+            # error, edge-hit and collapse gates) is meaningless for a
+            # reverse-KL-trained, sampling-only flow: the round-trip is never
+            # optimized, and the entropy term already makes density collapse
+            # structurally impossible, so those gates would (and did) mark every
+            # ELBO epoch "pathological", pinning selection to epoch 1 and
+            # triggering spurious early stopping. For ELBO we select on, and
+            # early-stop on, the validation ELBO itself; a checkpoint is only
+            # "pathological" if its loss is non-finite. Flow diagnostics
+            # (edge hits, invertibility) are still computed and logged.
+            def _elbo_selection_metric(
+                validation_loss: float, diagnostics: Mapping[str, float] | None
+            ) -> float:
+                return (
+                    float(validation_loss)
+                    if np.isfinite(validation_loss)
+                    else 1e30
+                )
+
+            def _elbo_stability_metrics(
+                validation_loss: float, diagnostics: Mapping[str, float] | None
+            ) -> Mapping[str, float]:
+                finite = bool(np.isfinite(validation_loss))
+                return {
+                    "checkpoint_is_stable": 1.0 if finite else 0.0,
+                    "checkpoint_is_pathological": 0.0 if finite else 1.0,
+                }
+
+            selection_metric_fn = _elbo_selection_metric
+            selection_metric_name = "validation_selection_metric"
+            stability_metric_fn = _elbo_stability_metrics
+        else:
+            train_loss_fn = (
+                self._make_noisy_loss(
+                    self.embedding_noise_std,
+                    preprocessing_metadata,
+                    noise_min_scale=self.embedding_noise_min_scale,
+                    include_spline_regularization=True,
+                )
+                if self.embedding_noise_std > 0 or self.embedding_noise_min_scale > 0
+                else self._training_loss
+            )
+            if self.parameter_noise_floor > 0.0:
+                train_loss_fn = self._make_parameter_noise_loss(
+                    train_loss_fn,
+                    self.parameter_noise_floor,
+                    self.parameter_space,
+                )
+            eval_loss_fn = self._loss
+            selection_metric_fn = _flow_validation_selection_metric
+            selection_metric_name = "validation_selection_metric"
+
+            def stability_metric_fn(
+                validation_loss: float, diagnostics: Mapping[str, float] | None
+            ) -> Mapping[str, float]:
+                return _flow_validation_stability_metrics(
                     validation_loss,
                     diagnostics,
                     inverse_forward_max_abs_error_threshold=(
@@ -2033,9 +2217,20 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                     inverse_forward_logdet_closure_max_abs_error_threshold=(
                         self.stable_inverse_forward_logdet_closure_max_abs_error_threshold
                     ),
-                    cube_edge_hit_rate_threshold=self.stable_cube_edge_hit_rate_threshold,
+                    cube_edge_hit_rate_threshold=(
+                        self.stable_cube_edge_hit_rate_threshold
+                    ),
                 )
-            ),
+
+        self.model, history, validation_metrics, training_metadata = trainer.fit(
+            self.model,
+            dataset,
+            train_loss_fn,
+            eval_loss_fn=eval_loss_fn,
+            eval_diagnostic_fn=self._validation_diagnostics,
+            selection_metric_fn=selection_metric_fn,
+            selection_metric_name=selection_metric_name,
+            stability_metric_fn=stability_metric_fn,
             stability_flag_key="checkpoint_is_stable",
         )
         self.training_artifacts = TrainingArtifacts(
@@ -2075,6 +2270,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "spline_bound": self.spline_bound,
             "base_distribution": self.base_distribution,
             "use_base_affine": self.use_base_affine,
+            "training_objective": self.training_objective,
             "early_stopping_patience": self.early_stopping_patience,
             "early_stopping_min_delta": self.early_stopping_min_delta,
             "checkpoint_directory": self.checkpoint_directory,
@@ -2138,6 +2334,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "spline_bound": self.spline_bound,
                 "base_distribution": self.base_distribution,
                 "use_base_affine": self.use_base_affine,
+                "training_objective": self.training_objective,
                 "early_stopping_patience": self.early_stopping_patience,
                 "early_stopping_min_delta": self.early_stopping_min_delta,
                 "checkpoint_directory": self.checkpoint_directory,
@@ -2223,6 +2420,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "spline_bound": metadata.get("spline_bound", 10.0),
             "base_distribution": metadata.get("base_distribution", "gaussian"),
             "use_base_affine": metadata.get("use_base_affine", False),
+            "training_objective": metadata.get("training_objective", "npe"),
             "early_stopping_patience": metadata.get("early_stopping_patience"),
             "early_stopping_min_delta": metadata.get("early_stopping_min_delta", 0.0),
             "checkpoint_directory": metadata.get("checkpoint_directory"),
@@ -2331,6 +2529,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             spline_bound=float(estimator_config.get("spline_bound", 10.0)),
             base_distribution=str(estimator_config.get("base_distribution", "gaussian")),
             use_base_affine=bool(estimator_config.get("use_base_affine", False)),
+            training_objective=str(estimator_config.get("training_objective", "npe")),
             early_stopping_patience=estimator_config.get("early_stopping_patience"),
             early_stopping_min_delta=float(
                 estimator_config.get("early_stopping_min_delta", 0.0)
