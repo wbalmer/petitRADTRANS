@@ -307,14 +307,6 @@ class Data:
             else:
                 self.loadtxt(path_to_observations)
 
-            if wavelength_boundaries is not None:
-                self.wavelength_boundaries = wavelength_boundaries
-            else:
-                self.wavelength_boundaries = (
-                    0.95 * self.wavelengths[0],
-                    1.05 * self.wavelengths[-1],
-                )
-
             if self.wavelength_bin_widths is None:
                 if wavelength_bin_widths is not None:
                     self.wavelength_bin_widths = wavelength_bin_widths
@@ -328,6 +320,23 @@ class Data:
                     ].set(self.wavelength_bin_widths[-2])
 
             self._validate_covariance_configuration()
+
+        # Model wavelength boundaries. Honour an explicit ``wavelength_boundaries``
+        # argument; otherwise bracket the data wavelengths by
+        # [0.98 * min, 1.02 * max]. This is applied for *every* data object --
+        # whether the spectrum was read from a file or supplied via arguments --
+        # so the Radtrans model grid is restricted to (just beyond) the data
+        # range instead of spanning the full loaded-opacity range (which would
+        # otherwise compute far-UV/IR wavelengths that underflow to NaN and only
+        # waste time).
+        if wavelength_boundaries is not None:
+            self.wavelength_boundaries = tuple(wavelength_boundaries)
+        elif self.wavelengths is not None and jnp.size(jnp.asarray(self.wavelengths)) > 0:
+            _wl = jnp.asarray(self.wavelengths)
+            self.wavelength_boundaries = (
+                0.98 * float(jnp.min(_wl)),
+                1.02 * float(jnp.max(_wl)),
+            )
 
     # TODO [4.0.0] This should be a classmethod instantiating a Data object, also fix function name => from_txt()
     def loadtxt(self, path: str, delimiter: str = ",", comments: str = "#") -> None:
@@ -765,13 +774,13 @@ class PhotometryData(Data):
         if derived_wavelength_boundaries is None:
             if self.photometric_bin_edges.ndim == 1:  # Single band
                 derived_wavelength_boundaries = [
-                    0.95 * self.photometric_bin_edges[0],
-                    1.05 * self.photometric_bin_edges[1],
+                    0.98 * self.photometric_bin_edges[0],
+                    1.02 * self.photometric_bin_edges[1],
                 ]
             else:  # Multiple bands
                 derived_wavelength_boundaries = [
-                    0.95 * jnp.min(self.photometric_bin_edges[:, 0]),
-                    1.05 * jnp.max(self.photometric_bin_edges[:, 1]),
+                    0.98 * jnp.min(self.photometric_bin_edges[:, 0]),
+                    1.02 * jnp.max(self.photometric_bin_edges[:, 1]),
                 ]
 
         # Calculate effective/central wavelengths and bin widths for base class

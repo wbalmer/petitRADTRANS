@@ -225,7 +225,7 @@ def _combine_ck_opacities_jax(
         y0 = k_sorted[rows, idx_lo]
         y1 = k_sorted[rows, idx]
         t = jnp.clip(
-            (g_target - x0) / jnp.maximum(x1 - x0, WORKING_TINIEST),
+            (g_target - x0) / jnp.maximum(x1 - x0, jnp.sqrt(WORKING_TINIEST)),
             0.0,
             1.0,
         )
@@ -730,20 +730,34 @@ def _ng_accelerated_batched(
     C1 = jnp.minimum(jnp.einsum("bl,bl->b", Q1, Q3), HUGE_SQRT)
     C2 = jnp.minimum(jnp.einsum("bl,bl->b", Q2, Q3), HUGE_SQRT)
 
-    AB_denom = A1 * B2 - A2 * A2  # B1==A2
+    # Solve the 2x2 Ng normal equations scale-invariantly so that
+    # ill-conditioned rows -- which the final jnp.where discards anyway -- cannot
+    # poison the reverse-mode gradient. A1=Q1.Q1>=0, B2=Q2.Q2>=0, A2=Q1.Q2, and
+    # AB_denom=A1*B2-A2**2>=0 (Cauchy-Schwarz). The original code used an
+    # absolute TINIEST threshold and divided by the raw determinant; a merely
+    # tiny (not exactly zero) denominator then made a_ng/b_ng and especially
+    # their gradient (~num/denom**2) overflow to inf, and the discarded branch
+    # turned that into NaN via 0*inf -- which NaN'd the entire warm-start
+    # gradient at the prior median. Normalising by the Gram scale puts the
+    # determinant in [0, 1] so a fixed *relative* threshold detects near-singular
+    # rows regardless of the source magnitude; the scale floor (sqrt of the
+    # smallest normal) keeps 1/scale and its gradient finite; and skipped rows
+    # get a trivial finite system so the dead branch is finite in value AND
+    # gradient.
+    gram_scale = jnp.maximum(A1, B2)
+    inv_scale = 1.0 / jnp.maximum(gram_scale, jnp.sqrt(TINIEST))
+    A1n = A1 * inv_scale
+    A2n = A2 * inv_scale
+    B2n = B2 * inv_scale
+    C1n = C1 * inv_scale
+    C2n = C2 * inv_scale
+    AB_denom_n = A1n * B2n - A2n * A2n  # in [0, 1]
 
-    skip = (
-        (AB_denom < TINIEST)
-        | (jnp.abs(A1) < TINIEST)
-        | (jnp.abs(A2) < TINIEST)
-        | (jnp.abs(B2) < TINIEST)
-        | (jnp.abs(C1) < TINIEST)
-        | (jnp.abs(C2) < TINIEST)
-    )  # (batch,)
+    skip = (gram_scale < TINIEST) | (AB_denom_n < 1e-6)  # (batch,)
 
-    safe_denom = jnp.where(AB_denom == 0.0, 1.0, AB_denom)
-    a_ng = (C1 * B2 - C2 * A2) / safe_denom
-    b_ng = (C2 * A1 - C1 * A2) / safe_denom
+    safe_denom = jnp.where(skip, 1.0, AB_denom_n)
+    a_ng = jnp.where(skip, 0.0, C1n * B2n - C2n * A2n) / safe_denom
+    b_ng = jnp.where(skip, 0.0, C2n * A1n - C1n * A2n) / safe_denom
 
     accelerated = jnp.maximum(
         (1.0 - a_ng - b_ng)[:, None] * tn + a_ng[:, None] * tn1 + b_ng[:, None] * tn2,
@@ -1017,11 +1031,20 @@ def _compute_feautrier_radiative_transfer_chunk(
     # ------------------------------------------------------------------
     # 8. Delta-taus
     # ------------------------------------------------------------------
+    # Floor |delta-tau| at sqrt(tiny), not tiny. The Feautrier coefficients below
+    # divide by these (f1 = clip(mu/dtau, ...)); with a floor of `tiny` the
+    # clipped forward value is finite but its gradient, -mu/dtau**2, overflows
+    # because dtau**2 underflows to 0 -- and the clip then turns that into
+    # 0*inf = NaN, which propagated into the whole log-posterior gradient. A
+    # sqrt(tiny) floor keeps dtau**2 in the normal range (finite gradient); such
+    # steps are physically zero and clipped regardless, so the forward is
+    # unchanged.
+    _dtau_floor = jnp.sqrt(TINIEST)
     dtau1 = optical_depths_in[:, :, 1:] - optical_depths_in[:, :, :-1]  # (g,f,l-1)
-    dtau1 = jnp.where(jnp.abs(dtau1) < TINIEST, TINIEST, dtau1)
+    dtau1 = jnp.where(jnp.abs(dtau1) < _dtau_floor, _dtau_floor, dtau1)
 
     dtau2 = optical_depths_in[:, :, 2:] - optical_depths_in[:, :, :-2]  # (g,f,l-2)
-    dtau2 = jnp.where(jnp.abs(dtau2) < TINIEST, TINIEST, dtau2)
+    dtau2 = jnp.where(jnp.abs(dtau2) < _dtau_floor, _dtau_floor, dtau2)
 
     # ------------------------------------------------------------------
     # 9. Feautrier tridiagonal coefficients
@@ -1083,8 +1106,15 @@ def _compute_feautrier_radiative_transfer_chunk(
         ..., 0
     ]  # (g, f)
 
+    # Guard the diagonal before dividing: b_mid = 1 + f1*(f2+f3) can pass
+    # through ~0 at non-monotonic / extreme optical depths, and 1/b_mid then has
+    # a gradient -1/b_mid**2 that overflows (b_mid**2 underflows), feeding a NaN
+    # into lambda_loc -> the ALI source. Floor |b_mid| at sqrt(tiny) (forward
+    # unchanged for any non-degenerate cell).
+    _b_floor = jnp.sqrt(TINIEST)
+    b_mid_safe = jnp.where(jnp.abs(b_mid) < _b_floor, _b_floor, b_mid)
     lam_mid = jnp.sum(
-        angle_weight_a[None, None, :, None] / b_mid, axis=2
+        angle_weight_a[None, None, :, None] / b_mid_safe, axis=2
     )  # (g, f, l-2)
 
     f1_surf = jnp.clip(
@@ -1306,14 +1336,24 @@ def _compute_feautrier_radiative_transfer_chunk(
             lambda _: source_ali,
             operand=None,
         )
+        # Ng acceleration is a forward-only convergence accelerator: its internal
+        # 2x2 least-squares solve spans an enormous dynamic range at extreme
+        # atmospheres and yields NaN reverse-mode gradients (0*inf from the
+        # discarded ill-conditioned rows) that silently zeroed the warm-start
+        # gradient at the prior median. Route the gradient through the
+        # numerically clean ALI source update instead, keeping the accelerated
+        # value only in the forward pass. At the fixed point the accelerated and
+        # ALI sources coincide, so dS*/dtheta is unchanged; elsewhere this is the
+        # standard "treat the accelerator as a constant" approximation.
+        next_source_gfl = source_ali + lax.stop_gradient(next_source_gfl - source_ali)
 
         flux_gf_cur = -jnp.einsum("gfa,a->gf", I_H_top, mu_weight_a)
         conv_val_gf = jnp.abs(
             1.0
             - current_flux_gf_prev
             / jnp.where(
-                jnp.abs(flux_gf_cur) < TINIEST,
-                TINIEST,
+                jnp.abs(flux_gf_cur) < jnp.sqrt(TINIEST),
+                jnp.sqrt(TINIEST),
                 flux_gf_cur,
             )
         )
@@ -2182,10 +2222,17 @@ def compute_optical_depths(
         # Compute photon destruction probabilities for all g, freq, press
         absorptive_opac = opacities_work[:, :, 0, :]
         total_opac = _opacities[:, :, 0, :]
-        safe_total_opac = jnp.where(
-            total_opac > WORKING_TINIEST,
-            total_opac,
-            jnp.ones_like(total_opac),
+        # Floor the denominator at sqrt(tiny), not tiny. absorptive/total has
+        # gradient ~ -absorptive/total**2, and for total just above WORKING_TINIEST
+        # the square underflows to 0 -> inf gradient, which the outer jnp.where
+        # then turns into 0*inf = NaN. Because this photon-destruction
+        # probability feeds the scattering source at every (g, f, layer), that
+        # single NaN propagated into essentially every parameter's gradient at
+        # the prior median. sqrt(tiny) keeps total**2 normal; cells with such
+        # negligible opacity are physically irrelevant, so the forward is
+        # unchanged in practice.
+        safe_total_opac = jnp.maximum(
+            total_opac, jnp.sqrt(WORKING_TINIEST)
         )
         photon_destruction_probabilities = absorptive_opac / safe_total_opac
         photon_destruction_probabilities = jnp.where(
@@ -2252,7 +2299,10 @@ def compute_photon_destruction_prob(
     # Vectorized per-g computation: add continuum opacity and compute destruction probability
     def _per_g(opacity_g: ArrayLike) -> ArrayLike:
         tot = opacity_g + continuum_opacity_scat_emis
-        safe_tot = jnp.where(tot > TINIEST, tot, 1.0)
+        # Floor at sqrt(tiny): opacity_g/tot has gradient ~ -opacity_g/tot**2,
+        # which overflows (tot**2 underflows) for tot just above tiny and is then
+        # turned into 0*inf = NaN by the jnp.where. See scattering_function.
+        safe_tot = jnp.maximum(tot, jnp.sqrt(TINIEST))
         destruction_prob = opacity_g / safe_tot
         return jnp.where(tot > TINIEST, destruction_prob, 1.0)
 

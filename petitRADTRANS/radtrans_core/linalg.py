@@ -9,6 +9,13 @@ from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 TINIEST = jnp.finfo(JAX_DTYPE).tiny
 HUGE_SQRT = jnp.sqrt(jnp.finfo(JAX_DTYPE).max)
+# Gradient-safe denominator floor. A reciprocal 1/x has gradient -1/x**2, which
+# overflows to inf once x**2 underflows to 0 -- i.e. for x in roughly
+# [TINIEST, sqrt(TINIEST)]. Flooring denominators at sqrt(TINIEST) keeps x**2 in
+# the normal range so the reverse-mode gradient stays finite; such denominators
+# are physically zero either way, so the forward result is unchanged. (Flooring
+# at TINIEST itself, as the code originally did, leaves the gradient NaN.)
+GRAD_SAFE_DENOM = jnp.sqrt(TINIEST)
 
 # Detect GPU once at import time to choose optimal tridiagonal solver.
 _USE_GPU = default_backend() != "cpu"
@@ -102,7 +109,7 @@ def solve_tridiagonal_thomas_batched(a, b, c, d):
     def fwd_step(carry, k):
         c_prev, d_prev = carry
         denom = b[:, k] - a[:, k] * c_prev
-        safe_den = jnp.where(jnp.abs(denom) < TINIEST, TINIEST, denom)
+        safe_den = jnp.where(jnp.abs(denom) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom)
         c_k = c[:, k] / safe_den
         d_k = (d[:, k] - a[:, k] * d_prev) / safe_den
         return (c_k, d_k), (c_k, d_k)
@@ -174,7 +181,7 @@ def factor_feautrier_thomas(
         def fwd_step(carry, k):
             c_prev = carry
             denom = b[:, k] - a[:, k] * c_prev
-            safe_den = jnp.where(jnp.abs(denom) < TINIEST, TINIEST, denom)
+            safe_den = jnp.where(jnp.abs(denom) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom)
             inv_den = 1.0 / safe_den
             c_k = c[:, k] * inv_den
             a_inv_k = a[:, k] * inv_den
@@ -205,7 +212,9 @@ def factor_feautrier_thomas(
 
     # Surface row (layer n-1)
     denom_last = b[:, n - 1] - a[:, n - 1] * c_nm2
-    safe_denom_last = jnp.where(jnp.abs(denom_last) < TINIEST, TINIEST, denom_last)
+    safe_denom_last = jnp.where(
+        jnp.abs(denom_last) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom_last
+    )
     inv_denom_last = 1.0 / safe_denom_last
     a_inv_last = a[:, n - 1] * inv_denom_last
 
@@ -415,7 +424,7 @@ def solve_tridiagonal_thomas_batched_feautrier_fused(
         def fwd_step(carry, k):
             c_prev, d_prev = carry
             denom = b[:, k] - a[:, k] * c_prev
-            safe_den = jnp.where(jnp.abs(denom) < TINIEST, TINIEST, denom)
+            safe_den = jnp.where(jnp.abs(denom) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom)
             rhs_k = _broadcast_rhs_layer(k)
             c_k = c[:, k] / safe_den
             d_k = (rhs_k - a[:, k] * d_prev) / safe_den
@@ -438,7 +447,9 @@ def solve_tridiagonal_thomas_batched_feautrier_fused(
         d_upto_nm2 = d0[None, :]
 
     denom_last = b[:, n - 1] - a[:, n - 1] * c_nm2
-    safe_denom_last = jnp.where(jnp.abs(denom_last) < TINIEST, TINIEST, denom_last)
+    safe_denom_last = jnp.where(
+        jnp.abs(denom_last) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom_last
+    )
     x_last_flat = (d_surf.reshape(batch) - a[:, n - 1] * d_nm2) / safe_denom_last
 
     if n == 1:
@@ -556,7 +567,7 @@ def solve_tridiagonal_thomas_batched_fused(
     def fwd_step(carry, k):
         c_prev, d_prev = carry
         denom = b[:, k] - a[:, k] * c_prev
-        safe_den = jnp.where(jnp.abs(denom) < TINIEST, TINIEST, denom)
+        safe_den = jnp.where(jnp.abs(denom) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom)
         c_k = c[:, k] / safe_den
         d_k = (d[:, k] - a[:, k] * d_prev) / safe_den
         return (c_k, d_k), (c_k, d_k)
