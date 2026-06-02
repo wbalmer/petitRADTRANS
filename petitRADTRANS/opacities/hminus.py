@@ -1,3 +1,4 @@
+from jax import vmap
 import jax.numpy as jnp
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import frequency2wavelength
@@ -23,45 +24,43 @@ def compute_h_minus_free_free_xsec(
     Returns:
 
     """
+    in_range = (wavelengths >= 2600.0) & (wavelengths <= 113900.0)
+    # Guard log10 against out-of-range wavelengths
+    lamb_safe = jnp.where(in_range, wavelengths, 1.0)
+    log_lamb = jnp.log10(lamb_safe)
 
-    index = (wavelengths >= 2600.0) & (wavelengths <= 113900.0)
-    lamb_use = wavelengths[index]
+    theta = 5040.0 / jnp.maximum(temperatures, 2500.0)
+    log_theta = jnp.log10(theta)
 
-    if temperatures >= 2500.0:
-        # Convert to Angstrom (from cgs)
-        theta = 5040.0 / temperatures
+    f0 = (
+        -2.2763
+        - 1.6850 * log_lamb
+        + 0.76661 * log_lamb ** 2.0
+        - 0.053346 * log_lamb ** 3.0
+    )
+    f1 = (
+        15.2827
+        - 9.2846 * log_lamb
+        + 1.99381 * log_lamb ** 2.0
+        - 0.142631 * log_lamb ** 3.0
+    )
+    f2 = (
+        -197.789
+        + 190.266 * log_lamb
+        - 67.9775 * log_lamb ** 2.0
+        + 10.6913 * log_lamb ** 3.0
+        - 0.625151 * log_lamb ** 4.0
+    )
 
-        f0 = (
-            -2.2763
-            - 1.6850 * jnp.log10(lamb_use)
-            + 0.76661 * jnp.log10(lamb_use) ** 2.0
-            - 0.053346 * jnp.log10(lamb_use) ** 3.0
-        )
-        f1 = (
-            15.2827
-            - 9.2846 * jnp.log10(lamb_use)
-            + 1.99381 * jnp.log10(lamb_use) ** 2.0
-            - 0.142631 * jnp.log10(lamb_use) ** 3.0
-        )
-        f2 = (
-            -197.789
-            + 190.266 * jnp.log10(lamb_use)
-            - 67.9775 * jnp.log10(lamb_use) ** 2.0
-            + 10.6913 * jnp.log10(lamb_use) ** 3.0
-            - 0.625151 * jnp.log10(lamb_use) ** 4.0
-        )
+    values = (
+        1e-26
+        * electron_partial_pressure
+        * 1e1 ** (f0 + f1 * log_theta + f2 * log_theta ** 2.0)
+    )
 
-        ret_val = jnp.zeros_like(wavelengths, dtype=WORKING_JAX_DTYPE)
-        ret_val = ret_val.at[index].set(
-            1e-26
-            * electron_partial_pressure
-            * 1e1 ** (f0 + f1 * jnp.log10(theta) + f2 * jnp.log10(theta) ** 2.0)
-        )
-        return ret_val
-
-    else:
-
-        return jnp.zeros_like(wavelengths, dtype=WORKING_JAX_DTYPE)
+    return jnp.where(in_range & (temperatures >= 2500.0), values, 0.0).astype(
+        WORKING_JAX_DTYPE
+    )
 
 
 def compute_h_minus_bound_free_xsec(wavelengths_bin_edges):
@@ -74,45 +73,35 @@ def compute_h_minus_bound_free_xsec(wavelengths_bin_edges):
     Returns:
 
     """
-
     left = wavelengths_bin_edges[:-1]
     right = wavelengths_bin_edges[1:]
     diff = jnp.diff(wavelengths_bin_edges)
 
-    a = [
-        1.99654,
-        -1.18267e-5,
-        2.64243e-6,
-        -4.40524e-10,
-        3.23992e-14,
-        -1.39568e-18,
-        2.78701e-23,
-    ]
+    a = jnp.array(
+        [
+            1.99654,
+            -1.18267e-5,
+            2.64243e-6,
+            -4.40524e-10,
+            3.23992e-14,
+            -1.39568e-18,
+            2.78701e-23,
+        ],
+        dtype=WORKING_JAX_DTYPE,
+    )
+    powers = jnp.arange(1, len(a) + 1, dtype=WORKING_JAX_DTYPE)
 
-    ret_val = jnp.zeros_like(wavelengths_bin_edges[1:], dtype=WORKING_JAX_DTYPE)
+    # Integrate polynomial from left to min(right, 1.64e4) for each bin; shape (n_bins, n_coeffs)
+    right_clipped = jnp.minimum(right, 1.64e4)
+    integral = jnp.sum(
+        a / powers * (right_clipped[:, None] ** powers[None, :] - left[:, None] ** powers[None, :]),
+        axis=-1,
+    )
 
-    index = right <= 1.64e4
+    midpoint = (left + right) / 2.0
+    ret_val = jnp.where(midpoint <= 1.64e4, jnp.maximum(integral, 0.0), 0.0)
 
-    # TODO probably should vmap or something
-    for i_a in range(len(a)):
-        ret_val = ret_val.at[index].add(
-            a[i_a] * (right[index] ** (i_a + 1) - left[index] ** (i_a + 1)) / (i_a + 1)
-        )
-
-    index_bracket = (left < 1.64e4) & (right > 1.64e4)
-    for i_a in range(len(a)):
-        ret_val = ret_val.at[index_bracket].add(
-            a[i_a]
-            * (1.64e4 ** (i_a + 1) - left[index_bracket] ** (i_a + 1))
-            / (i_a + 1)
-        )
-
-    index = (left + right) / 2.0 > 1.64e4
-    ret_val = ret_val.at[index].set(0.0)
-    index = ret_val < 0.0
-    ret_val = ret_val.at[index].set(0.0)
-
-    return ret_val * 1e-18 / diff
+    return (ret_val * 1e-18 / diff).astype(WORKING_JAX_DTYPE)
 
 
 def compute_h_minus_opacities(
@@ -132,38 +121,28 @@ def compute_h_minus_opacities(
         frequency2wavelength(frequency_bins_edges) * 1e8
     )  # cm to Angstrom
 
-    ret_val = jnp.array(
-        jnp.zeros(len(wavelengths) * len(pressures)).reshape(
-            len(wavelengths), len(pressures)
-        ),
-        dtype=WORKING_JAX_DTYPE,
-    )
-
-    # Calculate electron number fraction
     m_e = cst.e_molar_mass  # (AMU)
     n_e = mean_molar_masses / m_e * mass_fractions["e-"]
-
-    # Calculate electron partial pressure
     p_e = pressures * n_e
 
     opacities_h_minus_bf = (
         compute_h_minus_bound_free_xsec(wavelengths_bin_edges) / cst.amu
     )
 
-    for i_struct in range(len(n_e)):
-        opacities_h_minus_ff = (
-            compute_h_minus_free_free_xsec(
-                wavelengths, temperatures[i_struct], p_e[i_struct]
-            )
+    def compute_layer(temperature, p_e_i, mf_H, mf_Hminus):
+        ff = (
+            compute_h_minus_free_free_xsec(wavelengths, temperature, p_e_i)
             / cst.amu
-            * mass_fractions["H"][i_struct]
+            * mf_H
         )
+        return opacities_h_minus_bf * mf_Hminus + ff
 
-        ret_val = ret_val.at[:, i_struct].set(
-            opacities_h_minus_bf * mass_fractions["H-"][i_struct] + opacities_h_minus_ff
-        )
+    # vmap over layers; result shape (n_layers, n_wavelengths) -> transpose to (n_wavelengths, n_layers)
+    ret_val = vmap(compute_layer)(
+        temperatures, p_e, mass_fractions["H"], mass_fractions["H-"]
+    )
 
-    return ret_val
+    return ret_val.T.astype(WORKING_JAX_DTYPE)
 
 
 def compute_non_cia_gas_induced_continuum_opacities(
@@ -178,7 +157,6 @@ def compute_non_cia_gas_induced_continuum_opacities(
 ):
     continuum_opacities = 0
 
-    # TODO check JAX compatibility
     for (
         gas_continuum_contributor,
         contribution_function,
