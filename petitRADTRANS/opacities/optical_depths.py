@@ -102,11 +102,6 @@ def compute_optical_depths(
         photon_destruction_probabilities = jnp.asarray(
             photon_destruction_probabilities, dtype=WORKING_JAX_DTYPE
         )
-        # if len(photon_destruction_probabilities[jnp.isnan(photon_destruction_probabilities)]) > 0:
-        # TODO: Update 0 opacity warning for JAX
-        #    print('Region of zero opacity detected, '
-        #          'setting the photon destruction probability in this spectral range to 1.')
-        #    photon_destruction_probabilities = photon_destruction_probabilities.at[jnp.isnan(photon_destruction_probabilities)].set(1.)
     else:
         optical_depths = jnp.asarray(
             compute_species_optical_depths(

@@ -73,23 +73,6 @@ def _compute_boole_planck_flux_matrix(temperatures, frequencies):
 
 
 @jit
-def compute_planck_function_integral_old(T, nul, nur):
-    # TODO this might not be used anymore.
-    # Calculate the Planck integral between two frequencies using the same
-    # float32-safe Boole quadrature path as the vectorized implementation.
-    temperatures = _as_planck_temperature_array(T)
-    nu_large = jnp.maximum(nul, nur)
-    nu_small = jnp.minimum(nul, nur)
-    frequency_edges = jnp.stack((nu_large, nu_small))
-    planck_flux = _compute_boole_planck_flux_matrix(temperatures, frequency_edges)
-
-    if jnp.asarray(T).ndim == 0:
-        return planck_flux[0, 0]
-
-    return planck_flux[0]
-
-
-@jit
 def compute_rosseland_opacities_core(
     clouds_final_absorption_opacities, frequencies_bin_edges, temperature, weights_gauss
 ):
@@ -123,14 +106,6 @@ def compute_rosseland_opacities_core(
     numerator = jnp.sum(B_nu_dT * diff_freqs[:, None], axis=0)
 
     return numerator / kappa_rosse
-
-
-def compute_star_planck_function_integral(temperatures, frequencies):
-    """
-    Not clear what this function is actually doing...
-    TODO check what the difference between the different integral functions is
-    """
-    return compute_planck_function_integral(temperatures, frequencies)
 
 
 @jit(static_argnums=(4,))

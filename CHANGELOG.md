@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a38] - 2026-05-30
+## [4.0.0a39] - 2026-06-02
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -90,6 +90,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Minimum supported Python version is 3.12.
 
 ### Added
+- a39: Can delegate likelihood calculation to GPU for pymultinest and ultranest
 - a38: Optimal estimation, mostly for warmup of HMC samplers.
 - a33: Adaptive mesh refinement for cloud bases
 - a30: Added dynesty sampler.
@@ -112,6 +113,8 @@ Ready for beta testing with version 4.0.0.a16.
 - JAXed contributionn functions
 
 ### Removed
+- `fill_atmospheric_layer` - use `fill_atmosphere`
+- `nice_corner`
 - `Data.get_chi2` has been removed and moved to `LogLikelihood`
 
 ## [3.3.3] - 2026-03-13
@@ -392,7 +395,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Function `utils.feature_scaling` to normalize arrays.
 - Function `utils.bayes_factor2sigma` to convert Bayes factor significance into "sigma" significance.
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
-- Function `chemistry.utils.fill_atmospheric_layer` to fill an atmospheric layer using weighted filling species.
+- Function `chemistry.utils.fill_atmosphere` to fill the atmosphere using weighted filling species.
 - Function `retrieval.retrieval.save_best_fit_outputs_external_variability` to speed up calculations, since it makes use of `external_prt_reference` properly.
 - Function that generates the petitRADTRANS default wavelength grid.
 - Constant `e_molar_mass` to physical constants.

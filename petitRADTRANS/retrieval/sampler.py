@@ -2267,12 +2267,28 @@ class UltranestSampler(Sampler):
 
     @classmethod
     def prepare(cls, context: SamplerContext, **sampler_kwargs):
+        likelihood_devices = sampler_kwargs.pop("likelihood_devices", None)
         vectorized = cls._resolve_vectorized(
             context, sampler_kwargs.pop("vectorized", False)
         )
 
+        if likelihood_devices is not None and vectorized:
+            warnings.warn(
+                "likelihood_devices is ignored in UltraNest vectorized mode "
+                "(the vectorized path already dispatches through JAX).",
+                RuntimeWarning,
+            )
+            likelihood_devices = None
+
         if not vectorized:
-            log_likelihood_func = context.log_likelihood_func
+            if likelihood_devices is not None:
+                device_context = _dc_replace(context, likelihood_devices=likelihood_devices)
+                log_likelihood_func, target_device = _build_device_likelihood_wrapper(
+                    device_context
+                )
+            else:
+                log_likelihood_func = context.log_likelihood_func
+                target_device = None
             prior_func = context.prior_ultranest_func
         else:
             parameter_layout = context.parameter_layout
@@ -2313,6 +2329,9 @@ class UltranestSampler(Sampler):
             "parameter_names": run_kwargs["parameter_names"],
             "vectorized": vectorized,
         }
+        if likelihood_devices is not None:
+            summary_parameters["likelihood_devices"] = [str(d) for d in likelihood_devices]
+            summary_parameters["likelihood_target_device"] = str(target_device)
         return sampler, run_kwargs, summary_parameters
 
     def load_results(self):
@@ -4025,8 +4044,6 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
             prior_model=self.prior_func, log_likelihood=self.log_likelihood_func
         )
 
-        # TODO Test Sharded parallel sampler
-        # TODO test different sampler choices.
         self.sampler = ShardedStaticNestedSampler(
             model, sampler=sampler_class, **self.jaxns_parameters
         )

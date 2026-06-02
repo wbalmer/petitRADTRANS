@@ -11,7 +11,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "4.0.0a38"
+version = "4.0.0a39"
 description = "Exopanet spectral synthesis tool for retrievals"
 authors = [
     {name = "Paul Mollière", email = "molliere@mpia.de"},
@@ -67,7 +67,6 @@ full = [
     "matplotlib",
     "arviz",
     "corner",
-    "seaborn",  # only used in nice_corner
     "dynesty",
     "pymultinest",
     "blackjax",
@@ -117,7 +116,6 @@ test = [
     "matplotlib",
     "arviz",
     "corner",
-    "seaborn",
     "dynesty",
     "pymultinest",
     "blackjax",

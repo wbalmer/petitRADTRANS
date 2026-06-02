@@ -272,7 +272,6 @@ class Radtrans:
 
         # Initialize loaded cloud opacities variables
         # Use JAX-friendly empty sentinel arrays as defaults so jitted code sees arrays, not None
-        # TODO: revert to default to None
         empty_wavelength_shape = 3
         empty_n_clouds_shape = 1
         empty_n_particle_radii = 3
@@ -559,7 +558,6 @@ class Radtrans:
             cloud_fraction: cloud coverage fraction
         """
 
-        # TODO revert to clearer pythonic statements
         output = lax.cond(cloud_fraction == 0, lambda: False, lambda: True)
 
         def _clouds_have_effect_internal(mass_fractions):
@@ -1434,20 +1432,6 @@ class Radtrans:
             scattering in transmission, and optional clear-column opacity
             products.
         """
-        # TODO: how to do JAX sanity checks
-        # if jnp.any(jnp.less_equal(temperatures, 0)):
-        #    debug.print(f"temperature array ('temperatures') contains negative or null values ({temperatures})")
-
-        # for species, mass_fraction in mass_fractions.items():
-        #    if jnp.any(jnp.less(mass_fraction, 0)):
-        #        debug.print(f"mass fractions for species '{species}' ('mass_fractions') "
-        #                      f"contains negative values ({mass_fraction})")
-
-        # if jnp.any(jnp.less(mean_molar_masses, 0)):
-        #    debug.print(f"mean molar mass array ('mean_molar_masses') contains negative values ({mean_molar_masses})")
-
-        # if cloud_fraction < 0 or cloud_fraction > 1:
-        #    raise ValueError(f"cloud coverage fraction must be between 0 and 1, but was {cloud_fraction}")
         if patchy_clouds is None:
             patchy_clouds = tuple(self._cloud_species)
         else:
@@ -3319,7 +3303,6 @@ class Radtrans:
 
         return jnp.zeros(self._frequencies.size, dtype=JAX_DTYPE)
 
-    # TODO Not used
     def calculate_rosseland_planck_opacities(
         self,
         temperatures: npt.NDArray[float],
@@ -4504,7 +4487,6 @@ class Radtrans:
         """
         import h5py
 
-        # TODO currently all the pressure-temperature grid is loaded, it could be more memory efficient to provide a T an p range at init and only load the relevant parts of the grid # noqa: E501
         if self._line_opacity_mode == "c-k":
             category = "correlated_k_opacities"
         elif self._line_opacity_mode == "lbl":

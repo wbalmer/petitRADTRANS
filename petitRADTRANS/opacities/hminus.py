@@ -14,7 +14,7 @@ def compute_h_minus_free_free_xsec(
 ):
     """Calculate the H- free-free cross-section in units of cm^2 per H per e- pressure (in cgs).
     Source: "The Observation and Analysis of Stellar Photospheres" by David F. Gray, p. 156
-    # TODO complete docstring
+
     Args:
         wavelengths: (angstrom)
         temperatures:
@@ -67,7 +67,7 @@ def compute_h_minus_free_free_xsec(
 def compute_h_minus_bound_free_xsec(wavelengths_bin_edges):
     """Calculate the H- bound-free cross-section in units of cm^2 per H-, as defined on page 155 of
     "The Observation and Analysis of Stellar Photospheres" by David F. Gray
-    # TODO complete docstring
+
     Args:
         wavelengths_bin_edges: (angstrom)
 
@@ -178,12 +178,12 @@ def compute_non_cia_gas_induced_continuum_opacities(
 ):
     continuum_opacities = 0
 
+    # TODO check JAX compatibility
     for (
         gas_continuum_contributor,
         contribution_function,
     ) in get_non_cia_gas_continuum_contributions().items():
 
-        # TODO JIT to lax.cond
         if gas_continuum_contributor in gas_continuum_contributors:
             continuum_opacities += contribution_function(
                 mass_fractions=mass_fractions,

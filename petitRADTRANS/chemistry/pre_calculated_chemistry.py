@@ -136,7 +136,6 @@ def interpolate_chemical_table(
     )
 
     # Transpose to Fortran's output shape: (n_species, n_layers)
-    # TODO: not sure this is necessary now that we're not using fotran
     chemical_table_interp = jnp.transpose(chemical_table_interp_flat, (1, 0))
 
     # If is_mass_fraction, convert back from log space (for abundances)

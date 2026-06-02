@@ -40,7 +40,6 @@ def compute_rayleigh_scattering_opacities(
         (frequencies.size, pressures.size), dtype=FEAUTRIER_JAX_DTYPE
     )
 
-    # TODO Store base names
     # Sort keys to match JAX JIT's alphabetical ordering of dict keys
     species_basenames = []
     for species in sorted(mass_fractions.keys()):
@@ -52,7 +51,6 @@ def compute_rayleigh_scattering_opacities(
     )
 
     for species in rayleigh_species:
-        # TODO JIT errorchecking
         if species not in base_species_mass_fractions:
             raise ValueError(
                 f"Rayleigh species '{species}' not found in mass fractions dict "

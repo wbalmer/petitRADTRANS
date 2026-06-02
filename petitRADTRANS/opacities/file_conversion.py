@@ -448,7 +448,7 @@ def _continuum_cia_dat2h5(
 
     print("Successfully converted CIA opacities")
 
-
+# TODO add in new opacity DOIs for virga clouds
 def _continuum_clouds_opacities_dat2h5(
     path_input_data=petitradtrans_config_parser.get_input_data_path(),
     rewrite=False,

@@ -25,7 +25,6 @@ def cubic_spline_temperature_profile(
             - interpolated_temperatures: Interpolated temperature values based on the cubic spline.
             - prior: Curvature prior value calculated for the spline.
     """
-    # TODO benchmark interp1d vs PchipInterpolator for cubic spline interpolation in terms of speed and accuracy
     cs = interp1d(
         x=jnp.linspace(jnp.log10(pressures[0]), jnp.log10(pressures[-1]), nnodes + 2),
         y=temperature_points,

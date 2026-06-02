@@ -407,7 +407,7 @@ class Opacity:
         self.species_cloud_info: str = species_cloud_info
 
         if species_base_name is None:
-            species_base_name = self.get_base_name(join=True)
+            species_base_name = self.get_base_name()
 
         self.species_base_name: str = species_base_name
 
@@ -1373,7 +1373,7 @@ class Opacity:
             )
         )
 
-    def get_base_name(self, join: bool = False) -> str:
+    def get_base_name(self) -> str:
         """Return the base name of this Opacity object.
 
         The species base name is the species chemical formula without isotopic information. It may contain cloud
@@ -1385,8 +1385,6 @@ class Opacity:
             >>> "Mg2SiO4"
 
         Args:
-            join: bool  # TODO remove in 4.0.0
-                Has no effect here.
 
         Returns:
             species_base_name: str
@@ -1688,7 +1686,7 @@ class Opacity:
         natural abundance flag (if relevant), and the charge.
 
         Args:
-            join: bool, optional  # TODO remove in 4.0.0
+            join: bool, optional
                 If True, add the charge information to the isotopologue_name. Default is False.
 
         Example:
@@ -2387,7 +2385,7 @@ class Opacity:
         Args:
             species: str
                 The species name, containing only the spectral formula and the charge.
-            replace_charge_symbol_with_char:  # TODO replace with "replace_charge_symbol_with_char" in 4.0.0.
+            replace_charge_symbol_with_char:
                 If True, replace the "+" or "-" of the charge string with "p" or "m", respectively. Default is True.
 
         Returns:

@@ -109,6 +109,7 @@ Key parameters:
 * ``multimodal``: enable mode finding.
 * ``importance_nested_sampling``: enable INS mode.
 * ``use_MPI``: use MPI if available.
+* ``likelihood_devices``: list of JAX devices to dispatch likelihood evaluation to (see :ref:`gpu_likelihood_dispatch`).
 
 Use PyMultiNest when you already rely on the MultiNest ecosystem or need its MPI-oriented execution model.
 
@@ -125,6 +126,7 @@ Key parameters:
 * ``max_iters`` / ``max_ncalls``: hard stopping limits.
 * ``enable_step_sampling``: attach an UltraNest step sampler.
 * ``warmstart_max_tau``: enable warm starts from similar previous runs.
+* ``likelihood_devices``: list of JAX devices to dispatch likelihood evaluation to (non-vectorized path only; see :ref:`gpu_likelihood_dispatch`).
 
 UltraNest is often the easiest pure-Python nested sampler to experiment with when you want reactive nested sampling or warm-start support.
 
@@ -291,6 +293,63 @@ Additional HMC control:
 * ``num_integration_steps``: leapfrog steps for HMC.
 
 BlackJAX is useful when you want a thinner wrapper around JAX-native HMC or NUTS with explicit warmup and multi-chain control.
+
+.. _gpu_likelihood_dispatch:
+
+GPU-dispatched likelihood for CPU samplers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+PyMultiNest and UltraNest (non-vectorized) are CPU-bound samplers: the sampler
+kernel itself runs on the host and calls the likelihood function as a plain Python
+callable.  When a GPU or other JAX-supported accelerator is available, you can
+offload each likelihood evaluation to that device by passing a list of JAX devices
+as ``likelihood_devices``.
+
+.. code-block:: python
+
+   import jax
+
+   retrieval.run(
+       n_live_points=400,
+       likelihood_devices=jax.devices("gpu"),   # e.g. [CudaDevice(id=0)]
+   )
+
+pRT wraps the likelihood in a JIT-compiled call to ``evaluate_jax``, dispatches the
+computation to the target device using JAX's ``default_device`` context manager, and
+returns a plain Python float to the sampler via ``jax.device_get``.  The sampler and
+MPI orchestration layer stay on CPU throughout.
+
+**Requirements:**
+
+* The retrieval must use a differentiable (JAX-compatible) model.  pRT raises a
+  ``ValueError`` at setup time if any model group uses a legacy (non-JAX) forward model.
+* JAX must be able to see the target device.  For GPU runs you typically need
+  ``JAX_PLATFORMS=cuda,cpu`` (or ``gpu,cpu``) in the environment so that both backends
+  are initialised.
+
+**MPI and multi-GPU mapping:**
+
+When running with MPI (e.g. via ``mpirun``), each rank *r* independently selects
+``likelihood_devices[r % len(likelihood_devices)]``.  With two GPUs and four MPI
+ranks the default striping is:
+
+.. code-block:: text
+
+   rank 0 → GPU 0
+   rank 1 → GPU 1
+   rank 2 → GPU 0
+   rank 3 → GPU 1
+
+For true device isolation (no shared-memory contention between MPI processes on the
+same GPU), set ``CUDA_VISIBLE_DEVICES`` per process before launching MPI, or use a
+job launcher that handles device assignment automatically.
+
+**UltraNest vectorized mode:**
+
+When ``vectorized=True`` is also passed, ``likelihood_devices`` is ignored with a
+``RuntimeWarning``: the vectorized path already dispatches through JAX
+(``evaluate_jax_batched``) and device selection there follows the standard JAX
+default-device mechanism.
 
 Optimal estimation (optax)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

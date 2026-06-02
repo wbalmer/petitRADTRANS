@@ -368,17 +368,16 @@ def setup_simple_clouds_hazes(parameters):
     if (
         "log_haze_factor" in parameters.keys()
     ):  # TODO should be log10 to be consistent with SpectralModel
-        # TODO Document. Should be taken care of in prior.
         haze_factor = 10 ** parameters["log_haze_factor"]
     elif "haze_factor" in parameters.keys():
         haze_factor = parameters["haze_factor"]
 
     # Compatibility
     if "gamma_scat" in parameters.keys():
-        # TODO deprecated naming
+        # TODO deprecate naming in v5.0.0
         power_law_opacity_coefficient = parameters["gamma_scat"]
     if "kappa_0" in parameters.keys():
-        # TODO deprecated naming
+        # TODO deprecate naming in v5.0.0
         power_law_opacity_350nm = 10 ** parameters["kappa_0"]
     return pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm
 

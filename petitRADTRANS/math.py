@@ -234,69 +234,6 @@ def gaussian_weights_running(
     return weights
 
 
-def linear_spline_interpolation(
-    x_knots: ArrayLike, x_samples: ArrayLike, spline_degree: Literal[1, 2, 3, 4, 5] = 3
-):
-    """Compute a spline based linear model.
-
-    If Y = [y1, y2, ...] are the values of the function at the location of the node [x1, x2, ...].
-    np.dot(M,Y) is the interpolated spline corresponding to the sampling of the x-axis (x_samples)
-
-    From BREADS, BSD 3-Clause License
-    Copyright (c) 2024, jruffio
-    https://github.com/jruffio/breads
-
-    Args:
-        x_knots: np.ndarray
-            List of nodes for the spline interpolation as np.ndarray in the same units as x_samples.
-            x_knots can also be a list of ndarrays/list to model discontinous functions.
-        x_samples: np.ndarray
-            Vector of x values. ie, the sampling of the data.
-        spline_degree: int
-            Degree of the spline interpolation (default: 3).
-            if np.size(x_knots) <= spline_degree, then spline_degree = np.size(x_knots)-1
-
-    Returns:
-        M: Matrix of shape (D, N) with D the size of x_samples and N the total number of nodes.
-    """
-    if type(x_knots[0]) is list or type(x_knots[0]) is np.ndarray:
-        x_knots_list = x_knots
-    else:
-        x_knots_list = [x_knots]
-
-    if np.size(x_knots_list) <= 1:
-        return np.ones((np.size(x_samples), 1))
-
-    if np.size(x_knots_list) <= spline_degree:
-        spline_degree: int = np.size(x_knots) - 1
-
-    if spline_degree > 5:
-        raise ValueError(
-            f"spline degree cannot be greater than 5, but is ({spline_degree})"
-        )
-
-    spline_degree: Literal[1, 2, 3, 4, 5]
-    spline_matrix: list[ArrayLike] = []
-
-    for nodes in x_knots_list:
-        _spline_matrix = np.zeros((np.size(x_samples), np.size(nodes)))
-
-        in_bounds = np.where((np.min(nodes) < x_samples) & (x_samples < np.max(nodes)))
-        _x = x_samples[in_bounds]
-
-        for chunk in range(np.size(nodes)):
-            # TODO @Evert add comment on what is going on with y
-            y = np.zeros(np.size(nodes))
-            y[chunk] = 1
-
-            spline = InterpolatedUnivariateSpline(x=nodes, y=y, k=spline_degree, ext=0)
-            _spline_matrix[in_bounds[0], chunk] = spline(_x)
-
-        spline_matrix.append(_spline_matrix)
-
-    return np.concatenate(spline_matrix, axis=1)
-
-
 def longitude2phase(longitude: float):
     return longitude / (2 * jnp.pi)
 

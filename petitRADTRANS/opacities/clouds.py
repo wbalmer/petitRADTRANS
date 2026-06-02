@@ -1015,26 +1015,26 @@ def init_clouds_particle_porosity_factor(
         "compute_clear_opacities",
     ]
 )
-def compute_cloud_continuum_opacities(  # TODO: revert to previous logic
-    frequencies: ArrayLike,  # NOTE: use self
-    frequency_bins_edges: ArrayLike,  # NOTE: use self
-    pressures: ArrayLike,  # NOTE: use self
+def compute_cloud_continuum_opacities(
+    frequencies: ArrayLike,
+    frequency_bins_edges: ArrayLike,
+    pressures: ArrayLike,
     temperatures: ArrayLike,
     mass_fractions: dict[str, ArrayLike],
     mean_molar_masses: ArrayLike,
     reference_gravity: float,
-    scattering_in_transmission: bool,  # NOTE: use self
-    sum_opacities: bool,  # NOTE: use self
+    scattering_in_transmission: bool,
+    sum_opacities: bool,
     opaque_cloud_top_pressure: float,
     power_law_opacity_350nm: float,
     power_law_opacity_coefficient: float,
-    cloud_species: list[str] | tuple[str],  # NOTE: use self
+    cloud_species: list[str] | tuple[str],
     clouds_particle_porosity_factor: dict[str, float],
-    clouds_loaded_opacities: LockedDict[str, ArrayLike],  # NOTE: use self
-    anisotropic_cloud_scattering: bool,  # NOTE: use self?
+    clouds_loaded_opacities: LockedDict[str, ArrayLike],
+    anisotropic_cloud_scattering: bool,
     cloud_particle_mean_radii: ArrayLike,
     cloud_particle_radius_distribution_std: float,
-    cloud_particle_number_density_grid: ArrayLike,  # TODO update to Annie's version
+    cloud_particle_number_density_grid: ArrayLike,
     cloud_f_sed: dict[str, float],
     eddy_diffusion_coefficients: dict[str, float],
     cloud_particle_radius_distribution: str,

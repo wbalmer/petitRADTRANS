@@ -58,8 +58,47 @@ def continuum_subtract_spectrum(
     name: str = None,
 ) -> ArrayLike:
     """
-    # TODO Docstring
-    # TODO ensure everything uses JAX arrays instead of numpy arrays.
+        Apply a continuum-removal filter to a spectrum.
+
+        The function dispatches to one of three continuum-subtraction methods,
+        selected by ``method``:
+
+        - ``"spline"``: fit a smooth spline continuum and return the residuals.
+            The spline node locations come from ``parameters`` using the first
+            matching key below:
+            - ``f"{name}_nodes"``: number of evenly spaced spline nodes across the
+                wavelength range.
+            - ``f"{name}_node_array"``: explicit spline node coordinates.
+            - ``"continuum_subtract_nodes"``: fallback number of evenly spaced spline
+                nodes across the wavelength range.
+            At least one of these keys must be present or a ``ValueError`` is raised.
+
+        - ``"medfilt"``: estimate the continuum with a median filter and subtract
+            it from the spectrum. The filter width is taken from the first matching
+            key below, defaulting to ``10`` if neither is present:
+            - ``f"{name}_median_filter_width"``
+            - ``"median_filter_width"``
+
+        - ``"savgol"``: estimate the continuum with a Savitzky-Golay filter and
+            subtract it from the spectrum. The filter settings are read from the
+            first matching keys below, with defaults ``window_length=10`` and
+            ``polyorder=3``:
+            - ``f"{name}_savgol_window_length"`` or ``"savgol_window_length"``
+            - ``f"{name}_savgol_polyorder"`` or ``"savgol_polyorder"``
+
+        Values in ``parameters`` may be provided directly or as objects exposing a
+        ``value`` attribute.
+
+        Args:
+                wavelengths: Wavelength grid of the input spectrum.
+                spectrum: Spectrum to continuum-subtract.
+                parameters: Parameter mapping used to configure the selected method.
+                method: Continuum-subtraction method. Supported values are
+                        ``"spline"``, ``"medfilt"``, and ``"savgol"``.
+                name: Optional prefix for method-specific parameter keys.
+
+        Returns:
+                Continuum-subtracted spectrum on the original wavelength grid.
     """
 
     if method == "spline":

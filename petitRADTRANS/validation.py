@@ -267,7 +267,7 @@ def _check_return_clear_spectrum_relevance(
     if isinstance(return_clear_spectrum, (bool, np.bool_)) and not return_clear_spectrum:
         return
 
-    lax.cond(  # TODO: revert to clearer pythonic statements
+    lax.cond(
         jnp.logical_and(
             jnp.logical_and(return_clear_spectrum, jnp.logical_not(clouds_have_effect)),
             opaque_cloud_top_pressure is None,

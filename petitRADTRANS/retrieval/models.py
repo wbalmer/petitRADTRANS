@@ -230,17 +230,15 @@ def molliere_2020_emission(
     temperature_builder = _wrap_runtime_temperature_builder(
         physical_params,
         lambda pressures: molliere_2020_temperature_profile(
-            (
-                temp_arr,
-                delta,
-                physical_params["alpha"],
-                physical_params["T_int"],
-                pressures,
-                physical_params["Fe/H"],
-                carbon_to_oxygen,
-                True,
-            )
-        ),
+            temperature_nodes=temp_arr,
+            delta=delta,
+            alpha=physical_params["alpha"],
+            t_internal=physical_params["T_int"],
+            pressures=pressures,
+            metallicity=physical_params["Fe/H"],
+            co_ratio=carbon_to_oxygen,
+            conv=True,
+        )
     )
     temperatures = temperature_builder(p_use)
 
@@ -302,16 +300,14 @@ def molliere_2020_two_column(
     cloudy_temperature_builder = _wrap_runtime_temperature_builder(
         physical_params,
         lambda pressures: molliere_2020_temperature_profile(
-            (
-                temp_arr,
-                delta,
-                physical_params["alpha"],
-                physical_params["T_int"],
-                pressures,
-                physical_params["Fe/H"],
-                physical_params["C/O"],
-                True,
-            )
+            temperature_nodes=temps_clear,
+            delta=delta_clear,
+            alpha=physical_params["alpha_clear"],
+            t_internal=physical_params["T_int"],
+            pressures=pressures,
+            metallicity=physical_params["Fe/H"],
+            co_ratio=physical_params["C/O"],
+            conv=True,
         ),
     )
     temperatures = cloudy_temperature_builder(p_use)
@@ -331,16 +327,14 @@ def molliere_2020_two_column(
     clear_temperature_builder = _wrap_runtime_temperature_builder(
         physical_params,
         lambda pressures: molliere_2020_temperature_profile(
-            (
-                temps_clear,
-                delta_clear,
-                physical_params["alpha_clear"],
-                physical_params["T_int"],
-                pressures,
-                physical_params["Fe/H"],
-                physical_params["C/O"],
-                True,
-            )
+            temperature_nodes=temps_clear,
+            delta=delta_clear,
+            alpha=physical_params["alpha_clear"],
+            t_internal=physical_params["T_int_clear"],
+            pressures=pressures,
+            metallicity=physical_params["Fe/H"],
+            co_ratio=physical_params["C/O"],
+            conv=True,
         ),
     )
     t_clear = clear_temperature_builder(abundance_state["pressures"])
@@ -1555,17 +1549,15 @@ def legacy_molliere_2020_emission(
         carbon_to_oxygen = parameters["C"].value / parameters["O"].value
 
     temperatures = (
-        molliere_2020_temperature_profile(  # TODO weird way of calling the function
-            (
-                temp_arr,
-                delta,
-                parameters["alpha"].value,
-                parameters["T_int"].value,
-                p_use,
-                parameters["Fe/H"].value,
-                carbon_to_oxygen,
-                True,  # conv
-            )
+        molliere_2020_temperature_profile(
+            temperature_nodes=temp_arr,
+            delta=delta,
+            alpha=parameters["alpha"].value,
+            t_internal=parameters["T_int"].value,
+            pressures=p_use,
+            metallicity=parameters["Fe/H"].value,
+            co_ratio=carbon_to_oxygen,
+            conv=True,  # conv
         )
     )
 
@@ -1733,17 +1725,15 @@ def legacy_molliere_2020_two_column(
     gravity, planet_radius = _compute_gravity(parameters)
 
     temperatures = (
-        molliere_2020_temperature_profile(  # TODO weird way of calling the function
-            (
-                temp_arr,
-                delta,
-                parameters["alpha"].value,
-                parameters["T_int"].value,
-                p_use,
-                parameters["Fe/H"].value,
-                parameters["C/O"].value,
-                True,  # conv
-            )
+        molliere_2020_temperature_profile(
+            temperature_nodes=temp_arr,
+            delta=delta,
+            alpha=parameters["alpha"].value,
+            t_internal=parameters["T_int"].value,
+            pressures=p_use,
+            metallicity=parameters["Fe/H"].value,
+            co_ratio=parameters["C/O"].value,
+            conv=True,  # conv
         )
     )
 
@@ -1758,17 +1748,15 @@ def legacy_molliere_2020_two_column(
     )
 
     t_clear = molliere_2020_temperature_profile(
-        (  # TODO weird way of calling the function
-            temps_clear,
-            delta_clear,
-            parameters["alpha_clear"].value,
-            parameters["T_int"].value,
-            PGLOBAL[small_index],
-            parameters["Fe/H"].value,
-            parameters["C/O"].value,
-            True,  # conv
+            temperature_nodes=temp_arr,
+            delta=delta,
+            alpha=parameters["alpha"].value,
+            t_internal=parameters["T_int"].value,
+            pressures=p_use,
+            metallicity=parameters["Fe/H"].value,
+            co_ratio=parameters["C/O"].value,
+            conv=True,  # conv
         )
-    )
     abundances_clear, mmw_clear, small_index_clear, p_bases_clear = (
         get_abundances_from_legacy_dict(
             pressures=PGLOBAL[small_index],

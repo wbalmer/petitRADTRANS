@@ -36,7 +36,6 @@ class Data:
     The pRT instance can be overwritten, and associated with an existing pRT instance with the
     external_pRT_reference parameter.
     This setup allows for joint or independent retrievals on multiple datasets.
-    # TODO @Evert complete docstring
     Args:
         name : str
             Identifier for this data set.
@@ -86,9 +85,10 @@ class Data:
             Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the
             retrieval.
         scale_uncertainties:
-            # TODO @Evert complete docstring
+            Turn on or off scaling the uncertainties by a constant factor. Set to True if scaling the uncertainties during the
+            retrieval.
         fit_flux_offset:
-            # TODO @Evert complete docstring
+            Turn on or off fitting a flux offset. Set to True if fitting a flux offset during the retrieval.
         wavelength_bin_widths : numpy.ndarray
             Set the wavelength bin width to bin the Radtrans object to the data. Defaults to the data bins.
         photometry : bool
@@ -107,15 +107,6 @@ class Data:
             high-resolution (R>40000) spectra.
         radtrans_grid: bool
             Set to true if data has been binned to a pRT c-k grid.
-        concatenate_flux_epochs_variability: bool
-            Set to true if data concatenation treatment for variability is to be used.
-        atmospheric_column_flux_mixer: method
-            Function that mixes model fluxes of atmospheric columns in variability retrievals.
-        variability_atmospheric_column_model_flux_return_mode: bool
-            Set to true if the forward model should returns the fluxes of the individual atmospheric
-            columns. This is useful if external_radtrans_reference is True, but the master (reference) object
-            should return the column fluxes for mixing, not the combined column flux. In this case a column
-            mixing function needs to be handed to the data constructor.
         radtrans_object:
             An instance of Radtrans object to be used to generate model spectra in retrievals.
         wavelengths:
@@ -166,9 +157,6 @@ class Data:
         wavelength_bin_widths: ArrayLike | None = None,
         line_opacity_mode: str = "c-k",
         radtrans_grid: bool = False,
-        concatenate_flux_epochs_variability: bool = False,
-        atmospheric_column_flux_mixer: Callable | None = None,
-        variability_atmospheric_column_model_flux_return_mode: bool = False,
         radtrans_object: object = None,
         wavelengths: ArrayLike | None = None,
         spectrum: ArrayLike | None = None,
@@ -286,11 +274,6 @@ class Data:
 
 
         self.radtrans_grid = radtrans_grid
-        self.concatenate_flux_epochs_variability = concatenate_flux_epochs_variability
-        self.variability_atmospheric_column_model_flux_return_mode = (
-            variability_atmospheric_column_model_flux_return_mode
-        )
-        self.atmospheric_column_flux_mixer = atmospheric_column_flux_mixer
 
         # Read in data
         if path_to_observations is not None:
@@ -609,8 +592,6 @@ class Data:
                 "system_distance": self.system_distance,
                 "radtrans_grid": self.radtrans_grid,
                 "wavelength_boundaries": self.wavelength_boundaries,
-                "atmospheric_column_flux_mixer": self.atmospheric_column_flux_mixer,
-                "concatenate_flux_epochs_variability": self.concatenate_flux_epochs_variability,
             },
         )
 
@@ -941,17 +922,17 @@ class TimeSeriesData(Data):
         scale_uncertainties=False,
         fit_flux_offset=False,
         line_opacity_mode="c-k",
-        radtrans_grid=False,  # TODO: get rid of this as a parameter?
+        radtrans_grid=False,
         concatenate_flux_epochs_variability=False,
-        atmospheric_column_flux_mixer=None,  # Split to TimeSeriesData
-        variability_atmospheric_column_model_flux_return_mode=False,  # Split to TimeSeriesData
+        atmospheric_column_flux_mixer=None,
+        variability_atmospheric_column_model_flux_return_mode=False,
         radtrans_object=None,
-        spectrum=None,  # Split to SpectrumData
-        wavelengths=None,  # Split to SpectrumData
-        wavelength_bin_widths=None,  # Split to SpectrumData
-        uncertainties=None,  # Split to SpectrumData
+        spectrum=None,
+        wavelengths=None,
+        wavelength_bin_widths=None,
+        uncertainties=None,
         covariance=None,
-        mask=None,  # Split to SpectrumData
+        mask=None,
     ):
         if observation_times is not None:
             self.observation_times = jnp.asarray(observation_times, dtype=JAX_DTYPE)
@@ -1133,8 +1114,6 @@ class TimeSeriesData(Data):
         return wavelengths, wavelength_bin_widths, spectrum, uncertainties
 
     def initialise_data_resolution(self, wavelengths_model: ArrayLike) -> None:
-        # TODO [4.0.0] this function should raise an error when the interpolation is not possible
-        #  As it is now, it can do nothing, which can be confusing
         if isinstance(self.data_resolution, (jnp.ndarray, np.ndarray)):
             shared_wavelengths = self._collapse_shared_epoch_axis(self.wavelengths)
             shared_resolution = self._collapse_shared_epoch_axis(self.data_resolution)
@@ -1155,3 +1134,6 @@ class TimeSeriesData(Data):
             self.data_resolution_array_model = jnp.interp(
                 wavelengths_model, shared_wavelengths, shared_resolution
             )
+        else:
+            raise ValueError("data_resolution must be array like to interpolate!")
+

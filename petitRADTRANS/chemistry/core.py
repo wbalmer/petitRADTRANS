@@ -1468,7 +1468,6 @@ def get_abundances_legacy(
         species mass fractions, the mean molar-mass profile, the selected
         pressure-grid indices, and the cloud-base pressures.
     """
-    # TODO replace by SpectralModel function
     # Free Chemistry
     abundances_interp = {}
     mmw = None
@@ -1576,7 +1575,6 @@ def get_abundances_legacy(
             msum += abundances_interp[species_basename]
 
     # For free chemistry, need to fill with background gas (H2-He)
-    # TODO use arbitrary background gas
     if "Fe/H" not in parameters.keys():
         # Check to make sure we're using free chemistry
         # Whatever's left is H2 and He

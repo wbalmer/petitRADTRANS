@@ -407,9 +407,8 @@ def compute_mean_molar_masses_from_volume_mixing_ratios(volume_mixing_ratios):
     return mean_molar_masses
 
 
-# TODO [4.0.0] remove 'nnodes' as it is not used
 def cubic_spline_profile(
-    pressure_array, pressure_nodes, abundance_points, gamma, nnodes=0
+    pressure_array, pressure_nodes, abundance_points, gamma
 ):
     """
     Compute a cubic spline profile for abundance based on pressure points.
@@ -422,7 +421,6 @@ def cubic_spline_profile(
         pressure_nodes (array-like): An array or list of log pressure points at which the spline is fixed
         abundance_points (array-like): An array or list of abundances for each pressure node.
         gamma (float): A parameter controlling the curvature of the spline.
-        nnodes (int, optional): Number of nodes to use in the spline interpolation.
 
     Returns:
         tuple: A tuple containing two elements:
@@ -456,7 +454,6 @@ def build_abundance_profile(
             pressure_nodes,
             abundance_points,
             gamma=gamma,
-            nnodes=len(pressure_nodes),
         )[0]
 
     if profile_mode == "cubic":
@@ -465,7 +462,6 @@ def build_abundance_profile(
             pressure_nodes,
             abundance_points,
             gamma=gamma,
-            nnodes=len(pressure_nodes),
         )[0]
 
     raise ValueError(
@@ -512,7 +508,6 @@ def define_abundance_node_list(species_short_name, parameters):
     return jnp.asarray(abundance_nodes)
 
 
-# TODO: nnode arg for static sizing
 def define_pressure_node_list(pressure_array, species_short_name, parameters):
     """
     Define the location of pressure nodes, allowing individual nodes to be
@@ -588,7 +583,19 @@ def fill_atmosphere(
 ) -> tuple[dict[str, ArrayLike], ArrayLike]:
     """Fill an atmosphere with filling species, so that the sum of the mass fractions in all layers is 1.
 
-    See fill_atmospheric_layer for more details.
+    The filling species values are weights that are used to fill each atmospheric layer following:
+        X_i = w_i / sum(w) * X_f,
+    where X_i is the mass fraction of filling species i, w_i is the weight of species i, and X_f is the amount
+    of mass fraction missing to get a sum of 1.
+
+    The value X_f is calculated from:
+        X_f = 1 - sum(X_nf),
+    where X_nf is the sum of mass fractions that are not filling species.
+
+    The filling species can be "weighted" (if the weights are all floats) or "unweighted" (if the weights are all None).
+    In weighted mode, w corresponds to the values of `filling_species`.
+    In unweighted mode, the mass fractions are used to calculate the weights. All the filling species must be in the
+    mass fractions.
 
     Args:
         mass_fractions: dict
@@ -657,136 +664,6 @@ def fill_atmosphere(
     return filled_mass_fractions, msum
 
 
-def fill_atmospheric_layer(
-    mass_fractions: dict[str, float], filling_species: dict, sanity_check: bool = False
-) -> dict[str, float]:
-    """Fill an atmospheric layer with filling species, so that the sum of the mass fractions is 1.
-    The filling species values are weights that are used to fill the atmospheric layer following:
-        X_i = w_i / sum(w) * X_f,
-    where X_i is the mass fraction of filling species i, w_i is the weight of species i, and X_f is the amount
-    of mass fraction missing to get a sum of 1.
-
-    The value X_f is calculated from:
-        X_f = 1 - sum(X_nf),
-    where X_nf is the sum of mass fractions that are not filling species.
-
-    The filling species can be "weighted" (if the weights are all floats) or "unweighted" (if the weights are all None).
-    In weighted mode, w corresponds to the values of `filling_species`.
-    In unweighted mode, the mass fractions are used to calculate the weights. All the filling species must be in the
-    mass fractions.
-    Mixing weighted and unweighted filling species raises a ValueError.
-
-    Args:
-        mass_fractions:
-            Dictionary with the species as keys and the mass fraction in one layer as values.
-        filling_species:
-            Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
-            filling species are represented with None.
-        sanity_check:
-            If True, make a sanity check to ensure that the filling was consistently done.
-    Returns:
-        A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
-    """
-    # TODO jit
-    return
-
-    for species, mass_fraction in mass_fractions.items():
-        if hasattr(mass_fraction, "__iter__"):
-            raise ValueError(
-                f"mass fractions values in one layer must be scalars, "
-                f"but mass fraction for species '{species}' was an iterable of size {jnp.size(mass_fraction)}"
-            )
-
-    # Change nothing if no filling species given
-    if filling_species is None or len(filling_species) == 0:
-        return mass_fractions
-
-    # Check if all filling species mass fractions are None
-    unweighted_filling = False
-
-    if None in list(filling_species.values()):
-        for species, mass_fraction in filling_species.items():
-            if mass_fraction is not None:
-                raise ValueError(
-                    f"cannot mix weighted and unweighted filling species\n"
-                    f"Ensure that all filling species are unweighted using None, "
-                    f"or that all filling species are weighted using floats or arrays\n"
-                    f"Filling species dict was: {filling_species}"
-                )
-
-        unweighted_filling = True
-
-    # Check if the use of unweighted filling species is permitted
-    if unweighted_filling:
-        for species in filling_species:
-            if species not in mass_fractions:
-                raise KeyError(
-                    f"unweighted filling species '{species}' not in mass fractions dict\n"
-                    f"The list of mass fraction species was: {list(mass_fractions.keys())}"
-                )
-
-        sum_weights = 0
-    else:
-        sum_weights = jnp.sum(jnp.array(list(filling_species.values())), axis=0)
-
-    # Calculate the sums
-    mass_fraction_to_fill = 1 - (
-        jnp.sum(
-            jnp.array(
-                [
-                    mass_fraction
-                    for species, mass_fraction in mass_fractions.items()
-                    if species not in filling_species
-                ]
-            )
-        )
-    )
-
-    last_species = list(filling_species.keys())[-1]
-
-    # Fill the atmosphere
-    if mass_fraction_to_fill > 0:
-        if (
-            unweighted_filling
-        ):  # initialize weights of unweighted filling species using mass fractions dict
-            for species in filling_species:
-                filling_species[species] = copy.deepcopy(mass_fractions[species])
-                sum_weights += filling_species[species]
-
-        for species, weight in filling_species.items():
-            if species != last_species:
-                mass_fractions[species] = weight / sum_weights * mass_fraction_to_fill
-            else:  # ensure that the sum is exactly 1 in spite of numerical errors
-                mass_fractions[species] = 0.0
-                mass_fraction_from_subtraction = 1 - jnp.sum(
-                    jnp.array(list(mass_fractions.values()))
-                )
-
-                mass_fractions[species] = mass_fraction_from_subtraction
-
-                if sanity_check:
-                    mass_fraction_from_weights = (
-                        weight / sum_weights * mass_fraction_to_fill
-                    )
-
-                    if not jnp.isclose(
-                        mass_fraction_from_weights,
-                        mass_fraction_from_subtraction,
-                        atol=1e-15,
-                        rtol=1e-12,
-                    ):
-                        raise ValueError(
-                            f"unexpected results when filling atmosphere\n"
-                            f"A mass fraction of {mass_fraction_from_subtraction} is required to fill the "
-                            f"atmosphere with species {last_species}, "
-                            f"but from the parameters given, "
-                            f"the calculated mass fraction is {mass_fraction_from_weights}.\n"
-                            f"This is likely a coding error and not a user error."
-                        )
-
-    return mass_fractions
-
-
 def get_solar_elemental_abundances(keep_list: list[int] = None) -> dict[int, float]:
     """Parse the solar elemental abundances string.
     Args:
@@ -819,7 +696,7 @@ def get_solar_elemental_abundances(keep_list: list[int] = None) -> dict[int, flo
 
 
 def linear_spline_profile(
-    pressure_array, pressure_nodes, abundance_points, gamma, nnodes=0
+    pressure_array, pressure_nodes, abundance_points, gamma
 ):
     """
     Compute a linear spline profile for abundance based on pressure points.
@@ -832,7 +709,6 @@ def linear_spline_profile(
         pressure_nodes (array-like): An array or list of log pressure points at which the spline is fixed
         abundance_points (array-like): An array or list of abundances for each pressure node.
         gamma (float): A parameter controlling the curvature of the spline.
-        nnodes (int, optional): Number of nodes to use in the spline interpolation.
 
     Returns:
         tuple: A tuple containing two elements:

@@ -17,7 +17,6 @@ _CIA_OPACITY_CUTOFF = jnp.finfo(WORKING_JAX_DTYPE).tiny
 
 
 def get_cia_aliases(name: str) -> str:
-    # TODO remove in version 4.0.0
     # Try to match name with aliases
     cia_aliases = {
         "H2--H2": ["H2H2", "H2-H2", "H2--H2"],

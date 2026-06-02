@@ -402,14 +402,9 @@ def interpolate_cloud_opacities(
     cloud_wavelengths,
     frequencies_bin_edges,
 ):
-    # TODO: just read in wavelength centers
-    # TODO Read in pressure coords
 
     edges_wlen = cst.c / frequencies_bin_edges  # * 1e4# cm
     bin_centers = edges_wlen[1:] - jnp.diff(edges_wlen) / 2.0
-
-    # n_layers_test
-    # transformed_wavelength_coords = (((edges_wlen - cloud_wavelengths[0])/cloud_wavelengths[-1]) * cloud_wavelengths.shape[0]).astype(int)[:-1]
 
     def interp_index(bin_center):
         idx = jnp.searchsorted(cloud_wavelengths, bin_center, side="left")
@@ -422,10 +417,7 @@ def interpolate_cloud_opacities(
 
     transformed_wavelength_coords = vmap(interp_index)(
         bin_centers
-    )  # .astype(int)  # shape (n_bins,)
-    # from jax import debug
-    # debug.print("transformed_wavelength_coords: {}", transformed_wavelength_coords)
-    # debug.print("transformed_wavelength_coords_test: {}", transformed_wavelength_coords_test)
+    )
 
     pressure_coords = jnp.linspace(
         0,
@@ -1510,7 +1502,6 @@ def _compute_cloud_opacities_using_particle_size_grid(
     target_pressure,
 ):
     r"""
-    # TODO vectorize on/off code
     Args:
         atmosphere_densities:
             Density of the atmosphere at each of its layer

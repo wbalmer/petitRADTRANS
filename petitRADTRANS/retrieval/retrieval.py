@@ -365,8 +365,6 @@ class Retrieval:
                     adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
                     copy_configuration_parameters=False,
                 )
-
-                # TODO the generating function should always return the same number of values
                 if (
                     len(model_returned_values) == 3
                 ):  # handle case where beta is returned
@@ -3082,7 +3080,6 @@ class Retrieval:
 
     @staticmethod
     def get_special_parameters() -> set[str]:
-        # TODO: naming convention
         return {"_spectrum_scaling", "_spectrum_offset", "_uncertainty_scaling"}
 
     def get_volume_mixing_ratios(

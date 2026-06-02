@@ -716,207 +716,6 @@ def contour_corner(
     return fig
 
 
-def nice_corner(
-    samples,
-    parameter_names,
-    output_file,
-    n_samples=None,
-    parameter_ranges=None,
-    parameter_plot_indices=None,
-    true_values=None,
-    max_val_ratio=None,
-):
-    """
-    Paul's custom hex grid corner plots.
-    Won't work with sampledict setup in retrieve.py!
-    """
-    import seaborn as sns  # TODO is seaborn really that useful?
-
-    font = {
-        "family": "serif",
-        "weight": "normal",
-        "size": int(23 * 5.0 / len(parameter_plot_indices)),
-    }
-
-    plt.rc("font", **font)
-    plt.rc("text", usetex=True)
-
-    if n_samples is not None:
-        s = n_samples
-    else:
-        s = len(samples)
-
-    try:
-        if parameter_plot_indices is None:
-            parameter_plot_indices = np.linspace(
-                0, len(parameter_names) - 1, len(parameter_names) - 1
-            ).astype("int")
-    except Exception:  # TODO @Evert replace bare exception
-        pass
-
-    if max_val_ratio is None:
-        max_val_ratio = 5.0
-
-    data_list = []
-    labels_list = []
-    range_list: list[tuple[int, int]] = []
-
-    for i in parameter_plot_indices:
-
-        data_list.append(samples[len(samples) - s :, i])
-        labels_list.append(parameter_names[i])
-
-        try:
-            if parameter_ranges[i] is None:
-                range_mean = np.mean(samples[len(samples) - s :, i])
-                range_std = np.std(samples[len(samples) - s :, i])
-                range_take = (range_mean - 4 * range_std, range_mean + 4 * range_std)
-                range_list.append(range_take)
-            else:
-                range_list.append(parameter_ranges[i])
-        except Exception:  # TODO @Evert replace bare exception
-            range_mean = np.mean(samples[len(samples) - s :, i])
-            range_std = np.std(samples[len(samples) - s :, i])
-            range_take = (range_mean - 4 * range_std, range_mean + 4 * range_std)
-            range_list.append(range_take)
-
-    try:
-        truths_list = []
-
-        for i in parameter_plot_indices:
-            truths_list.append(true_values[i])
-    except Exception:  # TODO @Evert replace bare exception
-        truths_list = None
-
-    dimensions = len(parameter_plot_indices)
-
-    # Set up the matplotlib figure
-    f, axes = plt.subplots(
-        dimensions, dimensions, figsize=(13, 13), sharex="none", sharey="none"
-    )
-    i_col = 0
-    i_lin = 0
-
-    try:
-        ax_array = axes.flat
-    except Exception:  # TODO @Evert replace bare exception
-        ax_array = [plt.gca()]
-
-    for ax in ax_array:
-
-        # print(i_col, i_lin, dimensions, len(axes.flat))
-        if i_col < i_lin:
-            x = copy.copy(data_list[i_col])
-            y = copy.copy(data_list[i_lin])
-            indexx = (x >= range_list[i_col][0]) & (x <= range_list[i_col][1])
-            indexy = (y >= range_list[i_lin][0]) & (y <= range_list[i_lin][1])
-
-            x = x[indexx & indexy]
-            y = y[indexx & indexy]
-
-            gridsize = 22
-            ax.hexbin(
-                x,
-                y,
-                cmap="bone_r",
-                gridsize=gridsize,
-                vmax=int(max_val_ratio * s / gridsize**2.0),
-                rasterized=True,
-            )
-
-            ax.set_xlim((range_list[i_col][0], range_list[i_col][1]))
-            ax.set_ylim((range_list[i_lin][0], range_list[i_lin][1]))
-
-            try:
-                ax.axhline(
-                    truths_list[i_lin], color="red", linestyle="--", linewidth=2.5
-                )
-                ax.axvline(
-                    truths_list[i_col], color="red", linestyle="--", linewidth=2.5
-                )
-            except Exception:  # TODO @Evert replace bare exception
-                pass
-
-            if i_col > 0:
-                ax.get_yaxis().set_visible(False)
-
-        elif i_col == i_lin:
-
-            med = np.median(data_list[i_col])
-            up = str(np.round(np.percentile(data_list[i_col], 84) - med, 2))
-            do = str(np.round(med - np.percentile(data_list[i_col], 16), 2))
-            med = str(np.round(med, 2))
-            med = med.split(".")[0] + "." + med.split(".")[1].ljust(2, "0")
-            up = up.split(".")[0] + "." + up.split(".")[1].ljust(2, "0")
-            do = do.split(".")[0] + "." + do.split(".")[1].ljust(2, "0")
-
-            ax.set_title(
-                med + r"$^{+" + up + "}_{-" + do + "}$",
-                fontdict=font,
-                fontsize=int(22 * 5.0 / len(parameter_plot_indices)),
-            )
-
-            use_data = copy.copy(data_list[i_col])
-            index = (use_data >= range_list[i_col][0]) & (
-                use_data <= range_list[i_col][1]
-            )
-            use_data = use_data[index]
-            sns.distplot(use_data, bins=22, kde=False, rug=False, ax=ax, color="gray")
-
-            ax.set_xlim((range_list[i_col][0], range_list[i_col][1]))
-            ax.get_yaxis().set_visible(False)
-            try:
-                ax.axvline(
-                    truths_list[i_col], color="red", linestyle="--", linewidth=2.5
-                )
-            except Exception:  # TODO @Evert replace bare exception
-                pass
-
-            ax.axvline(
-                float(med) + float(up), color="black", linestyle=":", linewidth=1.0
-            )
-            ax.axvline(float(med), color="black", linestyle=":", linewidth=1.0)
-            ax.axvline(
-                float(med) - float(do), color="black", linestyle=":", linewidth=1.0
-            )
-
-        else:
-            ax.axis("off")
-
-        i_col += 1
-        if i_col % dimensions == 0:
-            i_col = 0
-            i_lin += 1
-
-    for i_col in range(dimensions):
-        for i_lin in range(dimensions):
-            try:
-                plt.sca(axes[i_lin, i_col])
-            except Exception:  # TODO @Evert replace bare exception
-                pass
-            range_use = np.linspace(range_list[i_col][0], range_list[i_col][1], 5)[1:-1]
-
-            labels_use = []
-            for r in range_use:
-                labels_use.append(str(np.round(r, 1)))
-            plt.xticks(range_use[::2], labels_use[::2])
-            plt.xlabel(labels_list[i_col])
-
-    for i_lin in range(dimensions):
-        try:
-            plt.sca(axes[i_lin, 0])
-        except Exception:  # TODO @Evert replace bare exception
-            pass
-        plt.ylabel(labels_list[i_lin])
-
-    plt.subplots_adjust(wspace=0, hspace=0)
-    if dimensions == 1:
-        plt.tight_layout(h_pad=0, w_pad=0)
-    plt.savefig(output_file)
-    # plt.show()
-    # plt.clf()
-
-
 def plot_cloud_condensation_curves(
     metallicities, co_ratios, pressures=None, temperatures=None
 ):
@@ -1026,13 +825,8 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
                 )
             else:
                 wlen = data.wavelengths
-                # flux/error: commented since it was not used
-                # error = data.uncertainties
-                # flux = data.spectrum
         except Exception:  # TODO find what is the error expected here
             wlen = data.wavelengths
-            # error = data.uncertainties
-            # flux = data.spectrum
     else:
         wlen = np.mean(data.photometric_bin_edges)
         # flux = data.spectrum
@@ -2168,7 +1962,6 @@ def plot_result_corner(
             String or list of string containing the retrieval directories.
         retrieved_parameters:
             Dictionary containing all the retrieved parameters and their prior.
-            # TODO retrieved parameters should be automatically stored in retrievals
         retrieval_name:
             Name of the retrieval. If None, the name is extracted from the retrieval directory.
         true_values:

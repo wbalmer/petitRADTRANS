@@ -104,8 +104,6 @@ class LogLikelihood:
                 raise ValueError(
                     "data_uncertainties must have the same shape as the model_spectrum"
                 )
-            # if jnp.any(self.data_uncertainties <= 0): TODO: move to data.py
-            #    raise ValueError("Uncertainties must be positive.")
         else:
             self.data_uncertainties = None
 
