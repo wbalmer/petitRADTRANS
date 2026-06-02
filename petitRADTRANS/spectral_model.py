@@ -130,7 +130,7 @@ class SpectralModel(Radtrans):
         filling_species:
             Dictionary with filling species as keys and the weights of the mass fractions as values. Unweighted
             filling species are represented with None. Filling species are used to ensure that the MMR at each layer is
-            1. See chemistry.utils.fill_atmospheric_layer for more details.
+            1. See chemistry.utils.fill_atmosphere for more details.
         guillot_temperature_profile_gamma:
             Ratio between visual and infrared opacity.
             Used by the Guillot temperature profile (``temperature_profile_mode='guillot'``).
@@ -682,7 +682,6 @@ class SpectralModel(Radtrans):
     ):
         from petitRADTRANS.retrieval.retrieval import Retrieval
 
-        # TODO (v4.0.0) Change model generating function template to not include pt_plot_mode
         if fixed_parameters is None:
             fixed_parameters = {}
 

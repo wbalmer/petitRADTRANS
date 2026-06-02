@@ -17,11 +17,16 @@ import warnings
 import pooch
 from pathlib import Path
 import h5py
+from filelock import FileLock
 
 from astropy.io.votable import parse_single_table
 from astropy.io import fits
 
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
+
+
+def _db_lock(database_path: str) -> FileLock:
+    return FileLock(database_path + ".lock", timeout=120)
 
 
 class ReadFilter:
@@ -65,8 +70,12 @@ class ReadFilter:
                 filter_found = False
 
         if not filter_found:
-            with h5py.File(self.database, "a") as hdf5_file:
-                add_filter_profile(self.data_folder, hdf5_file, self.filter_name)
+            with _db_lock(self.database):
+                with h5py.File(self.database, "r") as hdf5_file:
+                    filter_found = f"filters/{self.filter_name}" in hdf5_file
+                if not filter_found:
+                    with h5py.File(self.database, "a") as hdf5_file:
+                        add_filter_profile(self.data_folder, hdf5_file, self.filter_name)
 
     def get_filter(self) -> np.ndarray:
         """
@@ -160,17 +169,15 @@ class ReadFilter:
         filter_profile = self.get_filter()
 
         with h5py.File(self.database, "r") as hdf5_file:
-            # Check if the Vega spectrum is found in 'r'
-            # mode because the 'a' mode is not possible
-            # when using multiprocessing
-            if "spectra/calibration/vega" in hdf5_file:
-                vega_found = True
-            else:
-                vega_found = False
+            vega_found = "spectra/calibration/vega" in hdf5_file
 
         if not vega_found:
-            with h5py.File(self.database, "a") as hdf5_file:
-                add_vega(self.data_folder, hdf5_file)
+            with _db_lock(self.database):
+                with h5py.File(self.database, "r") as hdf5_file:
+                    vega_found = "spectra/calibration/vega" in hdf5_file
+                if not vega_found:
+                    with h5py.File(self.database, "a") as hdf5_file:
+                        add_vega(self.data_folder, hdf5_file)
 
         with h5py.File(self.database, "r") as hdf5_file:
             vega_spec = np.array(hdf5_file["spectra/calibration/vega"])
@@ -362,8 +369,12 @@ class SyntheticPhotometry:
             vega_found = "spectra/calibration/vega" in hdf5_file
 
         if not vega_found:
-            with h5py.File(self.database, "a") as hdf5_file:
-                add_vega(self.data_folder, hdf5_file)
+            with _db_lock(self.database):
+                with h5py.File(self.database, "r") as hdf5_file:
+                    vega_found = "spectra/calibration/vega" in hdf5_file
+                if not vega_found:
+                    with h5py.File(self.database, "a") as hdf5_file:
+                        add_vega(self.data_folder, hdf5_file)
 
         with h5py.File(self.database, "r") as hdf5_file:
             vega_spec = np.array(hdf5_file["spectra/calibration/vega"])
