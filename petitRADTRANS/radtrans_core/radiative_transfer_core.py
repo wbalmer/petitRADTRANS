@@ -272,7 +272,7 @@ def _combine_ck_opacities_jax(
 
 
 # ---------------------------------------------------------------------------
-# Fortran callback + custom VJP wrapper
+# Fortran CPU forward path + custom VJP wrapper
 # ---------------------------------------------------------------------------
 
 
@@ -315,6 +315,26 @@ def _run_fortran_ck(modified_opas, g_gauss_arr, weights_gauss_arr):
     return np.array(result, dtype=original_dtype, order="C", copy=True)
 
 
+def _combine_ck_opacities_fortran_callback(
+    modified: ArrayLike,
+    g_gauss: ArrayLike,
+    weights_gauss: ArrayLike,
+) -> ArrayLike:
+    n_g, n_f, _, n_l = modified.shape
+    return pure_callback(
+        _run_fortran_ck,
+        jax.ShapeDtypeStruct((n_g, n_f, n_l), modified.dtype),
+        modified,
+        g_gauss,
+        weights_gauss,
+    )
+
+
+def _use_fortran_ck_callback() -> bool:
+    """Use the Fortran callback only on CPU backends."""
+    return jax.default_backend() == "cpu"
+
+
 @partial(custom_vjp, nondiff_argnums=(7,))
 def _combine_ck_opacities_fortran(
     opacities_fortran_order: ArrayLike,
@@ -333,13 +353,8 @@ def _combine_ck_opacities_fortran(
         continuum_opacities,
         input_layout,
     )
-    n_g, n_f, _, n_l = modified.shape
-    return pure_callback(
-        _run_fortran_ck,
-        jax.ShapeDtypeStruct((n_g, n_f, n_l), modified.dtype),
-        modified,
-        g_gauss,
-        weights_gauss,
+    return _combine_ck_opacities_fortran_callback(
+        modified, g_gauss, weights_gauss
     )
 
 
@@ -386,11 +401,6 @@ def _combine_ck_fortran_bwd(input_layout, residuals, g):
 _combine_ck_opacities_fortran.defvjp(_combine_ck_fortran_fwd, _combine_ck_fortran_bwd)
 
 
-def _use_fortran_ck_callback() -> bool:
-    """Use the Fortran callback only on CPU backends."""
-    return jax.default_backend() == "cpu"
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -431,9 +441,6 @@ def combine_ck_opacities(
         )
 
     if _use_fortran_ck_callback():
-        if weights_gauss is None:
-            raise ValueError("weights_gauss is required for the Fortran callback")
-
         return _combine_ck_opacities_fortran(
             opacities_fortran_order,
             g_gauss,

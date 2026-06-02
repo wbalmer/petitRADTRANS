@@ -1443,7 +1443,7 @@ class SBITrainer:
                         epoch_validation_metrics.get(stability_flag_key, 0.0) >= 0.5
                     )
                 else:
-                    is_stable_checkpoint = np.isfinite(validation_metric)
+                    is_stable_checkpoint = bool(np.isfinite(validation_metric))
             _val_str = (
                 f" | val_loss: {validation_metric:.6f}" if has_validation else ""
             )

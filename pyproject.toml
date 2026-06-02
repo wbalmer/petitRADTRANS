@@ -6,7 +6,7 @@ requires = [
     "Cython>=0.29.35",
     "pybind11>=2.10.4",
     "numpy>=2.0",
-    "jax"
+    "jax>=0.10.0"
 ]
 
 [project]
@@ -33,7 +33,7 @@ dependencies = [
     "meson-python",
     "ninja",
     "numpy>2.0",
-    "jax>0.8",
+    "jax>=0.10.0",
     "scipy",
     "astropy>=7.0",
     "molmass",
@@ -43,7 +43,7 @@ dependencies = [
     "pyvo",
     "bs4",
     "selenium",
-    "interpax",
+    "interpax>=0.13.4",
     "mpi4py",
     "requests",
     "skycalc-cli",
@@ -73,7 +73,7 @@ full = [
     "blackjax",
     "numpyro",
     "dynesty>=3.0.0",
-    "equinox>=0.11",
+    "equinox>=0.13.8",
     "optax>=0.2",
     "zarr>=2.18",
     "numcodecs>=0.13",

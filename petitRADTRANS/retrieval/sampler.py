@@ -1,5 +1,5 @@
 import abc
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _dc_replace
 import gc
 import os
 import json
@@ -329,6 +329,7 @@ class SamplerContext:
     prior_ultranest_func: Any = None
     free_parameter_names: list = field(default_factory=list)
     n_free_parameters: int = 0
+    likelihood_devices: list | None = None
 
 
 def _check_differentiable_support(context: SamplerContext, sampler_label: str) -> None:
@@ -339,6 +340,49 @@ def _check_differentiable_support(context: SamplerContext, sampler_label: str) -
             f"{sampler_label} requires at least one differentiable model group; "
             "legacy-only retrievals are not supported."
         )
+
+
+def _build_device_likelihood_wrapper(context: SamplerContext):
+    """Return a PyMultiNest-compatible log-likelihood that dispatches to a JAX device.
+
+    Each MPI rank r selects context.likelihood_devices[r % len(likelihood_devices)],
+    so N ranks stripe naturally across M devices. Requires differentiable model groups.
+
+    Returns ``(device_likelihood_func, target_device)``.
+
+    Notes
+    -----
+    The user is responsible for ensuring that JAX processes do not unexpectedly contend
+    on the same device (e.g. set ``JAX_PLATFORMS=cuda,cpu`` or ``CUDA_VISIBLE_DEVICES``
+    per MPI process for true isolation when using multiple GPUs).
+    """
+    _require_jax()
+    _check_differentiable_support(context, "Device-dispatched likelihood (likelihood_devices)")
+
+    likelihood_devices = context.likelihood_devices
+    _, _, rank = get_mpi_context()
+    target_device = likelihood_devices[rank % len(likelihood_devices)]
+
+    parameter_layout = context.parameter_layout
+    runtime = context.runtime
+    uncertainties_mode = context.uncertainties_mode
+    print_debug = context.print_log_likelihood_for_debugging
+
+    _jit_evaluate = jit(
+        lambda physical_params: runtime.evaluate_jax(
+            physical_params=physical_params,
+            uncertainties_mode=uncertainties_mode,
+            print_log_likelihood_for_debugging=print_debug,
+        )
+    )
+
+    def device_likelihood(cube, ndim=0, nparam=0):
+        physical_params = parameter_layout.physical_params_from_vector(cube)
+        with default_device(target_device):
+            result = _jit_evaluate(physical_params)
+        return float(device_get(result))
+
+    return device_likelihood, target_device
 
 
 def _build_unconstrained_mcmc_interface(context: SamplerContext):
@@ -1895,6 +1939,15 @@ class PymultinestSampler(Sampler):
 
     @classmethod
     def prepare(cls, context: SamplerContext, **sampler_kwargs):
+        likelihood_devices = sampler_kwargs.pop("likelihood_devices", None)
+
+        if likelihood_devices is not None:
+            device_context = _dc_replace(context, likelihood_devices=likelihood_devices)
+            log_likelihood_func, target_device = _build_device_likelihood_wrapper(device_context)
+        else:
+            log_likelihood_func = context.log_likelihood_func
+            target_device = None
+
         prefix = os.path.join(
             context.output_directory,
             "out_PMN",
@@ -1955,7 +2008,7 @@ class PymultinestSampler(Sampler):
         }
 
         sampler = cls(
-            log_likelihood_func=context.log_likelihood_func,
+            log_likelihood_func=log_likelihood_func,
             prior_func=context.prior_func,
             output_directory=context.output_directory,
             retrieval_name=context.retrieval_name,
@@ -1965,6 +2018,9 @@ class PymultinestSampler(Sampler):
         sampler._prefix = prefix
 
         summary_parameters = dict(run_kwargs)
+        if likelihood_devices is not None:
+            summary_parameters["likelihood_devices"] = [str(d) for d in likelihood_devices]
+            summary_parameters["likelihood_target_device"] = str(target_device)
         return sampler, run_kwargs, summary_parameters
 
     def post_run(self, results):
