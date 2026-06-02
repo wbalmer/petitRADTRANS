@@ -43,7 +43,7 @@ dependencies = [
     "pyvo",
     "bs4",
     "selenium",
-    "interpax>=0.13.4",
+    "interpax>=0.3.14",
     "mpi4py",
     "requests",
     "skycalc-cli",
