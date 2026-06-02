@@ -39,6 +39,9 @@ Added
 -  New retrieval samplers: ``dynesty``, ``jaxns``, ``blackjax`` HMC and NUTS,
     and ``numpyro`` HMC and NUTS, in addition to the existing PyMultiNest and
     UltraNest workflows.
+-  Ability to use optimal estimation to find the maximum a posteriori (MAP) solution
+    using `optax`,which supports both gradient-based optimization and
+    gradient-free methods.
 -  A dedicated sampler layer that normalizes sampler selection, sample
     archiving, and summary generation across backends.
 -  Covariance-aware retrievals, including Gaussian processes, automatic
