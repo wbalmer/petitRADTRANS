@@ -699,6 +699,7 @@ class BlackJAXSampler(Sampler):
             from petitRADTRANS.retrieval.optimal_estimation import (
                 optimize_unconstrained_position,
                 make_walker_inits,
+                report_and_save_map_warmup,
             )
 
             walker_jitter = warmup_optimizer_kwargs.pop("walker_jitter", 0.0)
@@ -723,6 +724,16 @@ class BlackJAXSampler(Sampler):
                 logdensity, initial_position, seed=warmup_seed, **warmup_optimizer_kwargs
             )
             warmup_best_logdensity = float(optimize_result.best_logdensity)
+            # Print the MAP parameter values and save the MAP sample to file.
+            report_and_save_map_warmup(
+                optimize_result,
+                transform_positions,
+                free_parameter_names,
+                context.output_directory,
+                context.retrieval_name,
+                output_subdirectory="out_BlackJAX",
+                verbose=warmup_optimizer_kwargs.get("verbose", True),
+            )
             initial_position = make_walker_inits(
                 optimize_result.best_position,
                 requested_num_chains,
@@ -1220,6 +1231,7 @@ class NumPyroSampler(Sampler):
             from petitRADTRANS.retrieval.optimal_estimation import (
                 optimize_unconstrained_position,
                 make_walker_inits,
+                report_and_save_map_warmup,
             )
 
             walker_jitter = warmup_optimizer_kwargs.pop("walker_jitter", 0.0)
@@ -1244,6 +1256,16 @@ class NumPyroSampler(Sampler):
                 logdensity, initial_position, seed=warmup_seed, **warmup_optimizer_kwargs
             )
             warmup_best_logdensity = float(optimize_result.best_logdensity)
+            # Print the MAP parameter values and save the MAP sample to file.
+            report_and_save_map_warmup(
+                optimize_result,
+                transform_positions,
+                free_parameter_names,
+                context.output_directory,
+                context.retrieval_name,
+                output_subdirectory="out_NumPyro",
+                verbose=warmup_optimizer_kwargs.get("verbose", True),
+            )
             initial_position = make_walker_inits(
                 optimize_result.best_position,
                 requested_num_chains,
