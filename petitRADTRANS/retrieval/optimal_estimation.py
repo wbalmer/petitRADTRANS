@@ -383,6 +383,87 @@ def make_walker_inits(position, num_chains, *, jitter=0.0, seed=0):
     return base
 
 
+def report_and_save_map_warmup(
+    optimize_result: "OptimizeResult",
+    transform_positions: Callable,
+    parameter_names,
+    output_directory: str,
+    retrieval_name: str,
+    *,
+    output_subdirectory: str,
+    label: str = "optimal_estimation",
+    verbose: bool = True,
+):
+    """Print and persist the MAP point found by an ``optimize_init`` warm-up.
+
+    Used by the NumPyro and BlackJAX samplers when ``optimize_init=True``: once the
+    optax optimiser has located the MAP, this transforms the best unconstrained
+    position into physical (constrained) parameter space, prints each parameter's
+    MAP value, and writes the MAP sample to
+    ``<output_directory>/<output_subdirectory>/<retrieval_name>_map_warmup.{npz,json}``.
+
+    Args:
+        optimize_result: the :class:`OptimizeResult` returned by
+            :func:`optimize_unconstrained_position`.
+        transform_positions: maps an unconstrained position to physical space.
+        parameter_names: ordered free-parameter names matching the position.
+        output_directory: retrieval output directory.
+        retrieval_name: retrieval name used as the file-name stem.
+        output_subdirectory: sampler-specific sub-directory (e.g. ``"out_BlackJAX"``
+            or ``"out_NumPyro"``).
+        label: short tag used in the printed lines.
+        verbose: print the MAP values and the saved-file path.
+
+    Returns:
+        The path to the saved ``.npz`` file.
+    """
+    _require_jax_local()
+
+    parameter_names = list(parameter_names)
+    best_unconstrained = jnp.asarray(optimize_result.best_position)
+    best_physical = np.asarray(
+        transform_positions(best_unconstrained), dtype=float
+    ).reshape(-1)
+    best_logdensity = float(optimize_result.best_logdensity)
+
+    if verbose:
+        print(
+            f"  [{label}] MAP sample (best log-posterior = {best_logdensity:.6e}):"
+        )
+        for name, value in zip(parameter_names, best_physical):
+            print(f"    {name:40s} = {value:.6g}")
+
+    output_dir = os.path.join(output_directory, output_subdirectory)
+    os.makedirs(output_dir, exist_ok=True)
+    prefix = os.path.join(output_dir, f"{retrieval_name}_map_warmup")
+
+    np.savez(
+        f"{prefix}.npz",
+        best_fit=best_physical,
+        best_fit_unconstrained=np.asarray(best_unconstrained, dtype=float).reshape(-1),
+        parameter_names=np.asarray(parameter_names),
+        best_logdensity=np.asarray(best_logdensity),
+    )
+    with open(f"{prefix}.json", "w") as handle:
+        json.dump(
+            {
+                "best_logdensity": best_logdensity,
+                "converged": bool(optimize_result.converged),
+                "best_fit": {
+                    name: float(value)
+                    for name, value in zip(parameter_names, best_physical)
+                },
+            },
+            handle,
+            indent=4,
+        )
+
+    if verbose:
+        print(f"  [{label}] MAP sample saved to {prefix}.npz")
+
+    return f"{prefix}.npz"
+
+
 # --------------------------------------------------------------------------- #
 # Laplace (Rodgers optimal estimation) posterior
 # --------------------------------------------------------------------------- #
