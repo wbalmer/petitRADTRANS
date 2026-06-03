@@ -585,9 +585,6 @@ class Data:
             local_covariance_kernel=self.local_covariance_kernel,
             n_local_covariance_kernels=self.n_local_covariance_kernels,
             covariance_jitter=self.covariance_jitter,
-            variability_atmospheric_column_model_flux_return_mode=(
-                self.variability_atmospheric_column_model_flux_return_mode
-            ),
             metadata={
                 "system_distance": self.system_distance,
                 "radtrans_grid": self.radtrans_grid,
@@ -870,9 +867,6 @@ class PhotometryData(Data):
             local_covariance_kernel=obs.local_covariance_kernel,
             n_local_covariance_kernels=obs.n_local_covariance_kernels,
             covariance_jitter=obs.covariance_jitter,
-            variability_atmospheric_column_model_flux_return_mode=(
-                obs.variability_atmospheric_column_model_flux_return_mode
-            ),
             metadata=updated_metadata,
         )
 
