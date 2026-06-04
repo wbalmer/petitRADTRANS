@@ -25,6 +25,9 @@ def cubic_spline_temperature_profile(
             - interpolated_temperatures: Interpolated temperature values based on the cubic spline.
             - prior: Curvature prior value calculated for the spline.
     """
+    if nnodes == 0:
+        nnodes = len(temperature_points) - 2
+
     interpolated_temperatures = interp1d(
         xq=jnp.log10(pressures),
         x=jnp.linspace(jnp.log10(pressures[0]), jnp.log10(pressures[-1]), nnodes + 2),
