@@ -1391,7 +1391,7 @@ class Opacity:
                 The species base name.
         """
         return self.get_species_base_name(
-            species_full_name=self.species_full_name, join=join
+            species_full_name=self.species_full_name
         )
 
     def get_cloud_info(self) -> str:
