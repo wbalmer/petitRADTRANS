@@ -127,13 +127,7 @@ def _normalize_legacy_output_value(value):
 
 
 def _compute_gravity(physical_params):
-    if "log_g" in physical_params.keys() and "mass" in physical_params.keys():
-        gravity = 10 ** _get_parameter_value(physical_params, "log_g")
-        planet_radius, _, _ = reference_gravity2radius_jax(
-            reference_gravity=gravity,
-            mass=_get_parameter_value(physical_params, "mass"),
-        )
-    elif "log_g" in physical_params.keys() and "planet_mass" in physical_params.keys():
+    if "log_g" in physical_params.keys() and "planet_mass" in physical_params.keys():
         gravity = 10 ** _get_parameter_value(physical_params, "log_g")
         planet_radius, _, _ = reference_gravity2radius_jax(
             reference_gravity=gravity,
@@ -142,18 +136,13 @@ def _compute_gravity(physical_params):
     elif "log_g" in physical_params.keys():
         gravity = 10 ** _get_parameter_value(physical_params, "log_g")
         planet_radius = _get_parameter_value(physical_params, "planet_radius")
-    elif "mass" in physical_params.keys() and "planet_radius" in physical_params.keys():
-        planet_radius = _get_parameter_value(physical_params, "planet_radius")
-        gravity, _, _ = mass2reference_gravity_jax(
-            mass=_get_parameter_value(physical_params, "mass"), radius=planet_radius
-        )
     elif "planet_mass" in physical_params.keys() and "planet_radius" in physical_params.keys():
         planet_radius = _get_parameter_value(physical_params, "planet_radius")
         gravity, _, _ = mass2reference_gravity_jax(
             mass=_get_parameter_value(physical_params, "planet_mass"), radius=planet_radius
         )
     else:
-        raise KeyError("Pick two of log_g, planet_radius and mass priors!")
+        raise KeyError("Pick two of log_g, planet_radius and planet_mass priors!")
 
     return gravity, planet_radius
 
@@ -235,7 +224,7 @@ def molliere_2020_emission(
             alpha=physical_params["alpha"],
             t_internal=physical_params["T_int"],
             pressures=pressures,
-            metallicity=physical_params["Fe/H"],
+            metallicity=physical_params["M/H"],
             co_ratio=carbon_to_oxygen,
             conv=True,
         )
@@ -305,7 +294,7 @@ def molliere_2020_two_column(
             alpha=physical_params["alpha_clear"],
             t_internal=physical_params["T_int"],
             pressures=pressures,
-            metallicity=physical_params["Fe/H"],
+            metallicity=physical_params["M/H"],
             co_ratio=physical_params["C/O"],
             conv=True,
         ),
@@ -332,7 +321,7 @@ def molliere_2020_two_column(
             alpha=physical_params["alpha_clear"],
             t_internal=physical_params["T_int_clear"],
             pressures=pressures,
-            metallicity=physical_params["Fe/H"],
+            metallicity=physical_params["M/H"],
             co_ratio=physical_params["C/O"],
             conv=True,
         ),
@@ -388,7 +377,7 @@ def molliere_2020_two_column(
         mean_molar_masses=clear_state["mean_molar_masses"],
         gravity=gravity,
         planet_radius=planet_radius,
-        distance_to_system=physical_params["distance_to_system"],
+        distance_to_system=physical_params["system_distance"],
     )
     clear_result = calculate_emission_spectrum_runtime(model_context, clear_inputs)
     if not clear_result.spectrum_is_valid():
@@ -560,7 +549,7 @@ def guillot_relative_emission(
     )  # erg/cm^2/s/Hz at stellar surface
 
     # Scale to the observer distance: F_nu_earth = F_nu_surface * (R_star / d)^2.
-    distance = physical_params["distance_to_system"]
+    distance = physical_params["system_distance"]
     stellar_fnu_earth = stellar_fnu_surface * (star_radius / distance) ** 2
 
     # Convert F_nu [erg/cm^2/s/Hz] -> F_lambda [erg/cm^2/s/cm] -> [W/cm^2/cm]
@@ -1555,7 +1544,7 @@ def legacy_molliere_2020_emission(
             alpha=parameters["alpha"].value,
             t_internal=parameters["T_int"].value,
             pressures=p_use,
-            metallicity=parameters["Fe/H"].value,
+            metallicity=parameters["M/H"].value,
             co_ratio=carbon_to_oxygen,
             conv=True,  # conv
         )
@@ -1731,7 +1720,7 @@ def legacy_molliere_2020_two_column(
             alpha=parameters["alpha"].value,
             t_internal=parameters["T_int"].value,
             pressures=p_use,
-            metallicity=parameters["Fe/H"].value,
+            metallicity=parameters["M/H"].value,
             co_ratio=parameters["C/O"].value,
             conv=True,  # conv
         )
@@ -1753,7 +1742,7 @@ def legacy_molliere_2020_two_column(
             alpha=parameters["alpha"].value,
             t_internal=parameters["T_int"].value,
             pressures=p_use,
-            metallicity=parameters["Fe/H"].value,
+            metallicity=parameters["M/H"].value,
             co_ratio=parameters["C/O"].value,
             conv=True,  # conv
         )
@@ -1814,7 +1803,7 @@ def legacy_molliere_2020_two_column(
     f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
 
     spectrum_model_cloudy = flux2irradiance(
-        f_lambda, planet_radius, parameters["distance_to_system"].value
+        f_lambda, planet_radius, parameters["system_distance"].value
     )
 
     # Set the cloud abundances to 0 for clear case
@@ -1834,7 +1823,7 @@ def legacy_molliere_2020_two_column(
     f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
 
     spectrum_model_clear = flux2irradiance(
-        f_lambda, planet_radius, parameters["distance_to_system"].value
+        f_lambda, planet_radius, parameters["system_distance"].value
     )
 
     # Patchiness fraction
@@ -3356,7 +3345,7 @@ def add_blackbody_cpd_model(parameters, wavelengths):
         )
         blackbody_spectrum = (
             blackbody_spectrum
-            * (parameters["disk_radius"].value / parameters["distance_to_system"].value)
+            * (parameters["disk_radius"].value / parameters["system_distance"].value)
             ** 2
         )
         return blackbody_spectrum
@@ -3837,7 +3826,7 @@ def _build_runtime_emission_model_inputs(
         cloud_fraction=cloud_fraction,
         patchy_clouds=patchy_clouds,
         cloud_particle_radius_distribution=distribution,
-        distance_to_system=physical_params["distance_to_system"],
+        distance_to_system=physical_params["system_distance"],
         disk_blackbody_temperature=(
             physical_params["T_disk_blackbody"]
             if "T_disk_blackbody" in physical_params.keys()
@@ -4141,7 +4130,7 @@ def calculate_emission_spectrum(
         cloud_fraction=cloud_fraction,
         patchy_clouds=patchy_clouds,
         cloud_particle_radius_distribution=distribution,
-        distance_to_system=parameters["distance_to_system"].value,
+        distance_to_system=parameters["system_distance"].value,
         disk_blackbody_temperature=(
             parameters["T_disk_blackbody"].value
             if "T_disk_blackbody" in parameters.keys()

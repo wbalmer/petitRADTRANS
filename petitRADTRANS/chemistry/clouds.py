@@ -348,9 +348,9 @@ def setup_simple_clouds_hazes(parameters):
 
     # Grey clouds
     if (
-        "log_Pcloud" in parameters.keys()
+        "log_pcloud" in parameters.keys()
     ):  # TODO should be log10 to be consistent with SpecModel
-        pcloud = 10 ** parameters["log_Pcloud"]
+        pcloud = 10 ** parameters["log_pcloud"]
     elif "Pcloud" in parameters.keys():
         pcloud = parameters["Pcloud"]
     elif (
@@ -433,7 +433,7 @@ def get_fseds(parameters, cloud_species):
     or only as a single value, and returns the dictionary providing the fsed values
     for each cloud, or None, if no cloud is used.
     """
-    return cloud_dict(parameters, "fsed", cloud_species)
+    return cloud_dict(parameters, "f_sed", cloud_species)
 
 
 def get_bhans(parameters, cloud_species, shape=0):
