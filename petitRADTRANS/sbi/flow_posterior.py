@@ -1048,6 +1048,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         base_distribution: str = "gaussian",
         use_base_affine: bool = False,
         training_objective: str = "npe",
+        elbo_num_samples: int = 1,
+        elbo_beta_start: float = 1e-3,
+        elbo_anneal_fraction: float = 0.6,
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
         checkpoint_directory: str | None = None,
@@ -1126,6 +1129,13 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "prior is uniform on the unit hypercube and the entropy/likelihood "
                 "terms are well defined."
             )
+        self.elbo_num_samples = max(int(elbo_num_samples), 1)
+        self.elbo_beta_start = float(elbo_beta_start)
+        self.elbo_anneal_fraction = float(elbo_anneal_fraction)
+        if not (0.0 < self.elbo_beta_start <= 1.0):
+            raise ValueError("elbo_beta_start must be in (0, 1]")
+        if not (0.0 <= self.elbo_anneal_fraction <= 1.0):
+            raise ValueError("elbo_anneal_fraction must be in [0, 1]")
         self.num_spline_bins = int(num_spline_bins)
         requested_spline_bound = float(spline_bound)
         if self.parameter_space == "cube" and self.flow_family == "spline":
@@ -1744,27 +1754,38 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         parameter_space: str,
         *,
         num_samples: int = 1,
-    ) -> Callable[[_PosteriorModel, PosteriorBatch], jnp.ndarray]:
+    ) -> Callable[[_PosteriorModel, PosteriorBatch, Any], jnp.ndarray]:
         """Return an amortized-variational (ELBO) training loss.
 
         Maximizes, for observations ``x`` drawn from the (prior-predictive)
-        dataset,
+        dataset, the (tempered) ELBO
 
-            ELBO(x) = E_{q(theta|x)}[ log p(x|theta) + log p(theta) - log q(theta|x) ]
+            ELBO_beta(x) = E_{q(theta|x)}[ beta * log p(x|theta) + log p(theta)
+                                           - log q(theta|x) ]
 
         with a single- (or few-) sample reparameterized estimator. ``q(theta|x)``
         is the conditional flow: latents ``z`` are drawn from the flow base and
         pushed through ``flow.inverse`` to reparameterized samples, so the
         gradient flows through both the flow and the encoder.
 
+        The returned loss takes a third argument ``beta`` (a scalar in (0, 1]):
+        the inverse likelihood temperature. ``beta`` scales the log-likelihood,
+        which for a Gaussian is exactly equivalent to inflating the noise to
+        ``sigma_eff = sigma / sqrt(beta)`` (a power posterior ``p_beta`` whose
+        target is the true posterior at ``beta = 1``). The entropy ``-log q`` is
+        kept at full weight. Annealing ``beta`` from small -> 1 tames the
+        gradient stiffness from the very small observational noise (which would
+        otherwise swamp the entropy term ~10^6 : 1 and drive an over-confident,
+        poorly-located posterior), lets the entropy shape the width during
+        annealing, and recovers the untempered posterior once ``beta = 1``.
+
         The ``-log q`` (entropy) term diverges to ``-inf`` as ``q`` collapses to
-        a point mass, so a delta posterior is *structurally* impossible -- the
-        width is set by the likelihood/entropy balance rather than by the
-        (near-deterministic) embedding. ``log p(x|theta)`` is supplied by the
-        injected differentiable forward-model likelihood evaluated at the
-        physical parameters reconstructed from the sampled cube coordinates.
-        With ``parameter_space='cube'`` the prior is uniform on the unit
-        hypercube, so ``log p(theta_cube) = 0`` and is dropped.
+        a point mass, so a delta posterior is *structurally* impossible.
+        ``log p(x|theta)`` is supplied by the injected differentiable
+        forward-model likelihood evaluated at the physical parameters
+        reconstructed from the sampled cube coordinates. With
+        ``parameter_space='cube'`` the prior is uniform on the unit hypercube,
+        so ``log p(theta_cube) = 0`` and is dropped.
 
         Parameters
         ----------
@@ -1790,7 +1811,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         n_draws = max(int(num_samples), 1)
 
         def _elbo_loss(
-            model: _PosteriorModel, batch: PosteriorBatch
+            model: _PosteriorModel, batch: PosteriorBatch, beta: Any = 1.0
         ) -> jnp.ndarray:
             observations = batch.observations
             embeddings = ConditionalFlowPosterior._batch_embeddings(
@@ -1799,6 +1820,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             embeddings = jnp.asarray(embeddings, dtype=jnp.float32)
             batch_size = embeddings.shape[0]
             param_dim = model.flow.parameter_dim
+            beta = jnp.asarray(beta, dtype=jnp.float32)
 
             # Derive a per-step key from the batch contents so that the
             # reparameterized draws differ across steps/epochs.
@@ -1833,8 +1855,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
 
                 log_likelihood = log_likelihood_fn(theta_cube, observations)
                 log_likelihood = jnp.reshape(log_likelihood, (batch_size,))
-                # Uniform-cube prior contributes log p(theta_cube) = 0.
-                return log_likelihood - log_q_cube  # (batch,)
+                # Tempered likelihood (sigma_eff = sigma / sqrt(beta)); uniform-
+                # cube prior contributes log p(theta_cube) = 0.
+                return beta * log_likelihood - log_q_cube  # (batch,)
 
             draw_keys = random.split(key, n_draws)
             elbo_total = jnp.zeros((batch_size,), dtype=jnp.float32)
@@ -2061,7 +2084,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         *,
         elbo_log_likelihood_fn: Callable[[jnp.ndarray, Any], jnp.ndarray]
         | None = None,
-        elbo_num_samples: int = 1,
+        elbo_num_samples: int | None = None,
     ) -> TrainingArtifacts:
         """Train the posterior on one normalized simulation dataset reader.
 
@@ -2146,13 +2169,37 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             # balance, so observation-noise augmentation and the parameter-noise
             # floor (NPE-only regularizers) are not applied; train and eval use
             # the same ELBO so selection tracks the variational objective.
+            resolved_num_samples = (
+                self.elbo_num_samples
+                if elbo_num_samples is None
+                else int(elbo_num_samples)
+            )
             elbo_loss_fn = self._make_elbo_loss(
                 elbo_log_likelihood_fn,
                 self.parameter_space,
-                num_samples=elbo_num_samples,
+                num_samples=resolved_num_samples,
             )
             train_loss_fn = elbo_loss_fn
             eval_loss_fn = elbo_loss_fn
+
+            # Likelihood-temperature (beta-VI) annealing schedule. beta rises
+            # log-linearly from elbo_beta_start to 1 over the first
+            # elbo_anneal_fraction of epochs, then holds at 1 so training
+            # converges to the untempered posterior. Evaluation always uses
+            # beta = 1 (handled by the trainer), so selection tracks the true
+            # objective. When elbo_anneal_fraction == 0 (or beta_start == 1) the
+            # schedule is a constant 1.0 (no annealing).
+            _beta_start = self.elbo_beta_start
+            _anneal_fraction = self.elbo_anneal_fraction
+
+            def _elbo_beta_schedule(epoch: int, total_epochs: int) -> float:
+                if _anneal_fraction <= 0.0 or _beta_start >= 1.0:
+                    return 1.0
+                anneal_epochs = max(1.0, _anneal_fraction * float(total_epochs))
+                progress = min(1.0, float(epoch) / anneal_epochs)
+                return float(_beta_start ** (1.0 - progress))
+
+            loss_conditioning_schedule = _elbo_beta_schedule
             # The NPE selection/stability machinery (forward<->inverse round-trip
             # error, edge-hit and collapse gates) is meaningless for a
             # reverse-KL-trained, sampling-only flow: the round-trip is never
@@ -2204,6 +2251,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             eval_loss_fn = self._loss
             selection_metric_fn = _flow_validation_selection_metric
             selection_metric_name = "validation_selection_metric"
+            loss_conditioning_schedule = None
 
             def stability_metric_fn(
                 validation_loss: float, diagnostics: Mapping[str, float] | None
@@ -2232,6 +2280,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             selection_metric_name=selection_metric_name,
             stability_metric_fn=stability_metric_fn,
             stability_flag_key="checkpoint_is_stable",
+            loss_conditioning_schedule=loss_conditioning_schedule,
         )
         self.training_artifacts = TrainingArtifacts(
             history=history,
@@ -2271,6 +2320,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "base_distribution": self.base_distribution,
             "use_base_affine": self.use_base_affine,
             "training_objective": self.training_objective,
+            "elbo_num_samples": self.elbo_num_samples,
+            "elbo_beta_start": self.elbo_beta_start,
+            "elbo_anneal_fraction": self.elbo_anneal_fraction,
             "early_stopping_patience": self.early_stopping_patience,
             "early_stopping_min_delta": self.early_stopping_min_delta,
             "checkpoint_directory": self.checkpoint_directory,
@@ -2335,6 +2387,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "base_distribution": self.base_distribution,
                 "use_base_affine": self.use_base_affine,
                 "training_objective": self.training_objective,
+                "elbo_num_samples": self.elbo_num_samples,
+                "elbo_beta_start": self.elbo_beta_start,
+                "elbo_anneal_fraction": self.elbo_anneal_fraction,
                 "early_stopping_patience": self.early_stopping_patience,
                 "early_stopping_min_delta": self.early_stopping_min_delta,
                 "checkpoint_directory": self.checkpoint_directory,
@@ -2421,6 +2476,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "base_distribution": metadata.get("base_distribution", "gaussian"),
             "use_base_affine": metadata.get("use_base_affine", False),
             "training_objective": metadata.get("training_objective", "npe"),
+            "elbo_num_samples": metadata.get("elbo_num_samples", 1),
+            "elbo_beta_start": metadata.get("elbo_beta_start", 1e-3),
+            "elbo_anneal_fraction": metadata.get("elbo_anneal_fraction", 0.6),
             "early_stopping_patience": metadata.get("early_stopping_patience"),
             "early_stopping_min_delta": metadata.get("early_stopping_min_delta", 0.0),
             "checkpoint_directory": metadata.get("checkpoint_directory"),
@@ -2530,6 +2588,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             base_distribution=str(estimator_config.get("base_distribution", "gaussian")),
             use_base_affine=bool(estimator_config.get("use_base_affine", False)),
             training_objective=str(estimator_config.get("training_objective", "npe")),
+            elbo_num_samples=int(estimator_config.get("elbo_num_samples", 1)),
+            elbo_beta_start=float(estimator_config.get("elbo_beta_start", 1e-3)),
+            elbo_anneal_fraction=float(estimator_config.get("elbo_anneal_fraction", 0.6)),
             early_stopping_patience=estimator_config.get("early_stopping_patience"),
             early_stopping_min_delta=float(
                 estimator_config.get("early_stopping_min_delta", 0.0)

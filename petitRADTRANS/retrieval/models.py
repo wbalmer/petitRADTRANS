@@ -49,6 +49,7 @@ from petitRADTRANS.temperature_profiles import (
     zhang_2023_temperature_profile,
     madhusudhan_seager_temperature_profile,
     power_law_temperature_profile,
+    guillot_temperature_profile,
     guillot_global_temperature_profile,
     isothermal_temperature_profile,
     molliere_2020_temperature_profile,
@@ -416,15 +417,22 @@ def guillot_emission(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     gamma = _resolve_guillot_gamma(physical_params)
+
+    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    if redistribution_coefficient is None:
+        redistribution_coefficient = 0.25
+
     temperature_builder = _wrap_runtime_temperature_builder(
         physical_params,
-        lambda pressures: guillot_global_temperature_profile(
+        lambda pressures: guillot_temperature_profile(
             pressures,
             10 ** physical_params["log_kappa_IR"],
             gamma,
             gravity,
             physical_params["T_int"],
             physical_params["T_equ"],
+            redistribution_coefficient=redistribution_coefficient
+
         ),
     )
     temperatures = temperature_builder(p_use)
@@ -493,15 +501,20 @@ def guillot_relative_emission(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     gamma = _resolve_guillot_gamma(physical_params)
+    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    if redistribution_coefficient is None:
+        redistribution_coefficient = 0.25
+
     temperature_builder = _wrap_runtime_temperature_builder(
         physical_params,
-        lambda pressures: guillot_global_temperature_profile(
+        lambda pressures: guillot_temperature_profile(
             pressures,
             10 ** physical_params["log_kappa_IR"],
             gamma,
             gravity,
             physical_params["T_int"],
             physical_params["T_equ"],
+            redistribution_coefficient=redistribution_coefficient
         ),
     )
     temperatures = temperature_builder(p_use)
@@ -589,17 +602,28 @@ def guillot_emission_add_gaussian_temperature(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     gamma = _resolve_guillot_gamma(physical_params)
+    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    if redistribution_coefficient is None:
+                redistribution_coefficient = 0.25
+
     def gaussian(x, scale, mu, sig):
         return scale * jnp.exp(-jnp.power((x - mu) / sig, 2.0) / 2)
 
     def base_temperature_builder(pressures):
-        temperatures = guillot_global_temperature_profile(
-            pressures,
-            10 ** physical_params["log_kappa_IR"],
-            gamma,
-            gravity,
-            physical_params["T_int"],
-            physical_params["T_equ"],
+
+
+        temperature_builder = _wrap_runtime_temperature_builder(
+            physical_params,
+            lambda pressures: guillot_temperature_profile(
+                pressures,
+                10 ** physical_params["log_kappa_IR"],
+                gamma,
+                gravity,
+                physical_params["T_int"],
+                physical_params["T_equ"],
+                redistribution_coefficient=redistribution_coefficient
+
+            ),
         )
         temperature_addition = gaussian(
             jnp.log10(pressures),
@@ -1131,15 +1155,20 @@ def guillot_transmission(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     gamma = _resolve_guillot_gamma(physical_params)
+    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    if redistribution_coefficient is None:
+        redistribution_coefficient = 0.25
+
     temperature_builder = _wrap_runtime_temperature_builder(
         physical_params,
-        lambda pressures: guillot_global_temperature_profile(
+        lambda pressures: guillot_temperature_profile(
             pressures,
             10 ** physical_params["log_kappa_IR"],
             gamma,
             gravity,
             physical_params["T_int"],
             physical_params["T_equ"],
+            redistribution_coefficient=redistribution_coefficient
         ),
     )
     temperatures = temperature_builder(p_use)
