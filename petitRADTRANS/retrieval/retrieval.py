@@ -1,6 +1,7 @@
 import os
 import sys
 import copy
+import functools
 import importlib
 import json
 import traceback
@@ -138,6 +139,93 @@ def _resolve_sampler_class(sampler_type: str) -> type[Sampler] | None:
     sampler_class = getattr(sampler_module, sampler_class_name)
     SAMPLER_DISPATCH.setdefault(sampler_type_normalized, sampler_class)
     return sampler_class
+
+
+# ---------------------------------------------------------------------------
+# Native multi-chain orchestration helpers (Phase 2). Module-level so the
+# per-chain runner is picklable for the ``spawn`` process pool.
+# ---------------------------------------------------------------------------
+
+
+def _detect_jax_devices() -> tuple[int, bool]:
+    """Return ``(num_devices, gpu_available)`` from JAX, or ``(1, False)``."""
+    try:
+        import jax
+
+        devices = jax.devices()
+        gpu_available = any(
+            getattr(device, "platform", "cpu") in ("gpu", "cuda")
+            for device in devices
+        )
+        return len(devices), gpu_available
+    except Exception:  # noqa: BLE001 -- JAX missing / not initialised
+        return 1, False
+
+
+def _validate_top_level_builder(builder) -> None:
+    """Raise a clear error if ``builder`` cannot be used with the spawn pool.
+
+    The ``processes`` execution mode dispatches the builder to ``spawn`` workers,
+    which pickle it by reference. Closures and lambdas are not picklable; the
+    builder must be a top-level (module-level) function.
+    """
+    if not callable(builder):
+        raise TypeError("config_builder must be callable.")
+    qualname = getattr(builder, "__qualname__", "")
+    if "<locals>" in qualname or "<lambda>" in qualname or "." in qualname:
+        raise ValueError(
+            "config_builder must be a top-level (module-level) function so it can "
+            "be sent to spawned worker processes; got a "
+            f"closure/lambda/method ({qualname!r}). Define it at module scope and "
+            "call run_multichain under `if __name__ == \"__main__\":`."
+        )
+
+
+def _run_single_chain_on(retrieval, chain_spec, run_kwargs, force_single_chain=True) -> str:
+    """Run one chain on an existing Retrieval, namespaced by ``chain_spec``.
+
+    ``force_single_chain`` adds ``num_chains=1`` (the gradient-MCMC samplers accept
+    it). Nested samplers (JAXNS) do not take ``num_chains``, so it is left off for
+    them -- each run is one independent nested run distinguished only by its seed.
+    """
+    retrieval.configuration.retrieval_name = chain_spec.retrieval_name
+    per_chain_kwargs = dict(run_kwargs)
+    per_chain_kwargs.pop("chain_execution", None)
+    per_chain_kwargs.pop("num_chains", None)
+    if force_single_chain:
+        per_chain_kwargs["num_chains"] = 1
+    per_chain_kwargs["seed"] = chain_spec.seed
+    retrieval.run(**per_chain_kwargs)
+    return chain_spec.retrieval_name
+
+
+def _run_one_chain_from_builder(
+    config_builder,
+    output_directory,
+    retrieval_kwargs,
+    base_name,
+    base_seed,
+    run_kwargs,
+    force_single_chain,
+    chain_id,
+    cores,
+):
+    """Worker entry: build a Retrieval from ``config_builder`` and run one chain.
+
+    Module-level + only picklable arguments so it can be dispatched to a ``spawn``
+    worker. ``cores`` is accepted for signature compatibility (affinity is applied
+    by the multichain worker entry before this runs).
+    """
+    from petitRADTRANS.retrieval.multichain import ChainSpec
+
+    spec = ChainSpec.build(base_name, base_seed, chain_id)
+    configuration = config_builder()
+    retrieval = Retrieval(
+        configuration,
+        output_directory=output_directory,
+        **(retrieval_kwargs or {}),
+    )
+    return _run_single_chain_on(retrieval, spec, run_kwargs, force_single_chain)
 
 
 class Retrieval:
@@ -3074,6 +3162,594 @@ class Retrieval:
         return {
             parameter_name: samples[i, :] for i, parameter_name in enumerate(param_dict)
         }
+
+    def combine_chains(
+        self,
+        num_chains: int | None = None,
+        *,
+        on_missing: str = "warn",
+        rhat_threshold: float = 1.01,
+        verbose: bool = True,
+    ):
+        """Combine per-chain MCMC outputs into one pooled posterior + diagnostics.
+
+        Reads the per-chain artifacts written by a multi-chain run
+        (``out_<Backend>/<retrieval_name>_chain<c>_samples.npz``), pools the draws,
+        computes convergence diagnostics (split-R-hat, ESS, divergence fraction),
+        and writes the combined posterior under ``<retrieval_name>_combined`` in the
+        same on-disk format that :meth:`get_samples` reads, plus a
+        ``<retrieval_name>_combined_diagnostics.json`` sidecar.
+
+        Gradient-MCMC backends (NumPyro, BlackJAX) are pooled with R-hat/ESS
+        diagnostics; nested backends (JAXNS) are combined evidence-aware (per-run
+        log Z weighting + between-run log Z scatter) via a separate code path.
+
+        Args:
+            num_chains:
+                If given, expect chains ``0..num_chains-1`` and report any missing.
+                If ``None``, combine whatever ``_chain<c>_`` files are present.
+            on_missing:
+                ``"warn"`` (default) combines the survivors and warns; ``"raise"``
+                raises if any expected chain is missing.
+            rhat_threshold:
+                R-hat value above which the run is flagged as not converged.
+            verbose:
+                Print a short diagnostics summary.
+
+        Returns:
+            The combine summary, including the combined retrieval name, written
+            file paths, and the diagnostics dictionary.
+        """
+        from petitRADTRANS.retrieval import multichain
+
+        sampler_type = self.configuration.sampler_type
+        family = multichain.sampler_family(sampler_type)
+        base_name = self.configuration.retrieval_name
+
+        if family == "nested":
+            summary = multichain.combine_nested_chains(
+                self.output_directory,
+                sampler_type,
+                base_name,
+                num_chains=num_chains,
+                write=True,
+                on_missing=on_missing,
+            )
+            self._chain_diagnostics = summary.diagnostics
+            if verbose:
+                evidence = summary.evidence
+                print(
+                    f"Combined {len(summary.chain_ids)} nested runs "
+                    f"({summary.chain_ids}) into '{summary.combined_name}': "
+                    f"{summary.diagnostics['n_samples_total']} samples."
+                )
+                if evidence.get("available"):
+                    print(
+                        f"  log Z = {evidence['log_Z_mean']:.3f} +/- "
+                        f"{evidence['log_Z_uncert']:.3f}; between-run std = "
+                        f"{evidence.get('log_Z_between_std', float('nan')):.3f}; "
+                        f"consistent = {summary.diagnostics.get('evidence_consistent')}"
+                    )
+                else:
+                    print("  evidence unavailable (no per-run evidence sidecars).")
+            return summary
+
+        if family != "mcmc":
+            raise NotImplementedError(
+                f"combine_chains supports gradient-MCMC (NumPyro, BlackJAX) and "
+                f"nested (JAXNS) samplers; sampler_type {sampler_type!r} (family "
+                f"{family!r}) is not supported."
+            )
+
+        summary = multichain.combine_mcmc_chains(
+            self.output_directory,
+            sampler_type,
+            base_name,
+            num_chains=num_chains,
+            write=True,
+            on_missing=on_missing,
+            rhat_threshold=rhat_threshold,
+        )
+        self._chain_diagnostics = summary.diagnostics
+
+        if verbose:
+            diagnostics = summary.diagnostics
+            print(
+                f"Combined {len(summary.chain_ids)} chains "
+                f"({summary.chain_ids}) into '{summary.combined_name}': "
+                f"{diagnostics['n_samples_total']} samples."
+            )
+            if diagnostics.get("rhat_available"):
+                print(
+                    f"  max R-hat = {diagnostics['max_rhat']:.4f} "
+                    f"(threshold {diagnostics['rhat_threshold']}); "
+                    f"min ESS = {diagnostics['min_ess']:.0f}; "
+                    f"converged = {diagnostics['converged']}"
+                )
+            else:
+                print("  R-hat unavailable (need >= 2 chains and >= 4 draws).")
+            if diagnostics.get("divergences") is not None:
+                print(
+                    f"  divergences: {diagnostics['divergences']['total']} "
+                    f"({100.0 * diagnostics['divergences']['fraction']:.2f}%)"
+                )
+
+        return summary
+
+    def get_convergence_diagnostics(self) -> dict | None:
+        """Return the most recent multi-chain convergence diagnostics, if any.
+
+        Populated by :meth:`combine_chains`; returns ``None`` if chains have not
+        been combined in this session.
+        """
+        return getattr(self, "_chain_diagnostics", None)
+
+    @classmethod
+    def run_multichain(
+        cls,
+        config_builder,
+        *,
+        num_chains: int,
+        output_directory: str,
+        retrieval_kwargs: dict | None = None,
+        chain_execution: str = "auto",
+        chain_seed: int = 12345,
+        per_chain_memory_gb: float | None = None,
+        on_chain_failure: str = "warn",
+        combine: bool = True,
+        rhat_threshold: float = 1.01,
+        max_workers: int | None = None,
+        sampler_type: str | None = None,
+        base_retrieval_name: str | None = None,
+        resume: bool = False,
+        verbose: bool = True,
+        **run_kwargs,
+    ) -> dict:
+        """Run a multi-chain retrieval and (optionally) combine the chains.
+
+        This is the native entry point for multi-chain JAX-sampler runs. It keeps
+        the parent process lightweight for the out-of-process modes (only the
+        children build the heavy runtime) and merges the per-chain posteriors into
+        one combined result with convergence diagnostics.
+
+        Parameters
+        ----------
+        config_builder:
+            A **top-level (module-level)** callable returning a fresh
+            ``RetrievalConfig``. For the ``processes`` mode it is dispatched to
+            ``spawn`` workers (so it must be picklable by reference: no closures or
+            lambdas), and the call site must be guarded by
+            ``if __name__ == "__main__":``. It should be cheap (it is also called
+            once in the parent to read the sampler type and retrieval name unless
+            those are given explicitly).
+        num_chains:
+            Number of independent chains.
+        output_directory:
+            Output directory passed to each per-chain ``Retrieval``.
+        retrieval_kwargs:
+            Extra keyword arguments for the ``Retrieval(config, ...)`` constructor.
+        chain_execution:
+            ``auto`` | ``vectorised`` | ``sharded`` | ``sequential`` | ``processes``.
+            ``auto`` chooses based on devices and ``num_chains`` (see
+            :func:`petitRADTRANS.retrieval.multichain.resolve_chain_execution`).
+        chain_seed:
+            Base seed; chain ``c`` uses ``derive_chain_seed(chain_seed, c)``.
+        per_chain_memory_gb:
+            Resident memory per chain, used for the printed peak-memory estimate
+            and to cap process concurrency.
+        on_chain_failure:
+            ``"warn"`` (combine survivors) or ``"raise"``.
+        combine:
+            If ``True`` (and the sampler is gradient-MCMC), combine the per-chain
+            posteriors and compute diagnostics after the chains finish.
+
+        Returns
+        -------
+        dict with keys ``execution``, ``num_chains``, ``succeeded_chain_ids``,
+        ``failed`` (chain_id -> error), ``combine`` (the combine summary or
+        ``None``), and ``diagnostics`` (or ``None``).
+        """
+        from petitRADTRANS.retrieval import multichain
+
+        if int(num_chains) < 1:
+            raise ValueError("num_chains must be >= 1.")
+        num_chains = int(num_chains)
+        chain_execution = multichain.ChainExecution.validate(chain_execution)
+        if on_chain_failure not in {"warn", "raise"}:
+            raise ValueError("on_chain_failure must be 'warn' or 'raise'.")
+
+        # Light introspection: read sampler type + base name without building the
+        # heavy runtime (RetrievalConfig does not load opacities).
+        if sampler_type is None or base_retrieval_name is None:
+            probe_config = config_builder()
+            if sampler_type is None:
+                sampler_type = probe_config.sampler_type
+            if base_retrieval_name is None:
+                base_retrieval_name = probe_config.retrieval_name
+        base_name = base_retrieval_name
+        family = multichain.sampler_family(sampler_type)
+        # Gradient-MCMC samplers take num_chains=1 per worker; nested samplers
+        # (JAXNS) do not -- each worker is one independent nested run.
+        force_single_chain = family == "mcmc"
+
+        num_devices, gpu_available = _detect_jax_devices()
+        execution = multichain.resolve_chain_execution(
+            chain_execution,
+            num_chains=num_chains,
+            num_devices=num_devices,
+            gpu_available=gpu_available,
+            per_chain_memory_gb=per_chain_memory_gb,
+        )
+
+        peak_gb = multichain.estimate_peak_memory_gb(
+            execution, num_chains, per_chain_memory_gb, max_workers=max_workers
+        )
+        if verbose:
+            print(
+                f"run_multichain: sampler='{sampler_type}' chains={num_chains} "
+                f"execution='{execution}' (requested '{chain_execution}'); "
+                f"devices={num_devices} gpu={gpu_available}"
+            )
+            if peak_gb is not None:
+                available = multichain.available_memory_gb()
+                suffix = (
+                    f"; node MemAvailable ~= {available:.0f}GB" if available else ""
+                )
+                print(f"  estimated peak resident memory ~= {peak_gb:.0f}GB{suffix}")
+                if available is not None and peak_gb > available:
+                    warnings.warn(
+                        f"Estimated peak memory {peak_gb:.0f}GB exceeds available "
+                        f"{available:.0f}GB; reduce num_chains or per-worker load.",
+                        RuntimeWarning,
+                    )
+
+        succeeded_ids: list[int] = []
+        failed: dict[int, str] = {}
+
+        # Resume: chains whose per-chain artifact already exists are treated as
+        # done and skipped (only meaningful for the per-chain modes).
+        already_done: list[int] = []
+        if resume and family in ("mcmc", "nested"):
+            already_done = multichain.existing_chain_ids(
+                output_directory, sampler_type, base_name, num_chains
+            )
+            if already_done and verbose:
+                print(f"  resume: {len(already_done)} chains already done {already_done}.")
+        chains_to_run = [c for c in range(num_chains) if c not in set(already_done)]
+
+        if execution in (multichain.ChainExecution.VECTORISED, multichain.ChainExecution.SHARDED):
+            # In-process device-parallel run: the sampler pools the chains itself.
+            # (Per-chain artifacts/diagnostics for these modes are a later phase.)
+            configuration = config_builder()
+            retrieval = cls(
+                configuration,
+                output_directory=output_directory,
+                **(retrieval_kwargs or {}),
+            )
+            retrieval.run(num_chains=num_chains, seed=chain_seed, **run_kwargs)
+            if verbose:
+                print(
+                    f"  ran {num_chains} chains in-process ('{execution}'); the "
+                    "sampler pooled them. Combine/diagnostics for in-process modes "
+                    "are not yet available."
+                )
+            return {
+                "execution": execution,
+                "num_chains": num_chains,
+                "succeeded_chain_ids": list(range(num_chains)),
+                "failed": {},
+                "combine": None,
+                "diagnostics": None,
+            }
+
+        if execution == multichain.ChainExecution.SEQUENTIAL:
+            # One resident model; run chains one after another in this process.
+            succeeded_ids = list(already_done)
+            configuration = config_builder()
+            retrieval = cls(
+                configuration,
+                output_directory=output_directory,
+                **(retrieval_kwargs or {}),
+            )
+            for chain_id in chains_to_run:
+                spec = multichain.ChainSpec.build(base_name, chain_seed, chain_id)
+                try:
+                    _run_single_chain_on(
+                        retrieval, spec, run_kwargs, force_single_chain
+                    )
+                    succeeded_ids.append(chain_id)
+                except Exception as error:  # noqa: BLE001
+                    failed[chain_id] = f"{type(error).__name__}: {error}"
+                    if on_chain_failure == "raise":
+                        raise
+            succeeded_ids = sorted(set(succeeded_ids))
+        else:  # processes
+            succeeded_ids = list(already_done)
+            if chains_to_run:
+                _validate_top_level_builder(config_builder)
+                cpus = (
+                    sorted(os.sched_getaffinity(0))
+                    if hasattr(os, "sched_getaffinity")
+                    else list(range(os.cpu_count() or 1))
+                )
+                cpu_groups = multichain.partition_cpus(cpus, len(chains_to_run))
+                chain_runner = functools.partial(
+                    _run_one_chain_from_builder,
+                    config_builder,
+                    output_directory,
+                    retrieval_kwargs,
+                    base_name,
+                    chain_seed,
+                    run_kwargs,
+                    force_single_chain,
+                )
+                run_result = multichain.run_chains_in_processes(
+                    chain_runner,
+                    chains_to_run,
+                    cpu_groups,
+                    on_chain_failure=on_chain_failure,
+                    max_workers=max_workers,
+                    block_mpi=True,
+                )
+                succeeded_ids = sorted(set(succeeded_ids) | set(run_result.succeeded_chain_ids))
+                failed = run_result.failed
+
+        if verbose:
+            print(
+                f"  chains finished: {len(succeeded_ids)} succeeded "
+                f"({succeeded_ids}), {len(failed)} failed."
+            )
+
+        combine_summary = None
+        diagnostics = None
+        if combine and succeeded_ids:
+            if family == "mcmc":
+                combine_summary = multichain.combine_mcmc_chains(
+                    output_directory,
+                    sampler_type,
+                    base_name,
+                    num_chains=num_chains,
+                    write=True,
+                    on_missing=on_chain_failure,
+                    rhat_threshold=rhat_threshold,
+                )
+                diagnostics = combine_summary.diagnostics
+                if verbose:
+                    print(
+                        f"  combined -> '{combine_summary.combined_name}': "
+                        f"{diagnostics['n_samples_total']} samples; "
+                        f"max R-hat="
+                        f"{diagnostics['max_rhat']:.4f} "
+                        f"converged={diagnostics['converged']}"
+                    )
+            elif family == "nested":
+                combine_summary = multichain.combine_nested_chains(
+                    output_directory,
+                    sampler_type,
+                    base_name,
+                    num_chains=num_chains,
+                    write=True,
+                    on_missing=on_chain_failure,
+                    seed=chain_seed,
+                )
+                diagnostics = combine_summary.diagnostics
+                if verbose:
+                    evidence = combine_summary.evidence
+                    if evidence.get("available"):
+                        print(
+                            f"  combined -> '{combine_summary.combined_name}': "
+                            f"{diagnostics['n_samples_total']} samples; "
+                            f"log Z = {evidence['log_Z_mean']:.3f} +/- "
+                            f"{evidence['log_Z_uncert']:.3f} "
+                            f"(between-run std "
+                            f"{evidence.get('log_Z_between_std', float('nan')):.3f})"
+                        )
+                    else:
+                        print(
+                            f"  combined -> '{combine_summary.combined_name}': "
+                            f"{diagnostics['n_samples_total']} samples; "
+                            "evidence unavailable."
+                        )
+            elif verbose:
+                print(
+                    f"  combine skipped: sampler family '{family}' is not "
+                    "supported by the native combiner."
+                )
+
+        return {
+            "execution": execution,
+            "num_chains": num_chains,
+            "succeeded_chain_ids": succeeded_ids,
+            "failed": failed,
+            "combine": combine_summary,
+            "diagnostics": diagnostics,
+        }
+
+    @classmethod
+    def run_single_chain(
+        cls,
+        config_builder,
+        chain_id: int,
+        *,
+        output_directory: str,
+        num_chains: int,
+        chain_seed: int = 12345,
+        sampler_type: str | None = None,
+        base_retrieval_name: str | None = None,
+        retrieval_kwargs: dict | None = None,
+        resume: bool = True,
+        verbose: bool = True,
+        **run_kwargs,
+    ) -> str | None:
+        """Run exactly one chain (used by the SLURM-array worker and as a primitive).
+
+        Builds a Retrieval from ``config_builder`` and runs chain ``chain_id`` into
+        its per-chain namespace. With ``resume=True`` the chain is skipped (returns
+        ``None``) if its ``*_samples.npz`` artifact already exists. Returns the
+        per-chain retrieval name, or ``None`` if skipped.
+        """
+        from petitRADTRANS.retrieval import multichain
+
+        if sampler_type is None or base_retrieval_name is None:
+            probe_config = config_builder()
+            sampler_type = sampler_type or probe_config.sampler_type
+            base_retrieval_name = base_retrieval_name or probe_config.retrieval_name
+        base_name = base_retrieval_name
+
+        if resume:
+            artifact = multichain.chain_artifact_path(
+                output_directory, sampler_type, base_name, chain_id
+            )
+            if os.path.exists(artifact):
+                if verbose:
+                    print(f"[chain {chain_id}] resume: {artifact} exists; skipping.")
+                return None
+
+        force_single_chain = multichain.sampler_family(sampler_type) == "mcmc"
+        return _run_one_chain_from_builder(
+            config_builder,
+            output_directory,
+            retrieval_kwargs,
+            base_name,
+            chain_seed,
+            run_kwargs,
+            force_single_chain,
+            chain_id,
+            None,
+        )
+
+    @classmethod
+    def combine_chains_from_builder(
+        cls,
+        config_builder,
+        *,
+        output_directory: str,
+        num_chains: int,
+        retrieval_kwargs: dict | None = None,
+        on_missing: str = "warn",
+        verbose: bool = True,
+    ):
+        """Build a Retrieval from ``config_builder`` and combine its chains.
+
+        Convenience for the SLURM-array combine task: it rebuilds a (cheap)
+        Retrieval and calls :meth:`combine_chains`.
+        """
+        configuration = config_builder()
+        retrieval = cls(
+            configuration,
+            output_directory=output_directory,
+            **(retrieval_kwargs or {}),
+        )
+        return retrieval.combine_chains(
+            num_chains=num_chains, on_missing=on_missing, verbose=verbose
+        )
+
+    @classmethod
+    def write_chain_launcher(
+        cls,
+        config_builder,
+        *,
+        num_chains: int,
+        output_directory: str,
+        script_dir: str = ".",
+        scheduler: str = "slurm_array",
+        builder_module: str | None = None,
+        builder_function: str | None = None,
+        retrieval_kwargs: dict | None = None,
+        run_kwargs: dict | None = None,
+        chain_seed: int = 12345,
+        resume: bool = True,
+        base_retrieval_name: str | None = None,
+        python: str = "python",
+        cpus_per_task: int = 8,
+        partition: str | None = None,
+        time: str = "24:00:00",
+        mem: str | None = None,
+        gres: str | None = None,
+        account: str | None = None,
+        log_dir: str = "out",
+        job_name: str | None = None,
+        env_setup_lines: tuple = (),
+        extra_sbatch_lines: tuple = (),
+        verbose: bool = True,
+    ) -> dict:
+        """Generate a SLURM job-array launcher for a multi-node multi-chain run.
+
+        Writes a per-task worker script plus an array sbatch, a dependent combine
+        sbatch, and a submit driver into ``script_dir``. The array runs one chain
+        per task (``SLURM_ARRAY_TASK_ID``); the combine task depends on it
+        (``afterany``) and merges the survivors. ``config_builder`` must live in an
+        importable module (not ``__main__``) and be a top-level function;
+        ``retrieval_kwargs``/``run_kwargs`` must be Python literals (load arrays
+        inside the builder).
+        """
+        from pathlib import Path as _Path
+
+        from petitRADTRANS.retrieval import multichain
+
+        if scheduler != "slurm_array":
+            raise ValueError("Only scheduler='slurm_array' is currently supported.")
+        _validate_top_level_builder(config_builder)
+
+        builder_module = builder_module or getattr(config_builder, "__module__", None)
+        builder_function = builder_function or getattr(
+            config_builder, "__qualname__", None
+        )
+        if base_retrieval_name is None:
+            base_retrieval_name = config_builder().retrieval_name
+        base_name = base_retrieval_name
+
+        script_path = _Path(script_dir)
+        script_path.mkdir(parents=True, exist_ok=True)
+        worker_filename = f"{base_name}_chain_worker.py"
+
+        worker_content = multichain.render_chain_worker_script(
+            builder_module,
+            builder_function,
+            output_directory,
+            num_chains,
+            chain_seed,
+            retrieval_kwargs,
+            run_kwargs,
+            resume,
+        )
+        scripts = multichain.render_slurm_array_scripts(
+            base_name=base_name,
+            worker_filename=worker_filename,
+            num_chains=num_chains,
+            python=python,
+            cpus_per_task=cpus_per_task,
+            partition=partition,
+            time=time,
+            mem=mem,
+            gres=gres,
+            account=account,
+            log_dir=log_dir,
+            job_name=job_name,
+            env_setup_lines=env_setup_lines,
+            extra_sbatch_lines=extra_sbatch_lines,
+        )
+
+        written: dict[str, str] = {}
+        worker_path = script_path / worker_filename
+        worker_path.write_text(worker_content, encoding="utf-8")
+        written["worker"] = str(worker_path)
+        for filename, content in scripts.items():
+            path = script_path / filename
+            path.write_text(content, encoding="utf-8")
+            written[filename] = str(path)
+            if filename.endswith((".sh", ".sbatch")):
+                try:
+                    os.chmod(path, 0o755)
+                except OSError:
+                    pass
+
+        if verbose:
+            print(f"Wrote SLURM multi-chain launcher for '{base_name}':")
+            for value in written.values():
+                print(f"  {value}")
+            print(f"Submit with:  bash {script_path / (base_name + '_submit.sh')}")
+        return written
 
     @staticmethod
     def get_special_parameters() -> set[str]:

@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a40] - 2026-06-02
+## [4.0.0a41] - 2026-06-05
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -90,6 +90,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Minimum supported Python version is 3.12.
 
 ### Added
+- a41: Multichain HMC, NUTS and JAXNS - run multiple independent chains on different devices and combine.
 - a40: Aliases for some common parameter names in retrievals
 - a39: Can delegate likelihood calculation to GPU for pymultinest and ultranest
 - a38: Optimal estimation, mostly for warmup of HMC samplers.

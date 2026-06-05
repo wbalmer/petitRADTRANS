@@ -5,6 +5,7 @@ py.install_sources([
     'dynesty_pool_helpers.py',
     'runtime.py',
     'models.py',
+    'multichain.py',
     'parameter.py',
     'parameter_aliases.py',
     'plotting.py',

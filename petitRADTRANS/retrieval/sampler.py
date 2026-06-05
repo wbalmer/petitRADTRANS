@@ -3471,6 +3471,49 @@ class JAXNSSampler(Sampler):
     def _get_parameter_names_path(self):
         return self._get_output_prefix() + "_params.json"
 
+    def _get_evidence_path(self):
+        return self._get_output_prefix() + "_evidence.json"
+
+    def _write_evidence_sidecar(self, processed_results):
+        """Persist scalar evidence/diagnostics next to the equal-weight samples.
+
+        JAXNS stores the evidence (log Z, ESS, ...) only in memory and in its
+        native raw-results file. Writing a tiny JSON sidecar lets the dependency
+        -light, JAXNS-free multi-run combiner
+        (:func:`petitRADTRANS.retrieval.multichain.combine_nested_chains`) read
+        each run's evidence to combine independent nested-sampling runs.
+        """
+        evidence = {}
+        for key in (
+            "log_Z_mean",
+            "log_Z_uncert",
+            "ESS",
+            "H_mean",
+            "total_num_samples",
+            "total_num_likelihood_evaluations",
+            "log_efficiency",
+        ):
+            value = processed_results.get(key)
+            if value is None:
+                continue
+            value = np.asarray(value)
+            if value.size == 1:
+                evidence[key] = float(value.item())
+
+        samples = processed_results.get("samples")
+        if samples is not None:
+            evidence["n_samples"] = int(np.asarray(samples).shape[0])
+
+        path = self._get_evidence_path()
+        try:
+            with open(path, "w") as handle:
+                json.dump(evidence, handle, indent=4)
+        except OSError as error:
+            warnings.warn(
+                f"Could not write JAXNS evidence sidecar {path}: {error}",
+                RuntimeWarning,
+            )
+
     def _get_cpu_device(self):
         if not self.offload_results_to_cpu:
             return None
@@ -3694,6 +3737,11 @@ class JAXNSSampler(Sampler):
                 processed_results[key] = value.item()
             else:
                 processed_results[key] = value
+
+        # When a fresh run saved equal-weight samples, persist the scalar evidence
+        # next to them so the multi-run nested combiner can read it without JAXNS.
+        if output_file is not None:
+            self._write_evidence_sidecar(processed_results)
 
         return processed_results
 
