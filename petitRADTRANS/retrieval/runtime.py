@@ -64,6 +64,8 @@ class PhysicalParams:
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "PhysicalParams":
         """Build runtime parameters from an ordered name-to-value mapping."""
+        from petitRADTRANS.retrieval.parameter_aliases import normalize_parameter_mapping
+        mapping = normalize_parameter_mapping(mapping)
         ordered_names = tuple(mapping.keys())
         dynamic_names = []
         dynamic_values = []

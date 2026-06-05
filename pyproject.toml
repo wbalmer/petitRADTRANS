@@ -11,7 +11,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "4.0.0a39"
+version = "4.0.0a40"
 description = "Exopanet spectral synthesis tool for retrievals"
 authors = [
     {name = "Paul Mollière", email = "molliere@mpia.de"},
@@ -62,6 +62,7 @@ Changelog = "https://gitlab.com/mauricemolli/petitRADTRANS/-/blob/master/CHANGEL
 [project.optional-dependencies]
 
 full = [
+    "cython",
     "mpi4py",
     "requests",
     "skycalc-cli",
@@ -83,6 +84,7 @@ full = [
 ]
 
 retrieval = [
+    "cython",
     "mpi4py",
     "requests",
     "skycalc-cli",

@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from jax import tree_util
+from jax import config, tree_util
 from petitRADTRANS.jax_dtype import JAX_DTYPE
 from petitRADTRANS.retrieval.utils import (
     log_prior,
@@ -8,6 +8,40 @@ from petitRADTRANS.retrieval.utils import (
     log_gaussian_prior,
     delta_prior,
 )
+
+
+def _cast_distribution_to_jax_dtype(distribution):
+    """Re-create a TFP distribution with floating-point parameters cast to the active JAX dtype.
+
+    TFP distributions default to float32 for their parameters, but when JAX
+    runs in 64-bit mode any sampler (JAXNS, gradient-based, ultranest, …)
+    passes float64 values to ``distribution.quantile``.  TFP's internal helpers
+    (e.g. ``igammacinv``) require all inputs to share the same dtype, so the
+    mismatch raises a TypeError.  This function re-instantiates the distribution
+    with its scalar/array parameters cast to match the current
+    ``jax_enable_x64`` setting so both sides always agree.
+    """
+    target_dtype = jnp.float64 if config.jax_enable_x64 else jnp.float32
+    if hasattr(distribution, "dtype") and distribution.dtype == target_dtype:
+        return distribution
+
+    params = {}
+    for param_name, param_value in distribution.parameters.items():
+        if param_value is None:
+            continue
+        try:
+            arr = jnp.asarray(param_value)
+            if jnp.issubdtype(arr.dtype, jnp.floating):
+                params[param_name] = jnp.asarray(param_value, dtype=target_dtype)
+            else:
+                params[param_name] = param_value
+        except (TypeError, ValueError):
+            params[param_name] = param_value
+
+    try:
+        return distribution.__class__(**params)
+    except Exception:
+        return distribution
 
 
 def _build_jaxns_prior(distribution, name):
@@ -66,7 +100,11 @@ class Parameter:
         self.name = name
         self.is_free_parameter = is_free_parameter
         self.value = value
-        self.distribution = distribution
+        self.distribution = (
+            _cast_distribution_to_jax_dtype(distribution)
+            if distribution is not None
+            else None
+        )
         self.prior_sample = None
         self.transform_prior_cube_coordinate = transform_prior_cube_coordinate
         self.plot_in_corner = plot_in_corner

@@ -268,11 +268,11 @@ def _resolve_cloud_base_pressure(
 
 
 def _resolve_cloud_fsed(cloud_name, parameters, parameter_keys):
-    cloud_fsed_key = f"fsed_{cloud_name}"
+    cloud_fsed_key = f"f_sed_{cloud_name}"
     if cloud_fsed_key in parameter_keys:
         return jnp.asarray(parameters[cloud_fsed_key], dtype=JAX_DTYPE)
-    if "fsed" in parameter_keys:
-        return jnp.asarray(parameters["fsed"], dtype=JAX_DTYPE)
+    if "f_sed" in parameter_keys:
+        return jnp.asarray(parameters["f_sed"], dtype=JAX_DTYPE)
     return INVALID_VALUE
 
 
@@ -563,11 +563,11 @@ def _resolve_chemistry_mode(parameters):
     """
     metallicity = _get_parameter_alias_value(
         parameters,
-        "metallicity",
         "M/H",
+        "metallicity",
         "Fe/H",
     )
-    co_ratio = _get_parameter_alias_value(parameters, "co_ratio", "C/O")
+    co_ratio = _get_parameter_alias_value(parameters, "C/O", "co_ratio")
     carbon_quench_pressure = _get_parameter_alias_value(
         parameters,
         "Pquench",
@@ -575,8 +575,8 @@ def _resolve_chemistry_mode(parameters):
     )
     log_carbon_quench_pressure = _get_parameter_alias_value(
         parameters,
-        "log_Pquench",
         "log_pquench",
+        "log_Pquench",
     )
 
     if log_carbon_quench_pressure is not None:
@@ -1497,7 +1497,7 @@ def get_abundances_legacy(
         abundances_interp, mmw, _ = (
             pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
                 parameters["C/O"].value * jnp.ones_like(pressures),
-                parameters["Fe/H"].value * jnp.ones_like(pressures),
+                parameters["M/H"].value * jnp.ones_like(pressures),
                 temperatures,
                 pressures,
                 carbon_quench_pressure=pquench_c,
@@ -1575,7 +1575,7 @@ def get_abundances_legacy(
             msum += abundances_interp[species_basename]
 
     # For free chemistry, need to fill with background gas (H2-He)
-    if "Fe/H" not in parameters.keys():
+    if "M/H" not in parameters.keys():
         # Check to make sure we're using free chemistry
         # Whatever's left is H2 and He
         if "H2" in parameters.keys():
@@ -1617,7 +1617,7 @@ def get_abundances_legacy(
         if "eq_scaling_" + cloud_name in parameters.keys():
             # equilibrium cloud abundance
             x_cloud = fc.return_cloud_mass_fraction(
-                cloud, parameters["Fe/H"].value, parameters["C/O"].value
+                cloud, parameters["M/H"].value, parameters["C/O"].value
             )
             # Scaled by a constant factor
             clouds[cloud_name] = (
@@ -1633,12 +1633,12 @@ def get_abundances_legacy(
         elif "Pbase_" + cloud_name in parameters.keys():
             p_bases[cloud_name] = parameters["Pbase_" + cloud_name].value
         # Equilibrium locations
-        elif "Fe/H" in parameters.keys():
+        elif "M/H" in parameters.keys():
             p_bases[cloud_name] = fc.simple_cdf(
                 cloud_name,
                 pressures,
                 temperatures,
-                parameters["Fe/H"].value,
+                parameters["M/H"].value,
                 parameters["C/O"].value,
                 jnp.mean(mmw),
             )
@@ -1662,10 +1662,10 @@ def get_abundances_legacy(
             cloud_name = species_full_name.split("_")[0]
 
             # Set up fseds per-cloud
-            if "fsed_" + cloud_name in parameters.keys():
-                fseds[cloud_name] = parameters["fsed_" + cloud_name].value
+            if "f_sed_" + cloud_name in parameters.keys():
+                fseds[cloud_name] = parameters["f_sed_" + cloud_name].value
             else:
-                fseds[cloud_name] = parameters["fsed"].value
+                fseds[cloud_name] = parameters["f_sed"].value
 
             abundances[cloud_name] = jnp.zeros_like(temperatures)
             abundances[cloud_name] = jnp.where(
