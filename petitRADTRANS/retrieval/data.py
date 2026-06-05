@@ -69,8 +69,6 @@ class Data:
             Note the difference between this parameter and the line_by_line_opacity_sampling
             parameter in the RadTrans class - the actual desired resolution should
             be set here.
-        system_distance : float
-            The distance to the object in CGS units. Defaults to a 10pc normalized distance.
         external_radtrans_reference : object
             An existing RadTrans object. Leave as none unless you're sure of what you're doing.
         model_generating_function : method
@@ -143,7 +141,6 @@ class Data:
         path_to_observations: str | None = None,
         data_resolution: float | None = None,
         model_resolution: float | None = None,
-        system_distance: float | None = None,
         external_radtrans_reference: object | None = None,
         model_generating_function: (
             Callable[..., tuple[ArrayLike, ArrayLike, ArrayLike]] | None
@@ -188,19 +185,6 @@ class Data:
             self.mask = jnp.zeros(jnp.shape(self.spectrum), dtype=bool)
         else:
             self.mask = mask
-
-        self.system_distance: float
-
-        if system_distance is None:
-            self.system_distance = 10 * cst.pc
-        else:
-            self.system_distance = system_distance
-
-        # Sanity check system distance
-        if self.system_distance < cst.pc:
-            warnings.warn(
-                f"system distance ({self.system_distance}) is less than 1 pc, make sure that its units are in CGS"
-            )
 
         self.data_resolution: float | None = data_resolution
         self.data_resolution_array_model: ArrayLike | None = None
@@ -487,19 +471,6 @@ class Data:
         self.wavelength_bin_widths[:-1] = jnp.diff(wavelengths)
         self.wavelength_bin_widths[-1] = self.wavelength_bin_widths[-2]
 
-    def scale_to_distance(self, new_distance: float) -> float:
-        """Update the distance variable in the data class.
-
-        This will rescale the flux to the new distance.
-
-        Args:
-            new_distance : float
-                The distance to the object in CGS units.
-        """
-
-        scale: float = (self.system_distance / new_distance) ** 2
-        self.spectrum *= scale
-
     def line_b_uncertainty_scaling(self, parameters):
         """
         This function implements the 10^b scaling from Line 2015, which allows
@@ -586,7 +557,6 @@ class Data:
             n_local_covariance_kernels=self.n_local_covariance_kernels,
             covariance_jitter=self.covariance_jitter,
             metadata={
-                "system_distance": self.system_distance,
                 "radtrans_grid": self.radtrans_grid,
                 "wavelength_boundaries": self.wavelength_boundaries,
             },
@@ -704,7 +674,6 @@ class PhotometryData(Data):
         path_to_observations=None,
         data_resolution=None,
         model_resolution=None,
-        system_distance=None,
         external_radtrans_reference=None,
         scale_flux=False,
         scale_uncertainties=False,
@@ -796,7 +765,6 @@ class PhotometryData(Data):
             path_to_observations=path_to_observations,
             data_resolution=data_resolution,
             model_resolution=model_resolution,
-            system_distance=system_distance,
             external_radtrans_reference=external_radtrans_reference,
             model_generating_function=model_generating_function,
             wavelength_boundaries=derived_wavelength_boundaries,
@@ -908,7 +876,6 @@ class TimeSeriesData(Data):
         observation_times=None,
         data_resolution=None,
         model_resolution=None,
-        system_distance=None,
         external_radtrans_reference=None,
         model_generating_function=None,
         wavelength_boundaries=None,
@@ -945,7 +912,6 @@ class TimeSeriesData(Data):
             path_to_observations=path_to_observations,
             data_resolution=data_resolution,
             model_resolution=model_resolution,
-            system_distance=system_distance,
             external_radtrans_reference=external_radtrans_reference,
             model_generating_function=model_generating_function,
             wavelength_boundaries=wavelength_boundaries,

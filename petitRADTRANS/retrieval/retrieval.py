@@ -1028,9 +1028,6 @@ class Retrieval:
                 if data.fit_flux_offset:
                     summary.write("    offset = True\n")
 
-                if data.system_distance is not None:
-                    summary.write(f"    distance = {data.system_distance}\n")
-
                 if data.data_resolution is not None:
                     summary.write(f"    data resolution = {data.data_resolution}\n")
 

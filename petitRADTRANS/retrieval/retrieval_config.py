@@ -934,7 +934,6 @@ class RetrievalConfig:
         model_generating_function: Callable,
         data_resolution: float | None = None,
         model_resolution: float | None = None,
-        system_distance: float | None = None,
         scale_flux: bool = False,
         scale_uncertainties: bool = False,
         fit_flux_offset: bool = False,
@@ -987,10 +986,6 @@ class RetrievalConfig:
                 Spectral resolution of the instrument. Optional, allows convolution of model to instrumental line width.
             model_resolution : float
                 Spectral resolution of the model, allowing for low resolution correlated k tables from exo-k.
-            system_distance : float
-                The distance to the object in cgs units. Defaults to a 10pc normalized distance. All data must
-                be scaled to the same distance before running the retrieval, which can be done using the
-                scale_to_distance method in the Data class.
             scale_flux : bool
                 Turn on or off scaling the data by a constant factor.
             wavelength_boundaries : Tuple
@@ -1113,7 +1108,6 @@ class RetrievalConfig:
                 photometric_bin_edges=photometric_bin_edges,
                 data_resolution=data_resolution,
                 model_resolution=model_resolution,
-                system_distance=system_distance,
                 wavelength_boundaries=wavelength_boundaries,
                 external_radtrans_reference=external_radtrans_reference,
                 scale_flux=scale_flux,
@@ -1153,7 +1147,6 @@ class RetrievalConfig:
                 model_generating_function=model_generating_function,
                 data_resolution=data_resolution,
                 model_resolution=model_resolution,
-                system_distance=system_distance,
                 scale_flux=scale_flux,
                 scale_uncertainties=scale_uncertainties,
                 fit_flux_offset=fit_flux_offset,
@@ -1205,7 +1198,6 @@ class RetrievalConfig:
         wavelength_bin_widths: ArrayLike | None = None,
         data_resolution: float | None = None,
         model_resolution: float | None = None,
-        system_distance: float | None = None,
         wavelength_boundaries: tuple | None = None,
         external_radtrans_reference: str | None = None,
         line_opacity_mode: str = "c-k",
@@ -1261,8 +1253,7 @@ class RetrievalConfig:
                 2-D boolean mask matching *spectrum*.
             wavelength_bin_widths : ArrayLike, optional
                 1-D or 2-D bin widths.
-            data_resolution, model_resolution, system_distance,
-            wavelength_boundaries, external_radtrans_reference,
+            data_resolution, model_resolution, wavelength_boundaries, external_radtrans_reference,
             line_opacity_mode, scale_flux, scale_uncertainties,
             fit_flux_offset, radtrans_object, covariance
                 Same semantics as :meth:`add_data`.
@@ -1286,7 +1277,6 @@ class RetrievalConfig:
             model_generating_function=model_generating_function,
             data_resolution=data_resolution,
             model_resolution=model_resolution,
-            system_distance=system_distance,
             wavelength_boundaries=wavelength_boundaries,
             external_radtrans_reference=external_radtrans_reference,
             line_opacity_mode=line_opacity_mode,
@@ -1325,7 +1315,6 @@ class RetrievalConfig:
         path: str,
         model_generating_function: Callable,
         model_resolution: float = 10.0,
-        distance: float | None = None,
         scale_flux: bool = False,
         wlen_range_micron: tuple[float, float] = None,
         photometric_transformation_function: Callable = None,
@@ -1351,10 +1340,6 @@ class RetrievalConfig:
             scale_flux : bool
                 Turn on or off scaling the data by a constant factor. Currently only set up to scale all
                 photometric data in a given file.
-            distance : float
-                The distance to the object in cgs units. Defaults to a 10pc normalized distance. All data must
-                be scaled to the same distance before running the retrieval, which can be done using the
-                scale_to_distance method in the Data class.
             wlen_range_micron : Tuple
                 A pair of wavelengths in units of micron that determine the lower and upper boundaries of
                 the model computation.
@@ -1412,7 +1397,6 @@ class RetrievalConfig:
                     name=name,
                     path_to_observations=path,
                     model_generating_function=model_generating_function,
-                    system_distance=distance,
                     wavelength_boundaries=wbins,
                     photometric_bin_edges=(wavelengths_low, wavelengths_high),
                     data_resolution=data_resolution,
