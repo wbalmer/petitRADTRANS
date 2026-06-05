@@ -2078,39 +2078,68 @@ class PymultinestSampler(Sampler):
 
     def run_sampler(self, n_dims, **kwargs):
         """
-
         Args:
-            sampling_efficiency : Float
-                pymultinest sampling efficiency. If const efficiency mode is true, should be set to around
-                0.05. Otherwise, it should be around 0.8 for parameter estimation and 0.3 for evidence
-                comparison.
-            const_efficiency_mode : Bool
-                pymultinest constant efficiency mode
-            n_live_points : Int
-                Number of live points to use in pymultinest, or the minimum number of live points to
-                use for the Ultranest reactive sampler.
-            log_z_convergence : float
-                If ultranest is being used, the convergence criterion on log z.
-            step_sampler : bool
-                Use a step sampler to improve the efficiency in ultranest.
-            warmstart_max_tau : float
-                Warm start allows accelerated computation based on a different but similar UltraNest run.
-            n_iter_before_update : int
-                Number of live point replacements before printing an update to a log file.
-            max_iters : int
-                Maximum number of sampling iterations. If 0, will continue until convergence criteria are satisfied.
-            frac_remain : float
-                Ultranest convergence criterion. Halts integration if live point weights are below the specified value.
-            l_epsilon : float
-                Ultranest convergence criterion. Use with noisy likelihoods. Halts integration if live points are
-                within l_epsilon.
+            importance_nested_sampling: bool
+                If True, Multinest will use Importance Nested Sampling (INS).
+                Read http://arxiv.org/abs/1306.2144 for more details on INS.
+                Please read the MultiNest README file before using the
+                INS in MultiNest v3.0.
+            n_params: int
+                Total no. of parameters, should be equal to ndims in most cases
+                but if you need to store some additional
+                parameters with the actual parameters then you need to pass
+                them through the likelihood routine.
+            sampling_efficiency: float
+                defines the sampling efficiency. 0.8 and 0.3 are recommended
+                for parameter estimation & evidence evalutation
+                respectively.
+                use 'parameter' or 'model' to select the respective default
+                values
+            mode_tolerance: float
+                MultiNest can find multiple modes & also specify which samples belong to which mode. It might be
+                desirable to have separate samples & mode statistics for modes with local log-evidence value greater than a
+                particular value in which case Ztol should be set to that value. If there isn't any particularly interesting
+                Ztol value, then Ztol should be set to a very large negative number (e.g. -1e90).
+            evidence_tolerance: float
+                A value of 0.5 should give good enough accuracy.
+            n_clustering_params: int
+                If mmodal is T, MultiNest will attempt to separate out the
+                modes. Mode separation is done through a clustering
+                algorithm. Mode separation can be done on all the parameters
+                (in which case nCdims should be set to ndims) & it
+                can also be done on a subset of parameters (in which case
+                nCdims < ndims) which might be advantageous as
+                clustering is less accurate as the dimensionality increases.
+                If nCdims < ndims then mode separation is done on
+                the first nCdims parameters.
+            null_log_evidence: float
+                If mmodal is T, MultiNest can find multiple modes & also specify
+                which samples belong to which mode. It might be
+                desirable to have separate samples & mode statistics for modes
+                with local log-evidence value greater than a
+                particular value in which case nullZ should be set to that
+                value. If there isn't any particulrly interesting
+                nullZ value, then nullZ should be set to a very large negative
+                number (e.g. -1.d90).
+            init_MPI: bool
+                initialize MPI routines?, relevant only if compiling with MPI
+                To run pymultinest with MPI, you need mpi4py installed. Then,
+                the libmultinest_mpi library is loaded when you run with mpiexec
+                or similar. init_MPI should be set to False, because importing
+                mpi4py initialises MPI already.
+            log_zero: float
+                points with loglike < logZero will be ignored by MultiNest
+            max_iter: int
+                maximum number of iterations. 0 is unlimited.
+            write_output: bool
+                write output files? This is required for analysis.
+            dump_callback: callable
+                a callback function for dumping the current status
+            use_MPI: bool
+                if True (default), if run with mpiexec and mpi4py installed, use multinest MPI library.
+                if False, use only a single processor.
             resume : bool
                 Continue existing retrieval. If FALSE THIS WILL OVERWRITE YOUR EXISTING RETRIEVAL.
-            error_checking : bool
-                Test the model generating function for typical errors. ONLY TURN THIS OFF IF YOU KNOW WHAT YOU'RE DOING!
-            force_serial_error_checking : bool
-                If True, error checking will be performed process-by-process, instead of with all processes at once.
-                This can prevent memory overflow.
             seed : int
                 Random number generator seed, -ve value for seed from the system clock (for reproducibility)
         Returns:
@@ -2668,7 +2697,6 @@ class DynestySampler(Sampler):
 
         try:
             _require_jax()
-            from petitRADTRANS.retrieval.parameter import JAX_DTYPE
         except ImportError:
             warnings.warn(
                 "JAX is unavailable; Dynesty will use the non-jitted scalar likelihood.",
@@ -2686,32 +2714,25 @@ class DynestySampler(Sampler):
             )
             return log_likelihood_func, prior_transform, False
 
-        parameter_layout = context.parameter_layout
-        runtime = context.runtime
-        uncertainties_mode = context.uncertainties_mode
-        print_log_likelihood = context.print_log_likelihood_for_debugging
+        # Return picklable helper callables instead of local closures so that
+        # Dynesty checkpointing (which pickles the whole sampler) can serialize
+        # the likelihood and prior transform.
+        from petitRADTRANS.retrieval.dynesty_pool_helpers import (
+            DynestyPoolLogLikelihood,
+            DynestyPoolPriorTransform,
+        )
 
-        @jit
-        def jitted_log_likelihood(physical_position):
-            physical_params = parameter_layout.physical_params_from_vector(
-                physical_position
-            )
-            return runtime.evaluate_jax(
-                physical_params=physical_params,
-                uncertainties_mode=uncertainties_mode,
-                print_log_likelihood_for_debugging=print_log_likelihood,
-            )
-
-        def dynesty_log_likelihood(physical_position):
-            return float(
-                np.asarray(
-                    jitted_log_likelihood(
-                        jnp.asarray(physical_position, dtype=JAX_DTYPE)
-                    )
-                )
-            )
-
-        return dynesty_log_likelihood, prior_transform, True
+        return (
+            DynestyPoolLogLikelihood(
+                parameter_layout=context.parameter_layout,
+                runtime=context.runtime,
+                uncertainties_mode=context.uncertainties_mode,
+                print_log_likelihood_for_debugging=context.print_log_likelihood_for_debugging,
+                use_jit=True,
+            ),
+            DynestyPoolPriorTransform(context.parameter_layout),
+            True,
+        )
 
     @classmethod
     def prepare(cls, context: SamplerContext, **sampler_kwargs):

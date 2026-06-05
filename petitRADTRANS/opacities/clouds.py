@@ -189,20 +189,16 @@ def _maybe_add_opaque_cloud_deck(
         dtype=JAX_DTYPE,
     )
 
-    def _add_opaque_deck(_cloud_continuum_opacities, _pressures, _p_top):
-        mask = jnp.greater(_pressures, _p_top * 1e6)
-        return _cloud_continuum_opacities + jnp.where(
-            mask[jnp.newaxis, :], _OPAQUE_DECK_OPACITY, 0
-        )
 
-    return lax.cond(
-        jnp.greater_equal(opaque_cloud_top_pressure, 0.0),
-        _add_opaque_deck,
-        lambda a, b, c: a,
-        cloud_continuum_opacities,
-        pressures,
-        opaque_cloud_top_pressure,
+    deck_active = jnp.greater_equal(opaque_cloud_top_pressure, 0.0)
+    mask = jnp.greater(pressures, opaque_cloud_top_pressure * 1e6) # bar to pascal
+    deck = jnp.where(
+        jnp.logical_and(deck_active, mask)[jnp.newaxis, :],
+        _OPAQUE_DECK_OPACITY,
+        0,
     )
+
+    return cloud_continuum_opacities + deck
 
 
 def _maybe_add_power_law_cloud_scattering(
