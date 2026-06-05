@@ -6,6 +6,7 @@ py.install_sources([
     'runtime.py',
     'models.py',
     'parameter.py',
+    'parameter_aliases.py',
     'plotting.py',
     'log_likelihood.py',
     'optimal_estimation.py',
