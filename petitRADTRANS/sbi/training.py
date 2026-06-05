@@ -729,6 +729,7 @@ class SBITrainer:
         selection_metric_name: str | None = None,
         stability_metric_fn: Callable[[float, Mapping[str, float] | None], Mapping[str, float]] | None = None,
         stability_flag_key: str = 'checkpoint_is_stable',
+        loss_conditioning_schedule: Callable[[int, int], float] | None = None,
     ) -> tuple[Any, dict[str, list[float]], dict[str, list[float]], dict[str, Any]]:
         """Optimize one posterior model against a dataset reader.
 
@@ -763,6 +764,21 @@ class SBITrainer:
 
         if eval_loss_fn is None:
             eval_loss_fn = loss_fn
+
+        # Optional scalar conditioning passed into the loss each step (used for
+        # e.g. likelihood-temperature annealing in beta-VI). When a schedule is
+        # given, ``loss_fn``/``eval_loss_fn`` must accept ``(model, batch, cond)``
+        # and the trainer feeds the per-epoch training ``cond`` to the train step
+        # while always evaluating at ``cond = 1.0`` (the true objective, so
+        # checkpoint selection tracks the untempered posterior). When no schedule
+        # is given the behavior is unchanged: losses are called as
+        # ``(model, batch)`` via a wrapper that ignores the conditioning scalar.
+        if loss_conditioning_schedule is None:
+            _train_loss_fn = lambda _m, _b, _c: loss_fn(_m, _b)
+            _eval_loss_fn = lambda _m, _b, _c: eval_loss_fn(_m, _b)
+        else:
+            _train_loss_fn = loss_fn
+            _eval_loss_fn = eval_loss_fn
 
         # --- Compute total training steps for LR scheduling ---------------
         n_train_samples = int(dataset.dataset.manifest.splits.get('train', 0))
@@ -1043,13 +1059,16 @@ class SBITrainer:
             _opt_state: Any,
             _parameters: Any,
             _observations: Any,
+            _cond: Any,
         ) -> tuple:
             _batch = PosteriorBatch(
                 parameters=_parameters,
                 observations=_observations,
                 metadata=batch_metadata,
             )
-            _loss_val, _grads = eqx.filter_value_and_grad(loss_fn)(_model, _batch)
+            _loss_val, _grads = eqx.filter_value_and_grad(
+                lambda _mdl, _bch: _train_loss_fn(_mdl, _bch, _cond)
+            )(_model, _batch)
             # Zero out any NaN/Inf gradient values so bad batches cannot
             # corrupt model weights or optimizer state.  The None leaves
             # produced by filter_value_and_grad for non-differentiable
@@ -1080,13 +1099,14 @@ class SBITrainer:
             _model: Any,
             _parameters: Any,
             _observations: Any,
+            _cond: Any,
         ) -> Any:
             _batch = PosteriorBatch(
                 parameters=_parameters,
                 observations=_observations,
                 metadata=batch_metadata,
             )
-            return eval_loss_fn(_model, _batch)
+            return _eval_loss_fn(_model, _batch, _cond)
 
         def _maybe_pad_and_shard(params: Any, obs: Any) -> tuple:
             """Pad batch to ``effective_batch_size`` and shard across devices.
@@ -1248,9 +1268,24 @@ class SBITrainer:
         preloaded_train = _preload_split(DatasetSplit.TRAIN)
         preloaded_val = _preload_split(DatasetSplit.VALIDATION) if has_validation else None
 
+        # Conditioning scalar fed to the loss. The training value follows the
+        # (optional) schedule; evaluation always uses 1.0 so selection tracks the
+        # untempered objective. Kept as float32 device scalars so changing the
+        # value across epochs does not retrigger JIT compilation.
+        _eval_cond = jnp.asarray(1.0, dtype=jnp.float32)
+
         for epoch in range(start_epoch, self.config.num_epochs):
             _epoch_start = time.monotonic()
             epoch_losses = []
+            if loss_conditioning_schedule is None:
+                _train_cond = _eval_cond
+            else:
+                _train_cond = jnp.asarray(
+                    float(
+                        loss_conditioning_schedule(epoch, self.config.num_epochs)
+                    ),
+                    dtype=jnp.float32,
+                )
 
             if preloaded_train is not None:
                 # Fast path: slice pre-loaded arrays by shuffled index
@@ -1273,7 +1308,7 @@ class SBITrainer:
                     )
                     if mesh is not None:
                         _bp, _bo = _maybe_pad_and_shard(_bp, _bo)
-                    model, optimizer_state, loss_value = _jit_step(model, optimizer_state, _bp, _bo)
+                    model, optimizer_state, loss_value = _jit_step(model, optimizer_state, _bp, _bo, _train_cond)
                     epoch_losses.append(float(loss_value))
             else:
                 # Fallback: stream from disk (non-prestackable observations)
@@ -1293,7 +1328,7 @@ class SBITrainer:
                         batch_params, _obs = _maybe_pad_and_shard(batch_params, _obs)
                     else:
                         batch_params = batch.parameters
-                    model, optimizer_state, loss_value = _jit_step(model, optimizer_state, batch_params, _obs)
+                    model, optimizer_state, loss_value = _jit_step(model, optimizer_state, batch_params, _obs, _train_cond)
                     epoch_losses.append(float(loss_value))
 
             train_metric = float(np.mean(epoch_losses)) if epoch_losses else float('nan')
@@ -1354,7 +1389,7 @@ class SBITrainer:
                         )
                         if mesh is not None:
                             _vp, _vo = _maybe_pad_and_shard(_vp, _vo)
-                        validation_losses.append(float(_jit_eval_loss(model, _vp, _vo)))
+                        validation_losses.append(float(_jit_eval_loss(model, _vp, _vo, _eval_cond)))
                 else:
                     seen_validation_batches = 0
                     for batch in dataset.iter_batches(
@@ -1382,7 +1417,7 @@ class SBITrainer:
                                 diagnostic_batches[replace_index] = diagnostic_candidate
                         if mesh is not None:
                             val_params, _val_obs = _maybe_pad_and_shard(val_params, _val_obs)
-                        validation_losses.append(float(_jit_eval_loss(model, val_params, _val_obs)))
+                        validation_losses.append(float(_jit_eval_loss(model, val_params, _val_obs, _eval_cond)))
                 validation_metric = float(np.mean(validation_losses)) if validation_losses else float('nan')
                 epoch_validation_metrics = {'validation_loss': validation_metric}
                 if eval_diagnostic_fn is not None and diagnostic_batches:
