@@ -1546,7 +1546,35 @@ class NumPyroSampler(Sampler):
             _initial_position = initial_position
             mesh = make_mesh((effective_devices,), ("devices",))
 
-            def run_on_device(base_key):
+            # NOTE: ``init_position`` is passed as an explicit shard_map argument
+            # (replicated, in_specs=P()) rather than closed over. On JAX versions
+            # that put the mesh axes in "Explicit" sharding mode (set_mesh below),
+            # closing over an array inside shard_map raises
+            #   NotImplementedError: Closing over inputs to shard_map where the
+            #   input is sharded on `Explicit` axes is not implemented.
+            # because the captured array inherits the mesh's explicit sharding.
+            # Threading it through as an argument lets in_specs govern its
+            # sharding. This is the only closed-over JAX array here -- everything
+            # in _kernel_kwargs is a Python scalar/bool or the potential_fn
+            # closure, and extra_fields is a tuple of strings.
+            #
+            # FUTURE: once JAX implements closing over Explicit-sharded inputs to
+            # shard_map, init_position can simply be captured again and the extra
+            # argument/in_specs entry dropped, i.e.:
+            #
+            #     def run_on_device(base_key):
+            #         ...
+            #         device_mcmc.run(
+            #             device_key, init_params=_initial_position,
+            #             extra_fields=extra_fields,
+            #         )
+            #         ...
+            #     run_sharded = shard_map(
+            #         run_on_device, mesh=mesh, in_specs=P(),
+            #         out_specs=(P("devices"),) * 7,
+            #     )
+            #     ... = run_sharded(rng_key)
+            def run_on_device(base_key, init_position):
                 device_idx = lax.axis_index("devices")
                 device_key = random.fold_in(base_key, device_idx)
                 device_kernel = _kernel_class(**_kernel_kwargs)
@@ -1561,7 +1589,7 @@ class NumPyroSampler(Sampler):
                     jit_model_args=False,
                 )
                 device_mcmc.run(
-                    device_key, init_params=_initial_position, extra_fields=extra_fields
+                    device_key, init_params=init_position, extra_fields=extra_fields
                 )
                 unc = device_mcmc.get_samples(group_by_chain=False)
                 ex = device_mcmc.get_extra_fields(group_by_chain=False)
@@ -1580,7 +1608,8 @@ class NumPyroSampler(Sampler):
             run_sharded = shard_map(
                 run_on_device,
                 mesh=mesh,
-                in_specs=P(),  # base_key replicated to every device
+                # base_key and init_position both replicated to every device.
+                in_specs=(P(), P()),
                 out_specs=(P("devices"),)
                 * 7,  # all 7 outputs concatenated along axis 0
             )
@@ -1593,7 +1622,7 @@ class NumPyroSampler(Sampler):
                     all_steps,
                     all_step_sizes,
                     all_imm,
-                ) = run_sharded(rng_key)
+                ) = run_sharded(rng_key, _initial_position)
 
             unconstrained_samples = np.asarray(all_unc)
             potential_energy = np.asarray(all_pe)

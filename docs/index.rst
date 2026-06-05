@@ -95,6 +95,8 @@ Former contributors and developers
    content/pRT4_changes_description
    content/tutorial
    content/retrieval_examples
+   content/retrieval_samplers
+   content/retrieval_parallelisation
    content/available_opacities
    content/adding_opacities
    content/contributing
