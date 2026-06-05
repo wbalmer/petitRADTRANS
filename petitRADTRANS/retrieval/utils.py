@@ -540,7 +540,6 @@ def compute_log_likelihood_for_spectrum(
                 beta_mode=beta_mode,
             )
 
-    # Return NaN compensation or computed value
     return lax.cond(has_nans, lambda: jnp.finfo(JAX_DTYPE).min, compute_likelihood)
 
 

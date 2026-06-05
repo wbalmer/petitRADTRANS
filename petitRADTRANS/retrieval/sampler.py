@@ -995,7 +995,8 @@ class BlackJAXSampler(Sampler):
                     in_specs=P(),  # base_key replicated to every device
                     out_specs=P(
                         "devices"
-                    ),  # outputs concatenated along axis 0 across devices
+                    ),
+                    check_vma=False,
                 )
                 if use_jit:
                     run_all = jit(run_all)
