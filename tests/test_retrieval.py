@@ -1689,7 +1689,7 @@ def test_run_legacy_model_adapter_reproduces_builtin_emission_model_output():
         )
 
     direct_output = legacy_emission_model(
-        _DummyRadtrans(), {"distance_to_system": SimpleNamespace(value=jnp.array(4.0))}
+        _DummyRadtrans(), {"system_distance": SimpleNamespace(value=jnp.array(4.0))}
     )
     adapter_result = run_legacy_model_adapter(
         legacy_emission_model, model_context, physical_params
@@ -3510,11 +3510,11 @@ def retrieval_model_spec_iso(
         mass_fractions=abundances,
         reference_gravity=10 ** parameters["log_g"].value,
         mean_molar_masses=mmw,
-        planet_radius=parameters["R_pl"].value,
+        planet_radius=parameters["planet_radius"].value,
         reference_pressure=test_parameters["planetary_parameters"][
             "reference_pressure"
         ],
-        opaque_cloud_top_pressure=10 ** parameters["log_Pcloud"].value,
+        opaque_cloud_top_pressure=10 ** parameters["log_pcloud"].value,
         frequencies_to_wavelengths=True,  # True by default
     )
 
