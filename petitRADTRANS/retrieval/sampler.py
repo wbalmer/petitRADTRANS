@@ -30,12 +30,13 @@ jnp = None
 NamedSharding = None
 P = None
 tfp = None
+hessian = None
 
 
 def _require_jax():
     global lax, random, tree, vmap, tree_util, jit, local_device_count
     global make_mesh, shard_map, set_mesh, devices, default_device, device_get
-    global clear_caches, jnp, NamedSharding, P, tfp
+    global clear_caches, jnp, NamedSharding, P, tfp, hessian
 
     if jnp is not None:
         return
@@ -58,6 +59,7 @@ def _require_jax():
             clear_caches as _clear_caches,
         )
         import jax.numpy as _jnp
+        from jax import hessian as _hessian
         from jax.sharding import NamedSharding as _ns, PartitionSpec as _ps
         import tensorflow_probability.substrates.jax as _tfp
     except ImportError as error:
@@ -83,6 +85,7 @@ def _require_jax():
     NamedSharding = _ns
     P = _ps
     tfp = _tfp
+    hessian = _hessian
 
 
 jaxns = None
@@ -1239,6 +1242,53 @@ class BlackJAXNUTSSampler(BlackJAXSampler):
         return cls._prepare_blackjax(context, algorithm_name="nuts", **sampler_kwargs)
 
 
+def _diagonal_inverse_mass_from_hessian(logdensity, map_position):
+    """Diagonal inverse mass matrix from the MAP Hessian of the log-density.
+
+    The optimal HMC metric is the posterior precision; the *inverse* mass matrix
+    is therefore an estimate of the posterior covariance. Here we use the cheap
+    diagonal approximation 1 / precision_ii at the MAP. ``logdensity`` has a
+    maximum at the MAP, so ``-diag(Hessian)`` is the (positive) precision
+    diagonal. Any non-finite or non-positive entry falls back to 1.0, leaving
+    NUTS' own warmup adaptation to refine it. Returns a 1-D NumPy array (the
+    diagonal metric expected when ``is_mass_matrix_diagonal=True``).
+    """
+    _require_jax()
+    map_position = jnp.asarray(map_position)
+    precision_diag = -jnp.diag(hessian(logdensity)(map_position))
+    valid = jnp.isfinite(precision_diag) & (precision_diag > 0.0)
+    inv_mass = jnp.where(valid, 1.0 / jnp.where(valid, precision_diag, 1.0), 1.0)
+    return np.asarray(inv_mass, dtype=float)
+
+
+def _dense_inverse_mass_from_hessian(logdensity, map_position):
+    """Dense inverse mass matrix from the MAP Hessian of the log-density.
+
+    The dense analogue of :func:`_diagonal_inverse_mass_from_hessian`: the inverse
+    mass matrix is the full posterior covariance, estimated as the inverse of the
+    precision ``-Hessian`` at the MAP. The (symmetrised) precision is eigen-floored
+    to a small positive value so the returned covariance is symmetric
+    positive-definite even where the curvature is flat or slightly indefinite;
+    if the Hessian is non-finite the whole matrix falls back to the identity,
+    leaving NUTS' warmup to adapt it. Returns an ``(n, n)`` NumPy array (the dense
+    metric used when ``is_mass_matrix_diagonal=False``).
+    """
+    _require_jax()
+    map_position = jnp.asarray(map_position)
+    hess = hessian(logdensity)(map_position)
+    n = hess.shape[0]
+    precision = -0.5 * (hess + hess.T)  # symmetrised precision (= inverse covariance)
+    eigvals, eigvecs = jnp.linalg.eigh(precision)
+    floor = 1e-8
+    safe_eigvals = jnp.where(jnp.isfinite(eigvals) & (eigvals > floor), eigvals, floor)
+    covariance = (eigvecs * (1.0 / safe_eigvals)) @ eigvecs.T
+    covariance = 0.5 * (covariance + covariance.T)
+    covariance = jnp.where(
+        jnp.all(jnp.isfinite(covariance)), covariance, jnp.eye(n, dtype=covariance.dtype)
+    )
+    return np.asarray(covariance, dtype=float)
+
+
 class NumPyroSampler(Sampler):
     def __init__(
         self, log_likelihood_func, prior_func, output_directory, retrieval_name
@@ -1271,6 +1321,11 @@ class NumPyroSampler(Sampler):
         # posterior. Defaults to Adam; see optimal_estimation.build_optimizer.
         optimize_init = sampler_kwargs.pop("optimize_init", False)
         warmup_optimizer_kwargs = dict(sampler_kwargs.pop("optimizer_kwargs", {}))
+        # When set (with optimize_init), seed NUTS' diagonal metric from the MAP
+        # Hessian so the step size is not collapsed by the posterior's anisotropy.
+        init_imm_from_hessian = sampler_kwargs.pop(
+            "init_inverse_mass_matrix_from_hessian", False
+        )
         warmup_best_logdensity = None
         if optimize_init and "initial_position" not in sampler_kwargs:
             from petitRADTRANS.retrieval.optimal_estimation import (
@@ -1311,6 +1366,32 @@ class NumPyroSampler(Sampler):
                 output_subdirectory="out_NumPyro",
                 verbose=warmup_optimizer_kwargs.get("verbose", True),
             )
+            # Seed NUTS' metric from the MAP-Hessian (posterior-curvature
+            # preconditioner) unless the caller supplied an explicit one. Match the
+            # metric shape to is_mass_matrix_diagonal: a diagonal vector when True,
+            # the full dense covariance otherwise.
+            if init_imm_from_hessian and "inverse_mass_matrix" not in sampler_kwargs:
+                if sampler_kwargs.get("is_mass_matrix_diagonal", True):
+                    sampler_kwargs["inverse_mass_matrix"] = (
+                        _diagonal_inverse_mass_from_hessian(
+                            logdensity, optimize_result.best_position
+                        )
+                    )
+                else:
+                    sampler_kwargs["inverse_mass_matrix"] = (
+                        _dense_inverse_mass_from_hessian(
+                            logdensity, optimize_result.best_position
+                        )
+                    )
+                _imm = sampler_kwargs["inverse_mass_matrix"]
+                _imm_diag = np.diag(_imm) if np.ndim(_imm) == 2 else _imm
+                print(
+                    "Initialised NUTS "
+                    f"{'dense' if np.ndim(_imm) == 2 else 'diagonal'} inverse mass "
+                    "matrix from the MAP Hessian (diagonal range "
+                    f"{float(np.min(_imm_diag)):.3e} – "
+                    f"{float(np.max(_imm_diag)):.3e})."
+                )
             initial_position = make_walker_inits(
                 optimize_result.best_position,
                 requested_num_chains,

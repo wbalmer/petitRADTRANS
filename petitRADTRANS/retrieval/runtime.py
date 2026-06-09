@@ -1234,6 +1234,17 @@ class ParameterLayout:
     cube_epsilon: float = field(
         default_factory=lambda: float(1e-7 if JAX_DTYPE == jnp.float32 else 1e-12)
     )
+    # Per-free-parameter routing for the *unconstrained* (gradient-sampler) path.
+    # Free parameters with a Normal prior use an affine map physical = loc + scale*z
+    # with an implicit N(0, 1) prior on z (constant, O(1) curvature -- ideal for
+    # NUTS/HMC). Every other free parameter keeps the bounded cube map
+    # physical = quantile(sigmoid(z)). These tuples are aligned with
+    # ``free_parameter_names``; empty tuples (legacy direct construction) disable
+    # the affine path and fall back to the pure cube map. The cube path used by
+    # nested samplers (``transform_cube_to_physical``) is unaffected.
+    free_affine_mask: tuple[bool, ...] = ()
+    free_affine_loc: tuple[float, ...] = ()
+    free_affine_scale: tuple[float, ...] = ()
 
     @classmethod
     def from_configuration(cls, configuration: Any) -> "ParameterLayout":
@@ -1261,11 +1272,37 @@ class ParameterLayout:
             if parameter.is_free_parameter
         )
 
+        # Route free parameters with a Normal prior onto the affine unconstrained
+        # map (physical = loc + scale * z); everything else keeps the cube map.
+        affine_mask = []
+        affine_loc = []
+        affine_scale = []
+        for free_index in free_parameter_indices:
+            parameter = parameter_templates[free_index]
+            distribution = getattr(parameter, "distribution", None)
+            is_normal = (
+                distribution is not None
+                and type(distribution).__name__ == "Normal"
+                and hasattr(distribution, "loc")
+                and hasattr(distribution, "scale")
+            )
+            if is_normal:
+                affine_mask.append(True)
+                affine_loc.append(float(np.asarray(distribution.loc)))
+                affine_scale.append(float(np.asarray(distribution.scale)))
+            else:
+                affine_mask.append(False)
+                affine_loc.append(0.0)
+                affine_scale.append(1.0)
+
         return cls(
             parameter_names=parameter_names,
             free_parameter_names=free_parameter_names,
             free_parameter_indices=free_parameter_indices,
             parameter_templates=parameter_templates,
+            free_affine_mask=tuple(affine_mask),
+            free_affine_loc=tuple(affine_loc),
+            free_affine_scale=tuple(affine_scale),
         )
 
     @property
@@ -1395,26 +1432,58 @@ class ParameterLayout:
             1.0 - self.cube_epsilon,
         )
 
+    def _affine_arrays(self):
+        """Return (mask, loc, scale) jnp arrays for the affine free parameters.
+
+        ``mask`` is ``None`` when no free parameter uses the affine map (legacy
+        construction or no Normal priors), signalling the pure cube path.
+        """
+        if not any(self.free_affine_mask):
+            return None, None, None
+        mask = jnp.asarray(self.free_affine_mask, dtype=bool)
+        loc = jnp.asarray(self.free_affine_loc, dtype=JAX_DTYPE)
+        scale = jnp.asarray(self.free_affine_scale, dtype=JAX_DTYPE)
+        return mask, loc, scale
+
     def transform_unconstrained(self, unconstrained_position: Any) -> jnp.ndarray:
-        """Transform unconstrained coordinates directly into physical values."""
-        return self.transform_cube_to_physical(
-            self.cube_from_unconstrained(unconstrained_position)
-        )
+        """Transform unconstrained coordinates directly into physical values.
+
+        Normal-prior free parameters use the affine map physical = loc + scale*z;
+        all others use the bounded cube map physical = quantile(sigmoid(z)).
+        """
+        z = jnp.asarray(unconstrained_position, dtype=JAX_DTYPE)
+        cube_physical = self.transform_cube_to_physical(self.cube_from_unconstrained(z))
+        mask, loc, scale = self._affine_arrays()
+        if mask is None:
+            return cube_physical
+        affine_physical = loc + scale * z
+        return jnp.where(mask, affine_physical, cube_physical)
 
     def transform_unconstrained_batch(
         self, unconstrained_positions: Any
     ) -> jnp.ndarray:
         """Transform one or many unconstrained positions into physical values."""
-        return self.transform_cube_to_physical_batch(
-            self.cube_from_unconstrained_batch(unconstrained_positions)
-        )
+        unconstrained_positions = jnp.asarray(unconstrained_positions, dtype=JAX_DTYPE)
+        if jnp.ndim(unconstrained_positions) == 1:
+            return self.transform_unconstrained(unconstrained_positions)[jnp.newaxis, :]
+        return vmap(self.transform_unconstrained)(unconstrained_positions)
 
     def log_jacobian_single(self, unconstrained_position: Any) -> jnp.ndarray:
-        """Return the log-Jacobian term for one unconstrained position."""
-        unconstrained_position = jnp.asarray(unconstrained_position, dtype=JAX_DTYPE)
-        return jnp.sum(
-            -nn.softplus(-unconstrained_position) - nn.softplus(unconstrained_position)
-        )
+        """Return the additive log-density term for one unconstrained position.
+
+        For cube-mapped parameters this is the sigmoid log-Jacobian
+        ``log sigmoid'(z)`` (the prior is carried by the quantile transform). For
+        affine-mapped Normal parameters it is the implicit standard-normal prior
+        ``-0.5 z**2`` (constant dropped), which exactly reproduces the
+        Normal(loc, scale) prior on the physical value.
+        """
+        z = jnp.asarray(unconstrained_position, dtype=JAX_DTYPE)
+        cube_term = -nn.softplus(-z) - nn.softplus(z)
+        mask, _loc, _scale = self._affine_arrays()
+        if mask is None:
+            return jnp.sum(cube_term)
+        affine_term = -0.5 * jnp.square(z)
+        return jnp.sum(jnp.where(mask, affine_term, cube_term))
 
     def log_jacobian(self, unconstrained_positions: Any) -> jnp.ndarray:
         """Return log-Jacobian terms for one or many unconstrained positions."""

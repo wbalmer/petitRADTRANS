@@ -91,6 +91,13 @@ _WRAPPED_LEGACY_MODEL_ATTRIBUTE = "_prt_wrapped_legacy_model"
 # Naming-convention patterns for automatic time-series parameter detection
 _TIME_INDEXED_PATTERN = re.compile(r"^(.+)_t_(\d+)$")
 _SINUSOIDAL_SUFFIXES = ("_amplitude", "_period", "_phase", "_offset")
+# A sinusoid is fully specified by amplitude, phase and offset; the period may be
+# given per base as ``{P}_period`` OR shared by all sinusoids through the single
+# reserved key below (a free parameter fit once). Sharing one period identifies
+# the rotation rate jointly across parameters and removes a per-parameter,
+# weakly-constrained period (and the associated period/phase degeneracy).
+_SINUSOIDAL_REQUIRED_SUFFIXES = ("_amplitude", "_phase", "_offset")
+_SHARED_PERIOD_KEY = "period"
 
 
 def _as_structural_int(value, parameter_name: str) -> int:
@@ -843,8 +850,13 @@ def _build_timestep_params(physical_params, t_idx, t_value):
             time_varying_bases.add(m.group(1))
             tv_keys.add(key)
 
-    # --- Detect sinusoidal quartets ---
+    # --- Detect sinusoidal parameters ---
+    # A base P is sinusoidal when {P}_amplitude, {P}_phase and {P}_offset are all
+    # present. The period is taken from {P}_period when present, otherwise from a
+    # single shared "period" key (see _SHARED_PERIOD_KEY); the per-base period
+    # takes precedence when both exist.
     all_keys = set(physical_params.keys())
+    shared_period_available = _SHARED_PERIOD_KEY in all_keys
     sinusoidal_bases = set()
     sin_keys = set()
     candidate_bases = set()
@@ -853,14 +865,24 @@ def _build_timestep_params(physical_params, t_idx, t_value):
             if key.endswith(suf):
                 candidate_bases.add(key[: -len(suf)])
     for base in candidate_bases:
-        if base in time_varying_bases:
+        if not base or base in time_varying_bases:
             continue  # per-timestep keys take precedence
-        if all(f"{base}{suf}" in all_keys for suf in _SINUSOIDAL_SUFFIXES):
+        has_required = all(
+            f"{base}{suf}" in all_keys for suf in _SINUSOIDAL_REQUIRED_SUFFIXES
+        )
+        has_period = (f"{base}_period" in all_keys) or shared_period_available
+        if has_required and has_period:
             sinusoidal_bases.add(base)
-            for suf in _SINUSOIDAL_SUFFIXES:
+            for suf in _SINUSOIDAL_REQUIRED_SUFFIXES:
                 sin_keys.add(f"{base}{suf}")
+            if f"{base}_period" in all_keys:
+                sin_keys.add(f"{base}_period")
 
     skip_keys = tv_keys | sin_keys
+    # The shared period is a meta-parameter, not a physical model input; strip it
+    # from the snapshot once at least one sinusoid consumes it.
+    if shared_period_available and sinusoidal_bases:
+        skip_keys = skip_keys | {_SHARED_PERIOD_KEY}
 
     # --- Build snapshot ---
     base_dict = {}
@@ -876,7 +898,10 @@ def _build_timestep_params(physical_params, t_idx, t_value):
     # Evaluate sinusoidal values
     for base in sinusoidal_bases:
         amp = physical_params[f"{base}_amplitude"]
-        period = physical_params[f"{base}_period"]
+        if f"{base}_period" in all_keys:
+            period = physical_params[f"{base}_period"]
+        else:
+            period = physical_params[_SHARED_PERIOD_KEY]
         phase = physical_params[f"{base}_phase"]
         offset = physical_params[f"{base}_offset"]
         base_dict[base] = offset + amp * jnp.sin(

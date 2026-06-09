@@ -230,7 +230,7 @@ On a CPU node, genuine parallelism comes from:
 * **MPI ranks** (PyMultiNest, UltraNest),
 * a **process pool** (Dynesty), or
 * **independent OS processes**, one per MCMC chain (NumPyro, BlackJAX — see
-  :ref:`par_independent_chains`),
+  :ref:`par_native_multichain`),
 
 and, within a single process, from **XLA intra-op threads** on *one* device.
 Reserve device sharding for real accelerators.
@@ -320,7 +320,7 @@ before a full node. Two cores-using strategies exist:
   the slowest one. HMC (fixed integration length) vectorises cleanly; NUTS does
   not.
 * **Independent processes** (recommended): one OS process per chain, each pinned
-  to a disjoint core set — see :ref:`par_independent_chains`. This avoids both the
+  to a disjoint core set — see :ref:`par_native_multichain`. This avoids both the
   shared-core problem and the vectorised-NUTS penalty.
 
 JAXNS on CPU
@@ -364,7 +364,7 @@ NumPyro / BlackJAX / JAXNS across nodes
 
 There is **no built-in multi-host (jax.distributed) path** for these backends in
 pRT. The portable way to use several nodes is the
-:ref:`independent-process pattern <par_independent_chains>`: launch independent
+:ref:`independent-process pattern <par_native_multichain>`: launch independent
 single-chain processes (across nodes via ``srun`` job steps or one submission per
 node) and merge the posteriors afterwards. Each process is self-contained and
 needs no inter-node communication, so it scales trivially across nodes — bounded
@@ -497,58 +497,122 @@ rank:
 * **Not applicable to Dynesty** (no ``likelihood_devices`` support).
 
 
-.. _par_independent_chains:
+.. _par_native_multichain:
 
-Pattern: independent-process MCMC chains
-========================================
+Native multi-chain runs (``run_multichain``)
+============================================
 
-Because a single NUTS/HMC chain cannot use many cores, and device sharding gives
-no speedup on CPU, the scalable way to run NumPyro/BlackJAX on CPU hardware — on
-one node *or across nodes* — is **process-level parallelism**: launch ``N``
-independent single-chain processes, each
+pRT has built-in multi-chain support for the JAX samplers (NumPyro, BlackJAX,
+JAXNS): it runs ``N`` chains, combines them into one posterior, and computes
+convergence diagnostics. It is implemented in
+:mod:`petitRADTRANS.retrieval.multichain` and exposed on
+:class:`~petitRADTRANS.retrieval.retrieval.Retrieval`.
 
-* with a **distinct seed** (independent chains),
-* with a **distinct output name** (no file collisions),
-* **pinned to a disjoint core set** (``taskset`` / ``--cpu-bind``),
-* with **``mpi4py`` blocked** (these are not MPI ranks; see the warning in
-  :ref:`par_building_blocks`),
+Because a single NUTS/HMC chain cannot use many cores and device sharding gives
+no speedup on CPU, the scalable way to run these samplers on CPU hardware — on one
+node *or across nodes* — is **process-level parallelism**: independent
+single-chain processes, each with a distinct seed and output name, pinned to a
+disjoint core set, with ``mpi4py`` blocked (they are not MPI ranks), whose
+posteriors are merged afterwards. ``run_multichain`` does all of this for you.
 
-then **merge the posteriors** by concatenating the per-chain sample arrays.
+One node (in-process or independent processes)
+----------------------------------------------
 
-This pattern respects a large per-evaluation memory footprint (one resident model
-copy per process, never multiplied as ``vmap``-over-chains would) and needs no
-inter-process communication, so the same launcher works across nodes. A minimal
-launcher skeleton:
-
-.. code-block:: bash
-
-   N=4
-   CORES=$(python -c 'import os;print(len(os.sched_getaffinity(0)))')
-   PER=$(( CORES / N ))
-   for c in $(seq 0 $((N-1))); do
-       start=$(( c * PER )); end=$(( start + PER - 1 ))
-       PRT_CHAIN_ID=$c PRT_WORKER=1 OMP_NUM_THREADS=$PER \
-           taskset -c "${start}-${end}" python my_retrieval.py &
-   done
-   wait
-   python combine_chains.py      # concatenate the per-chain posteriors
-
-In the worker script, derive the per-chain seed and name from ``PRT_CHAIN_ID`` and
-block MPI when ``PRT_WORKER=1``:
+Provide a **top-level config builder** and call ``run_multichain`` under
+``if __name__ == "__main__":`` (required for the ``processes`` start method). The
+parent stays lightweight — only the worker processes build the heavy runtime, so
+the per-evaluation memory footprint is never multiplied as ``vmap``-over-chains
+would. ``build_config`` (or however you choose to name it) must be importable, and should
+be a thin wrapper around the usual retrieval configuration.
 
 .. code-block:: python
 
-   import os, sys
-   if os.environ.get("PRT_WORKER") == "1":
-       sys.modules["mpi4py"] = None          # before importing petitRADTRANS
+   from petitRADTRANS.retrieval import Retrieval
 
-   chain = int(os.environ.get("PRT_CHAIN_ID", "0"))
-   seed = BASE_SEED + chain
-   retrieval_name = f"{BASE_NAME}_chain{chain}"
+   def build_config():                      # top-level, importable
+       rc = RetrievalConfig(retrieval_name="run", run_mode="retrieval",
+                            sampler_type="numpyronuts", pressures=pressures)
+       ...
+       return rc
 
-To combine, load each chain's ``out_NumPyro/<name>_samples.npz`` and concatenate
-along the sample axis; pRT's generic ``get_samples`` returns each chain as an
-``(n_free + 1, n_samples)`` array (parameters followed by the log-density row).
+   if __name__ == "__main__":
+       result = Retrieval.run_multichain(
+           build_config,
+           num_chains=4,
+           output_directory="out",
+           chain_execution="auto",     # auto|vectorised|sharded|sequential|processes
+           chain_seed=12345,
+           per_chain_memory_gb=18,     # informs the auto policy + memory estimate
+           num_samples=2000, num_warmup=1000,   # sampler kwargs
+       )
+       print(result["diagnostics"]["max_rhat"], result["diagnostics"]["converged"])
+
+``chain_execution="auto"`` resolves to ``sharded`` (one chain per GPU) when GPUs
+are present, otherwise ``processes`` on CPU. The run writes per-chain artifacts
+``out_<Backend>/run_chain<c>_samples.npz`` and a combined posterior
+``run_combined`` that the usual ``get_samples`` / plotting code reads, plus a
+``run_combined_diagnostics.json``.
+
+For gradient MCMC the diagnostics are split-R-hat, ESS and divergence fractions;
+for JAXNS the chains are independent nested runs combined **evidence-aware**
+(per-run log Z weighting, with the between-run log Z scatter as the convergence
+signal).
+
+Across nodes (SLURM job array)
+------------------------------
+
+For multi-node runs, generate a SLURM **job array**: one task per chain, plus a
+dependent combine task. The config builder must live in an importable module
+(not ``__main__``):
+
+.. code-block:: python
+
+   Retrieval.write_chain_launcher(
+       build_config,                       # imported as <module>.build_config
+       num_chains=16,
+       output_directory="out",
+       script_dir="launch",
+       partition="p.vera", cpus_per_task=8, time="24:00:00",
+       env_setup_lines=["module load anaconda/3", "conda activate jaxprt"],
+       run_kwargs={"num_samples": 2000, "num_warmup": 1000},
+       resume=True,
+   )
+
+This writes ``<name>_chain_worker.py`` (one chain via ``SLURM_ARRAY_TASK_ID`` or
+``combine`` mode), ``<name>_chains.sbatch`` (the array), ``<name>_combine.sbatch``
+(a dependent ``afterany`` job that merges survivors), and a ``<name>_submit.sh``
+driver. Submit with:
+
+.. code-block:: bash
+
+   bash launch/<name>_submit.sh
+
+Each array task blocks ``mpi4py`` and runs one chain; the combine task runs
+:meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.combine_chains`.
+
+Resume and failures
+-------------------
+
+* ``resume=True`` skips any chain whose ``*_samples.npz`` already exists (chain
+  -granular; these samplers do not checkpoint mid-chain), so a re-submit only runs
+  the missing chains and then re-combines.
+* ``on_chain_failure="warn"`` (default) combines the survivors and reports which
+  chains failed; ``"raise"`` aborts. R-hat needs ≥ 2 surviving chains.
+
+Combining manually
+------------------
+
+If you ran the chains yourself, combine them in one call:
+
+.. code-block:: python
+
+   retrieval = Retrieval(build_config(), output_directory="out")
+   summary = retrieval.combine_chains(num_chains=4)
+   print(retrieval.get_convergence_diagnostics())
+
+``combine_chains`` dispatches to the MCMC combiner (pooled posterior + R-hat/ESS)
+or the nested combiner (evidence-weighted) based on the sampler type, writing the
+combined posterior in the format ``get_samples`` reads.
 
 
 Quick reference

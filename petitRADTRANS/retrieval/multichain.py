@@ -9,18 +9,18 @@ that it is straightforward to unit test.
 See ``multichain_plan.md`` (same directory) for the full design. This file
 implements:
 
-* Phase 0 -- shared primitives: deterministic per-chain seeding, chain/combined
+* shared primitives: deterministic per-chain seeding, chain/combined
   naming, sampler-family and output-directory mapping.
-* Phase 1 -- the MCMC chain combiner (NumPyro + BlackJAX share one on-disk format)
+*  the MCMC chain combiner (NumPyro + BlackJAX share one on-disk format)
   and convergence diagnostics (split-R-hat and effective sample size), plus
   :func:`combine_mcmc_chains`.
-* Phase 2 -- process orchestration helpers: CPU partitioning, the ``auto``
+* process orchestration helpers: CPU partitioning, the ``auto``
   execution policy, memory estimates, and :func:`run_chains_in_processes`
   (spawn pool + affinity + mpi-block), driven by ``Retrieval.run_multichain``.
-* Phase 3 -- the nested (JAXNS) multi-run combiner: :func:`combine_evidence`
+* the nested (JAXNS) multi-run combiner: :func:`combine_evidence`
   (inverse-variance log Z + between-run scatter) and :func:`combine_nested_chains`
   (evidence-weighted posterior).
-* Phase 4 -- resume helpers (:func:`existing_chain_ids`) and the SLURM job-array
+* resume helpers (:func:`existing_chain_ids`) and the SLURM job-array
   launcher generator (:func:`render_chain_worker_script`,
   :func:`render_slurm_array_scripts`), driven by ``Retrieval.write_chain_launcher``.
 """
@@ -51,20 +51,20 @@ __all__ = [
     "CombinedMCMC",
     "combine_mcmc_chains",
     "compute_mcmc_diagnostics",
-    # Phase 2 -- process orchestration
+    # process orchestration
     "partition_cpus",
     "available_memory_gb",
     "estimate_peak_memory_gb",
     "resolve_chain_execution",
     "ProcessRunResult",
     "run_chains_in_processes",
-    # Phase 3 -- nested (JAXNS) multi-run combiner
+    # nested (JAXNS) multi-run combiner
     "NestedChainArrays",
     "NestedChainCombiner",
     "CombinedNested",
     "combine_evidence",
     "combine_nested_chains",
-    # Phase 4 -- resume + SLURM-array launcher generator
+    # resume + SLURM-array launcher generator
     "chain_artifact_path",
     "existing_chain_ids",
     "render_chain_worker_script",
@@ -73,7 +73,7 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Phase 0 -- shared primitives
+# shared primitives
 # ---------------------------------------------------------------------------
 
 
@@ -194,7 +194,7 @@ class ChainSpec:
 
 
 # ---------------------------------------------------------------------------
-# Phase 1 -- MCMC chain combiner + diagnostics
+# MCMC chain combiner + diagnostics
 # ---------------------------------------------------------------------------
 
 # Fields stored in the NumPyro/BlackJAX ``*_samples.npz`` archives. ``samples``
@@ -626,7 +626,7 @@ def combine_mcmc_chains(
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 -- process orchestration (spawn pool, affinity, mpi-block, auto)
+# process orchestration (spawn pool, affinity, mpi-block, auto)
 # ---------------------------------------------------------------------------
 #
 # This section is intentionally free of any JAX / petitRADTRANS imports so it
@@ -1237,7 +1237,7 @@ def combine_nested_chains(
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 -- resume + SLURM-array launcher generator
+# resume + SLURM-array launcher generator
 # ---------------------------------------------------------------------------
 
 
