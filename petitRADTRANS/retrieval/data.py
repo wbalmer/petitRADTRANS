@@ -188,6 +188,7 @@ class Data:
 
         self.data_resolution: float | None = data_resolution
         self.data_resolution_array_model: ArrayLike | None = None
+        self.variability_atmospheric_column_model_flux_return_mode: bool = False
 
         self.model_resolution: float | None = model_resolution
         self.external_radtrans_reference: object = external_radtrans_reference

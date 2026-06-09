@@ -343,7 +343,12 @@ def process_spectrum_pipeline(
         instrument_resolution = getattr(data, "data_resolution_array_model", None)
 
         if instrument_resolution is not None:
-            return instrument_resolution
+            instrument_resolution = jnp.asarray(instrument_resolution)
+            if instrument_resolution.shape[0] == wavelengths_model.shape[0]:
+                return instrument_resolution
+            # Shape mismatch: the cached array was built on a different wavelength grid
+            # (e.g. the pRT init grid vs. the forward-model grid). Fall through so that
+            # data_resolution is re-interpolated onto wavelengths_model below.
 
         instrument_resolution = getattr(data, "data_resolution", None)
 

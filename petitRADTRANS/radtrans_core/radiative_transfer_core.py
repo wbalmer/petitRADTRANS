@@ -303,16 +303,21 @@ def _prepare_fortran_ck_input(
 
 
 def _run_fortran_ck(modified_opas, g_gauss_arr, weights_gauss_arr):
-    """pure_callback target: invoke Fortran combine_ck_opacities on concrete arrays."""
+    """pure_callback target: invoke Fortran combine_ck_opacities on concrete arrays.
+
+    Returns float64 when inputs are float64 (x64 enabled path), or matches the
+    input dtype when x64 is disabled (float32 path). The declared ShapeDtypeStruct
+    in _combine_ck_opacities_fortran_callback always matches this return dtype.
+    """
     import numpy as np
     from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 
-    original_dtype = np.asarray(modified_opas).dtype
+    return_dtype = np.asarray(modified_opas).dtype
     m = np.asfortranarray(np.asarray(modified_opas, dtype=np.float64))
     g = np.ascontiguousarray(np.asarray(g_gauss_arr, dtype=np.float64))
     w = np.ascontiguousarray(np.asarray(weights_gauss_arr, dtype=np.float64))
     result = fcore.combine_ck_opacities(m, g, w)
-    return np.array(result, dtype=original_dtype, order="C", copy=True)
+    return np.array(result, dtype=return_dtype, order="C", copy=True)
 
 
 def _combine_ck_opacities_fortran_callback(
@@ -321,13 +326,31 @@ def _combine_ck_opacities_fortran_callback(
     weights_gauss: ArrayLike,
 ) -> ArrayLike:
     n_g, n_f, _, n_l = modified.shape
-    return pure_callback(
+    input_dtype = modified.dtype
+    # When x64 is disabled, jax.ShapeDtypeStruct cannot declare float64.
+    # In that case we pass float32 inputs and declare float32 output; the
+    # Fortran subroutine still runs in double precision internally, and
+    # _run_fortran_ck returns the dtype that matches what was declared here.
+    if jax.config.jax_enable_x64:
+        callback_dtype = jnp.float64
+        callback_inputs = (
+            jnp.asarray(modified, dtype=jnp.float64),
+            jnp.asarray(g_gauss, dtype=jnp.float64),
+            jnp.asarray(weights_gauss, dtype=jnp.float64),
+        )
+    else:
+        callback_dtype = input_dtype
+        callback_inputs = (
+            jnp.asarray(modified, dtype=input_dtype),
+            jnp.asarray(g_gauss, dtype=input_dtype),
+            jnp.asarray(weights_gauss, dtype=input_dtype),
+        )
+    result = pure_callback(
         _run_fortran_ck,
-        jax.ShapeDtypeStruct((n_g, n_f, n_l), modified.dtype),
-        modified,
-        g_gauss,
-        weights_gauss,
+        jax.ShapeDtypeStruct((n_g, n_f, n_l), callback_dtype),
+        *callback_inputs,
     )
+    return result.astype(input_dtype)
 
 
 def _use_fortran_ck_callback() -> bool:
