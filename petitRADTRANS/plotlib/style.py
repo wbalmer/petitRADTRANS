@@ -180,7 +180,8 @@ def set_petitradtrans_plot_style():
               'figsize': (16, 10),
               'autolayout': True}
     legend = {'fancybox': True,
-              'fontsize': 24}
+              'fontsize': 24,
+              'frameon':False}
     scatter = {'marker': 'o',
                'edgecolors': 'k'}
 
