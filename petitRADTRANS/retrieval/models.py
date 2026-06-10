@@ -80,8 +80,6 @@ def _is_full_easychem_requested(parameters) -> bool:
 
 
 # Global constants to reduce calculations and initializations.
-# PGLOBAL = jnp.logspace(-6, 3, 1000)
-
 MODEL_CONTRACT_LEGACY = "legacy"
 MODEL_CONTRACT_DIFFERENTIABLE = "differentiable"
 MODEL_CONTRACT_LEGACY_ADAPTER = "runtime_legacy_adapter"
@@ -91,11 +89,6 @@ _WRAPPED_LEGACY_MODEL_ATTRIBUTE = "_prt_wrapped_legacy_model"
 # Naming-convention patterns for automatic time-series parameter detection
 _TIME_INDEXED_PATTERN = re.compile(r"^(.+)_t_(\d+)$")
 _SINUSOIDAL_SUFFIXES = ("_amplitude", "_period", "_phase", "_offset")
-# A sinusoid is fully specified by amplitude, phase and offset; the period may be
-# given per base as ``{P}_period`` OR shared by all sinusoids through the single
-# reserved key below (a free parameter fit once). Sharing one period identifies
-# the rotation rate jointly across parameters and removes a per-parameter,
-# weakly-constrained period (and the associated period/phase degeneracy).
 _SINUSOIDAL_REQUIRED_SUFFIXES = ("_amplitude", "_phase", "_offset")
 _SHARED_PERIOD_KEY = "period"
 
@@ -981,11 +974,6 @@ def time_series_gradient_emission(
 
     def _build_timestep_temperature_builder(snapshot):
         """Gradient temperature-profile builder for one epoch's parameter snapshot."""
-        # Build the per-layer PT slopes directly. An all-NaN initialiser
-        # (jnp.ones * jnp.nan) followed by scatter-fill is a forward NaN that
-        # trips jax_debug_nans and poisons reverse-mode gradients via 0*NaN in
-        # the multiply's tangent -- it made the whole log-posterior gradient NaN
-        # at the prior median, which the warm-start then silently zeroed.
         layer_pt_slopes = jnp.stack(
             [snapshot[f"PTslope_{num_layer - k}"] for k in range(num_layer)]
         )
@@ -1002,13 +990,6 @@ def time_series_gradient_emission(
             ),
         )
 
-    # The N_time epochs are otherwise unrolled into one graph, so reverse-mode
-    # autodiff would hold every epoch's (scattering) radiative-transfer
-    # activations resident simultaneously -- the O(N_time) retention that drove
-    # the gradient past 240 GB and triggered the OOM (job 1860396). Wrapping the
-    # per-epoch emission computation in jax.checkpoint rematerialises those
-    # activations during the backward pass instead, cutting retained memory from
-    # O(N_time) to O(1) at the cost of one extra forward evaluation per epoch.
     # t_idx must stay a *static* argument: _build_timestep_params indexes
     # parameter names with it (e.g. "{base}_t_{t_idx}").
     def _emission_spectrum_at_timestep(t_idx, t_val):
@@ -1027,9 +1008,6 @@ def time_series_gradient_emission(
             pt_plot_mode=False,
         )
         if result is not None:
-            # Degenerate/error path (e.g. NaN abundances). Resolved at trace
-            # time, never in the differentiated path; propagate the sentinel
-            # spectrum so the checkpointed helper keeps a uniform return type.
             return result.spectrum, result.wavelengths
 
         # Clouds
@@ -1072,13 +1050,6 @@ def time_series_gradient_emission(
 
     # Per-timestep-keyed parameters ("{base}_t_{i}") need a concrete Python
     # index to look up, so when they are present the epochs must stay unrolled.
-    # Otherwise the only per-epoch input is the (traced) model time, and the
-    # epochs are evaluated with lax.scan: scan compiles a *single* copy of the
-    # emission body instead of N_time unrolled copies, which collapses the very
-    # large, slow-to-compile graph that was driving the host-RAM OOM, and -- with
-    # the body checkpointed -- keeps reverse-mode activation memory at one
-    # epoch's worth. The body ignores t_idx in this case, so a static dummy
-    # index of 0 is passed.
     has_time_indexed_params = any(
         _TIME_INDEXED_PATTERN.match(key) for key in physical_params.keys()
     )
@@ -1566,10 +1537,6 @@ def legacy_molliere_2020_emission(
     p_use, PGLOBAL = initialize_pressure_from_legacy_dict(
         prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement
     )
-
-    # Use this for debugging.
-    # for key, val in parameters.items():
-    #    print(key,val.value)
 
     # Priors for these parameters are implemented here, as they depend on each other
     t3 = (
@@ -3610,11 +3577,6 @@ def run_legacy_model_adapter(
         name: SimpleNamespace(value=value)
         for name, value in physical_params.ordered_items()
     }
-
-    # The Radtrans object may carry rebinned species names (e.g. R120)
-    # while the parameter dict still uses the original config names (e.g.
-    # R1000).  Build a base-name index so that legacy model functions that
-    # iterate prt_object.line_species can find the matching parameter.
     _base_index: dict[str, str] = {}
     for name in legacy_parameters:
         base = name.split(".", 1)[0]

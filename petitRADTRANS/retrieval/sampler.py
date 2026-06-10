@@ -1342,9 +1342,6 @@ class NumPyroSampler(Sampler):
             # Optional override of the optimiser's starting point. The default
             # ``initial_position`` is the unconstrained origin, which maps (via
             # cube = sigmoid(z)) to the prior median/midpoint of every parameter
-            # -- a stiff, often ill-conditioned point for these models. Callers
-            # can pass a different start (e.g. the prior midpoint plus a small
-            # offset) through ``optimizer_kwargs["initial_position"]``.
             warmup_initial_position = warmup_optimizer_kwargs.pop(
                 "initial_position", None
             )

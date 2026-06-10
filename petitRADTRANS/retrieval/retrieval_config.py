@@ -366,10 +366,6 @@ class RetrievalConfig:
         opacities of the model. The values in the list are strings, with the names matching
         the pRT opacity names, which vary between the c-k line opacities and the line-by-line opacities.
 
-        NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
-        abundance limits were set from free_mass_fraction_limits[0] to (free_mass_fraction_limits[0] + free_mass_fraction_limits[1]). This has been changed
-        so that the limits of the prior range are from free_mass_fraction_limits[0] to free_mass_fraction_limits[1] (ie the actual boundaries).
-
         Args:
             line_species : List(str)
                 The list of species to include in the retrieval
@@ -509,10 +505,6 @@ class RetrievalConfig:
         This function adds a single species to the pRT object that will define the line opacities of the model.
         The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
         opacities.
-
-        NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
-        abundance limits were set from free_mass_fraction_limits[0] to (free_mass_fraction_limits[0] + free_mass_fraction_limits[1]). This has been changed
-        so that the limits of the prior range are from free_mass_fraction_limits[0] to free_mass_fraction_limits[1] (ie the actual boundaries).
 
         Args:
             species : str

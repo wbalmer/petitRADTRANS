@@ -11,15 +11,8 @@ from petitRADTRANS.retrieval.utils import (
 
 
 def _cast_distribution_to_jax_dtype(distribution):
-    """Re-create a TFP distribution with floating-point parameters cast to the active JAX dtype.
-
-    TFP distributions default to float32 for their parameters, but when JAX
-    runs in 64-bit mode any sampler (JAXNS, gradient-based, ultranest, …)
-    passes float64 values to ``distribution.quantile``.  TFP's internal helpers
-    (e.g. ``igammacinv``) require all inputs to share the same dtype, so the
-    mismatch raises a TypeError.  This function re-instantiates the distribution
-    with its scalar/array parameters cast to match the current
-    ``jax_enable_x64`` setting so both sides always agree.
+    """
+    Re-create a TFP distribution with floating-point parameters cast to the active JAX dtype.
     """
     target_dtype = jnp.float64 if config.jax_enable_x64 else jnp.float32
     if hasattr(distribution, "dtype") and distribution.dtype == target_dtype:

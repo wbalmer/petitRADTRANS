@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a41] - 2026-06-05
+## [4.0.0a42] - 2026-06-10
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -31,6 +31,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
 
 ### Changed
+- a42: Can now specify fits extensions when loading fits file for Data objects
 - a37: Memory optimisation - Feautrier chunking enabled by default.
 - a36: array input to fortran ck mixing is strictly typed
 - a36: plotting functions to vmap over samples
@@ -90,6 +91,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Minimum supported Python version is 3.12.
 
 ### Added
+- a42: Config interface for SBI
 - a41: Multichain HMC, NUTS and JAXNS - run multiple independent chains on different devices and combine.
 - a40: Aliases for some common parameter names in retrievals
 - a39: Can delegate likelihood calculation to GPU for pymultinest and ultranest

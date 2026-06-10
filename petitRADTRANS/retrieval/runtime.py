@@ -39,10 +39,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Sentinel value returned for invalid model evaluations.  Use the most
-# negative finite value representable in the active JAX dtype so that the
-# sentinel is safely representable in both float32 and float64 without
-# overflowing to -inf.
+# Sentinel value returned for invalid model evaluations.
 INVALID_LOG_LIKELIHOOD = jnp.asarray(jnp.finfo(JAX_DTYPE).min, dtype=JAX_DTYPE)
 
 
@@ -557,9 +554,6 @@ class RetrievalRuntime:
         from petitRADTRANS.retrieval.utils import get_calculate_flux_return_values
 
         # Compute diagnostic-output flags once from static parameter template values.
-        # These flags only depend on which parameter *names* are present (never on
-        # sampled values), so they can be resolved at construction time and stored
-        # on each ModelGroupState rather than re-scanned on every evaluation.
         template_params = {
             name: template.value
             for name, template in zip(
