@@ -930,36 +930,33 @@ class RetrievalConfig:
     def add_data(
         self,
         name: str,
-        path_to_observations: str,
-        model_generating_function: Callable,
+        model_generating_function: (
+            Callable[..., tuple[ArrayLike, ArrayLike, ArrayLike]] | None
+        ) = None,
+        path_to_observations: str | None = None,
+        wavelengths: ArrayLike | None = None,
+        spectrum: ArrayLike | None = None,
+        uncertainties: ArrayLike | None = None,
+        covariance: ArrayLike | None = None,
+        line_opacity_mode: str = "c-k",
         data_resolution: float | None = None,
         model_resolution: float | None = None,
         scale_flux: bool = False,
         scale_uncertainties: bool = False,
         fit_flux_offset: bool = False,
-        fit_instrumental_resolution: bool = False,
-        subtract_continuum: bool = False,
-        photometry: bool = False,
-        photometric_transformation_function: Callable | None = None,
-        photometric_bin_edges: tuple[float, float] | None = None,
-        wavelength_boundaries: tuple[float, float] | None = None,
-        external_radtrans_reference: str | None = None,
-        line_opacity_mode: str = "c-k",
-        wavelength_bin_widths: ArrayLike | None = None,
-        radtrans_grid: bool = False,
-        radtrans_object: Any | None = None,
-        wavelengths: ArrayLike | None = None,
-        spectrum: ArrayLike | None = None,
-        uncertainties: ArrayLike | None = None,
-        mask: ArrayLike | None = None,
-        covariance: ArrayLike | None = None,
         fit_covariance: bool = False,
         covariance_mode: str = "none",
         global_covariance_kernel: str = "squared_exponential",
         local_covariance_kernel: str = "squared_exponential",
         n_local_covariance_kernels: int = 0,
         covariance_jitter: float = 0.0,
-        covariance_parameter_priors: dict | None = None,
+        fit_instrumental_resolution: bool = False,
+        external_radtrans_reference: object | None = None,
+        wavelength_boundaries: tuple[float, float] | None = None,
+        wavelength_bin_widths: ArrayLike | None = None,
+        subtract_continuum: bool = False,
+        radtrans_grid: bool = False,
+        radtrans_object: object = None,
         # --- deprecated arguments ---
         scale=_UNSET,
         scale_err=_UNSET,
@@ -969,57 +966,100 @@ class RetrievalConfig:
         variability_atmospheric_column_model_flux_return_mode=_UNSET,
         atmospheric_column_flux_mixer=_UNSET,
     ) -> None:
-        """
-        Create a Data class object.
+        r"""
+        Create a Data object for the Retrieval class.
+        Each dataset is associated with an instance of petitRadTrans and an atmospheric model.
+        The pRT instance can be overwritten, and associated with an existing pRT instance with the
+        external_pRT_reference parameter.
+        This setup allows for joint or independent retrievals on multiple datasets.
 
         Args:
             name : str
                 Identifier for this data set.
+            model_generating_function : method
+                A function, typically defined in run_definition.py that returns the model wavelength and spectrum
+                (emission or transmission).
+                This is the function that contains the physics of the model, and calls pRT in order to compute the
+                spectrum.
             path_to_observations : str
-                Path to observations file, including filename. This can be a txt or dat file containing the wavelength,
-                flux, transit depth and error, or a fits file containing the wavelength, spectrum and covariance matrix.
-            model_generating_function : fnc
-                A function, typically defined in run_definition.py that returns the model wavelength and
-                spectrum (emission or transmission). This is the function that contains the physics
-                of the model, and calls pRT in order to compute the spectrum.
-            data_resolution : float
-                Spectral resolution of the instrument. Optional, allows convolution of model to instrumental line width.
-            model_resolution : float
-                Spectral resolution of the model, allowing for low resolution correlated k tables from exo-k.
-            scale_flux : bool
-                Turn on or off scaling the data by a constant factor.
-            wavelength_boundaries : Tuple
-                A pair of wavelengths in units of micron that determine the lower and upper boundaries of the
-                model computation.
-            external_radtrans_reference : str
-                The name of an existing Data object. This object's prt_object will be used to calculate the chi squared
-                of the new Data object. This is useful when two datasets overlap, as only one model computation is
-                required to compute the log likelihood of both datasets.
+                Path to observations file, including filename. This can be a txt or dat file
+                containing the wavelength, flux, transit depth and error, or a fits file
+                containing the wavelength, spectrum and covariance matrix.
+                Alternatively, the data information can be directly given by the wavelengths, spectrum, uncertainties, and
+                mask attributes.
+            wavelengths:
+                (um) Wavelengths of the data.
+            spectrum:
+                Spectrum of the data.
+            uncertainties:
+                Uncertainties of the data, in the same units as the spectrum.
+            covariance:
+                Covariance matrix of the data, in the same units as the spectrum squared.
             line_opacity_mode : str
                 Should the retrieval be run using correlated-k opacities (default, 'c-k'),
-                or line by line ('lbl') opacities? If 'lbl' is selected, git push origin --delete it is HIGHLY
-                recommended to set the model_resolution parameter.
-            radtrans_grid: bool
-                Set to true if data has been binned to a pRT opacity grid, exactly.
-            fit_covariance : bool
-                If True, fit a parametric covariance model for this dataset during the retrieval.
+                or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
+                recommended to set the model_resolution parameter. In general,
+                'c-k' mode is recommended for retrievals of everything other than
+                high-resolution (R>40000) spectra.
+            data_resolution : float or jnp.ndarray
+                Spectral resolution of the instrument. Optional, allows convolution of model to
+                instrumental line width. If the data_resolution is an array, the resolution can
+                vary as as a function of wavelength. The array should have the same shape as
+                the input wavelength array, and should specify the spectral resolution at each
+                wavelength bin.
+            model_resolution : float
+                Will be ``None`` by default.  The resolution of the c-k opacity tables in pRT.
+                This will generate a new c-k table using exo-k. The default (and maximum)
+                correlated k resolution in pRT is :math:`\\lambda/\\Delta \\lambda > 1000` (R=500).
+                Lowering the resolution will speed up the computation.
+                If integer positive value, and if ``opacities == 'lbl'`` is ``True``, then this
+                will sample the high-resolution opacities at the specified resolution.
+                This may be desired in the case where medium-resolution spectra are
+                required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
+                :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
+                may make sense to carry out the calculations with line_by_line_opacity_sampling = 10e5,
+                for example, and then re-binning to the final desired resolution:
+                this may save time! The user should verify whether this leads to
+                solutions which are identical to the re-binned results of the fiducial
+                :math:`10^6` resolution. If not, this parameter must not be used.
+                Note the difference between this parameter and the line_by_line_opacity_sampling
+                parameter in the RadTrans class - the actual desired resolution should
+                be set here.
+            scale_flux : bool
+                Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the
+                retrieval.
+            scale_uncertainties:
+                Turn on or off scaling the uncertainties by a constant factor. Set to True if scaling the uncertainties during the
+                retrieval.
+            fit_flux_offset:
+                Turn on or off fitting a flux offset. Set to True if fitting a flux offset during the retrieval.
+            fit_covariance:
+                If True, construct a fitted covariance matrix during retrieval using GP-like kernel terms.
                 This is currently supported for 1D spectroscopic datasets only.
-            covariance_mode : str
-                Covariance model to fit. Supported values are ``'none'``, ``'local'``, ``'global'``, and
+            covariance_mode:
+                Covariance model to use. Supported values are ``'none'``, ``'local'``, ``'global'``, and
                 ``'global_local'``.
-            global_covariance_kernel : str
-                Name of the global covariance kernel. Supported values are ``'squared_exponential'`` and
-                ``'matern32'``.
-            local_covariance_kernel : str
-                Name of the local covariance kernel. Currently only ``'squared_exponential'`` is supported.
-            n_local_covariance_kernels : int
-                Number of local covariance kernels to include when ``covariance_mode='global_local'``.
-            covariance_jitter : float
+            global_covariance_kernel:
+                Global kernel name used when ``covariance_mode`` includes a global term.
+            local_covariance_kernel:
+                Local kernel name used when ``covariance_mode`` includes local terms.
+            n_local_covariance_kernels:
+                Number of local covariance kernels to include when using ``'global_local'`` mode.
+            covariance_jitter:
                 Small diagonal stabilization term added to the fitted covariance matrix.
-            covariance_parameter_priors : dict
-                Optional override dictionary for the automatically generated covariance hyperparameter priors.
-                Supported keys are ``'global_amp'``, ``'global_length'``, ``'local_amp'``, ``'local_length'``,
-                and ``'local_center'``.
+            external_radtrans_reference : object
+                An existing RadTrans object. Leave as none unless you're sure of what you're doing.
+            wavelength_boundaries : tuple,list
+                Set the wavelength range of the pRT object. Defaults to a range +/-5% greater than that of the data.
+                Must at least be equal to the range of the data.
+            wavelength_bin_widths : numpy.ndarray
+                Set the wavelength bin width to bin the Radtrans object to the data. Defaults to the data bins.
+            radtrans_grid: bool
+                Set to true if data has been binned to a pRT c-k grid.
+            radtrans_object:
+                An instance of Radtrans object to be used to generate model spectra in retrievals.
+            mask:
+                Mask of the data.
         """
         if scale is not _UNSET:
             warnings.warn(
