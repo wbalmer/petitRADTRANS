@@ -5053,7 +5053,11 @@ class Retrieval:
                     f"'{self.output_directory}'."
                 )
 
-            return self._register_sampler_results(sampler, results)
+            self._register_sampler_results(sampler, results)
+            if self.rank == 0:
+                self.generate_retrieval_summary()   # now self.sampler.get_summary() populates everything
+
+            return self.sampler
 
         sampler = self.sampler
         error_checking = sampler_kwargs.pop("error_checking", True)
