@@ -204,5 +204,3 @@ __all__ = [
     "StabilityConfig",
     "build_conditional_flow_posterior",
 ]
-,
-]

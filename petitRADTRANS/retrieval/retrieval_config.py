@@ -942,6 +942,7 @@ class RetrievalConfig:
         local_covariance_kernel: str = "squared_exponential",
         n_local_covariance_kernels: int = 0,
         covariance_jitter: float = 0.0,
+        covariance_parameter_priors: dict | None = None,
         fit_instrumental_resolution: bool = False,
         external_radtrans_reference: object | None = None,
         wavelength_boundaries: tuple[float, float] | None = None,
@@ -949,6 +950,9 @@ class RetrievalConfig:
         subtract_continuum: bool = False,
         radtrans_grid: bool = False,
         radtrans_object: object = None,
+        mask: ArrayLike | None = None,
+        photometric_transformation_function: Callable[..., tuple[ArrayLike, ArrayLike]] | None = None,
+        photometric_bin_edges: ArrayLike | None = None,
         # --- deprecated arguments ---
         scale=_UNSET,
         scale_err=_UNSET,
@@ -957,6 +961,7 @@ class RetrievalConfig:
         concatenate_flux_epochs_variability=_UNSET,
         variability_atmospheric_column_model_flux_return_mode=_UNSET,
         atmospheric_column_flux_mixer=_UNSET,
+        photometry=_UNSET,
     ) -> None:
         r"""
         Create a Data object for the Retrieval class.
