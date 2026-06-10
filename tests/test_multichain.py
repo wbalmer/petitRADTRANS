@@ -179,6 +179,76 @@ def test_parameter_mismatch_raises(tmp_path):
         mc.combine_mcmc_chains(tmp_path, "numpyro_nuts", "run", num_chains=2)
 
 
+# ---------------------------------------------------------------------------
+# In-process (vectorised/sharded) pooled-archive combine
+# ---------------------------------------------------------------------------
+
+
+def _write_pooled(directory, base_name, per_chain_samples, names):
+    """Write one pooled ``*_samples.npz`` with contiguous per-chain blocks."""
+    directory.mkdir(parents=True, exist_ok=True)
+    pooled = np.concatenate(per_chain_samples, axis=0)
+    np.savez(
+        directory / f"{base_name}_samples.npz",
+        samples=pooled,
+        unconstrained_samples=pooled,
+        logdensity=-0.5 * (pooled ** 2).sum(axis=1),
+        is_divergent=np.zeros(pooled.shape[0], dtype=bool),
+    )
+    with open(directory / f"{base_name}_params.json", "w", encoding="utf-8") as handle:
+        json.dump(list(names), handle)
+
+
+def test_split_pooled_mcmc_chains_recovers_blocks(tmp_path):
+    n_chains, n_per, n_dim = 4, 50, 3
+    per_chain = [np.full((n_per, n_dim), c, dtype=float) for c in range(n_chains)]
+    sub = tmp_path / "out_NumPyro"
+    _write_pooled(sub, "run", per_chain, ["a", "b", "c"])
+
+    chains = mc.split_pooled_mcmc_chains(sub / "run_samples.npz", n_chains)
+    assert len(chains) == n_chains
+    for c, chain in enumerate(chains):
+        assert chain.chain_id == c
+        assert chain.samples.shape == (n_per, n_dim)
+        np.testing.assert_array_equal(chain.samples, per_chain[c])
+
+
+def test_split_pooled_rejects_indivisible(tmp_path):
+    sub = tmp_path / "out_NumPyro"
+    _write_pooled(sub, "run", [np.zeros((50, 2)), np.zeros((50, 2))], ["a", "b"])
+    with pytest.raises(ValueError, match="equal chains"):
+        mc.split_pooled_mcmc_chains(sub / "run_samples.npz", 3)
+
+
+def test_combine_in_process_well_mixed_converges(tmp_path):
+    rng = np.random.default_rng(0)
+    names = ["a", "b", "c"]
+    n_chains, n_per, n_dim = 4, 2000, 3
+    per_chain = [rng.standard_normal((n_per, n_dim)) for _ in range(n_chains)]
+    sub = tmp_path / "out_NumPyro"
+    _write_pooled(sub, "run", per_chain, names)
+
+    summary = mc.combine_in_process_mcmc_chains(
+        tmp_path, "numpyro_nuts", "run", n_chains
+    )
+    diag = summary.diagnostics
+
+    assert summary.combined_name == "run_combined"
+    assert summary.chain_ids == [0, 1, 2, 3]
+    assert diag["n_chains"] == n_chains
+    assert diag["n_samples_total"] == n_chains * n_per
+    assert diag["rhat_available"] is True
+    # Independent draws from one distribution -> R-hat ~ 1, converged.
+    assert diag["max_rhat"] < 1.01
+    assert diag["converged"] is True
+
+    # Combined archive matches the on-disk contract of combine_mcmc_chains.
+    with np.load(summary.samples_file) as combined:
+        assert combined["samples"].shape == (n_chains * n_per, n_dim)
+        assert combined["chain_index"].shape == (n_chains * n_per,)
+        assert set(np.unique(combined["chain_index"])) == set(range(n_chains))
+
+
 def test_combine_rejects_nested_sampler(tmp_path):
     with pytest.raises(ValueError, match="only supports MCMC"):
         mc.combine_mcmc_chains(tmp_path, "jaxns", "run", num_chains=2)

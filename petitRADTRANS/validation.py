@@ -4,7 +4,7 @@ This module provides sanity checks on inputs for the Radtrans class.
 
 import os
 import warnings
-from typing import Any, Callable, Optional, Union
+from typing import Callable, Optional, Union
 
 import jax.numpy as jnp
 import numpy as np
@@ -17,114 +17,6 @@ from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE, WORKING_JAX_DTYPE
 from petitRADTRANS.stellar_spectra.phoenix import compute_star_spectrum
 
 _UNSET = object()
-
-_DEPRECATED_CLOUD_PARTICLE_ARGUMENTS = {
-    "cloud_particles_mean_radii": "cloud_particle_mean_radii",
-    "cloud_particles_radius_distribution_std": "cloud_particle_radius_distribution_std",
-    "cloud_particles_radius_distribution": "cloud_particle_radius_distribution",
-    "cloud_particles_number_density_grid": "cloud_particle_number_density_grid",
-}
-
-
-def _warn_deprecated_cloud_particle_argument(
-    deprecated_name: str, canonical_name: str
-):
-    warnings.warn(
-        f"The '{deprecated_name}' argument is deprecated; use '{canonical_name}' instead.",
-        DeprecationWarning,
-        stacklevel=3,
-    )
-
-
-def _resolve_deprecated_cloud_particle_argument(
-    *,
-    deprecated_name: str,
-    canonical_name: str,
-    deprecated_value: Any,
-    canonical_value: Any,
-    canonical_default: Any = _UNSET,
-):
-    if deprecated_value is _UNSET:
-        return canonical_value
-
-    _warn_deprecated_cloud_particle_argument(deprecated_name, canonical_name)
-
-    if canonical_default is _UNSET:
-        canonical_was_provided = canonical_value is not None
-    else:
-        canonical_was_provided = canonical_value != canonical_default
-
-    if canonical_was_provided:
-        raise ValueError(
-            f"received both deprecated argument '{deprecated_name}' and canonical argument "
-            f"'{canonical_name}'; use only '{canonical_name}'"
-        )
-
-    return deprecated_value
-
-
-def _normalize_deprecated_cloud_particle_arguments(
-    *,
-    cloud_particle_mean_radii,
-    cloud_particle_radius_distribution_std,
-    cloud_particle_radius_distribution,
-    cloud_particle_number_density_grid,
-    cloud_particles_mean_radii=_UNSET,
-    cloud_particles_radius_distribution_std=_UNSET,
-    cloud_particles_radius_distribution=_UNSET,
-    cloud_particles_number_density_grid=_UNSET,
-):
-    return {
-        "cloud_particle_mean_radii": _resolve_deprecated_cloud_particle_argument(
-            deprecated_name="cloud_particles_mean_radii",
-            canonical_name="cloud_particle_mean_radii",
-            deprecated_value=cloud_particles_mean_radii,
-            canonical_value=cloud_particle_mean_radii,
-        ),
-        "cloud_particle_radius_distribution_std": _resolve_deprecated_cloud_particle_argument(
-            deprecated_name="cloud_particles_radius_distribution_std",
-            canonical_name="cloud_particle_radius_distribution_std",
-            deprecated_value=cloud_particles_radius_distribution_std,
-            canonical_value=cloud_particle_radius_distribution_std,
-        ),
-        "cloud_particle_radius_distribution": _resolve_deprecated_cloud_particle_argument(
-            deprecated_name="cloud_particles_radius_distribution",
-            canonical_name="cloud_particle_radius_distribution",
-            deprecated_value=cloud_particles_radius_distribution,
-            canonical_value=cloud_particle_radius_distribution,
-            canonical_default="lognormal",
-        ),
-        "cloud_particle_number_density_grid": _resolve_deprecated_cloud_particle_argument(
-            deprecated_name="cloud_particles_number_density_grid",
-            canonical_name="cloud_particle_number_density_grid",
-            deprecated_value=cloud_particles_number_density_grid,
-            canonical_value=cloud_particle_number_density_grid,
-        ),
-    }
-
-
-def _normalize_deprecated_cloud_particle_parameter_keys(
-    cloud_parameters: dict[str, Any],
-) -> dict[str, Any]:
-    normalized_cloud_parameters = dict(cloud_parameters)
-
-    for deprecated_name, canonical_name in _DEPRECATED_CLOUD_PARTICLE_ARGUMENTS.items():
-        if deprecated_name not in normalized_cloud_parameters:
-            continue
-
-        _warn_deprecated_cloud_particle_argument(deprecated_name, canonical_name)
-
-        if canonical_name in normalized_cloud_parameters:
-            raise ValueError(
-                f"received both deprecated cloud parameter '{deprecated_name}' and canonical "
-                f"parameter '{canonical_name}'; use only '{canonical_name}'"
-            )
-
-        normalized_cloud_parameters[canonical_name] = normalized_cloud_parameters.pop(
-            deprecated_name
-        )
-
-    return normalized_cloud_parameters
 
 
 def _warn_scattering_in_emission_without_cloud_species(

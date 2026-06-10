@@ -519,6 +519,48 @@ def _discover_chain_files(
     return found
 
 
+def _write_and_summarize_combined_mcmc(
+    base_dir: Path,
+    base_name: str,
+    combined: CombinedMCMC,
+    *,
+    write: bool,
+    chain_ids: list[int],
+    missing_chain_ids: list[int],
+) -> MCMCCombineSummary:
+    """Write the combined posterior + diagnostics and build the summary.
+
+    Shared by the file-based (:func:`combine_mcmc_chains`) and in-process
+    (:func:`combine_in_process_mcmc_chains`) combine paths so both emit the exact
+    same ``<base_name>_combined`` artifacts.
+    """
+    combined_name = combined_retrieval_name(base_name)
+    samples_file = params_file = diagnostics_file = None
+    if write:
+        base_dir.mkdir(parents=True, exist_ok=True)
+        samples_file = str(base_dir / f"{combined_name}_samples.npz")
+        params_file = str(base_dir / f"{combined_name}_params.json")
+        diagnostics_file = str(base_dir / f"{combined_name}_diagnostics.json")
+
+        save_kwargs = dict(combined.pooled)
+        save_kwargs["chain_index"] = combined.chain_index
+        np.savez(samples_file, **save_kwargs)
+        with open(params_file, "w", encoding="utf-8") as handle:
+            json.dump(list(combined.parameter_names), handle, indent=4)
+        with open(diagnostics_file, "w", encoding="utf-8") as handle:
+            json.dump(combined.diagnostics, handle, indent=4)
+
+    return MCMCCombineSummary(
+        combined_name=combined_name,
+        samples_file=samples_file,
+        params_file=params_file,
+        diagnostics_file=diagnostics_file,
+        diagnostics=combined.diagnostics,
+        chain_ids=list(chain_ids),
+        missing_chain_ids=list(missing_chain_ids),
+    )
+
+
 def combine_mcmc_chains(
     output_directory: os.PathLike | str,
     sampler_type: str,
@@ -598,30 +640,104 @@ def combine_mcmc_chains(
     combiner = MCMCChainCombiner(rhat_threshold=rhat_threshold)
     combined = combiner.combine(chain_arrays, parameter_names)
 
-    combined_name = combined_retrieval_name(base_name)
-    samples_file = params_file = diagnostics_file = None
-    if write:
-        base_dir.mkdir(parents=True, exist_ok=True)
-        samples_file = str(base_dir / f"{combined_name}_samples.npz")
-        params_file = str(base_dir / f"{combined_name}_params.json")
-        diagnostics_file = str(base_dir / f"{combined_name}_diagnostics.json")
-
-        save_kwargs = dict(combined.pooled)
-        save_kwargs["chain_index"] = combined.chain_index
-        np.savez(samples_file, **save_kwargs)
-        with open(params_file, "w", encoding="utf-8") as handle:
-            json.dump(list(combined.parameter_names), handle, indent=4)
-        with open(diagnostics_file, "w", encoding="utf-8") as handle:
-            json.dump(combined.diagnostics, handle, indent=4)
-
-    return MCMCCombineSummary(
-        combined_name=combined_name,
-        samples_file=samples_file,
-        params_file=params_file,
-        diagnostics_file=diagnostics_file,
-        diagnostics=combined.diagnostics,
+    return _write_and_summarize_combined_mcmc(
+        base_dir,
+        base_name,
+        combined,
+        write=write,
         chain_ids=[c for c, _ in available],
         missing_chain_ids=missing,
+    )
+
+
+def split_pooled_mcmc_chains(
+    pooled_samples_path: os.PathLike | str,
+    num_chains: int,
+) -> list[MCMCChainArrays]:
+    """Recover per-chain arrays from an in-process pooled ``*_samples.npz``.
+
+    The vectorised/sharded samplers store the draws of all chains in one archive,
+    laid out as ``num_chains`` contiguous per-chain blocks (the pooled array is a
+    ``(num_chains, n_per_chain, ...) -> (-1, ...)`` reshape). This splits each
+    per-draw field's leading axis back into those blocks so the standard
+    :class:`MCMCChainCombiner` can compute split-R-hat / ESS across the chains.
+    """
+    with np.load(pooled_samples_path) as archive:
+        present = set(archive.files)
+        fields = {
+            name: np.asarray(archive[name])
+            for name in _MCMC_PER_DRAW_FIELDS
+            if name in present
+        }
+    if "samples" not in fields:
+        raise KeyError(f"{pooled_samples_path} has no 'samples' array to split.")
+
+    total = fields["samples"].shape[0]
+    if num_chains < 1 or total % num_chains != 0:
+        raise ValueError(
+            f"cannot split {total} pooled draws into {num_chains} equal chains."
+        )
+    n_per_chain = total // num_chains
+
+    chains: list[MCMCChainArrays] = []
+    for chain_id in range(num_chains):
+        start = chain_id * n_per_chain
+        stop = start + n_per_chain
+        chain_kwargs: dict = {"chain_id": chain_id}
+        for name, values in fields.items():
+            chunk = values[start:stop]
+            if name == "samples" and chunk.ndim == 1:
+                chunk = chunk[:, np.newaxis]
+            chain_kwargs[name] = chunk
+        chains.append(MCMCChainArrays(**chain_kwargs))
+    return chains
+
+
+def combine_in_process_mcmc_chains(
+    output_directory: os.PathLike | str,
+    sampler_type: str,
+    base_name: str,
+    num_chains: int,
+    *,
+    write: bool = True,
+    rhat_threshold: float = 1.01,
+) -> MCMCCombineSummary:
+    """Combine an in-process (vectorised/sharded) pooled run into diagnostics.
+
+    The in-process MCMC samplers write a single pooled archive
+    ``out_<Backend>/<base_name>_samples.npz`` instead of per-chain files. This
+    splits that archive back into ``num_chains`` chains and reuses the standard
+    combiner to compute split-R-hat / ESS and write the ``<base_name>_combined``
+    posterior + ``_diagnostics.json`` -- matching the on-disk contract of the
+    per-chain (sequential/processes) combine path.
+    """
+    if sampler_family(sampler_type) != "mcmc":
+        raise ValueError(
+            f"combine_in_process_mcmc_chains only supports MCMC samplers; "
+            f"got {sampler_type!r}."
+        )
+
+    base_dir = Path(output_directory) / backend_output_subdir(sampler_type)
+    pooled_samples_path = base_dir / f"{base_name}_samples.npz"
+    params_path = base_dir / f"{base_name}_params.json"
+    if not pooled_samples_path.exists():
+        raise FileNotFoundError(
+            f"No pooled in-process MCMC output found at {pooled_samples_path}."
+        )
+    with open(params_path, "r", encoding="utf-8") as handle:
+        parameter_names = list(json.load(handle))
+
+    chain_arrays = split_pooled_mcmc_chains(pooled_samples_path, num_chains)
+    combiner = MCMCChainCombiner(rhat_threshold=rhat_threshold)
+    combined = combiner.combine(chain_arrays, parameter_names)
+
+    return _write_and_summarize_combined_mcmc(
+        base_dir,
+        base_name,
+        combined,
+        write=write,
+        chain_ids=list(range(num_chains)),
+        missing_chain_ids=[],
     )
 
 

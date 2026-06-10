@@ -1399,6 +1399,16 @@ class NumPyroSampler(Sampler):
                 seed=warmup_seed,
             )
 
+        num_chains = sampler_kwargs.pop("num_chains", 1)
+        # Default chain execution depends on the chain count. "vectorized" vmaps
+        # every chain into one JIT call, multiplying the per-step memory by
+        # num_chains -- which OOMs heavy forward models (e.g. the time-resolved
+        # emission model). A single chain therefore defaults to "sequential" (one
+        # resident model copy); only fan out to "vectorized" when the user asks
+        # for more than one chain or sets chain_method explicitly.
+        default_chain_method = "vectorized" if num_chains > 1 else "sequential"
+        chain_method = sampler_kwargs.pop("chain_method", default_chain_method)
+
         run_kwargs = {
             "initial_position": sampler_kwargs.pop(
                 "initial_position", initial_position
@@ -1419,9 +1429,9 @@ class NumPyroSampler(Sampler):
             "seed": sampler_kwargs.pop("seed", 42654),
             "use_jit": sampler_kwargs.pop("use_jit", sampler_kwargs.pop("jit", True)),
             "log_jacobian_fn": log_jacobian,
-            "num_chains": sampler_kwargs.pop("num_chains", 1),
+            "num_chains": num_chains,
             "thinning": sampler_kwargs.pop("thinning", 1),
-            "chain_method": sampler_kwargs.pop("chain_method", "vectorized"),
+            "chain_method": chain_method,
         }
         if algorithm_name == "hmc":
             numpyro_num_steps = sampler_kwargs.pop("num_integration_steps", None)

@@ -939,9 +939,12 @@ class DatasetSetAggregator(eqx.Module):
         """
         if not block_embeddings:
             return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
-        if len(block_embeddings) == 1:
-            return jnp.asarray(block_embeddings[0], dtype=jnp.float32)
 
+        # A single block still flows through the learned block/output
+        # projections (mean == max == the projection, std == 0). The previous
+        # len == 1 shortcut returned the raw block embedding, bypassing those
+        # learned layers entirely -- the common single-spectrum case never
+        # trained them.
         stacked = jnp.stack(block_embeddings, axis=0)
         projected = vmap(self.block_projection)(stacked)
         pooled = jnp.concatenate(
@@ -1053,8 +1056,13 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
         """
         block_embeddings = [self._encode_block(block) for block in blocks]
         aggregated_embedding = self.aggregator.aggregate(block_embeddings)
+        # Normalise the fused embedding to unit RMS so the flow conditioner sees
+        # a consistently-scaled conditioning vector (the conv encoder never
+        # applied the _normalize_embedding it defines).
         return EncodedObservation(
-            embedding=_resize_embedding(aggregated_embedding, self.embedding_dim),
+            embedding=_normalize_embedding(
+                _resize_embedding(aggregated_embedding, self.embedding_dim)
+            ),
             mask=None,
             metadata={
                 "n_blocks": len(blocks),

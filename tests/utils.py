@@ -1043,7 +1043,7 @@ def check_partial_cloud_coverage_full_consistency(
 
 def get_cloud_parameters(mass_fraction_type, filling_species=None):
     mass_fractions = copy.deepcopy(test_parameters[mass_fraction_type])
-    cloud_particles_mean_radii = {}
+    cloud_particle_mean_radii = {}
     cloud_f_sed = {}
     cloud_particle_radius_distribution_std = None
     cloud_b_hansen = {}
@@ -1052,7 +1052,7 @@ def get_cloud_parameters(mass_fraction_type, filling_species=None):
         "cloud_species"
     ].items():
         mass_fractions[cloud] = parameters["mass_fraction"]
-        cloud_particles_mean_radii[cloud] = parameters["radius"]
+        cloud_particle_mean_radii[cloud] = parameters["radius"]
         cloud_f_sed[cloud] = parameters["f_sed"]
         cloud_b_hansen = parameters["b_hansen"]
 
@@ -1066,7 +1066,7 @@ def get_cloud_parameters(mass_fraction_type, filling_species=None):
 
     return (
         mass_fractions,
-        cloud_particles_mean_radii,
+        cloud_particle_mean_radii,
         cloud_f_sed,
         cloud_particle_radius_distribution_std,
         cloud_b_hansen,

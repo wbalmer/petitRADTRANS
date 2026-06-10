@@ -48,8 +48,6 @@ from petitRADTRANS.radtrans import (
 )
 from petitRADTRANS.validation import (
     _UNSET,
-    _normalize_deprecated_cloud_particle_arguments,
-    _normalize_deprecated_cloud_particle_parameter_keys,
 )
 from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
 from petitRADTRANS.utils import (
@@ -423,10 +421,6 @@ class SpectralModel(Radtrans):
         spectral_modification_functions_map=None,
         **model_parameters,
     ):
-        model_parameters = _normalize_deprecated_cloud_particle_parameter_keys(
-            model_parameters
-        )
-
         if radial_velocity_semi_amplitude_function is None:
             radial_velocity_semi_amplitude_function = (
                 self.compute_radial_velocity_semi_amplitude
@@ -1515,35 +1509,6 @@ class SpectralModel(Radtrans):
         **kwargs,
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_flux function."""
-        normalized_cloud_particle_arguments = _normalize_deprecated_cloud_particle_arguments(
-            cloud_particle_mean_radii=cloud_particle_mean_radii,
-            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
-            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
-            cloud_particles_mean_radii=kwargs.get("cloud_particles_mean_radii", _UNSET),
-            cloud_particles_radius_distribution_std=kwargs.get(
-                "cloud_particles_radius_distribution_std", _UNSET
-            ),
-            cloud_particles_radius_distribution=kwargs.get(
-                "cloud_particles_radius_distribution", _UNSET
-            ),
-            cloud_particles_number_density_grid=kwargs.get(
-                "cloud_particles_number_density_grid", _UNSET
-            ),
-        )
-        cloud_particle_mean_radii = normalized_cloud_particle_arguments[
-            "cloud_particle_mean_radii"
-        ]
-        cloud_particle_radius_distribution_std = normalized_cloud_particle_arguments[
-            "cloud_particle_radius_distribution_std"
-        ]
-        cloud_particle_radius_distribution = normalized_cloud_particle_arguments[
-            "cloud_particle_radius_distribution"
-        ]
-        cloud_particle_number_density_grid = normalized_cloud_particle_arguments[
-            "cloud_particle_number_density_grid"
-        ]
-
         _ = kwargs  # kwargs is not otherwise used in this function, this is intended
 
         self.wavelengths, self.fluxes, additional_outputs = self.calculate_flux(
@@ -1952,35 +1917,6 @@ class SpectralModel(Radtrans):
         **kwargs,
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_transit_radii function."""
-        normalized_cloud_particle_arguments = _normalize_deprecated_cloud_particle_arguments(
-            cloud_particle_mean_radii=cloud_particle_mean_radii,
-            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
-            cloud_particle_radius_distribution=cloud_particle_radius_distribution,
-            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
-            cloud_particles_mean_radii=kwargs.get("cloud_particles_mean_radii", _UNSET),
-            cloud_particles_radius_distribution_std=kwargs.get(
-                "cloud_particles_radius_distribution_std", _UNSET
-            ),
-            cloud_particles_radius_distribution=kwargs.get(
-                "cloud_particles_radius_distribution", _UNSET
-            ),
-            cloud_particles_number_density_grid=kwargs.get(
-                "cloud_particles_number_density_grid", _UNSET
-            ),
-        )
-        cloud_particle_mean_radii = normalized_cloud_particle_arguments[
-            "cloud_particle_mean_radii"
-        ]
-        cloud_particle_radius_distribution_std = normalized_cloud_particle_arguments[
-            "cloud_particle_radius_distribution_std"
-        ]
-        cloud_particle_radius_distribution = normalized_cloud_particle_arguments[
-            "cloud_particle_radius_distribution"
-        ]
-        cloud_particle_number_density_grid = normalized_cloud_particle_arguments[
-            "cloud_particle_number_density_grid"
-        ]
-
         _ = kwargs  # kwargs is not otherwise used in this function, this is intended
 
         self.wavelengths, self.transit_radii, additional_outputs = (
@@ -2768,36 +2704,9 @@ class SpectralModel(Radtrans):
         metallicity=None,
         guillot_temperature_profile_gamma=0.4,
         guillot_temperature_profile_infrared_mean_opacity_solar_metallicity=0.01,
-        guillot_temperature_profile_kappa_ir_z0=None,
         **kwargs,
     ):
-        # TODO deprecated: remove guillot_temperature_profile_kappa_ir_z0 in version 4
         _ = kwargs  # kwargs is not used in this function, this is intended
-
-        if guillot_temperature_profile_kappa_ir_z0 is not None:
-            warnings.warn(
-                "'guillot_temperature_profile_kappa_ir_z0' is deprecated "
-                "and will be removed in a future update. "
-                "Use 'guillot_temperature_profile_infrared_mean_opacity_solar_metallicity' instead",
-                FutureWarning,
-            )
-
-            if (
-                guillot_temperature_profile_infrared_mean_opacity_solar_metallicity
-                != 0.01
-                and guillot_temperature_profile_kappa_ir_z0
-                != guillot_temperature_profile_infrared_mean_opacity_solar_metallicity
-            ):
-                raise SyntaxError(
-                    f"different values for alias keywords: "
-                    f"guillot_temperature_profile_infrared_mean_opacity_solar_metallicity "
-                    f"({guillot_temperature_profile_infrared_mean_opacity_solar_metallicity}), "
-                    f"guillot_temperature_profile_kappa_ir_z0 ({guillot_temperature_profile_kappa_ir_z0})"
-                )
-
-            guillot_temperature_profile_infrared_mean_opacity_solar_metallicity = (
-                guillot_temperature_profile_kappa_ir_z0
-            )
 
         SpectralModel.__check_none_model_parameters(
             explanation_message_="Required for calculating the temperature profile",
@@ -3436,10 +3345,6 @@ class SpectralModel(Radtrans):
         if self.model_parameters is not None:
             for parameter in self.model_parameters:
                 model_parameters[parameter] = self.model_parameters[parameter]
-
-        model_parameters = _normalize_deprecated_cloud_particle_parameter_keys(
-            model_parameters
-        )
 
         # Initialize the modification parameters dict
         model_parameters["modification_arguments"] = {}

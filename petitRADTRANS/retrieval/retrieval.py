@@ -286,6 +286,7 @@ class Retrieval:
         uncertainties_mode: str = "default",
         print_log_likelihood_for_debugging: bool = False,
         generate_mock_data: bool = False,
+        compilation_cache_dir: str | bool | None = None,
     ):
         self.configuration = configuration
 
@@ -309,6 +310,8 @@ class Retrieval:
         self.print_log_likelihood_for_debugging = print_log_likelihood_for_debugging
         self.generate_mock_data = generate_mock_data
         self.output_directory = output_directory
+
+        self._configure_compilation_cache(compilation_cache_dir)
 
         self.corner_files = corner_plot_names
         if self.corner_files is None:
@@ -378,6 +381,51 @@ class Retrieval:
             self.generate_retrieval_summary(None)
         except (ValueError, FileNotFoundError) as e:
             print(f"Could not generate initial summary file! Error was: {str(e)}")
+
+    def _configure_compilation_cache(self, compilation_cache_dir):
+        """Enable a shared on-disk XLA compilation cache for this retrieval.
+
+        Compiling a differentiable forward model can take minutes. Sequential
+        multi-chain runs and freshly spawned chain workers otherwise recompile it
+        from scratch every time, because each sampler run clears the in-memory
+        cache to free device memory after it finishes. Pointing JAX at a
+        persistent on-disk cache turns those recompiles into cache reads.
+
+        ``compilation_cache_dir`` selects the location:
+
+        * ``None`` (default): use ``{output_directory}/.jax_cache``.
+        * a path string: use that directory.
+        * ``False``: leave JAX's cache configuration untouched.
+
+        A cache directory already configured by the user (for example in a launch
+        script) is always respected and never overridden. The whole step is
+        best-effort: a failure to configure the cache only emits a warning.
+        """
+        if compilation_cache_dir is False:
+            return
+
+        import jax
+
+        # Respect a cache directory the user already configured.
+        if getattr(jax.config, "jax_compilation_cache_dir", None):
+            return
+
+        if compilation_cache_dir is None:
+            compilation_cache_dir = os.path.join(self.output_directory, ".jax_cache")
+
+        try:
+            os.makedirs(compilation_cache_dir, exist_ok=True)
+            jax.config.update("jax_compilation_cache_dir", compilation_cache_dir)
+            # Persist even cheap/small entries so every recompile is avoided, not
+            # just the expensive ones above JAX's default thresholds.
+            jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
+            jax.config.update("jax_persistent_cache_min_entry_size_bytes", 0)
+        except Exception as error:  # noqa: BLE001 - cache is best-effort
+            warnings.warn(
+                f"Could not configure the JAX compilation cache at "
+                f"'{compilation_cache_dir}': {error}",
+                RuntimeWarning,
+            )
 
     def _check_errors(self):
         data_are_valid = self._data_are_valid()
@@ -3418,8 +3466,10 @@ class Retrieval:
         chains_to_run = [c for c in range(num_chains) if c not in set(already_done)]
 
         if execution in (multichain.ChainExecution.VECTORISED, multichain.ChainExecution.SHARDED):
-            # In-process device-parallel run: the sampler pools the chains itself.
-            # (Per-chain artifacts/diagnostics for these modes are a later phase.)
+            # In-process device-parallel run: the sampler pools the chains itself
+            # into one archive. We then split that pooled archive back into its
+            # per-chain blocks to compute split-R-hat / ESS and write the same
+            # <base_name>_combined artifacts as the per-chain paths.
             configuration = config_builder()
             retrieval = cls(
                 configuration,
@@ -3427,19 +3477,47 @@ class Retrieval:
                 **(retrieval_kwargs or {}),
             )
             retrieval.run(num_chains=num_chains, seed=chain_seed, **run_kwargs)
+
+            combine_summary = None
+            diagnostics = None
+            if combine and family == "mcmc":
+                try:
+                    combine_summary = multichain.combine_in_process_mcmc_chains(
+                        output_directory,
+                        sampler_type,
+                        base_name,
+                        num_chains,
+                        write=True,
+                        rhat_threshold=rhat_threshold,
+                    )
+                    diagnostics = combine_summary.diagnostics
+                    retrieval._chain_diagnostics = diagnostics
+                except (FileNotFoundError, ValueError, KeyError) as error:
+                    warnings.warn(
+                        f"In-process multi-chain combine failed: {error}",
+                        RuntimeWarning,
+                    )
             if verbose:
-                print(
-                    f"  ran {num_chains} chains in-process ('{execution}'); the "
-                    "sampler pooled them. Combine/diagnostics for in-process modes "
-                    "are not yet available."
-                )
+                if diagnostics is not None:
+                    print(
+                        f"  ran {num_chains} chains in-process ('{execution}'); "
+                        f"combined -> '{combine_summary.combined_name}': "
+                        f"{diagnostics['n_samples_total']} samples; max R-hat="
+                        f"{diagnostics['max_rhat']:.4f} "
+                        f"converged={diagnostics['converged']}"
+                    )
+                else:
+                    print(
+                        f"  ran {num_chains} chains in-process ('{execution}'); "
+                        "the sampler pooled them."
+                    )
             return {
                 "execution": execution,
                 "num_chains": num_chains,
                 "succeeded_chain_ids": list(range(num_chains)),
                 "failed": {},
-                "combine": None,
-                "diagnostics": None,
+                "combine": combine_summary,
+                "diagnostics": diagnostics,
             }
 
         if execution == multichain.ChainExecution.SEQUENTIAL:
@@ -4775,27 +4853,6 @@ class Retrieval:
         _, prior_model, _ = self._build_jaxns_sampler_interface()
         return (yield from prior_model())
 
-    def _build_ultranest_sampler_interface(self, vectorized: bool = False):
-        if not vectorized:
-            return self.log_likelihood, self.prior_ultranest
-
-        parameter_layout = self._get_parameter_layout()
-        runtime = self._get_runtime()
-
-        def prior_transform(cube):
-            return parameter_layout.prior_transform_numpy(cube)
-
-        def log_likelihood_batch(physical_positions):
-            return np.asarray(
-                runtime.evaluate_jax_batched(
-                    free_parameter_values=physical_positions,
-                    uncertainties_mode=self.uncertainties_mode,
-                    print_log_likelihood_for_debugging=False,
-                )
-            )
-
-        return log_likelihood_batch, prior_transform
-
     def _build_sampler_context(self) -> SamplerContext:
         """Build a SamplerContext from the current Retrieval state."""
         parameter_layout = self._get_parameter_layout()
@@ -4916,164 +4973,6 @@ class Retrieval:
 
     def _build_blackjax_logdensity_interface(self):
         return self._build_unconstrained_mcmc_interface()
-
-    def _build_blackjax_sampler_kwargs(
-        self,
-        sampler_kwargs: dict,
-        *,
-        free_parameter_names: list[str],
-        initial_position,
-        log_jacobian,
-        algorithm_name: str,
-    ) -> dict:
-        blackjax_kwargs = {
-            "initial_position": sampler_kwargs.pop(
-                "initial_position", initial_position
-            ),
-            "parameter_names": sampler_kwargs.pop(
-                "parameter_names", free_parameter_names
-            ),
-            "num_samples": sampler_kwargs.pop("num_samples", 1000),
-            "num_warmup": sampler_kwargs.pop(
-                "num_warmup", sampler_kwargs.pop("num_burnin", 1000)
-            ),
-            "initial_step_size": sampler_kwargs.pop("initial_step_size", 1.0),
-            "target_acceptance_rate": sampler_kwargs.pop("target_acceptance_rate", 0.8),
-            "is_mass_matrix_diagonal": sampler_kwargs.pop(
-                "is_mass_matrix_diagonal", True
-            ),
-            "progress_bar": sampler_kwargs.pop("progress_bar", False),
-            "seed": sampler_kwargs.pop("seed", 42654),
-            "use_jit": sampler_kwargs.pop("use_jit", True),
-            "log_jacobian_fn": log_jacobian,
-        }
-        if algorithm_name == "hmc":
-            blackjax_kwargs["num_integration_steps"] = sampler_kwargs.pop(
-                "num_integration_steps", 20
-            )
-        blackjax_kwargs.update(sampler_kwargs)
-        return blackjax_kwargs
-
-    def _build_numpyro_sampler_kwargs(
-        self,
-        sampler_kwargs: dict,
-        *,
-        free_parameter_names: list[str],
-        initial_position,
-        log_jacobian,
-        algorithm_name: str,
-    ) -> dict:
-        numpyro_kwargs = {
-            "initial_position": sampler_kwargs.pop(
-                "initial_position", initial_position
-            ),
-            "parameter_names": sampler_kwargs.pop(
-                "parameter_names", free_parameter_names
-            ),
-            "num_samples": sampler_kwargs.pop("num_samples", 1000),
-            "num_warmup": sampler_kwargs.pop(
-                "num_warmup", sampler_kwargs.pop("num_burnin", 1000)
-            ),
-            "initial_step_size": sampler_kwargs.pop("initial_step_size", 1.0),
-            "target_acceptance_rate": sampler_kwargs.pop("target_acceptance_rate", 0.8),
-            "is_mass_matrix_diagonal": sampler_kwargs.pop(
-                "is_mass_matrix_diagonal", True
-            ),
-            "progress_bar": sampler_kwargs.pop("progress_bar", False),
-            "seed": sampler_kwargs.pop("seed", 42654),
-            "use_jit": sampler_kwargs.pop("use_jit", True),
-            "log_jacobian_fn": log_jacobian,
-            "num_chains": sampler_kwargs.pop("num_chains", 1),
-            "thinning": sampler_kwargs.pop("thinning", 1),
-            "chain_method": sampler_kwargs.pop("chain_method", "parallel"),
-        }
-
-        if algorithm_name == "hmc":
-            numpyro_num_steps = sampler_kwargs.pop("num_integration_steps", None)
-            if numpyro_num_steps is None:
-                numpyro_num_steps = sampler_kwargs.pop("num_steps", None)
-            if numpyro_num_steps is None and "trajectory_length" not in sampler_kwargs:
-                numpyro_num_steps = 20
-            if numpyro_num_steps is not None:
-                numpyro_kwargs["num_steps"] = numpyro_num_steps
-
-        numpyro_kwargs.update(sampler_kwargs)
-        return numpyro_kwargs
-
-    @staticmethod
-    def _build_ultranest_summary_parameters(
-        *,
-        sampler_type: str,
-        parameter_names: list[str],
-        vectorized: bool,
-    ) -> dict:
-        return {
-            "sampler_type": sampler_type,
-            "parameter_names": parameter_names,
-            "vectorized": vectorized,
-        }
-
-    @staticmethod
-    def _build_blackjax_summary_parameters(
-        *,
-        sampler_type: str,
-        sampler_kwargs: dict,
-    ) -> dict:
-        summary_parameters = {
-            "sampler_type": sampler_type,
-            "num_samples": sampler_kwargs["num_samples"],
-            "num_warmup": sampler_kwargs["num_warmup"],
-            "initial_step_size": sampler_kwargs["initial_step_size"],
-            "target_acceptance_rate": sampler_kwargs["target_acceptance_rate"],
-            "is_mass_matrix_diagonal": sampler_kwargs["is_mass_matrix_diagonal"],
-            "seed": sampler_kwargs["seed"],
-            "use_jit": sampler_kwargs["use_jit"],
-        }
-        if "num_integration_steps" in sampler_kwargs:
-            summary_parameters["num_integration_steps"] = sampler_kwargs[
-                "num_integration_steps"
-            ]
-        return summary_parameters
-
-    @staticmethod
-    def _build_numpyro_summary_parameters(
-        *,
-        sampler_type: str,
-        sampler_kwargs: dict,
-    ) -> dict:
-        summary_parameters = {
-            "sampler_type": sampler_type,
-            "num_samples": sampler_kwargs["num_samples"],
-            "num_warmup": sampler_kwargs["num_warmup"],
-            "initial_step_size": sampler_kwargs["initial_step_size"],
-            "target_acceptance_rate": sampler_kwargs["target_acceptance_rate"],
-            "is_mass_matrix_diagonal": sampler_kwargs["is_mass_matrix_diagonal"],
-            "num_chains": sampler_kwargs["num_chains"],
-            "thinning": sampler_kwargs["thinning"],
-            "chain_method": sampler_kwargs["chain_method"],
-            "seed": sampler_kwargs["seed"],
-            "use_jit": sampler_kwargs["use_jit"],
-        }
-        if "num_steps" in sampler_kwargs:
-            summary_parameters["num_integration_steps"] = sampler_kwargs["num_steps"]
-        if "trajectory_length" in sampler_kwargs:
-            summary_parameters["trajectory_length"] = sampler_kwargs[
-                "trajectory_length"
-            ]
-        return summary_parameters
-
-    @staticmethod
-    def _build_jaxns_summary_parameters(
-        *,
-        sampler_type: str,
-        sampler_kwargs: dict,
-        parameter_names: list[str],
-    ) -> dict:
-        return {
-            **sampler_kwargs,
-            "sampler_type": sampler_type,
-            "parameter_names": parameter_names,
-        }
 
     def run(self, sampler_object: Sampler = None, **sampler_kwargs):
         """

@@ -37,9 +37,7 @@ class _PosteriorModel(eqx.Module):
     encoder: HierarchicalObservationEncoder
     flow: Any
     scale_head: eqx.nn.Linear
-    parameter_head: eqx.nn.MLP
     aux_scale_loss_weight: float = eqx.field(static=True)
-    aux_parameter_loss_weight: float = eqx.field(static=True)
     spline_small_bin_regularization_weight: float = eqx.field(static=True)
     spline_derivative_regularization_weight: float = eqx.field(static=True)
     spline_min_bin_ratio_target: float = eqx.field(static=True)
@@ -1057,11 +1055,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         checkpoint_backend: str = "auto",
         resume_from_checkpoint: bool = False,
         gradient_clip_norm: float | None = 1.0,
-        embedding_noise_std: float = 0.0,
-        embedding_noise_min_scale: float = 0.0,
         aux_scale_loss_weight: float = 0.0,
-        aux_parameter_loss_weight: float = 0.0,
-        parameter_noise_floor: float = 0.0,
         spline_small_bin_regularization_weight: float | None = None,
         spline_min_bin_ratio_target: float = 0.2,
         spline_entropy_regularization_weight: float = 0.0,
@@ -1153,11 +1147,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.checkpoint_backend = checkpoint_backend
         self.resume_from_checkpoint = bool(resume_from_checkpoint)
         self.gradient_clip_norm = gradient_clip_norm
-        self.embedding_noise_std = float(embedding_noise_std)
-        self.embedding_noise_min_scale = float(embedding_noise_min_scale)
         self.aux_scale_loss_weight = float(aux_scale_loss_weight)
-        self.aux_parameter_loss_weight = float(aux_parameter_loss_weight)
-        self.parameter_noise_floor = float(parameter_noise_floor)
         self.spline_entropy_regularization_weight = float(
             spline_entropy_regularization_weight
         )
@@ -1230,12 +1220,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             raise ValueError("autoregressive_transform_units must be positive")
         if self.neural_autoregressive_min_slope <= 0.0:
             raise ValueError("neural_autoregressive_min_slope must be positive")
-        if self.embedding_noise_min_scale < 0.0:
-            raise ValueError("embedding_noise_min_scale must be non-negative")
-        if self.aux_parameter_loss_weight < 0.0:
-            raise ValueError("aux_parameter_loss_weight must be non-negative")
-        if self.parameter_noise_floor < 0.0:
-            raise ValueError("parameter_noise_floor must be non-negative")
         if self.warmup_epochs is not None and self.warmup_epochs < 0.0:
             raise ValueError("warmup_epochs must be non-negative when provided")
         if (
@@ -1274,8 +1258,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         ):
             raise ValueError("stable_cube_edge_hit_rate_threshold must be non-negative")
 
-        encoder_key, flow_key, scale_key, parameter_head_key = random.split(
-            random.PRNGKey(self.seed), 4
+        encoder_key, flow_key, scale_key = random.split(
+            random.PRNGKey(self.seed), 3
         )
         self.model = _PosteriorModel(
             encoder=HierarchicalObservationEncoder(
@@ -1295,22 +1279,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 key=scale_key,
                 dtype=jnp.float32,
             ),
-            # Auxiliary head that predicts the (cube-space) parameters directly
-            # from the observation embedding. Its gradient flows only into the
-            # encoder, pressuring the embedding to retain parameter-discriminative
-            # spectral-shape information instead of collapsing to an
-            # amplitude-only summary. The flow itself is still trained purely on
-            # the NPE log-likelihood, so posterior calibration is preserved.
-            parameter_head=eqx.nn.MLP(
-                in_size=self.embedding_dim,
-                out_size=self.parameter_dim,
-                width_size=self.encoder_hidden_dim,
-                depth=2,
-                key=parameter_head_key,
-                dtype=jnp.float32,
-            ),
             aux_scale_loss_weight=self.aux_scale_loss_weight,
-            aux_parameter_loss_weight=self.aux_parameter_loss_weight,
             spline_small_bin_regularization_weight=self.spline_small_bin_regularization_weight,
             spline_derivative_regularization_weight=self.spline_derivative_regularization_weight,
             spline_min_bin_ratio_target=self.spline_min_bin_ratio_target,
@@ -1476,23 +1445,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 + model.spline_small_bin_regularization_weight * small_bin_penalty
                 + model.spline_derivative_regularization_weight * derivative_penalty
             )
-
-        # Auxiliary parameter-prediction objective. Predicting the cube-space
-        # parameters from the embedding gives a dense, per-parameter gradient
-        # that forces the encoder to encode the spectral shape (not just the
-        # amplitude). This breaks the lazy-learning trap where the flow settles
-        # for constraining the overall transit depth and returns the prior for
-        # every shape-driven parameter. Only meaningful in cube space, where the
-        # targets lie in [0, 1].
-        if model.aux_parameter_loss_weight > 0.0 and parameter_space == "cube":
-            cube_targets = jnp.clip(parameters, 0.0, 1.0)
-            parameter_predictions = vmap(
-                lambda embedding: nn.sigmoid(model.parameter_head(embedding))
-            )(embeddings)
-            parameter_loss = jnp.mean(
-                jnp.sum(jnp.square(parameter_predictions - cube_targets), axis=-1)
-            )
-            total_loss = total_loss + model.aux_parameter_loss_weight * parameter_loss
 
         if model.aux_scale_loss_weight <= 0.0:
             return total_loss
@@ -1694,61 +1646,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         return diagnostics
 
     @staticmethod
-    def _make_parameter_noise_loss(
-        base_loss_fn: Callable[[_PosteriorModel, PosteriorBatch], jnp.ndarray],
-        noise_floor: float,
-        parameter_space: str,
-    ) -> Callable[[_PosteriorModel, PosteriorBatch], jnp.ndarray]:
-        """Wrap a training loss so the parameter *targets* are jittered.
-
-        Minimizing the conditional NLL in a very-low-noise regime with a highly
-        parameter-predictive embedding drives the learned conditional density
-        toward a delta (NLL -> -inf), which an over-sharp flow realizes as
-        exploded transforms (and, for spline flows, cube-edge collapse). A small
-        Gaussian jitter on the parameter targets gives the conditional a hard
-        minimum width, capping sharpness so the NLL has a finite minimum and the
-        flow's inverse stays well-conditioned.
-
-        The jitter is applied in *unconstrained* (logit) space -- the space the
-        flow actually models -- not in cube space. Additive cube-space noise is
-        asymmetric near the [0, 1] bounds: clipping piles jittered targets onto
-        the edges, and the cube->logit Jacobian rewards edge mass, so it
-        worsens the very edge-collapse it was meant to prevent. Jittering in
-        logit space is symmetric and boundary-free. Applied only during
-        training; evaluation and checkpoint selection use the clean targets.
-        """
-
-        def _loss(model: _PosteriorModel, batch: PosteriorBatch) -> jnp.ndarray:
-            if noise_floor <= 0.0 or parameter_space != "cube":
-                return base_loss_fn(model, batch)
-            parameters = jnp.asarray(batch.parameters, dtype=jnp.float32)
-            # Reproducible per-batch key derived from the batch contents, mirroring
-            # the spectrum-noise path so the jitter needs no external RNG state.
-            key = random.fold_in(
-                random.PRNGKey(1),
-                jnp.bitwise_xor(
-                    jax.lax.bitcast_convert_type(parameters[0, 0], jnp.int32),
-                    jax.lax.bitcast_convert_type(parameters[-1, -1], jnp.int32),
-                ),
-            )
-            noise = random.normal(key, shape=parameters.shape, dtype=parameters.dtype)
-            epsilon = _cube_epsilon(parameters.dtype)
-            clipped = jnp.clip(parameters, epsilon, 1.0 - epsilon)
-            unconstrained = jnp.log(clipped) - jnp.log1p(-clipped)
-            jittered_unconstrained = (
-                unconstrained + jnp.asarray(noise_floor, dtype=parameters.dtype) * noise
-            )
-            jittered = nn.sigmoid(jittered_unconstrained)
-            jittered_batch = PosteriorBatch(
-                parameters=jittered,
-                observations=batch.observations,
-                metadata=batch.metadata,
-            )
-            return base_loss_fn(model, jittered_batch)
-
-        return _loss
-
-    @staticmethod
     def _make_elbo_loss(
         log_likelihood_fn: Callable[[jnp.ndarray, Any], jnp.ndarray],
         parameter_space: str,
@@ -1868,215 +1765,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             return -jnp.mean(elbo)
 
         return _elbo_loss
-
-    @staticmethod
-    def _make_noisy_loss(
-        noise_std: float,
-        preprocessing_metadata: Any = None,
-        *,
-        noise_min_scale: float = 0.0,
-        include_spline_regularization: bool = True,
-    ) -> Callable[[_PosteriorModel, PosteriorBatch], jnp.ndarray]:
-        """Return a loss function that injects on-the-fly Gaussian noise into
-        the observation spectra before encoding.
-
-        For spectra preprocessed into a per-sample transformed value space,
-        the uncertainty channel is assumed to already be expressed in the same
-        transformed units as the value channel, so noise can be injected
-        directly from that channel. When preprocessing metadata is provided,
-        non-spectral blocks still reconstruct raw measurement uncertainties so
-        noise is injected at the correct physical scale in normalized-value
-        space. ``noise_std`` acts as a multiplier on the observational noise
-        level (1.0 = exact observational noise, >1 = regularising over-noise),
-        and ``noise_min_scale`` is treated as a minimum fraction of the
-        typical transformed uncertainty for the block rather than as an
-        absolute floor in normalized-value units.
-
-        When preprocessing metadata is unavailable, a flat Gaussian noise with
-        scale ``noise_std`` is applied as a fallback.
-        """
-
-        # Pre-compute per-block factors for reconstructing raw uncertainties
-        # from normalised values.  These are broadcast-safe scalars captured as
-        # compile-time constants by JAX.
-        _block_noise_params: list[tuple[Any, float]] = []
-        if preprocessing_metadata is not None:
-            for _bname, _bstats in preprocessing_metadata.blocks.items():
-                if _bstats.uncertainty_median_per_wl is not None:
-                    _unc_scale = np.asarray(
-                        _bstats.uncertainty_median_per_wl,
-                        dtype=np.float32,
-                    )
-                    _unc_scale = np.where(
-                        np.isfinite(_unc_scale) & (_unc_scale > 0.0),
-                        _unc_scale,
-                        float(
-                            _bstats.uncertainty_median
-                            if _bstats.uncertainty_median is not None
-                            and _bstats.uncertainty_median > 0
-                            else (
-                                _bstats.uncertainty_std
-                                if _bstats.uncertainty_std is not None
-                                and _bstats.uncertainty_std > 0
-                                else 1.0
-                            )
-                        ),
-                    )
-                else:
-                    _unc_scale = float(
-                        _bstats.uncertainty_median
-                        if _bstats.uncertainty_median is not None
-                        and _bstats.uncertainty_median > 0
-                        else (
-                            _bstats.uncertainty_std
-                            if _bstats.uncertainty_std is not None
-                            and _bstats.uncertainty_std > 0
-                            else 1.0
-                        )
-                    )
-
-                _value_scale = float(
-                    _bstats.value_iqr
-                    if _bstats.value_iqr is not None and _bstats.value_iqr > 0
-                    else (
-                        _bstats.value_std
-                        if _bstats.value_std is not None and _bstats.value_std > 0
-                        else (
-                            abs(_bstats.value_median)
-                            if _bstats.value_median is not None and abs(_bstats.value_median) > 0
-                            else 1.0
-                        )
-                    )
-                )
-                _block_noise_params.append((_unc_scale, _value_scale))
-
-        def _noisy_loss(
-            model: _PosteriorModel, batch: PosteriorBatch
-        ) -> jnp.ndarray:
-            parameters = jnp.asarray(batch.parameters, dtype=jnp.float32)
-            observations = batch.observations
-
-            def _relative_noise_floor(scale: jnp.ndarray) -> jnp.ndarray:
-                scale = jnp.asarray(scale, dtype=jnp.float32)
-                finite_positive = jnp.isfinite(scale) & (scale > 0.0)
-                safe_scale = jnp.where(finite_positive, scale, 0.0)
-                reference_scale = jnp.sum(safe_scale, axis=-1, keepdims=True) / jnp.maximum(
-                    jnp.sum(finite_positive, axis=-1, keepdims=True),
-                    1.0,
-                )
-                return jnp.asarray(noise_min_scale, dtype=jnp.float32) * reference_scale
-
-            # Derive a noise key from the batch content so each step gets
-            # unique but reproducible noise without needing external state.
-            key = random.fold_in(
-                random.PRNGKey(0),
-                jnp.bitwise_xor(
-                    jax.lax.bitcast_convert_type(
-                        parameters[0, 0], jnp.int32
-                    ),
-                    jax.lax.bitcast_convert_type(
-                        parameters[-1, -1], jnp.int32
-                    ),
-                ),
-            )
-
-            # Inject noise into spectral values before encoding.
-            from .observation import PreStackedObservations
-
-            if isinstance(observations, PreStackedObservations):
-                noisy_blocks = []
-                for block_idx, block_tuple in enumerate(observations.stacked_blocks):
-                    v, u, c, m = block_tuple[0], block_tuple[1], block_tuple[2], block_tuple[3]
-                    lmf = block_tuple[4] if len(block_tuple) > 4 else jnp.zeros(v.shape[0], dtype=v.dtype)
-                    sub_key = random.fold_in(key, block_idx)
-                    noise = random.normal(sub_key, shape=v.shape, dtype=v.dtype)
-                    modality = (
-                        observations.modalities[block_idx]
-                        if block_idx < len(observations.modalities)
-                        else None
-                    )
-                    updated_block = list(block_tuple)
-
-                    if modality == 'spectrum':
-                        safe_log_scale = jnp.where(jnp.isfinite(lmf), lmf, 0.0)
-                        sample_scale = jnp.maximum(
-                            jnp.power(jnp.asarray(10.0, dtype=v.dtype), safe_log_scale),
-                            jnp.asarray(1e-30, dtype=v.dtype),
-                        )
-                        if len(block_tuple) > 6:
-                            global_scale = jnp.asarray(block_tuple[6], dtype=v.dtype)
-                        else:
-                            global_scale = sample_scale
-                        global_scale = jnp.maximum(
-                            jnp.where(jnp.isfinite(global_scale), global_scale, sample_scale),
-                            jnp.asarray(1e-30, dtype=v.dtype),
-                        )
-                        spectral_noise_floor = _relative_noise_floor(jnp.abs(u))
-                        noise_scale = jnp.maximum(
-                            noise_std * jnp.abs(u),
-                            jnp.asarray(spectral_noise_floor, dtype=v.dtype),
-                        )
-                        v_noisy = v + noise_scale * noise
-                        updated_block[0] = v_noisy
-
-                        if len(block_tuple) > 5:
-                            absolute_values = jnp.asarray(block_tuple[5], dtype=v.dtype)
-                            raw_uncertainty = (
-                                jnp.abs(u)
-                                * global_scale[:, None]
-                                * jnp.cosh(v)
-                            )
-                            absolute_local_scale = sample_scale[:, None] * jnp.cosh(absolute_values)
-                            absolute_noise_scale = raw_uncertainty / jnp.maximum(
-                                absolute_local_scale,
-                                jnp.asarray(1e-30, dtype=v.dtype),
-                            )
-                            absolute_noise_floor = _relative_noise_floor(
-                                absolute_noise_scale
-                            )
-                            absolute_noise = jnp.maximum(
-                                noise_std * absolute_noise_scale,
-                                jnp.asarray(absolute_noise_floor, dtype=v.dtype),
-                            )
-                            updated_block[5] = absolute_values + absolute_noise * noise
-                    elif block_idx < len(_block_noise_params):
-                        # Reconstruct raw uncertainty from the normalized
-                        # uncertainty channel and convert it into the scale of
-                        # the normalized value channel.
-                        _unc_scale, _value_scale = _block_noise_params[block_idx]
-                        u_raw = u * jnp.asarray(_unc_scale, dtype=u.dtype)
-                        noise_scale = jnp.abs(u_raw) / jnp.asarray(_value_scale, dtype=u.dtype)
-                        noise_floor = _relative_noise_floor(noise_scale)
-                        effective_noise_scale = jnp.maximum(
-                            noise_std * noise_scale,
-                            jnp.asarray(noise_floor, dtype=v.dtype),
-                        )
-                        v_noisy = v + effective_noise_scale * noise
-                        updated_block[0] = v_noisy
-                    else:
-                        # Fallback: no preprocessing stats for this block.
-                        effective_noise_scale = jnp.asarray(
-                            max(float(noise_std), float(noise_min_scale)),
-                            dtype=v.dtype,
-                        )
-                        v_noisy = v + effective_noise_scale * noise
-                        updated_block[0] = v_noisy
-
-                    noisy_blocks.append(tuple(updated_block))
-                observations = PreStackedObservations(
-                    stacked_blocks=tuple(noisy_blocks),
-                    modalities=observations.modalities,
-                )
-
-            return ConditionalFlowPosterior._loss_from_observations(
-                model,
-                parameters,
-                observations,
-                str(batch.metadata.get("parameter_space", "physical")),
-                include_spline_regularization=include_spline_regularization,
-            )
-
-        return _noisy_loss
 
     def fit(
         self,
@@ -2232,22 +1920,13 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             selection_metric_name = "validation_selection_metric"
             stability_metric_fn = _elbo_stability_metrics
         else:
-            train_loss_fn = (
-                self._make_noisy_loss(
-                    self.embedding_noise_std,
-                    preprocessing_metadata,
-                    noise_min_scale=self.embedding_noise_min_scale,
-                    include_spline_regularization=True,
-                )
-                if self.embedding_noise_std > 0 or self.embedding_noise_min_scale > 0
-                else self._training_loss
-            )
-            if self.parameter_noise_floor > 0.0:
-                train_loss_fn = self._make_parameter_noise_loss(
-                    train_loss_fn,
-                    self.parameter_noise_floor,
-                    self.parameter_space,
-                )
+            # Observational noise is injected once, at simulation time
+            # (RuntimeSimulator). Re-injecting it here at training time would
+            # double the effective noise the encoder sees relative to the target
+            # observation, desensitising it to the true spectral signal -- so the
+            # training loss is the plain conditional NLL with no noise/floor
+            # augmentation.
+            train_loss_fn = self._training_loss
             eval_loss_fn = self._loss
             selection_metric_fn = _flow_validation_selection_metric
             selection_metric_name = "validation_selection_metric"
@@ -2329,8 +2008,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "checkpoint_backend": self.checkpoint_backend,
             "resume_from_checkpoint": self.resume_from_checkpoint,
             "aux_scale_loss_weight": self.aux_scale_loss_weight,
-            "aux_parameter_loss_weight": self.aux_parameter_loss_weight,
-            "parameter_noise_floor": self.parameter_noise_floor,
             "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
             "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
             "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -2341,8 +2018,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "weight_decay": self.weight_decay,
             "gradient_clip_norm": self.gradient_clip_norm,
             "use_cosine_schedule": self.use_cosine_schedule,
-            "embedding_noise_std": self.embedding_noise_std,
-            "embedding_noise_min_scale": self.embedding_noise_min_scale,
             "warmup_fraction": self.warmup_fraction,
             "warmup_epochs": self.warmup_epochs,
             "min_learning_rate": self.min_learning_rate,
@@ -2396,8 +2071,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "checkpoint_backend": self.checkpoint_backend,
                 "resume_from_checkpoint": self.resume_from_checkpoint,
                 "aux_scale_loss_weight": self.aux_scale_loss_weight,
-                "aux_parameter_loss_weight": self.aux_parameter_loss_weight,
-                "parameter_noise_floor": self.parameter_noise_floor,
                 "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
                 "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
                 "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -2408,8 +2081,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "weight_decay": self.weight_decay,
                 "gradient_clip_norm": self.gradient_clip_norm,
                 "use_cosine_schedule": self.use_cosine_schedule,
-                "embedding_noise_std": self.embedding_noise_std,
-                "embedding_noise_min_scale": self.embedding_noise_min_scale,
                 "warmup_fraction": self.warmup_fraction,
                 "warmup_epochs": self.warmup_epochs,
                 "min_learning_rate": self.min_learning_rate,
@@ -2486,8 +2157,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "resume_from_checkpoint": metadata.get("resume_from_checkpoint", False),
             "conditioner_depth": metadata.get("conditioner_depth", 2),
             "aux_scale_loss_weight": metadata.get("aux_scale_loss_weight", 0.0),
-            "aux_parameter_loss_weight": metadata.get("aux_parameter_loss_weight", 0.0),
-            "parameter_noise_floor": metadata.get("parameter_noise_floor", 0.0),
             "spline_small_bin_regularization_weight": small_bin_weight,
             "spline_min_bin_ratio_target": metadata.get("spline_min_bin_ratio_target", 0.2),
             "spline_entropy_regularization_weight": metadata.get(
@@ -2510,11 +2179,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "weight_decay": metadata.get("weight_decay", 0.0),
             "gradient_clip_norm": metadata.get("gradient_clip_norm", 1.0),
             "use_cosine_schedule": metadata.get("use_cosine_schedule", False),
-            "embedding_noise_std": metadata.get("embedding_noise_std", 0.0),
-            "embedding_noise_min_scale": metadata.get(
-                "embedding_noise_min_scale",
-                0.0,
-            ),
             "warmup_fraction": metadata.get("warmup_fraction", 0.02),
             "warmup_epochs": metadata.get("warmup_epochs"),
             "min_learning_rate": metadata.get("min_learning_rate", 1e-6),
@@ -2603,12 +2267,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             aux_scale_loss_weight=float(
                 estimator_config.get("aux_scale_loss_weight", 0.0)
             ),
-            aux_parameter_loss_weight=float(
-                estimator_config.get("aux_parameter_loss_weight", 0.0)
-            ),
-            parameter_noise_floor=float(
-                estimator_config.get("parameter_noise_floor", 0.0)
-            ),
             spline_small_bin_regularization_weight=float(
                 estimator_config.get(
                     "spline_small_bin_regularization_weight",
@@ -2633,12 +2291,6 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             ),
             weight_decay=float(estimator_config.get("weight_decay", 0.0)),
             gradient_clip_norm=estimator_config.get("gradient_clip_norm", 1.0),
-            embedding_noise_std=float(
-                estimator_config.get("embedding_noise_std", 0.0)
-            ),
-            embedding_noise_min_scale=float(
-                estimator_config.get("embedding_noise_min_scale", 0.0)
-            ),
             use_cosine_schedule=bool(estimator_config.get("use_cosine_schedule", False)),
             warmup_fraction=float(estimator_config.get("warmup_fraction", 0.02)),
             warmup_epochs=(
