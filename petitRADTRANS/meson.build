@@ -23,7 +23,6 @@ py.install_sources([
     'utils.py',
     'validation.py',
     '_input_data.py',
-    '__debug.py',
     '__setup_meson_build.py',
     '__init__.py',
     ],

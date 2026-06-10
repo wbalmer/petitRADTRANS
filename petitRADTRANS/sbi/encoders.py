@@ -239,6 +239,93 @@ def _amplitude_features(
     )
 
 
+# --- Robust amplitude/shape decomposition for the generic_v1 encoder ---------
+#
+# These are the JAX, differentiable, vmappable analogue of the per-spectrum
+# normalisation that conceptually belongs to preprocessing. They live here (next
+# to ``_within_spectrum_standardized``) rather than in the numpy-only
+# ``preprocessing.py`` because they must run *inside* the encoder forward pass,
+# which is vmapped over the training batch and differentiated. They are
+# observable-agnostic: only masked values + uncertainties + coordinates enter,
+# so the same code factors a transmission depth spectrum and an emission flux
+# spectrum (whose amplitude spans orders of magnitude -> captured by ``log(scale)``).
+_GENERIC_AMPLITUDE_DIM = 6
+
+
+def _robust_center_scale(
+    values: jnp.ndarray, valid: jnp.ndarray
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Per-spectrum robust center (median) and scale (MAD) over valid points."""
+    masked = jnp.where(valid > 0.0, values, jnp.nan)
+    center = jnp.nanmedian(masked)
+    mad = jnp.nanmedian(jnp.abs(masked - center))
+    center = jnp.where(jnp.isfinite(center), center, jnp.asarray(0.0, values.dtype))
+    # 1.4826 * MAD is a consistent std estimator for Gaussian noise.
+    scale = jnp.where(
+        jnp.isfinite(mad) & (mad > 0.0),
+        mad * jnp.asarray(1.4826, values.dtype),
+        jnp.asarray(1.0, values.dtype),
+    )
+    scale = jnp.maximum(scale, jnp.asarray(1e-6, values.dtype))
+    return center, scale
+
+
+def _normalized_coordinate_channel(
+    coordinates: jnp.ndarray, valid: jnp.ndarray
+) -> jnp.ndarray:
+    """Map the wavelength grid to [0, 1] over valid points (a positional channel)."""
+    masked = jnp.where(valid > 0.0, coordinates, jnp.nan)
+    lo = jnp.nanmin(masked)
+    hi = jnp.nanmax(masked)
+    lo = jnp.where(jnp.isfinite(lo), lo, jnp.asarray(0.0, coordinates.dtype))
+    hi = jnp.where(jnp.isfinite(hi), hi, jnp.asarray(1.0, coordinates.dtype))
+    span = jnp.maximum(hi - lo, jnp.asarray(1e-6, coordinates.dtype))
+    norm = (coordinates - lo) / span
+    return jnp.clip(norm, 0.0, 1.0).astype(jnp.float32) * valid
+
+
+def _generic_shape_tensor(
+    values: jnp.ndarray,
+    uncertainties: jnp.ndarray,
+    coordinates: jnp.ndarray,
+    valid: jnp.ndarray,
+    center: jnp.ndarray,
+    scale: jnp.ndarray,
+) -> jnp.ndarray:
+    """Amplitude-removed shape channels ``[(v-center)/scale, sigma/scale, lambda, mask]``."""
+    shape_v = ((values - center) / scale) * valid
+    shape_u = (jnp.abs(uncertainties) / scale) * valid
+    coordinate = _normalized_coordinate_channel(coordinates, valid)
+    return jnp.stack([shape_v, shape_u, coordinate, valid], axis=0).astype(jnp.float32)
+
+
+def _generic_amplitude_features(
+    values: jnp.ndarray,
+    uncertainties: jnp.ndarray,
+    valid: jnp.ndarray,
+    center: jnp.ndarray,
+    scale: jnp.ndarray,
+    log_scale: Any,
+) -> jnp.ndarray:
+    """Low-dim amplitude path: global log-scale + per-spectrum offset/scale/sign stats."""
+    count = jnp.maximum(jnp.sum(valid), jnp.asarray(1.0, valid.dtype))
+    valid_fraction = jnp.sum(valid) / jnp.asarray(max(int(valid.shape[0]), 1), valid.dtype)
+    positive_fraction = (
+        jnp.sum(((values > center).astype(valid.dtype)) * valid) / count
+    )
+    mean_uncertainty = (jnp.sum(jnp.abs(uncertainties) * valid) / count) / scale
+    return jnp.stack(
+        [
+            _scalar_feature(log_scale)[0],
+            center.astype(jnp.float32),
+            jnp.log(scale).astype(jnp.float32),
+            valid_fraction.astype(jnp.float32),
+            positive_fraction.astype(jnp.float32),
+            mean_uncertainty.astype(jnp.float32),
+        ]
+    ).astype(jnp.float32)
+
+
 class SpectralPatchEncoder(eqx.Module):
     """Learned spectral encoder based on patch summaries and MLP pooling.
 
@@ -774,6 +861,233 @@ class SpectralConv1DEncoder(eqx.Module):
         )
 
 
+class SpectralGenericEncoder(eqx.Module):
+    """Observable-agnostic spectral encoder that explicitly factors a spectrum
+    into *amplitude* and *shape*, so the network can never collapse to an
+    amplitude-only summary (the failure mode that left composition / temperature
+    / cloud marginals at the prior).
+
+    The spectrum is split into:
+
+    * **amplitude features** (low-dim): the global ``log(scale)`` plus the
+      per-spectrum robust center / scale / sign statistics. For emission this
+      carries the orders-of-magnitude flux scale; for transmission the baseline
+      transit depth.
+    * a **shape tensor** ``[(v-center)/scale, sigma/scale, normalized_lambda,
+      mask]`` with the amplitude divided out.
+
+    The shape tensor is encoded by a *dilated* 1-D convolution stack
+    (dilations 1, 2, 4, ...), giving a receptive field that spans the whole band
+    -- unlike the shallow kernel-7/5/3 stack whose ~13-bin field forced the old
+    encoder to fall back on amplitude. A learned-query attention pools the
+    per-wavelength features into a global shape embedding. Amplitude enters
+    through a separate, un-bottlenecked MLP, so the shape network never spends
+    capacity re-encoding amplitude. The two are concatenated, fused by an MLP,
+    and LayerNorm-normalised.
+
+    The constructor signature mirrors :class:`SpectralConv1DEncoder` so it is a
+    drop-in alternative selected by ``spectrum_encoder_type='generic_v1'``.
+    """
+
+    input_projection: eqx.nn.Conv1d
+    dilated_convs: tuple
+    attention_key: eqx.nn.Linear
+    attention_value: eqx.nn.Linear
+    attention_query: jnp.ndarray
+    amplitude_projection: eqx.nn.MLP
+    fusion: eqx.nn.MLP
+    norm: eqx.nn.LayerNorm
+    embedding_dim: int = eqx.field(static=True)
+    n_wavelengths: int = eqx.field(static=True)
+    channels: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        embedding_dim: int = 64,
+        n_wavelengths: int = 233,
+        channels: int = 64,
+        dilations: tuple[int, ...] = (1, 2, 4, 8, 16, 32),
+        key: Array | None = None,
+    ):
+        if key is None:
+            key = random.PRNGKey(0)
+
+        self.embedding_dim = int(embedding_dim)
+        self.n_wavelengths = int(n_wavelengths)
+        self.channels = int(channels)
+
+        keys = random.split(key, 5 + len(dilations))
+        # 4 shape channels -> channels.
+        self.input_projection = eqx.nn.Conv1d(
+            4, self.channels, kernel_size=1, key=keys[0], dtype=jnp.float32
+        )
+        self.dilated_convs = tuple(
+            eqx.nn.Conv1d(
+                self.channels,
+                self.channels,
+                kernel_size=3,
+                padding=dilation,
+                dilation=dilation,
+                key=keys[1 + index],
+                dtype=jnp.float32,
+            )
+            for index, dilation in enumerate(dilations)
+        )
+        attn_key_k = keys[1 + len(dilations)]
+        attn_val_k = keys[2 + len(dilations)]
+        amp_k = keys[3 + len(dilations)]
+        fusion_k = keys[4 + len(dilations)]
+        self.attention_key = eqx.nn.Linear(
+            self.channels, self.channels, key=attn_key_k, dtype=jnp.float32
+        )
+        self.attention_value = eqx.nn.Linear(
+            self.channels, self.channels, key=attn_val_k, dtype=jnp.float32
+        )
+        self.attention_query = (
+            0.02 * random.normal(amp_k, (self.channels,), dtype=jnp.float32)
+        )
+        self.amplitude_projection = eqx.nn.MLP(
+            _GENERIC_AMPLITUDE_DIM,
+            self.channels,
+            self.channels,
+            1,
+            key=amp_k,
+            dtype=jnp.float32,
+        )
+        self.fusion = eqx.nn.MLP(
+            2 * self.channels,
+            self.embedding_dim,
+            max(self.embedding_dim, self.channels),
+            2,
+            key=fusion_k,
+            dtype=jnp.float32,
+        )
+        self.norm = eqx.nn.LayerNorm(self.embedding_dim)
+
+    def _forward(
+        self,
+        values: jnp.ndarray,
+        uncertainties: jnp.ndarray,
+        coordinates: jnp.ndarray,
+        mask: jnp.ndarray,
+        log_median_flux: jnp.ndarray | None,
+    ) -> jnp.ndarray:
+        valid = (~mask).astype(jnp.float32)
+        center, scale = _robust_center_scale(values, valid)
+
+        shape = _generic_shape_tensor(
+            values, uncertainties, coordinates, valid, center, scale
+        )  # (4, n_wl)
+        features = self.input_projection(shape)  # (channels, n_wl)
+        for conv in self.dilated_convs:
+            features = features + jax.nn.gelu(conv(features))  # residual dilated conv
+        features = features * valid[None, :]
+
+        # Learned-query attention pooling over the wavelength axis: a global
+        # reduction that, unlike mean/max pooling, can focus on the informative
+        # band-heads anywhere in the spectrum.
+        per_wavelength = features.T  # (n_wl, channels)
+        keys_ = vmap(self.attention_key)(per_wavelength)  # (n_wl, channels)
+        values_ = vmap(self.attention_value)(per_wavelength)  # (n_wl, channels)
+        scores = (keys_ @ self.attention_query) / jnp.sqrt(
+            jnp.asarray(self.channels, dtype=jnp.float32)
+        )
+        scores = jnp.where(valid > 0.0, scores, jnp.asarray(-jnp.inf, dtype=scores.dtype))
+        weights = jax.nn.softmax(scores)
+        weights = jnp.where(jnp.isfinite(weights), weights, 0.0)
+        shape_embedding = jnp.sum(weights[:, None] * values_, axis=0)  # (channels,)
+
+        amplitude_embedding = jax.nn.gelu(
+            self.amplitude_projection(
+                _generic_amplitude_features(
+                    values, uncertainties, valid, center, scale, log_median_flux
+                )
+            )
+        )
+
+        fused = self.fusion(
+            _merge_embedding_branches(shape_embedding, amplitude_embedding)
+        )
+        return self.norm(fused)
+
+    def _pad_to_fixed(self, arr: jnp.ndarray) -> jnp.ndarray:
+        n = arr.shape[0]
+        if n == self.n_wavelengths:
+            return arr
+        if n > self.n_wavelengths:
+            return arr[: self.n_wavelengths]
+        return jnp.concatenate(
+            [arr, jnp.zeros(self.n_wavelengths - n, dtype=arr.dtype)]
+        )
+
+    def _prepare_arrays(
+        self,
+        values: jnp.ndarray,
+        uncertainties: jnp.ndarray,
+        coordinates: jnp.ndarray,
+        mask: jnp.ndarray,
+        n: int,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        values = self._pad_to_fixed(values)
+        uncertainties = (
+            jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
+            if uncertainties.shape[0] == 0
+            else self._pad_to_fixed(uncertainties)
+        )
+        coordinates = (
+            jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
+            if coordinates.shape[0] == 0
+            else self._pad_to_fixed(coordinates)
+        )
+        pad_mask = jnp.arange(self.n_wavelengths) >= n
+        mask = self._pad_to_fixed(mask.astype(jnp.float32)).astype(bool) | pad_mask
+        return values, uncertainties, coordinates, mask
+
+    def encode_block(self, block: ObservationBlock) -> jnp.ndarray:
+        """Encode one spectral observation block."""
+        values = _as_vector(block.values)
+        uncertainties = _as_vector(block.uncertainties)
+        coordinates = _as_vector(block.coordinates)
+        n = values.shape[0]
+        if n == 0:
+            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
+        mask = _safe_mask(block.mask, n)
+        values, uncertainties, coordinates, mask = self._prepare_arrays(
+            values, uncertainties, coordinates, mask, n
+        )
+        return self._forward(
+            values,
+            uncertainties,
+            coordinates,
+            mask,
+            _log_scale_from_metadata(block.metadata),
+        )
+
+    def _encode_block_raw(
+        self,
+        values: jnp.ndarray,
+        uncertainties: jnp.ndarray,
+        coordinates: jnp.ndarray,
+        mask: jnp.ndarray,
+        log_median_flux: jnp.ndarray | None = None,
+        absolute_values: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        """Encode pre-processed block arrays (vmappable — no ObservationBlock).
+
+        ``absolute_values`` is accepted for interface parity with
+        :class:`SpectralConv1DEncoder` but is unused: the robust decomposition is
+        computed directly from ``values``.
+        """
+        del absolute_values
+        n = values.shape[0]
+        if n == 0:
+            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
+        values, uncertainties, coordinates, mask = self._prepare_arrays(
+            values, uncertainties, coordinates, mask, n
+        )
+        return self._forward(values, uncertainties, coordinates, mask, log_median_flux)
+
+
 class PhotometryPointEncoder(eqx.Module):
     """Learned photometry encoder using per-point MLP features and pooling.
 
@@ -983,7 +1297,7 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
     currently fall back to resized raw-value vectors.
     """
 
-    spectrum_encoder: SpectralPatchEncoder | SpectralConv1DEncoder
+    spectrum_encoder: SpectralPatchEncoder | SpectralConv1DEncoder | SpectralGenericEncoder
     photometry_encoder: PhotometryPointEncoder
     aggregator: DatasetSetAggregator
     embedding_dim: int = eqx.field(static=True)
@@ -1004,7 +1318,11 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
 
         spectrum_key, photometry_key, aggregator_key = random.split(key, 3)
         self.embedding_dim = int(embedding_dim)
-        if spectrum_encoder_type == "conv1d":
+        if spectrum_encoder_type == "generic_v1":
+            self.spectrum_encoder = SpectralGenericEncoder(
+                spectrum_embedding_dim, n_wavelengths, key=spectrum_key
+            )
+        elif spectrum_encoder_type == "conv1d":
             self.spectrum_encoder = SpectralConv1DEncoder(
                 spectrum_embedding_dim, n_wavelengths, key=spectrum_key
             )
@@ -1218,5 +1536,6 @@ __all__ = [
     "HierarchicalObservationEncoder",
     "PhotometryPointEncoder",
     "SpectralConv1DEncoder",
+    "SpectralGenericEncoder",
     "SpectralPatchEncoder",
 ]

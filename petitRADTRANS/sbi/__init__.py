@@ -19,8 +19,10 @@ from .benchmark import (
 from .calibration import (
     LocalSensitivityPointReport,
     LocalSensitivityReport,
+    PosteriorInformativenessReport,
     PosteriorPredictiveReport,
     SimulationBasedCalibrationReport,
+    classify_posterior_informativeness,
     generate_local_sensitivity_report,
     generate_posterior_predictive_report,
     generate_sbc_report,
@@ -51,6 +53,15 @@ from .encoders import (
 
 # Posterior loading
 from .estimator_registry import load_posterior_estimator
+
+# Grouped configuration dataclasses + flow-posterior factory
+from .config import (
+    EncoderConfig,
+    FlowConfig,
+    StabilityConfig,
+    TrainingConfig,
+    build_conditional_flow_posterior,
+)
 
 # High-level inference entry point
 from .inference import AmortizedRetrieval, AmortizedRetrievalResult, OODDiagnostic
@@ -109,8 +120,11 @@ from .task import (
     SimulationConfig,
 )
 
-# Training
-from .training import EarlyStoppingConfig, SBITrainer, TrainingConfig
+# Training. NOTE: the trainer's internal ``TrainingConfig`` is intentionally not
+# re-exported here -- the public ``TrainingConfig`` is the grouped config
+# dataclass from ``.config``. The trainer one remains at
+# ``petitRADTRANS.sbi.training.TrainingConfig``.
+from .training import EarlyStoppingConfig, SBITrainer
 
 __all__ = [
     # Benchmarking
@@ -123,7 +137,9 @@ __all__ = [
     "LocalSensitivityReport",
     "OODDiagnostic",
     "PosteriorPredictiveReport",
+    "PosteriorInformativenessReport",
     "SimulationBasedCalibrationReport",
+    "classify_posterior_informativeness",
     "generate_local_sensitivity_report",
     "generate_posterior_predictive_report",
     "generate_sbc_report",
@@ -148,6 +164,11 @@ __all__ = [
     # Inference
     "AmortizedRetrieval",
     "AmortizedRetrievalResult",
+    "EncoderConfig",
+    "FlowConfig",
+    "StabilityConfig",
+    "TrainingConfig",
+    "build_conditional_flow_posterior",
     # Observations
     "ObservationBlock",
     "ObservationEncoder",
@@ -192,5 +213,4 @@ __all__ = [
     # Training
     "EarlyStoppingConfig",
     "SBITrainer",
-    "TrainingConfig",
 ]

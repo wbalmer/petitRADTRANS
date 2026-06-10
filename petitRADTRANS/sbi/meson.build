@@ -4,6 +4,7 @@ py.install_sources([
     'benchmark.py',
     'calibration.py',
     'compatibility.py',
+    'config.py',
     'dataset.py',
     'estimator_registry.py',
     'encoders.py',

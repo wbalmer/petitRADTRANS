@@ -12,11 +12,18 @@ from .calibration import (
     _posterior_space_to_physical,
     posterior_predictive_report_from_samples,
 )
+from .config import (
+    EncoderConfig,
+    FlowConfig,
+    StabilityConfig,
+    TrainingConfig,
+    build_conditional_flow_posterior,
+)
 from .observation import ObservationBlock
 from .posterior import PosteriorEstimator, PosteriorSamples
 from .preprocessing import TaskPreprocessingMetadata, normalize_observation_blocks
 from .simulator import RuntimeSimulator
-from .task import SBITask
+from .task import SBITask, SimulationConfig
 
 
 def _coerce_block_array(values: Any, target_size: int) -> np.ndarray | None:
@@ -134,6 +141,70 @@ class AmortizedRetrieval:
         self.preprocessing_metadata = self._resolve_preprocessing_metadata(
             preprocessing_metadata
         )
+
+    @classmethod
+    def from_retrieval_config(
+        cls,
+        retrieval_config: Any,
+        *,
+        n_wavelengths: int,
+        flow: FlowConfig | None = None,
+        encoder: EncoderConfig | None = None,
+        training: TrainingConfig | None = None,
+        stability: StabilityConfig | None = None,
+        simulation_config: SimulationConfig | None = None,
+        seed: int = 0,
+        checkpoint_directory: str | None = None,
+        verbose_diagnostics: bool = False,
+        diagnostics_output_directory: str | None = None,
+        task_metadata: Mapping[str, Any] | None = None,
+    ) -> "AmortizedRetrieval":
+        """Assemble an amortized retrieval from a ``RetrievalConfig`` + configs.
+
+        This collapses the former ``build_run_config`` / ``build_posterior_estimator``
+        ceremony into one call: it builds the :class:`SBITask` and an *untrained*
+        :class:`ConditionalFlowPosterior` from the grouped config dataclasses. Call
+        :meth:`fit` with a normalized simulation dataset reader to train, then
+        :meth:`infer` on an observation.
+
+        ``n_wavelengths`` is the number of spectral points per observation block
+        (e.g. ``int(numpy.size(data.wavelengths))``); it sizes the encoder.
+        """
+        task = SBITask.from_retrieval_config(
+            retrieval_config,
+            simulation_config=simulation_config,
+            metadata=task_metadata,
+        )
+        posterior = build_conditional_flow_posterior(
+            parameter_dim=len(task.parameter_names),
+            n_wavelengths=int(n_wavelengths),
+            flow=flow,
+            encoder=encoder,
+            training=training,
+            stability=stability,
+            seed=seed,
+            checkpoint_directory=checkpoint_directory,
+            verbose_diagnostics=verbose_diagnostics,
+            diagnostics_output_directory=diagnostics_output_directory,
+            task_metadata={"task_name": task.name},
+        )
+        return cls(task=task, posterior_estimator=posterior)
+
+    def fit(self, dataset: Any, **fit_kwargs: Any) -> "AmortizedRetrieval":
+        """Train the posterior estimator on a normalized simulation dataset reader.
+
+        Thin pass-through to ``posterior_estimator.fit`` so the common path reads
+        ``AmortizedRetrieval.from_retrieval_config(...).fit(reader).infer(obs)``.
+        Returns ``self`` for chaining. (Dataset generation + preprocessing remain
+        explicit, deliberately separate steps.)
+        """
+        self.posterior_estimator.fit(dataset, **fit_kwargs)
+        # The estimator may now expose preprocessing metadata recovered from the
+        # dataset; refresh so inference normalizes observations consistently.
+        self.preprocessing_metadata = self._resolve_preprocessing_metadata(
+            self.preprocessing_metadata
+        )
+        return self
 
     def _resolve_preprocessing_metadata(
         self,

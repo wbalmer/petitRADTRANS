@@ -1195,6 +1195,89 @@ def simulation_based_calibration_report(
     )
 
 
+@dataclass(frozen=True)
+class PosteriorInformativenessReport:
+    """Joint contraction + calibration verdict per parameter.
+
+    ``contraction`` is the ratio of the posterior 68% width to the prior 68%
+    width. On its own it is *misleading*: a posterior that has collapsed to a
+    narrow but wrong region has a tiny contraction yet is useless. Combining it
+    with the SBC normalized mean-rank error separates the three regimes.
+    """
+
+    parameter_names: list[str]
+    contraction: np.ndarray
+    sbc_normalized_rank_error: np.ndarray | None
+    verdict: list[str]
+
+
+def classify_posterior_informativeness(
+    contraction: Any,
+    sbc_normalized_rank_error: Any | None = None,
+    parameter_names: Sequence[str] | None = None,
+    *,
+    contraction_informative: float = 0.9,
+    contraction_overconfident: float = 0.1,
+    sbc_miscalibrated: float = 0.3,
+) -> PosteriorInformativenessReport:
+    """Classify each parameter by contraction *and* SBC calibration.
+
+    Verdicts:
+
+    * ``'uninformative'`` -- ``contraction >= contraction_informative``: the
+      marginal is effectively the prior.
+    * ``'overconfident'`` -- ``contraction <= contraction_overconfident`` **and**
+      the SBC normalized mean-rank error ``>= sbc_miscalibrated``: the posterior
+      collapsed to a narrow, miscalibrated region (confidently wrong). This is
+      exactly the failure a bare contraction metric mislabels as "constrained".
+    * ``'constrained'`` -- informative and (no SBC supplied, or SBC acceptable).
+    * ``'unknown'`` -- contraction not finite.
+
+    ``sbc_normalized_rank_error`` is optional; without it the function can only
+    distinguish informative from uninformative (an informative marginal is
+    reported as ``'constrained'`` but cannot be confirmed calibrated).
+    """
+    contraction_array = np.asarray(contraction, dtype=float)
+    sbc_array = (
+        None
+        if sbc_normalized_rank_error is None
+        else np.asarray(sbc_normalized_rank_error, dtype=float)
+    )
+    n = int(contraction_array.shape[0])
+    if parameter_names is None:
+        parameter_names = [f"param_{index}" for index in range(n)]
+    parameter_names = list(parameter_names)
+
+    verdict: list[str] = []
+    for index in range(n):
+        value = float(contraction_array[index])
+        sbc_error = (
+            None
+            if sbc_array is None or index >= sbc_array.shape[0]
+            else float(sbc_array[index])
+        )
+        if not np.isfinite(value):
+            verdict.append("unknown")
+        elif value >= contraction_informative:
+            verdict.append("uninformative")
+        elif (
+            value <= contraction_overconfident
+            and sbc_error is not None
+            and np.isfinite(sbc_error)
+            and sbc_error >= sbc_miscalibrated
+        ):
+            verdict.append("overconfident")
+        else:
+            verdict.append("constrained")
+
+    return PosteriorInformativenessReport(
+        parameter_names=parameter_names,
+        contraction=contraction_array,
+        sbc_normalized_rank_error=sbc_array,
+        verdict=verdict,
+    )
+
+
 def generate_sbc_report(
     posterior: Any,
     dataset_reader: NormalizedObservationDatasetReader,

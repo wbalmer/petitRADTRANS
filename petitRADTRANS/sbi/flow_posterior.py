@@ -50,6 +50,15 @@ _DIAGNOSTIC_EDGE_THRESHOLD = 1e-6
 _REGULARIZATION_TAIL_FRACTION = 0.25
 _DIAGNOSTIC_FLOOR_RELATIVE_TOLERANCE = 1.05
 
+# Loose invertibility/collapse thresholds for the ELBO checkpoint-stability gate.
+# Much looser than the NPE defaults (~0.03) because a reverse-KL flow does not
+# optimise the round trip, but tight enough to reject the collapsed flows
+# (round-trip error O(10), log-det closure O(100)) that produce overconfident,
+# miscalibrated posteriors.
+_ELBO_STABILITY_INVERSE_FORWARD_MAX_ABS_ERROR = 5.0
+_ELBO_STABILITY_LOGDET_CLOSURE_MAX_ABS_ERROR = 10.0
+_ELBO_STABILITY_CUBE_EDGE_HIT_RATE = 0.5
+
 
 def _cube_epsilon(dtype: Any) -> float:
     dtype = jnp.dtype(dtype)
@@ -1888,16 +1897,19 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 return float(_beta_start ** (1.0 - progress))
 
             loss_conditioning_schedule = _elbo_beta_schedule
-            # The NPE selection/stability machinery (forward<->inverse round-trip
-            # error, edge-hit and collapse gates) is meaningless for a
-            # reverse-KL-trained, sampling-only flow: the round-trip is never
-            # optimized, and the entropy term already makes density collapse
-            # structurally impossible, so those gates would (and did) mark every
-            # ELBO epoch "pathological", pinning selection to epoch 1 and
-            # triggering spurious early stopping. For ELBO we select on, and
-            # early-stop on, the validation ELBO itself; a checkpoint is only
-            # "pathological" if its loss is non-finite. Flow diagnostics
-            # (edge hits, invertibility) are still computed and logged.
+            # ELBO is reverse-KL trained, so the *tight* NPE invertibility/edge
+            # thresholds (which assume a forward-KL-optimised map) are too strict
+            # and would mark every epoch unstable, pinning selection to epoch 1.
+            # But a *catastrophically* broken flow -- a forward<->inverse round
+            # trip error of O(10) or a log-det closure error of O(100), which
+            # happens when the spline bins collapse -- still yields a degenerate,
+            # overconfident posterior whose samples are meaningless (observed as
+            # uniformly miscalibrated SBC when such a checkpoint was selected).
+            # The previous gate only checked loss finiteness and so selected those
+            # collapsed flows. ELBO therefore uses a LOOSE invertibility/collapse
+            # gate: it passes usable flows but disqualifies the collapsed ones from
+            # checkpoint selection (and the shared pathology gate, inverse_error >
+            # 0.1 etc., still bars them from resetting early-stop patience).
             def _elbo_selection_metric(
                 validation_loss: float, diagnostics: Mapping[str, float] | None
             ) -> float:
@@ -1910,11 +1922,17 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             def _elbo_stability_metrics(
                 validation_loss: float, diagnostics: Mapping[str, float] | None
             ) -> Mapping[str, float]:
-                finite = bool(np.isfinite(validation_loss))
-                return {
-                    "checkpoint_is_stable": 1.0 if finite else 0.0,
-                    "checkpoint_is_pathological": 0.0 if finite else 1.0,
-                }
+                return _flow_validation_stability_metrics(
+                    validation_loss,
+                    diagnostics,
+                    inverse_forward_max_abs_error_threshold=(
+                        _ELBO_STABILITY_INVERSE_FORWARD_MAX_ABS_ERROR
+                    ),
+                    inverse_forward_logdet_closure_max_abs_error_threshold=(
+                        _ELBO_STABILITY_LOGDET_CLOSURE_MAX_ABS_ERROR
+                    ),
+                    cube_edge_hit_rate_threshold=_ELBO_STABILITY_CUBE_EDGE_HIT_RATE,
+                )
 
             selection_metric_fn = _elbo_selection_metric
             selection_metric_name = "validation_selection_metric"
