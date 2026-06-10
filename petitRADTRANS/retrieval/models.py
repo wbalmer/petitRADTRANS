@@ -199,7 +199,7 @@ def _compute_gravity(physical_params, parameter_units=None):
     else:
         raise KeyError("Pick two of log_g, planet_radius and planet_mass priors!")
 
-    return gravity, planet_radius
+    return gravity, planet_radius * cst.r_jup_mean
 
 
 def _resolve_guillot_gamma(parameters):
