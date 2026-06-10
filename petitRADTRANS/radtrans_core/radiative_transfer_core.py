@@ -731,34 +731,35 @@ def _ng_accelerated_batched(
 
     Parameters
     ----------
-    tn, tn1, tn2, tn3 : jax.Array, shape (batch, n_layers)
-        Consecutive source-function iterates ordered from newest to oldest.
-    current_source : jax.Array, shape (batch, n_layers)
+    tn, tn1, tn2, tn3 : jax.Array, shape (n_layers, batch)
+        Consecutive source-function iterates ordered from newest to oldest,
+        in layer-major layout.
+    current_source : jax.Array, shape (n_layers, batch)
         Non-accelerated source update to keep when the Ng solve is ill-conditioned.
 
     Returns
     -------
-    jax.Array, shape (batch, n_layers)
-        Accelerated source function, or ``current_source`` for rows that fail the
-        numerical safeguards.
+    jax.Array, shape (n_layers, batch)
+        Accelerated source function, or ``current_source`` for columns that fail
+        the numerical safeguards.
     """
     Q1 = tn - 2.0 * tn1 + tn2
     Q2 = tn - tn1 - tn2 + tn3
     Q3 = tn - tn1
 
-    # Zero boundary on first element
-    Q1 = Q1.at[:, 0].set(0.0)
-    Q2 = Q2.at[:, 0].set(0.0)
-    Q3 = Q3.at[:, 0].set(0.0)
+    # Zero boundary on first layer
+    Q1 = Q1.at[0, :].set(0.0)
+    Q2 = Q2.at[0, :].set(0.0)
+    Q3 = Q3.at[0, :].set(0.0)
 
     # 5 explicit dot products instead of a full 3x3 Gram matmul.
     # Only G[0,0], G[1,0], G[1,1], G[0,2], G[1,2] are used; the other
     # four entries of the symmetric matrix are never read.
-    A1 = jnp.minimum(jnp.einsum("bl,bl->b", Q1, Q1), HUGE_SQRT)
-    A2 = jnp.minimum(jnp.einsum("bl,bl->b", Q2, Q1), HUGE_SQRT)
-    B2 = jnp.minimum(jnp.einsum("bl,bl->b", Q2, Q2), HUGE_SQRT)
-    C1 = jnp.minimum(jnp.einsum("bl,bl->b", Q1, Q3), HUGE_SQRT)
-    C2 = jnp.minimum(jnp.einsum("bl,bl->b", Q2, Q3), HUGE_SQRT)
+    A1 = jnp.minimum(jnp.einsum("lb,lb->b", Q1, Q1), HUGE_SQRT)
+    A2 = jnp.minimum(jnp.einsum("lb,lb->b", Q2, Q1), HUGE_SQRT)
+    B2 = jnp.minimum(jnp.einsum("lb,lb->b", Q2, Q2), HUGE_SQRT)
+    C1 = jnp.minimum(jnp.einsum("lb,lb->b", Q1, Q3), HUGE_SQRT)
+    C2 = jnp.minimum(jnp.einsum("lb,lb->b", Q2, Q3), HUGE_SQRT)
 
     # Solve the 2x2 Ng normal equations scale-invariantly so that
     # ill-conditioned rows -- which the final jnp.where discards anyway -- cannot
@@ -790,13 +791,13 @@ def _ng_accelerated_batched(
     b_ng = jnp.where(skip, 0.0, C2n * A1n - C1n * A2n) / safe_denom
 
     accelerated = jnp.maximum(
-        (1.0 - a_ng - b_ng)[:, None] * tn + a_ng[:, None] * tn1 + b_ng[:, None] * tn2,
+        (1.0 - a_ng - b_ng)[None, :] * tn + a_ng[None, :] * tn1 + b_ng[None, :] * tn2,
         0.0,
-    )  # (batch, l)
+    )  # (l, batch)
 
     # In Fortran m_approximate_ng_source, when the early `return` fires, the
     # output argument `source` (5th arg) keeps whatever value it had on entry —
-    return jnp.where(skip[:, None], current_source, accelerated)
+    return jnp.where(skip[None, :], current_source, accelerated)
 
 
 # ---------------------------------------------------------------------------
@@ -927,17 +928,23 @@ def _compute_feautrier_radiative_transfer_chunk(
     # ------------------------------------------------------------------
     # 0. Shapes and scalar constants
     # ------------------------------------------------------------------
+    # All layer-indexed arrays below use the layer-major ("lm") layout
+    # (n_layers, n_g * n_freq_bins): every per-layer step of the Feautrier
+    # sweeps then reads and writes contiguous rows, and the tridiagonal
+    # solver consumes and emits the source function without any transposes
+    # inside the scattering iteration.
     n_g, n_freq_bins, n_layers = photon_destruction_probabilities_in.shape
     n_angles = emission_cos_angles.shape[0]
-    n_batch = n_g * n_freq_bins * n_angles
+    n_gf = n_g * n_freq_bins
     pi_4 = 4.0 * jnp.pi
-    inv_dtau = 1e10
-    inv_dtau2 = inv_dtau * 0.5
 
-    mu_double = emission_cos_angles * 2.0
-    surf_refl_2 = 2.0 * reflectances
+    surf_refl_2_gf = jnp.broadcast_to(
+        2.0 * reflectances[None, :], (n_g, n_freq_bins)
+    ).reshape(n_gf)
     angle_weight_a = emission_cos_angles_weights
     mu_weight_a = emission_cos_angles * emission_cos_angles_weights
+
+    optical_depths_lm = optical_depths_in.reshape(n_gf, n_layers).T  # (l, gf)
 
     # ------------------------------------------------------------------
     # 1. Geometry coefficient — Python level, never traced
@@ -963,40 +970,44 @@ def _compute_feautrier_radiative_transfer_chunk(
     _pdp_floor = (
         jnp.finfo(FEAUTRIER_JAX_DTYPE).eps * 10
     )  # ~1.2e-6 float32, ~2.2e-15 float64
-    pdp_gfl = jnp.maximum(photon_destruction_probabilities_in, _pdp_floor)
+    pdp_lm = jnp.maximum(
+        photon_destruction_probabilities_in.reshape(n_gf, n_layers).T, _pdp_floor
+    )  # (l, gf)
 
     # ------------------------------------------------------------------
-    # 3. Stellar attenuation  J_star_ini_gfl (g, f, l)
+    # 3. Stellar attenuation  J_star_ini_lm (l, gf)
     # ------------------------------------------------------------------
     if geom > 0:
-        stellar_intensity_abs_f = jnp.abs(stellar_intensity)
+        stellar_intensity_abs_gf = jnp.broadcast_to(
+            jnp.abs(stellar_intensity)[None, :], (n_g, n_freq_bins)
+        ).reshape(n_gf)
 
         # Accumulate each angle contribution in sequence to avoid a full
-        # (g, f, angle, layer) exponential cube.
+        # (layer, gf, angle) exponential cube.
         def _accumulate_stellar_angle(
             carry: tuple[ArrayLike, ArrayLike],
             angle_inputs: tuple[ArrayLike, ArrayLike, ArrayLike],
         ) -> tuple[tuple[ArrayLike, ArrayLike], None]:
-            j_star_accum_gfl, surface_reflection_accum_gf = carry
+            j_star_accum_lm, surface_reflection_accum_gf = carry
             mu, angle_weight, mu_weight = angle_inputs
 
-            exp_over_mu_gfl = jnp.exp(-optical_depths_in / mu)
-            j_star_accum_gfl = j_star_accum_gfl + angle_weight * exp_over_mu_gfl
+            exp_over_mu_lm = jnp.exp(-optical_depths_lm / mu)
+            j_star_accum_lm = j_star_accum_lm + angle_weight * exp_over_mu_lm
             surface_reflection_accum_gf = (
                 surface_reflection_accum_gf
-                + mu_weight * exp_over_mu_gfl[:, :, n_layers - 1]
+                + mu_weight * exp_over_mu_lm[n_layers - 1]
             )
 
             return (
-                j_star_accum_gfl,
+                j_star_accum_lm,
                 surface_reflection_accum_gf,
             ), None
 
-        (j_star_angle_sum_gfl, surface_reflection_angle_sum_gf), _ = lax.scan(
+        (j_star_angle_sum_lm, surface_reflection_angle_sum_gf), _ = lax.scan(
             _accumulate_stellar_angle,
             (
-                jnp.zeros_like(optical_depths_in),
-                jnp.zeros((n_g, n_freq_bins), dtype=optical_depths_in.dtype),
+                jnp.zeros_like(optical_depths_lm),
+                jnp.zeros(n_gf, dtype=optical_depths_lm.dtype),
             ),
             (
                 emission_cos_angles,
@@ -1005,23 +1016,29 @@ def _compute_feautrier_radiative_transfer_chunk(
             ),
         )
 
-        J_star_ini_gfl = (
-            0.5 * geom * stellar_intensity_abs_f[None, :, None] * j_star_angle_sum_gfl
+        J_star_ini_lm = (
+            0.5 * geom * stellar_intensity_abs_gf[None, :] * j_star_angle_sum_lm
         )
 
         I_surface_reflection_gf = (
-            surf_refl_2[None, :]
+            surf_refl_2_gf
             * geom
-            * stellar_intensity_abs_f[None, :]
+            * stellar_intensity_abs_gf
             * surface_reflection_angle_sum_gf
         )
 
     else:  # non-isotropic
-        exp_gfl = jnp.exp(-optical_depths_in / star_irradiation_cos_angle)
-        J_star_ini_gfl = jnp.abs(stellar_intensity[None, :, None] / 4.0 * exp_gfl)
+        stellar_intensity_gf = jnp.broadcast_to(
+            stellar_intensity[None, :], (n_g, n_freq_bins)
+        ).reshape(n_gf)
+        reflectances_gf = jnp.broadcast_to(
+            reflectances[None, :], (n_g, n_freq_bins)
+        ).reshape(n_gf)
+        exp_lm = jnp.exp(-optical_depths_lm / star_irradiation_cos_angle)
+        J_star_ini_lm = jnp.abs(stellar_intensity_gf[None, :] / 4.0 * exp_lm)
         I_surface_reflection_gf = (
-            reflectances[None, :]
-            * J_star_ini_gfl[:, :, n_layers - 1]
+            reflectances_gf
+            * J_star_ini_lm[n_layers - 1]
             * 4.0
             * star_irradiation_cos_angle
         )
@@ -1032,36 +1049,40 @@ def _compute_feautrier_radiative_transfer_chunk(
     planck_integral_lf = physics_core.compute_planck_function_integral(
         temperatures, frequencies_bin_edges
     )  # (l, f)
-    planck_integral_fl = planck_integral_lf.T  # (f, l) — zero-copy view
+    planck_lm = jnp.broadcast_to(
+        planck_integral_lf[:, None, :], (n_layers, n_g, n_freq_bins)
+    ).reshape(n_layers, n_gf)  # (l, gf)
 
     # ------------------------------------------------------------------
     # 5. Surface boundary terms
     # ------------------------------------------------------------------
-    I_surface_emission_f = emissivities * planck_integral_lf[n_layers - 1, :]
-    I_surface_no_scatter_gf = I_surface_emission_f[None, :] + I_surface_reflection_gf
+    emissivities_gf = jnp.broadcast_to(
+        emissivities[None, :], (n_g, n_freq_bins)
+    ).reshape(n_gf)
+    I_surface_no_scatter_gf = (
+        emissivities_gf * planck_lm[n_layers - 1] + I_surface_reflection_gf
+    )  # (gf,)
 
     # ------------------------------------------------------------------
     # 6. Per-(g,f) minimum iteration count  (Fix 2)
     # ------------------------------------------------------------------
     if adaptive_feautrier_iterations:
         n_iter_min_gf = jnp.clip(
-            1 + jnp.max(1.0 / pdp_gfl, axis=2), 4, 9  # max over layers → (g, f)
+            1 + jnp.max(1.0 / pdp_lm, axis=0), 4, 9  # max over layers → (gf,)
         ).astype(jnp.int32)
     else:
-        n_iter_min_gf = jnp.full((n_g, n_freq_bins), 9, dtype=jnp.int32)
+        n_iter_min_gf = jnp.full(n_gf, 9, dtype=jnp.int32)
 
     # ------------------------------------------------------------------
     # 7. initial carry source = bare Planck (matches Fortran's
     #    `r = planck(:,i)` set before the iteration loop).
     # ------------------------------------------------------------------
-    planck_broadcast_gfl = jnp.broadcast_to(
-        planck_integral_fl[None, :, :], (n_g, n_freq_bins, n_layers)
-    )  # (g, f, l)
+    # planck_lm doubles as the initial source iterate.
 
     # ------------------------------------------------------------------
     # 8. Delta-taus
     # ------------------------------------------------------------------
-    # Floor |delta-tau| at sqrt(tiny), not tiny. The Feautrier coefficients below
+    # Floor |delta-tau| at sqrt(tiny), not tiny. The Feautrier coefficients
     # divide by these (f1 = clip(mu/dtau, ...)); with a floor of `tiny` the
     # clipped forward value is finite but its gradient, -mu/dtau**2, overflows
     # because dtau**2 underflows to 0 -- and the clip then turns that into
@@ -1070,151 +1091,67 @@ def _compute_feautrier_radiative_transfer_chunk(
     # steps are physically zero and clipped regardless, so the forward is
     # unchanged.
     _dtau_floor = jnp.sqrt(TINIEST)
-    dtau1 = optical_depths_in[:, :, 1:] - optical_depths_in[:, :, :-1]  # (g,f,l-1)
-    dtau1 = jnp.where(jnp.abs(dtau1) < _dtau_floor, _dtau_floor, dtau1)
+    dtau1_lm = optical_depths_lm[1:] - optical_depths_lm[:-1]  # (l-1, gf)
+    dtau1_lm = jnp.where(jnp.abs(dtau1_lm) < _dtau_floor, _dtau_floor, dtau1_lm)
 
-    dtau2 = optical_depths_in[:, :, 2:] - optical_depths_in[:, :, :-2]  # (g,f,l-2)
-    dtau2 = jnp.where(jnp.abs(dtau2) < _dtau_floor, _dtau_floor, dtau2)
-
-    # ------------------------------------------------------------------
-    # 9. Feautrier tridiagonal coefficients
-    # ------------------------------------------------------------------
-    # top row (l=0)
-    f1_top = jnp.clip(
-        emission_cos_angles[None, None, :, None] / dtau1[:, :, None, 0, None],
-        -inv_dtau,
-        inv_dtau,
-    )  # (g, f, a, 1)
-    b_top = 1.0 + 2.0 * f1_top * (1.0 + f1_top)
-    c_top = -2.0 * f1_top**2
-    a_top = jnp.zeros_like(b_top)
-
-    # mid rows (l=1 … n_layers-2)
-    f1_mid = jnp.clip(
-        mu_double[None, None, :, None] / dtau2[:, :, None, :],
-        -inv_dtau2,
-        inv_dtau2,
-    )  # (g, f, a, l-2)
-    f2_mid = jnp.clip(
-        emission_cos_angles[None, None, :, None] / dtau1[:, :, None, 1:],
-        -inv_dtau,
-        inv_dtau,
-    )  # (g, f, a, l-2)
-    f3_mid = jnp.clip(
-        emission_cos_angles[None, None, :, None] / dtau1[:, :, None, :-1],
-        -inv_dtau,
-        inv_dtau,
-    )  # (g, f, a, l-2)
-    b_mid = 1.0 + f1_mid * (f2_mid + f3_mid)
-    c_mid = -f1_mid * f2_mid
-    a_mid = -f1_mid * f3_mid
-
-    a_flat = jnp.pad(
-        jnp.concatenate([a_top, a_mid], axis=-1),
-        ((0, 0), (0, 0), (0, 0), (0, 1)),
-    ).reshape(
-        n_batch, n_layers
-    )  # padded with 0
-    b_flat = jnp.pad(
-        jnp.concatenate([b_top, b_mid], axis=-1),
-        ((0, 0), (0, 0), (0, 0), (0, 1)),
-        constant_values=1.0,
-    ).reshape(
-        n_batch, n_layers
-    )  # padded with 1
-    c_flat = jnp.pad(
-        jnp.concatenate([c_top, c_mid], axis=-1),
-        ((0, 0), (0, 0), (0, 0), (0, 1)),
-    ).reshape(
-        n_batch, n_layers
-    )  # padded with 0
+    dtau2_lm = optical_depths_lm[2:] - optical_depths_lm[:-2]  # (l-2, gf)
+    dtau2_lm = jnp.where(jnp.abs(dtau2_lm) < _dtau_floor, _dtau_floor, dtau2_lm)
 
     # ------------------------------------------------------------------
-    # 10. Lambda_loc for ALI  (g, f, l)
+    # 9-12. Feautrier system preparation and inner solve
     # ------------------------------------------------------------------
-    lam_top = jnp.sum(angle_weight_a[None, None, :, None] / b_top, axis=2)[
-        ..., 0
-    ]  # (g, f)
+    # Coefficient construction, Thomas pre-factoring and the Lambda diagonal
+    # are fused into a single scan over layers (CPU), so the
+    # (gf, n_angles, n_layers)-sized tridiagonal coefficient arrays are never
+    # materialised. ``f_surface_ga`` is the clipped surface stencil
+    # mu/dtau1[n_layers-2] used for the emergent-intensity derivative.
+    solver_state, lambda_loc_lm, f_surface_ga = linalg.prepare_feautrier_system_lm(
+        dtau1_lm,
+        dtau2_lm,
+        emission_cos_angles,
+        angle_weight_a,
+        n_gf,
+        n_angles,
+        n_layers,
+    )
 
-    # Guard the diagonal before dividing: b_mid = 1 + f1*(f2+f3) can pass
-    # through ~0 at non-monotonic / extreme optical depths, and 1/b_mid then has
-    # a gradient -1/b_mid**2 that overflows (b_mid**2 underflows), feeding a NaN
-    # into lambda_loc -> the ALI source. Floor |b_mid| at sqrt(tiny) (forward
-    # unchanged for any non-degenerate cell).
-    _b_floor = jnp.sqrt(TINIEST)
-    b_mid_safe = jnp.where(jnp.abs(b_mid) < _b_floor, _b_floor, b_mid)
-    lam_mid = jnp.sum(
-        angle_weight_a[None, None, :, None] / b_mid_safe, axis=2
-    )  # (g, f, l-2)
-
-    f1_surf = jnp.clip(
-        emission_cos_angles[None, None, :, None]
-        / dtau1[:, :, None, n_layers - 2, None],
-        -inv_dtau,
-        inv_dtau,
-    )  # (g, f, a, 1)
-    lam_surf = jnp.sum(
-        angle_weight_a[None, None, :, None] / (1.0 + 2.0 * f1_surf**2), axis=2
-    )[
-        ..., 0
-    ]  # (g, f)
-
-    lambda_loc_gfl = jnp.concatenate(
-        [lam_top[:, :, None], lam_mid, lam_surf[:, :, None]], axis=-1
-    )  # (g, f, l)
-
-    # ------------------------------------------------------------------
-    # 11. loop-invariant ALI intermediates precomputed once.
-    # ------------------------------------------------------------------
-    one_minus_pdp_gfl = 1.0 - pdp_gfl  # (g,f,l)
-    pdp_times_planck = pdp_gfl * planck_integral_fl[None, :, :]  # (g,f,l)
+    # loop-invariant ALI intermediates precomputed once.
+    one_minus_pdp_lm = 1.0 - pdp_lm  # (l, gf)
+    pdp_times_planck_lm = pdp_lm * planck_lm  # (l, gf)
     # Solution B: rewrite the ALI denominator to avoid catastrophic
     # cancellation near 1.0.  The identity
     #   1 - (1 - eps) * lambda  =  eps + (1 - eps) * (1 - lambda)
     # keeps both addends positive and O(eps) or O(1-lambda), so neither
     # term is lost to rounding regardless of the floating-point precision.
-    ali_denom_gfl = pdp_gfl + one_minus_pdp_gfl * (1.0 - lambda_loc_gfl)  # (g,f,l)
-    ali_inv_denom_gfl = 1.0 / jnp.maximum(ali_denom_gfl, TINIEST)  # (g,f,l)
-
-    # ------------------------------------------------------------------
-    # 12. Inner Feautrier solve
-    # ------------------------------------------------------------------
-    # Pre-factor the tridiagonal LHS once (CPU only; returns None on GPU).
-    # Subsequent solves inside the scan loop skip the LHS forward elimination.
-    thomas_factors = linalg.factor_feautrier(
-        a_flat, b_flat, c_flat, n_g, n_freq_bins, n_angles, n_layers
-    )
+    ali_denom_lm = pdp_lm + one_minus_pdp_lm * (1.0 - lambda_loc_lm)  # (l, gf)
+    ali_inv_denom_lm = 1.0 / jnp.maximum(ali_denom_lm, TINIEST)  # (l, gf)
 
     def _feautrier_solve(
-        source_gfl: ArrayLike,
-        I_plus_surface_gfa: ArrayLike,
+        source_lm: ArrayLike,
+        I_plus_surface_ga: ArrayLike,
         I_minus_boundary_gf: ArrayLike,
     ) -> tuple[ArrayLike, ArrayLike, ArrayLike]:
         """
-        Returns J_bol_gfl (g,f,l), I_H_top (g,f,a), new_I_plus_surface (g,f,a).
+        Returns J_bol_lm (l, gf), I_H_top (gf, a), new_I_plus_surface (gf, a).
         """
-        r_surf_gfa = 0.5 * (
-            I_plus_surface_gfa + I_minus_boundary_gf[:, :, None]
-        )  # (g, f, a)
+        r_surf_ga = 0.5 * (
+            I_plus_surface_ga + I_minus_boundary_gf[:, None]
+        )  # (gf, a)
 
-        I_H_top, x_last_gfa, x_nm2_gfa, J_bol_gfl = linalg.solve_feautrier_prefactored(
-            thomas_factors,
-            a_flat,
-            b_flat,
-            c_flat,
-            source_gfl[:, :, : n_layers - 1],
-            r_surf_gfa,
+        I_H_top, x_last_ga, x_nm2_ga, J_bol_lm = linalg.solve_feautrier_system_lm(
+            solver_state,
+            source_lm,
+            r_surf_ga,
             angle_weight_a,
-            n_g,
-            n_freq_bins,
+            n_gf,
             n_angles,
             n_layers,
         )
 
-        d1_surf = f2_mid[:, :, :, -1] * (x_last_gfa - x_nm2_gfa)
-        new_I_plus_surface = x_last_gfa - d1_surf  # (g, f, a)
+        d1_surf = f_surface_ga * (x_last_ga - x_nm2_ga)
+        new_I_plus_surface = x_last_ga - d1_surf  # (gf, a)
 
-        return J_bol_gfl, I_H_top, new_I_plus_surface
+        return J_bol_lm, I_H_top, new_I_plus_surface
 
     # ------------------------------------------------------------------
     # 13. Scattering iteration control.
@@ -1226,62 +1163,62 @@ def _compute_feautrier_radiative_transfer_chunk(
     # boundary.
     # ------------------------------------------------------------------
 
-    zero_source_gfl = jnp.zeros((n_g, n_freq_bins, n_layers))
-    initial_I_plus_surface_gfa = jnp.zeros((n_g, n_freq_bins, n_angles))
-    initial_flux_gf = jnp.zeros((n_g, n_freq_bins))
-    initial_I_H_top = jnp.zeros((n_g, n_freq_bins, n_angles))
+    zero_source_lm = jnp.zeros((n_layers, n_gf))
+    initial_I_plus_surface_ga = jnp.zeros((n_gf, n_angles))
+    initial_flux_gf = jnp.zeros(n_gf)
+    initial_I_H_top = jnp.zeros((n_gf, n_angles))
     initial_I_minus_gf = (
-        jnp.zeros((n_g, n_freq_bins))
+        jnp.zeros(n_gf)
         if return_contribution
-        else jnp.zeros((1,), dtype=planck_broadcast_gfl.dtype)
+        else jnp.zeros((1,), dtype=planck_lm.dtype)
     )
     configured_iter_budget = jnp.array(iter_scat_max + 1, dtype=jnp.int32)
     fixed_iteration_count = min(iter_scat_max + 1, 9)
 
     no_scattering_pdp_tol = _pdp_floor
-    no_atmospheric_scattering = jnp.all(one_minus_pdp_gfl <= no_scattering_pdp_tol)
+    no_atmospheric_scattering = jnp.all(one_minus_pdp_lm <= no_scattering_pdp_tol)
     non_reflective_lower_boundary = jnp.all(jnp.abs(reflectances) <= TINIEST)
     use_direct_no_scattering_solve = (
         no_atmospheric_scattering & non_reflective_lower_boundary
     )
 
-    def _surface_reflection(I_plus_gfa: ArrayLike) -> ArrayLike:
-        return surf_refl_2[None, :] * jnp.sum(
-            I_plus_gfa * mu_weight_a[None, None, :], axis=2
-        )  # (g, f)
+    def _surface_reflection(I_plus_ga: ArrayLike) -> ArrayLike:
+        return surf_refl_2_gf * jnp.sum(
+            I_plus_ga * mu_weight_a[None, :], axis=1
+        )  # (gf,)
 
     def _advance_state(
         state: tuple[ArrayLike, ...],
         iter_idx: ArrayLike,
     ) -> tuple[tuple[ArrayLike, ...], ArrayLike]:
         (
-            current_source_gfl,
-            current_I_plus_surface_gfa,
+            current_source_lm,
+            current_I_plus_surface_ga,
             current_flux_gf_prev,
             current_I_minus_gf,
             _current_I_H_top,
-            current_hist0_gfl,
-            current_hist1_gfl,
-            current_hist2_gfl,
-            current_hist3_gfl,
+            current_hist0_lm,
+            current_hist1_lm,
+            current_hist2_lm,
+            current_hist3_lm,
             _current_all_converged,
             _solve_count,
             _noop_count,
         ) = state
 
         I_minus_gf_new = I_surface_no_scatter_gf + _surface_reflection(
-            current_I_plus_surface_gfa
+            current_I_plus_surface_ga
         )
-        J_bol_gfl, I_H_top, new_I_plus_surface = _feautrier_solve(
-            current_source_gfl,
-            current_I_plus_surface_gfa,
+        J_bol_lm, I_H_top, new_I_plus_surface = _feautrier_solve(
+            current_source_lm,
+            current_I_plus_surface_ga,
             I_minus_gf_new,
         )
         source_ali = (
-            pdp_times_planck
-            + one_minus_pdp_gfl
-            * (J_star_ini_gfl + J_bol_gfl - lambda_loc_gfl * current_source_gfl)
-        ) * ali_inv_denom_gfl
+            pdp_times_planck_lm
+            + one_minus_pdp_lm
+            * (J_star_ini_lm + J_bol_lm - lambda_loc_lm * current_source_lm)
+        ) * ali_inv_denom_lm
 
         slot_index = iter_idx % 4
 
@@ -1289,83 +1226,88 @@ def _compute_feautrier_radiative_transfer_chunk(
             next_hist0 = source_ali
             return (
                 next_hist0,
-                current_hist1_gfl,
-                current_hist2_gfl,
-                current_hist3_gfl,
+                current_hist1_lm,
+                current_hist2_lm,
+                current_hist3_lm,
                 next_hist0,
-                current_hist3_gfl,
-                current_hist2_gfl,
-                current_hist1_gfl,
+                current_hist3_lm,
+                current_hist2_lm,
+                current_hist1_lm,
             )
 
         def _slot1(_: None):
             next_hist1 = source_ali
             return (
-                current_hist0_gfl,
+                current_hist0_lm,
                 next_hist1,
-                current_hist2_gfl,
-                current_hist3_gfl,
+                current_hist2_lm,
+                current_hist3_lm,
                 next_hist1,
-                current_hist0_gfl,
-                current_hist3_gfl,
-                current_hist2_gfl,
+                current_hist0_lm,
+                current_hist3_lm,
+                current_hist2_lm,
             )
 
         def _slot2(_: None):
             next_hist2 = source_ali
             return (
-                current_hist0_gfl,
-                current_hist1_gfl,
+                current_hist0_lm,
+                current_hist1_lm,
                 next_hist2,
-                current_hist3_gfl,
+                current_hist3_lm,
                 next_hist2,
-                current_hist1_gfl,
-                current_hist0_gfl,
-                current_hist3_gfl,
+                current_hist1_lm,
+                current_hist0_lm,
+                current_hist3_lm,
             )
 
         def _slot3(_: None):
             next_hist3 = source_ali
             return (
-                current_hist0_gfl,
-                current_hist1_gfl,
-                current_hist2_gfl,
+                current_hist0_lm,
+                current_hist1_lm,
+                current_hist2_lm,
                 next_hist3,
                 next_hist3,
-                current_hist2_gfl,
-                current_hist1_gfl,
-                current_hist0_gfl,
+                current_hist2_lm,
+                current_hist1_lm,
+                current_hist0_lm,
             )
 
+        # When iter_idx is a Python int (fully unrolled fixed-iteration path),
+        # the slot rotation and the Ng trigger resolve at trace time, so the
+        # history bookkeeping becomes static dataflow with no buffer shuffling.
+        static_iter = isinstance(iter_idx, int)
+        slot_branches = (_slot0, _slot1, _slot2, _slot3)
+        if static_iter:
+            slot_outputs = slot_branches[slot_index](None)
+        else:
+            slot_outputs = lax.switch(slot_index, slot_branches, operand=None)
         (
-            next_hist0_gfl,
-            next_hist1_gfl,
-            next_hist2_gfl,
-            next_hist3_gfl,
+            next_hist0_lm,
+            next_hist1_lm,
+            next_hist2_lm,
+            next_hist3_lm,
             tn,
             tn1,
             tn2,
             tn3,
-        ) = lax.switch(slot_index, (_slot0, _slot1, _slot2, _slot3), operand=None)
+        ) = slot_outputs
 
         do_ng = (iter_idx > 0) & ((iter_idx + 1) % 4 == 0)
 
         def _apply_ng(_: None) -> ArrayLike:
-            batch_size = n_g * n_freq_bins
-            return _ng_accelerated_batched(
-                tn.reshape(batch_size, n_layers),
-                tn1.reshape(batch_size, n_layers),
-                tn2.reshape(batch_size, n_layers),
-                tn3.reshape(batch_size, n_layers),
-                source_ali.reshape(batch_size, n_layers),
-            ).reshape(n_g, n_freq_bins, n_layers)
+            return _ng_accelerated_batched(tn, tn1, tn2, tn3, source_ali)
 
-        next_source_gfl = lax.cond(
-            do_ng,
-            _apply_ng,
-            lambda _: source_ali,
-            operand=None,
-        )
+        if static_iter:
+            next_source_lm = _apply_ng(None) if do_ng else source_ali
+        else:
+            next_source_lm = lax.cond(
+                do_ng,
+                _apply_ng,
+                lambda _: source_ali,
+                operand=None,
+            )
         # Ng acceleration is a forward-only convergence accelerator: its internal
         # 2x2 least-squares solve spans an enormous dynamic range at extreme
         # atmospheres and yields NaN reverse-mode gradients (0*inf from the
@@ -1375,9 +1317,9 @@ def _compute_feautrier_radiative_transfer_chunk(
         # value only in the forward pass. At the fixed point the accelerated and
         # ALI sources coincide, so dS*/dtheta is unchanged; elsewhere this is the
         # standard "treat the accelerator as a constant" approximation.
-        next_source_gfl = source_ali + lax.stop_gradient(next_source_gfl - source_ali)
+        next_source_lm = source_ali + lax.stop_gradient(next_source_lm - source_ali)
 
-        flux_gf_cur = -jnp.einsum("gfa,a->gf", I_H_top, mu_weight_a)
+        flux_gf_cur = -jnp.einsum("ba,a->b", I_H_top, mu_weight_a)  # (gf,)
         conv_val_gf = jnp.abs(
             1.0
             - current_flux_gf_prev
@@ -1394,15 +1336,15 @@ def _compute_feautrier_radiative_transfer_chunk(
             next_I_minus_gf = current_I_minus_gf
 
         next_state = (
-            next_source_gfl,
+            next_source_lm,
             new_I_plus_surface,
             flux_gf_cur,
             next_I_minus_gf,
             I_H_top,
-            next_hist0_gfl,
-            next_hist1_gfl,
-            next_hist2_gfl,
-            next_hist3_gfl,
+            next_hist0_lm,
+            next_hist1_lm,
+            next_hist2_lm,
+            next_hist3_lm,
             _current_all_converged,
             _solve_count,
             _noop_count,
@@ -1410,15 +1352,15 @@ def _compute_feautrier_radiative_transfer_chunk(
         return next_state, conv_val_gf
 
     initial_carry = (
-        planck_broadcast_gfl,
-        initial_I_plus_surface_gfa,
+        planck_lm,
+        initial_I_plus_surface_ga,
         initial_flux_gf,
         initial_I_minus_gf,
         initial_I_H_top,
-        zero_source_gfl,
-        zero_source_gfl,
-        zero_source_gfl,
-        zero_source_gfl,
+        zero_source_lm,
+        zero_source_lm,
+        zero_source_lm,
+        zero_source_lm,
         jnp.array(False, dtype=jnp.bool_),
         jnp.array(0, dtype=jnp.int32),
         jnp.array(0, dtype=jnp.int32),
@@ -1439,17 +1381,17 @@ def _compute_feautrier_radiative_transfer_chunk(
     ]:
         direct_I_minus_gf = I_surface_no_scatter_gf
         _, direct_I_H_top, _ = _feautrier_solve(
-            planck_broadcast_gfl,
-            initial_I_plus_surface_gfa,
+            planck_lm,
+            initial_I_plus_surface_ga,
             direct_I_minus_gf,
         )
-        flux_gf_direct = -jnp.einsum("gfa,a->gf", direct_I_H_top, mu_weight_a)
+        flux_gf_direct = -jnp.einsum("ba,a->b", direct_I_H_top, mu_weight_a)
         final_I_minus_gf = (
             direct_I_minus_gf if return_contribution else initial_I_minus_gf
         )
 
         return (
-            planck_broadcast_gfl,
+            planck_lm,
             flux_gf_direct,
             final_I_minus_gf,
             direct_I_H_top,
@@ -1473,14 +1415,14 @@ def _compute_feautrier_radiative_transfer_chunk(
         ArrayLike,
         ArrayLike,
     ]:
-        def _fixed_loop_body(
-            iter_idx: int,
-            state: tuple[ArrayLike, ...],
-        ) -> tuple[ArrayLike, ...]:
-            next_state, _ = _advance_state(
-                state, jnp.asarray(iter_idx, dtype=jnp.int32)
-            )
-            return (
+        # The iteration count is a static Python int, so unroll the loop at
+        # trace time: the per-iteration history-slot rotation and Ng trigger
+        # in _advance_state then fold into static dataflow (no lax.switch /
+        # lax.cond buffer shuffling inside a loop body).
+        final_carry = initial_carry
+        for iter_idx in range(fixed_iteration_count):
+            next_state, _ = _advance_state(final_carry, iter_idx)
+            final_carry = (
                 next_state[0],
                 next_state[1],
                 next_state[2],
@@ -1491,16 +1433,9 @@ def _compute_feautrier_radiative_transfer_chunk(
                 next_state[7],
                 next_state[8],
                 jnp.array(False, dtype=jnp.bool_),
-                state[10] + jnp.array(1, dtype=jnp.int32),
-                state[11],
+                final_carry[10] + jnp.array(1, dtype=jnp.int32),
+                final_carry[11],
             )
-
-        final_carry = lax.fori_loop(
-            0,
-            fixed_iteration_count,
-            _fixed_loop_body,
-            initial_carry,
-        )
 
         return (
             final_carry[0],
@@ -1601,7 +1536,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         else _run_fixed_iterations
     )
     (
-        final_source_gfl,
+        final_source_lm,
         flux_gf_final,
         I_minus_gf_final,
         I_H_top,
@@ -1620,9 +1555,11 @@ def _compute_feautrier_radiative_transfer_chunk(
     # ------------------------------------------------------------------
     # 14. Flux  (n_freq_bins,)
     # ------------------------------------------------------------------
-    flux_f = pi_4 * jnp.einsum("gf,g->f", flux_gf_final, weights_gauss)
+    flux_f = pi_4 * jnp.einsum(
+        "gf,g->f", flux_gf_final.reshape(n_g, n_freq_bins), weights_gauss
+    )
     angle_dependent_intensities = 2.0 * jnp.einsum(
-        "gfa,g->fa", I_H_top, weights_gauss
+        "gfa,g->fa", I_H_top.reshape(n_g, n_freq_bins, n_angles), weights_gauss
     )  # (f, a)
 
     # ------------------------------------------------------------------
@@ -1630,8 +1567,13 @@ def _compute_feautrier_radiative_transfer_chunk(
     # ------------------------------------------------------------------
     def compute_contribution() -> ArrayLike:
         weights_gauss_work = jnp.asarray(weights_gauss, dtype=WORKING_JAX_DTYPE)
-        final_source_work = jnp.asarray(final_source_gfl, dtype=WORKING_JAX_DTYPE)
-        i_minus_work = jnp.asarray(I_minus_gf_final, dtype=WORKING_JAX_DTYPE)
+        final_source_work = jnp.asarray(
+            final_source_lm.reshape(n_layers, n_g, n_freq_bins),
+            dtype=WORKING_JAX_DTYPE,
+        )
+        i_minus_work = jnp.asarray(
+            I_minus_gf_final.reshape(n_g, n_freq_bins), dtype=WORKING_JAX_DTYPE
+        )
         optical_depths_work = jnp.asarray(optical_depths_in, dtype=WORKING_JAX_DTYPE)
         emission_cos_angles_work = jnp.asarray(
             emission_cos_angles, dtype=WORKING_JAX_DTYPE
@@ -1641,7 +1583,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         )
 
         # G-integrated source: (l, f)
-        r_src_lf = jnp.einsum("g,gfl->lf", weights_gauss_work, final_source_work)
+        r_src_lf = jnp.einsum("g,lgf->lf", weights_gauss_work, final_source_work)
 
         # G-integrated I_minus: (f,)
         I_minus_f = jnp.einsum("g,gf->f", weights_gauss_work, i_minus_work)

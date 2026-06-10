@@ -150,10 +150,17 @@ def factor_feautrier_thomas(
     that subsequent solves with different RHS vectors only need the
     cheaper RHS-only forward sweep and backward substitution.
 
+    The elimination runs as a single uniform scan over all rows; the
+    Feautrier coefficient padding (``a[:, 0] == 0`` and ``c[:, -1] == 0``)
+    makes the boundary rows fall out of the generic recurrence with a
+    zero-initialised carry, so no per-row stitching (concatenates) is
+    needed. Callers must respect that padding convention.
+
     Parameters
     ----------
     a, b, c : jax.Array, shape (batch, n_layers)
         Tridiagonal coefficients where batch = n_g * n_freq_bins * n_angles.
+        ``a[:, 0]`` and ``c[:, -1]`` must be zero (Feautrier padding).
     n_g, n_freq_bins, n_angles, n_layers : int
         Static shape parameters.
 
@@ -161,73 +168,36 @@ def factor_feautrier_thomas(
     -------
     c_prime : jax.Array, shape (n_layers, batch)
         Modified upper diagonal from Thomas forward elimination.
-        ``c_prime[n_layers-1]`` is unused (padding) but kept for shape
-        consistency.
+        ``c_prime[n_layers-1]`` is zero (from the ``c`` padding).
     inv_denom : jax.Array, shape (n_layers, batch)
         Reciprocal of the elimination denominators.  Includes the surface
         row at index ``n_layers - 1``.
     a_times_inv_denom : jax.Array, shape (n_layers, batch)
         ``a[:, k] * inv_denom[k]`` pre-multiplied for the RHS sweep.
+        ``a_times_inv_denom[0]`` is zero (from the ``a`` padding).
     """
-    n = n_layers
     batch = n_g * n_freq_bins * n_angles
 
-    inv_denom_0 = 1.0 / b[:, 0]  # (batch,)
-    c_prime_0 = c[:, 0] * inv_denom_0  # (batch,)
-    a_inv_0 = jnp.zeros(batch, dtype=a.dtype)  # a[0] is unused
+    # Transpose once to layer-major so each scan step reads contiguous rows
+    # (a[:, k] slices would stride by n_layers on every step).
+    a_lm = a.T  # (n_layers, batch)
+    b_lm = b.T
+    c_lm = c.T
 
-    if n > 2:
+    def fwd_step(c_prev, abc_k):
+        a_k, b_k, c_k_row = abc_k
+        denom = b_k - a_k * c_prev
+        safe_den = jnp.where(jnp.abs(denom) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom)
+        inv_den = 1.0 / safe_den
+        c_k = c_k_row * inv_den
+        a_inv_k = a_k * inv_den
+        return c_k, (c_k, inv_den, a_inv_k)
 
-        def fwd_step(carry, k):
-            c_prev = carry
-            denom = b[:, k] - a[:, k] * c_prev
-            safe_den = jnp.where(jnp.abs(denom) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom)
-            inv_den = 1.0 / safe_den
-            c_k = c[:, k] * inv_den
-            a_inv_k = a[:, k] * inv_den
-            return c_k, (c_k, inv_den, a_inv_k)
-
-        _, (c_mid, inv_mid, a_inv_mid) = lax.scan(
-            fwd_step,
-            c_prime_0,
-            jnp.arange(1, n - 1),
-        )
-        # c_mid, inv_mid, a_inv_mid are (n-2, batch)
-
-        c_nm2 = c_mid[-1, :]
-        c_prime_inner = jnp.concatenate(
-            [c_prime_0[None, :], c_mid], axis=0
-        )  # (n-1, batch)
-        inv_denom_inner = jnp.concatenate(
-            [inv_denom_0[None, :], inv_mid], axis=0
-        )  # (n-1, batch)
-        a_inv_inner = jnp.concatenate(
-            [a_inv_0[None, :], a_inv_mid], axis=0
-        )  # (n-1, batch)
-    else:
-        c_nm2 = c_prime_0
-        c_prime_inner = c_prime_0[None, :]  # (1, batch)
-        inv_denom_inner = inv_denom_0[None, :]  # (1, batch)
-        a_inv_inner = a_inv_0[None, :]  # (1, batch)
-
-    # Surface row (layer n-1)
-    denom_last = b[:, n - 1] - a[:, n - 1] * c_nm2
-    safe_denom_last = jnp.where(
-        jnp.abs(denom_last) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom_last
+    _, (c_prime, inv_denom, a_times_inv_denom) = lax.scan(
+        fwd_step,
+        jnp.zeros(batch, dtype=a.dtype),
+        (a_lm, b_lm, c_lm),
     )
-    inv_denom_last = 1.0 / safe_denom_last
-    a_inv_last = a[:, n - 1] * inv_denom_last
-
-    # Pad surface row: c_prime at surface is unused (zero)
-    c_prime = jnp.concatenate(
-        [c_prime_inner, jnp.zeros((1, batch), dtype=c.dtype)], axis=0
-    )  # (n, batch)
-    inv_denom = jnp.concatenate(
-        [inv_denom_inner, inv_denom_last[None, :]], axis=0
-    )  # (n, batch)
-    a_times_inv_denom = jnp.concatenate(
-        [a_inv_inner, a_inv_last[None, :]], axis=0
-    )  # (n, batch)
 
     return c_prime, inv_denom, a_times_inv_denom
 
@@ -291,36 +261,8 @@ def solve_feautrier_thomas_prefactored(
             axis=1,
         )
 
-    # RHS-only forward sweep using cached factors.
-    # d'[0] = rhs[0] * inv_denom[0]
-    d0 = _broadcast_rhs_layer(0) * inv_denom[0]  # (batch,)
-
-    if n > 2:
-
-        def fwd_rhs_step(d_prev, k):
-            rhs_k = _broadcast_rhs_layer(k)
-            d_k = rhs_k * inv_denom[k] - a_times_inv_denom[k] * d_prev
-            return d_k, d_k
-
-        _, d_mid = lax.scan(
-            fwd_rhs_step,
-            d0,
-            jnp.arange(1, n - 1),
-        )
-        # d_mid: (n-2, batch)
-
-        d_nm2 = d_mid[-1, :]
-        d_upto_nm2 = jnp.concatenate([d0[None, :], d_mid], axis=0)  # (n-1, batch)
-    else:
-        d_nm2 = d0
-        d_upto_nm2 = d0[None, :]  # (1, batch)
-
-    # Surface row
-    x_last_flat = (
-        d_surf.reshape(batch) * inv_denom[n - 1] - a_times_inv_denom[n - 1] * d_nm2
-    )
-
     if n == 1:
+        x_last_flat = d_surf.reshape(batch) * inv_denom[0]
         weighted_layers = _weighted_gf(x_last_flat)[None, :]
         return (
             (-x_last_flat).reshape(n_g, n_freq_bins, n_angles),
@@ -329,33 +271,50 @@ def solve_feautrier_thomas_prefactored(
             weighted_layers.T.reshape(n_g, n_freq_bins, n),
         )
 
-    # Backward substitution — identical to the non-prefactored version.
+    # RHS-only forward sweep using cached factors. A zero-initialised carry
+    # makes row 0 fall out of the generic recurrence (a_times_inv_denom[0] is
+    # zero by the Feautrier padding convention), so the sweep is one uniform
+    # scan and its stacked output is used directly — no concatenate.
+    def fwd_rhs_step(d_prev, k):
+        rhs_k = _broadcast_rhs_layer(k)
+        d_k = rhs_k * inv_denom[k] - a_times_inv_denom[k] * d_prev
+        return d_k, d_k
+
+    d_nm2, d_upto_nm2 = lax.scan(
+        fwd_rhs_step,
+        jnp.zeros(batch, dtype=inv_denom.dtype),
+        jnp.arange(n - 1),
+    )  # d_upto_nm2: (n-1, batch)
+
+    # Surface row
+    x_last_flat = (
+        d_surf.reshape(batch) * inv_denom[n - 1] - a_times_inv_denom[n - 1] * d_nm2
+    )
+
+    # Backward substitution; the reverse scan emits rows in natural layer
+    # order, avoiding a flip copy.
     x_nm2_flat = d_upto_nm2[n - 2, :] - c_prime[n - 2, :] * x_last_flat
     weighted_last = _weighted_gf(x_last_flat)
     weighted_nm2 = _weighted_gf(x_nm2_flat)
 
-    if n > 2:
+    def bwd_step(x_next, k):
+        x_k = d_upto_nm2[k, :] - c_prime[k, :] * x_next
+        return x_k, _weighted_gf(x_k)
 
-        def bwd_step(x_next, k):
-            x_k = d_upto_nm2[k, :] - c_prime[k, :] * x_next
-            return x_k, _weighted_gf(x_k)
-
-        x0_flat, weighted_rest_desc = lax.scan(
-            bwd_step,
-            x_nm2_flat,
-            jnp.arange(n - 3, -1, -1),
-        )
-        weighted_layers = jnp.concatenate(
-            [
-                weighted_rest_desc[::-1, :],
-                weighted_nm2[None, :],
-                weighted_last[None, :],
-            ],
-            axis=0,
-        )
-    else:
-        x0_flat = x_nm2_flat
-        weighted_layers = jnp.stack([weighted_nm2, weighted_last], axis=0)
+    x0_flat, weighted_rest = lax.scan(
+        bwd_step,
+        x_nm2_flat,
+        jnp.arange(n - 2),
+        reverse=True,
+    )
+    weighted_layers = jnp.concatenate(
+        [
+            weighted_rest,
+            weighted_nm2[None, :],
+            weighted_last[None, :],
+        ],
+        axis=0,
+    )
 
     I_H_top = (-x0_flat).reshape(n_g, n_freq_bins, n_angles)
     x_last = x_last_flat.reshape(n_g, n_freq_bins, n_angles)
@@ -920,6 +879,386 @@ def solve_feautrier_prefactored(
         angle_weight_a,
         n_g,
         n_freq_bins,
+        n_angles,
+        n_layers,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer-major ("lm") Feautrier system interface.
+#
+# These functions keep every layer-indexed array in (n_layers, n_gf) /
+# (n_layers, batch) layout so that all per-layer scan steps read and write
+# contiguous rows. The coefficient construction is fused into the
+# pre-factoring scan, so the (n_gf, n_angles, n_layers)-sized tridiagonal
+# coefficient arrays of the gf-major path are never materialised on CPU.
+# ---------------------------------------------------------------------------
+
+# Clip bounds for the Feautrier finite-difference coefficients, matching the
+# original gf-major construction in radiative_transfer_core.
+_FEAUTRIER_INV_DTAU_CAP = 1e10
+_FEAUTRIER_INV_DTAU2_CAP = _FEAUTRIER_INV_DTAU_CAP * 0.5
+
+
+@partial(jit, static_argnames=("n_gf", "n_angles", "n_layers"))
+def _prepare_feautrier_system_lm_cpu(
+    dtau1_lm,
+    dtau2_lm,
+    emission_cos_angles,
+    emission_cos_angles_weights,
+    n_gf,
+    n_angles,
+    n_layers,
+):
+    """Fused coefficient construction + Thomas pre-factoring + Lambda diagonal.
+
+    One scan over layers builds the Feautrier tridiagonal rows on the fly from
+    the delta-optical-depths, immediately eliminates them (Thomas forward
+    elimination), and accumulates the angle-quadrature Lambda diagonal, so the
+    full (batch, n_layers) coefficient arrays are never materialised.
+
+    The per-row formulas are exactly those of the original gf-major
+    construction: row 0 uses the one-sided top boundary stencil, rows
+    1..n_layers-2 the centered stencil, and row n_layers-1 is the identity
+    (the surface boundary value is imposed through the RHS).
+
+    Parameters
+    ----------
+    dtau1_lm : jax.Array, shape (n_layers - 1, n_gf)
+        First-neighbor optical-depth differences, floored away from zero.
+    dtau2_lm : jax.Array, shape (n_layers - 2, n_gf)
+        Second-neighbor optical-depth differences, floored away from zero.
+    emission_cos_angles : jax.Array, shape (n_angles,)
+    emission_cos_angles_weights : jax.Array, shape (n_angles,)
+    n_gf, n_angles, n_layers : int
+        Static shape parameters; n_layers must be >= 3.
+
+    Returns
+    -------
+    factors : tuple of jax.Array, each shape (n_layers, batch)
+        ``(c_prime, inv_denom, a_times_inv_denom)`` Thomas factors, with
+        batch = n_gf * n_angles (angle fastest).
+    lambda_loc_lm : jax.Array, shape (n_layers, n_gf)
+        Angle-quadrature diagonal of the approximate Lambda operator.
+    f_surface_ga : jax.Array, shape (n_gf, n_angles)
+        ``mu / dtau1[n_layers - 2]`` (clipped), used for the surface
+        derivative of the emergent Feautrier variable.
+    """
+    n = n_layers
+    batch = n_gf * n_angles
+    dtype = dtau1_lm.dtype
+
+    mu = emission_cos_angles[None, :]  # (1, n_angles)
+    mu2 = (emission_cos_angles * 2.0)[None, :]
+    w = emission_cos_angles_weights[None, :]
+
+    def step(carry, k):
+        c_prev, f_prev = carry
+
+        dtau1_k = lax.dynamic_index_in_dim(
+            dtau1_lm, jnp.minimum(k, n - 2), keepdims=False
+        )  # (n_gf,)
+        dtau2_km1 = lax.dynamic_index_in_dim(
+            dtau2_lm, jnp.clip(k - 1, 0, n - 3), keepdims=False
+        )  # (n_gf,)
+
+        f2 = jnp.clip(
+            mu / dtau1_k[:, None], -_FEAUTRIER_INV_DTAU_CAP, _FEAUTRIER_INV_DTAU_CAP
+        )  # (n_gf, n_angles)
+        f1 = jnp.clip(
+            mu2 / dtau2_km1[:, None], -_FEAUTRIER_INV_DTAU2_CAP, _FEAUTRIER_INV_DTAU2_CAP
+        )  # (n_gf, n_angles)
+
+        is_top = k == 0
+        is_surf = k == n - 1
+
+        b_top = 1.0 + 2.0 * f2 * (1.0 + f2)
+        b_mid = 1.0 + f1 * (f2 + f_prev)
+        b_k = jnp.where(is_top, b_top, jnp.where(is_surf, 1.0, b_mid))
+        c_k_row = jnp.where(is_top, -2.0 * f2**2, jnp.where(is_surf, 0.0, -f1 * f2))
+        a_k_row = jnp.where(is_top | is_surf, 0.0, -f1 * f_prev)
+
+        # Lambda diagonal row. The mid-row diagonal is floored away from zero
+        # before the reciprocal so its reverse-mode gradient stays finite (see
+        # GRAD_SAFE_DENOM). At k == n-1, f2 holds mu/dtau1[n-2] = the surface
+        # stencil coefficient.
+        b_mid_safe = jnp.where(
+            jnp.abs(b_mid) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, b_mid
+        )
+        lam_branch = jnp.where(
+            is_top, b_top, jnp.where(is_surf, 1.0 + 2.0 * f2**2, b_mid_safe)
+        )
+        lam_k = jnp.sum(w / lam_branch, axis=1)  # (n_gf,)
+
+        # Thomas forward elimination of the freshly built row.
+        denom = b_k.reshape(batch) - a_k_row.reshape(batch) * c_prev
+        safe_den = jnp.where(jnp.abs(denom) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom)
+        inv_den = 1.0 / safe_den
+        c_k = c_k_row.reshape(batch) * inv_den
+        a_inv_k = a_k_row.reshape(batch) * inv_den
+
+        return (c_k, f2), (c_k, inv_den, a_inv_k, lam_k)
+
+    (_, f_surface_ga), (c_prime, inv_denom, a_times_inv_denom, lambda_loc_lm) = (
+        lax.scan(
+            step,
+            (
+                jnp.zeros(batch, dtype=dtype),
+                jnp.zeros((n_gf, n_angles), dtype=dtype),
+            ),
+            jnp.arange(n),
+        )
+    )
+
+    return (c_prime, inv_denom, a_times_inv_denom), lambda_loc_lm, f_surface_ga
+
+
+@partial(jit, static_argnames=("n_gf", "n_angles", "n_layers"))
+def _prepare_feautrier_system_lm_gpu(
+    dtau1_lm,
+    dtau2_lm,
+    emission_cos_angles,
+    emission_cos_angles_weights,
+    n_gf,
+    n_angles,
+    n_layers,
+):
+    """GPU variant: materialise the tridiagonal rows for the PCR solver.
+
+    Same formulas as :func:`_prepare_feautrier_system_lm_cpu`, but built
+    vectorised (PCR has no separable factorisation step, so the coefficient
+    arrays must exist). Returns ``(a, b, c)`` in the (batch, n_layers) layout
+    expected by :func:`solve_tridiagonal_pcr` as the solver state.
+    """
+    n = n_layers
+    batch = n_gf * n_angles
+
+    mu = emission_cos_angles[None, None, :]
+    mu2 = (emission_cos_angles * 2.0)[None, None, :]
+    w = emission_cos_angles_weights[None, :]
+
+    f2_all = jnp.clip(
+        mu / dtau1_lm[:, :, None], -_FEAUTRIER_INV_DTAU_CAP, _FEAUTRIER_INV_DTAU_CAP
+    )  # (n-1, n_gf, a)
+    f1_all = jnp.clip(
+        mu2 / dtau2_lm[:, :, None], -_FEAUTRIER_INV_DTAU2_CAP, _FEAUTRIER_INV_DTAU2_CAP
+    )  # (n-2, n_gf, a)
+
+    b_top = 1.0 + 2.0 * f2_all[0] * (1.0 + f2_all[0])  # (n_gf, a)
+    b_mid = 1.0 + f1_all * (f2_all[1:] + f2_all[:-1])  # (n-2, n_gf, a)
+    c_top = -2.0 * f2_all[0] ** 2
+    c_mid = -f1_all * f2_all[1:]
+    a_mid = -f1_all * f2_all[:-1]
+
+    pad_row = jnp.zeros((1, n_gf, n_angles), dtype=dtau1_lm.dtype)
+    one_row = jnp.ones((1, n_gf, n_angles), dtype=dtau1_lm.dtype)
+    a_lm = jnp.concatenate([pad_row, a_mid, pad_row], axis=0)
+    b_lm = jnp.concatenate([b_top[None], b_mid, one_row], axis=0)
+    c_lm = jnp.concatenate([c_top[None], c_mid, pad_row], axis=0)
+
+    b_mid_safe = jnp.where(jnp.abs(b_mid) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, b_mid)
+    lam_top = jnp.sum(w / b_top, axis=1)  # (n_gf,)
+    lam_mid = jnp.sum(w[None] / b_mid_safe, axis=2)  # (n-2, n_gf)
+    lam_surf = jnp.sum(w / (1.0 + 2.0 * f2_all[-1] ** 2), axis=1)  # (n_gf,)
+    lambda_loc_lm = jnp.concatenate(
+        [lam_top[None], lam_mid, lam_surf[None]], axis=0
+    )  # (n, n_gf)
+
+    state = (
+        a_lm.reshape(n, batch).T,
+        b_lm.reshape(n, batch).T,
+        c_lm.reshape(n, batch).T,
+    )
+
+    return state, lambda_loc_lm, f2_all[-1]
+
+
+def prepare_feautrier_system_lm(
+    dtau1_lm,
+    dtau2_lm,
+    emission_cos_angles,
+    emission_cos_angles_weights,
+    n_gf,
+    n_angles,
+    n_layers,
+):
+    """Build the per-chunk Feautrier solver state, Lambda diagonal and surface
+    stencil coefficient from layer-major delta-optical-depths.
+
+    Dispatches to the fused scan on CPU and to the materialising PCR
+    preparation on GPU; the returned state is consumed by
+    :func:`solve_feautrier_system_lm`.
+    """
+    prepare = (
+        _prepare_feautrier_system_lm_gpu if _USE_GPU
+        else _prepare_feautrier_system_lm_cpu
+    )
+    return prepare(
+        dtau1_lm,
+        dtau2_lm,
+        emission_cos_angles,
+        emission_cos_angles_weights,
+        n_gf,
+        n_angles,
+        n_layers,
+    )
+
+
+@partial(jit, static_argnames=("n_gf", "n_angles", "n_layers"))
+def _solve_feautrier_system_lm_cpu(
+    factors,
+    source_lm,
+    r_surf_ga,
+    angle_weight_a,
+    n_gf,
+    n_angles,
+    n_layers,
+):
+    """Layer-major prefactored Thomas solve.
+
+    Parameters
+    ----------
+    factors : tuple of jax.Array, each (n_layers, batch)
+        Thomas factors from :func:`_prepare_feautrier_system_lm_cpu`.
+    source_lm : jax.Array, shape (n_layers, n_gf)
+        Angle-independent source function; only rows 0 .. n_layers-2 enter the
+        RHS (the surface row is ``r_surf_ga``).
+    r_surf_ga : jax.Array, shape (n_gf, n_angles)
+        Surface boundary RHS.
+    angle_weight_a : jax.Array, shape (n_angles,)
+        Angular quadrature weights for the mean-intensity accumulation.
+
+    Returns
+    -------
+    I_H_top : jax.Array, shape (n_gf, n_angles)
+    x_last : jax.Array, shape (n_gf, n_angles)
+    x_nm2 : jax.Array, shape (n_gf, n_angles)
+    J_bol_lm : jax.Array, shape (n_layers, n_gf)
+    """
+    c_prime, inv_denom, a_times_inv_denom = factors
+    n = n_layers
+    batch = n_gf * n_angles
+
+    def _weighted_gf(x_k):
+        return jnp.sum(
+            x_k.reshape(n_gf, n_angles) * angle_weight_a[None, :],
+            axis=1,
+        )
+
+    # RHS forward sweep over rows 0 .. n-2 as one uniform scan: the
+    # zero-initialised carry makes row 0 exact because a_times_inv_denom[0] is
+    # zero (Feautrier padding).
+    def fwd_rhs_step(d_prev, k):
+        rhs_k = jnp.broadcast_to(
+            source_lm[k][:, None], (n_gf, n_angles)
+        ).reshape(batch)
+        d_k = rhs_k * inv_denom[k] - a_times_inv_denom[k] * d_prev
+        return d_k, d_k
+
+    d_nm2, d_upto_nm2 = lax.scan(
+        fwd_rhs_step,
+        jnp.zeros(batch, dtype=inv_denom.dtype),
+        jnp.arange(n - 1),
+    )  # d_upto_nm2: (n-1, batch)
+
+    # Surface row
+    x_last_flat = (
+        r_surf_ga.reshape(batch) * inv_denom[n - 1]
+        - a_times_inv_denom[n - 1] * d_nm2
+    )
+
+    # Backward substitution; the reverse scan emits rows in natural layer
+    # order, avoiding a flip copy.
+    x_nm2_flat = d_upto_nm2[n - 2, :] - c_prime[n - 2, :] * x_last_flat
+    weighted_last = _weighted_gf(x_last_flat)
+    weighted_nm2 = _weighted_gf(x_nm2_flat)
+
+    def bwd_step(x_next, k):
+        x_k = d_upto_nm2[k, :] - c_prime[k, :] * x_next
+        return x_k, _weighted_gf(x_k)
+
+    x0_flat, weighted_rest = lax.scan(
+        bwd_step,
+        x_nm2_flat,
+        jnp.arange(n - 2),
+        reverse=True,
+    )
+    J_bol_lm = jnp.concatenate(
+        [weighted_rest, weighted_nm2[None, :], weighted_last[None, :]],
+        axis=0,
+    )  # (n, n_gf)
+
+    return (
+        (-x0_flat).reshape(n_gf, n_angles),
+        x_last_flat.reshape(n_gf, n_angles),
+        x_nm2_flat.reshape(n_gf, n_angles),
+        J_bol_lm,
+    )
+
+
+@partial(jit, static_argnames=("n_gf", "n_angles", "n_layers"))
+def _solve_feautrier_system_lm_gpu(
+    state,
+    source_lm,
+    r_surf_ga,
+    angle_weight_a,
+    n_gf,
+    n_angles,
+    n_layers,
+):
+    """Layer-major Feautrier solve through the PCR kernel (GPU)."""
+    a, b, c = state
+    n = n_layers
+    batch = n_gf * n_angles
+
+    d_inner = (
+        jnp.broadcast_to(
+            source_lm[: n - 1, :, None], (n - 1, n_gf, n_angles)
+        )
+        .reshape(n - 1, batch)
+        .T
+    )  # (batch, n-1)
+    d_full = jnp.concatenate([d_inner, r_surf_ga.reshape(batch, 1)], axis=1)
+
+    x_full = solve_tridiagonal_pcr(a, b, c, d_full)  # (batch, n)
+
+    x_gfan = x_full.reshape(n_gf, n_angles, n)
+    J_bol_lm = jnp.sum(
+        x_gfan * angle_weight_a[None, :, None], axis=1
+    ).T  # (n, n_gf)
+
+    return (
+        (-x_full[:, 0]).reshape(n_gf, n_angles),
+        x_full[:, n - 1].reshape(n_gf, n_angles),
+        x_full[:, n - 2].reshape(n_gf, n_angles),
+        J_bol_lm,
+    )
+
+
+def solve_feautrier_system_lm(
+    state,
+    source_lm,
+    r_surf_ga,
+    angle_weight_a,
+    n_gf,
+    n_angles,
+    n_layers,
+):
+    """Solve the prepared layer-major Feautrier system for one source iterate.
+
+    ``state`` must come from :func:`prepare_feautrier_system_lm` on the same
+    backend. Returns ``(I_H_top, x_last, x_nm2, J_bol_lm)`` with the angular
+    arrays shaped (n_gf, n_angles) and ``J_bol_lm`` shaped (n_layers, n_gf).
+    """
+    solve = (
+        _solve_feautrier_system_lm_gpu if _USE_GPU else _solve_feautrier_system_lm_cpu
+    )
+    return solve(
+        state,
+        source_lm,
+        r_surf_ga,
+        angle_weight_a,
+        n_gf,
         n_angles,
         n_layers,
     )
