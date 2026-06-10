@@ -39,12 +39,31 @@ class Data:
     Args:
         name : str
             Identifier for this data set.
+        model_generating_function : method
+            A function, typically defined in run_definition.py that returns the model wavelength and spectrum
+            (emission or transmission).
+            This is the function that contains the physics of the model, and calls pRT in order to compute the
+            spectrum.
         path_to_observations : str
             Path to observations file, including filename. This can be a txt or dat file
             containing the wavelength, flux, transit depth and error, or a fits file
             containing the wavelength, spectrum and covariance matrix.
             Alternatively, the data information can be directly given by the wavelengths, spectrum, uncertainties, and
             mask attributes.
+        wavelengths:
+            (um) Wavelengths of the data.
+        spectrum:
+            Spectrum of the data.
+        uncertainties:
+            Uncertainties of the data, in the same units as the spectrum.
+        covariance:
+            Covariance matrix of the data, in the same units as the spectrum squared.
+        line_opacity_mode : str
+            Should the retrieval be run using correlated-k opacities (default, 'c-k'),
+            or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
+            recommended to set the model_resolution parameter. In general,
+            'c-k' mode is recommended for retrievals of everything other than
+            high-resolution (R>40000) spectra.
         data_resolution : float or jnp.ndarray
             Spectral resolution of the instrument. Optional, allows convolution of model to
             instrumental line width. If the data_resolution is an array, the resolution can
@@ -69,16 +88,6 @@ class Data:
             Note the difference between this parameter and the line_by_line_opacity_sampling
             parameter in the RadTrans class - the actual desired resolution should
             be set here.
-        external_radtrans_reference : object
-            An existing RadTrans object. Leave as none unless you're sure of what you're doing.
-        model_generating_function : method
-            A function, typically defined in run_definition.py that returns the model wavelength and spectrum
-            (emission or transmission).
-            This is the function that contains the physics of the model, and calls pRT in order to compute the
-            spectrum.
-        wavelength_boundaries : tuple,list
-            Set the wavelength range of the pRT object. Defaults to a range +/-5% greater than that of the data.
-            Must at least be equal to the range of the data.
         scale_flux : bool
             Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the
             retrieval.
@@ -87,34 +96,6 @@ class Data:
             retrieval.
         fit_flux_offset:
             Turn on or off fitting a flux offset. Set to True if fitting a flux offset during the retrieval.
-        wavelength_bin_widths : numpy.ndarray
-            Set the wavelength bin width to bin the Radtrans object to the data. Defaults to the data bins.
-        photometry : bool
-            Set to True if using photometric data.
-        photometric_transformation_function : method
-            Transform the photometry (account for filter transmission etc.).
-            This function must take in the wavelength and flux of a spectrum,
-            and output a single photometric point (and optionally flux error).
-        photometric_bin_edges : Tuple, numpy.ndarray
-            The edges of the photometric bin in micron. [low,high]
-        line_opacity_mode : str
-            Should the retrieval be run using correlated-k opacities (default, 'c-k'),
-            or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
-            recommended to set the model_resolution parameter. In general,
-            'c-k' mode is recommended for retrievals of everything other than
-            high-resolution (R>40000) spectra.
-        radtrans_grid: bool
-            Set to true if data has been binned to a pRT c-k grid.
-        radtrans_object:
-            An instance of Radtrans object to be used to generate model spectra in retrievals.
-        wavelengths:
-            (um) Wavelengths of the data.
-        spectrum:
-            Spectrum of the data.
-        uncertainties:
-            Uncertainties of the data, in the same units as the spectrum.
-        covariance:
-            Covariance matrix of the data, in the same units as the spectrum squared.
         fit_covariance:
             If True, construct a fitted covariance matrix during retrieval using GP-like kernel terms.
             This is currently supported for 1D spectroscopic datasets only.
@@ -129,6 +110,17 @@ class Data:
             Number of local covariance kernels to include when using ``'global_local'`` mode.
         covariance_jitter:
             Small diagonal stabilization term added to the fitted covariance matrix.
+        external_radtrans_reference : object
+            An existing RadTrans object. Leave as none unless you're sure of what you're doing.
+        wavelength_boundaries : tuple,list
+            Set the wavelength range of the pRT object. Defaults to a range +/-5% greater than that of the data.
+            Must at least be equal to the range of the data.
+        wavelength_bin_widths : numpy.ndarray
+            Set the wavelength bin width to bin the Radtrans object to the data. Defaults to the data bins.
+        radtrans_grid: bool
+            Set to true if data has been binned to a pRT c-k grid.
+        radtrans_object:
+            An instance of Radtrans object to be used to generate model spectra in retrievals.
         mask:
             Mask of the data.
     """
@@ -138,33 +130,33 @@ class Data:
     def __init__(
         self,
         name: str,
-        path_to_observations: str | None = None,
-        data_resolution: float | None = None,
-        model_resolution: float | None = None,
-        external_radtrans_reference: object | None = None,
         model_generating_function: (
             Callable[..., tuple[ArrayLike, ArrayLike, ArrayLike]] | None
         ) = None,
-        wavelength_boundaries: tuple[float, float] | None = None,
-        scale_flux: bool = False,
-        scale_uncertainties: bool = False,
-        fit_flux_offset: bool = False,
-        fit_instrumental_resolution: bool = False,
-        subtract_continuum: bool = False,
-        wavelength_bin_widths: ArrayLike | None = None,
-        line_opacity_mode: str = "c-k",
-        radtrans_grid: bool = False,
-        radtrans_object: object = None,
+        path_to_observations: str | None = None,
         wavelengths: ArrayLike | None = None,
         spectrum: ArrayLike | None = None,
         uncertainties: ArrayLike | None = None,
         covariance: ArrayLike | None = None,
+        line_opacity_mode: str = "c-k",
+        data_resolution: float | None = None,
+        model_resolution: float | None = None,
+        scale_flux: bool = False,
+        scale_uncertainties: bool = False,
+        fit_flux_offset: bool = False,
         fit_covariance: bool = False,
         covariance_mode: str = "none",
         global_covariance_kernel: str = "squared_exponential",
         local_covariance_kernel: str = "squared_exponential",
         n_local_covariance_kernels: int = 0,
         covariance_jitter: float = 0.0,
+        fit_instrumental_resolution: bool = False,
+        external_radtrans_reference: object | None = None,
+        wavelength_boundaries: tuple[float, float] | None = None,
+        wavelength_bin_widths: ArrayLike | None = None,
+        subtract_continuum: bool = False,
+        radtrans_grid: bool = False,
+        radtrans_object: object = None,
         mask: ArrayLike | None = None,  # TODO bool typing
     ):
         self.name: str = name
@@ -257,7 +249,6 @@ class Data:
         self.wavelength_boundaries: tuple[float, float] | None = None
         self.wavelength_bin_widths: ArrayLike | float | None = wavelength_bin_widths
 
-
         self.radtrans_grid = radtrans_grid
 
         # Read in data
@@ -275,28 +266,21 @@ class Data:
             else:
                 self.loadtxt(path_to_observations)
 
-            if self.wavelength_bin_widths is None:
-                if wavelength_bin_widths is not None:
-                    self.wavelength_bin_widths = wavelength_bin_widths
-                else:
-                    self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
-                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[
-                        :-1
-                    ].set(jnp.diff(self.wavelengths))
-                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[
-                        -1
-                    ].set(self.wavelength_bin_widths[-2])
+        if self.wavelength_bin_widths is None:
+            if wavelength_bin_widths is not None:
+                self.wavelength_bin_widths = wavelength_bin_widths
+            else:
+                self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
+                self.wavelength_bin_widths = self.wavelength_bin_widths.at[
+                    :-1
+                ].set(jnp.diff(self.wavelengths))
+                self.wavelength_bin_widths = self.wavelength_bin_widths.at[
+                    -1
+                ].set(self.wavelength_bin_widths[-2])
 
-            self._validate_covariance_configuration()
+        self._validate_covariance_configuration()
 
-        # Model wavelength boundaries. Honour an explicit ``wavelength_boundaries``
-        # argument; otherwise bracket the data wavelengths by
-        # [0.98 * min, 1.02 * max]. This is applied for *every* data object --
-        # whether the spectrum was read from a file or supplied via arguments --
-        # so the Radtrans model grid is restricted to (just beyond) the data
-        # range instead of spanning the full loaded-opacity range (which would
-        # otherwise compute far-UV/IR wavelengths that underflow to NaN and only
-        # waste time).
+        # Model wavelength boundaries.
         if wavelength_boundaries is not None:
             self.wavelength_boundaries = tuple(wavelength_boundaries)
         elif self.wavelengths is not None and jnp.size(jnp.asarray(self.wavelengths)) > 0:
@@ -390,7 +374,12 @@ class Data:
         self.uncertainties = 1e-26 * c_micron * self.uncertainties / self.wavelengths**2
 
     # TODO [4.0.0] This should be a classmethod instantiating a Data object, named "from_fits"
-    def loadfits(self, path) -> None:
+    def loadfits(self,
+                 path,
+                 wavelength_column_name="WAVELENGTH",
+                 flux_column_name="FLUX",
+                 error_column_name="ERROR",
+                 covariance_column_name="COVARIANCE") -> None:
         """
         Load a Radtrans-formatted fits file.
         Must include extension SPECTRUM with fields WAVELENGTH, FLUX
@@ -405,42 +394,34 @@ class Data:
 
         if hasattr(data, "columns") and data.columns is not None:
             column_names = tuple(data.columns.names)
-            self.wavelengths = jnp.asarray(data.field("WAVELENGTH"), dtype=JAX_DTYPE)
-            self.spectrum = jnp.asarray(data.field("FLUX"), dtype=JAX_DTYPE)
+            self.wavelengths = jnp.asarray(data.field(wavelength_column_name), dtype=JAX_DTYPE)
+            self.spectrum = jnp.asarray(data.field(flux_column_name), dtype=JAX_DTYPE)
 
-            if "COVARIANCE" in column_names:
-                self.covariance = jnp.asarray(data.field("COVARIANCE"), dtype=JAX_DTYPE)
+            if covariance_column_name in column_names:
+                self.covariance = jnp.asarray(data.field(covariance_column_name), dtype=JAX_DTYPE)
                 self._cache_covariance_factorization()
                 self.uncertainties = jnp.sqrt(self.covariance.diagonal())
-            elif "ERROR" in column_names:
+            elif error_column_name in column_names:
                 # Note that this will only be the uncorrelated error.
                 # Dot with the correlation matrix (if available) to get
                 # the full error.
-                self.uncertainties = jnp.asarray(data.field("ERROR"), dtype=JAX_DTYPE)
+                self.uncertainties = jnp.asarray(data.field(error_column_name), dtype=JAX_DTYPE)
                 self.covariance = None
                 self.inv_cov = None
                 self.covariance_cholesky_factor = None
                 self.log_covariance_determinant = None
         else:
             hdul = fits.open(path)
-            self.wavelengths = jnp.asarray(hdul[1].data["WAVELENGTH"], dtype=JAX_DTYPE)
-            self.spectrum = jnp.asarray(hdul[1].data["FLUX"], dtype=JAX_DTYPE)
+            self.wavelengths = jnp.asarray(hdul[1].data[wavelength_column_name], dtype=JAX_DTYPE)
+            self.spectrum = jnp.asarray(hdul[1].data[flux_column_name], dtype=JAX_DTYPE)
 
-            if "FLUX_STD" in hdul[1].data.columns.names:
+            if error_column_name in hdul[1].data.columns.names:
                 self.uncertainties = jnp.asarray(
-                    hdul[1].data["FLUX_STD"], dtype=JAX_DTYPE
-                )
-            elif "FLUX_ERROR" in hdul[1].data.columns.names:
-                self.uncertainties = jnp.asarray(
-                    hdul[1].data["FLUX_ERROR"], dtype=JAX_DTYPE
+                    hdul[1].data[error_column_name], dtype=JAX_DTYPE
                 )
 
-            if "FLUX_COV" in hdul[1].data.columns.names:
-                self.covariance = jnp.asarray(hdul[1].data["FLUX_COV"], dtype=JAX_DTYPE)
-            elif "COVARIANCE" in hdul[1].data.columns.names:
-                self.covariance = jnp.asarray(
-                    hdul[1].data["COVARIANCE"], dtype=JAX_DTYPE
-                )
+            if covariance_column_name in hdul[1].data.columns.names:
+                self.covariance = jnp.asarray(hdul[1].data[covariance_column_name], dtype=JAX_DTYPE)
 
             if self.covariance is not None:
                 self._cache_covariance_factorization()
