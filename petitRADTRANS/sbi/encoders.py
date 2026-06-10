@@ -239,7 +239,7 @@ def _amplitude_features(
     )
 
 
-# --- Robust amplitude/shape decomposition for the generic_v1 encoder ---------
+# --- Robust amplitude/shape decomposition for the convolution encoder ---------
 #
 # These are the JAX, differentiable, vmappable analogue of the per-spectrum
 # normalisation that conceptually belongs to preprocessing. They live here (next
@@ -861,7 +861,7 @@ class SpectralConv1DEncoder(eqx.Module):
         )
 
 
-class SpectralGenericEncoder(eqx.Module):
+class SpectralConvolutionEncoder(eqx.Module):
     """Observable-agnostic spectral encoder that explicitly factors a spectrum
     into *amplitude* and *shape*, so the network can never collapse to an
     amplitude-only summary (the failure mode that left composition / temperature
@@ -886,7 +886,7 @@ class SpectralGenericEncoder(eqx.Module):
     and LayerNorm-normalised.
 
     The constructor signature mirrors :class:`SpectralConv1DEncoder` so it is a
-    drop-in alternative selected by ``spectrum_encoder_type='generic_v1'``.
+    drop-in alternative selected by ``spectrum_encoder_type='convolution'``.
     """
 
     input_projection: eqx.nn.Conv1d
@@ -1297,7 +1297,7 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
     currently fall back to resized raw-value vectors.
     """
 
-    spectrum_encoder: SpectralPatchEncoder | SpectralConv1DEncoder | SpectralGenericEncoder
+    spectrum_encoder: SpectralPatchEncoder | SpectralConv1DEncoder | SpectralConvolutionEncoder
     photometry_encoder: PhotometryPointEncoder
     aggregator: DatasetSetAggregator
     embedding_dim: int = eqx.field(static=True)
@@ -1318,8 +1318,8 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
 
         spectrum_key, photometry_key, aggregator_key = random.split(key, 3)
         self.embedding_dim = int(embedding_dim)
-        if spectrum_encoder_type == "generic_v1":
-            self.spectrum_encoder = SpectralGenericEncoder(
+        if spectrum_encoder_type == "convolution":
+            self.spectrum_encoder = SpectralConvolutionEncoder(
                 spectrum_embedding_dim, n_wavelengths, key=spectrum_key
             )
         elif spectrum_encoder_type == "conv1d":
@@ -1536,6 +1536,6 @@ __all__ = [
     "HierarchicalObservationEncoder",
     "PhotometryPointEncoder",
     "SpectralConv1DEncoder",
-    "SpectralGenericEncoder",
+    "SpectralConvolutionEncoder",
     "SpectralPatchEncoder",
 ]

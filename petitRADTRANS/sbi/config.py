@@ -40,14 +40,22 @@ class FlowConfig:
     neural_autoregressive_min_slope: float = 5e-3
     neural_autoregressive_min_residual: float = 0.1
     neural_autoregressive_inverse_bisection_steps: int = 64
+    # Rational-quadratic spline regularization (only used by spline flows).
+    spline_small_bin_regularization_weight: float | None = None
+    spline_derivative_regularization_weight: float = 0.0
+    spline_entropy_regularization_weight: float = 0.0
+    spline_entropy_floor: float = 0.6
+    spline_min_bin_ratio_target: float = 0.2
+    spline_min_derivative_target: float = 0.25
+    spline_max_derivative_target: float = 5.0
 
 
 @dataclass
 class EncoderConfig:
-    """Observation-embedding encoder. Defaults to the generic_v1 encoder that
+    """Observation-embedding encoder. Defaults to the convolution encoder that
     explicitly factors amplitude from shape (see ``SpectralGenericEncoder``)."""
 
-    spectrum_encoder_type: str = "generic_v1"
+    spectrum_encoder_type: str = "convolution"
     embedding_dim: int = 80
     spectrum_embedding_dim: int = 64
     photometry_embedding_dim: int = 32
@@ -74,6 +82,10 @@ class TrainingConfig:
     aux_scale_loss_weight: float = 0.0
     # 'cube' (uniform prior) or 'unconstrained'. ELBO requires 'cube'.
     parameter_space: str = "cube"
+    # ELBO-objective knobs (ignored when training_objective='npe').
+    elbo_num_samples: int = 1
+    elbo_beta_start: float = 1e-3
+    elbo_anneal_fraction: float = 0.6
 
 
 @dataclass
@@ -134,12 +146,28 @@ def build_conditional_flow_posterior(
         neural_autoregressive_inverse_bisection_steps=int(
             flow.neural_autoregressive_inverse_bisection_steps
         ),
+        spline_small_bin_regularization_weight=(
+            flow.spline_small_bin_regularization_weight
+        ),
+        spline_derivative_regularization_weight=float(
+            flow.spline_derivative_regularization_weight
+        ),
+        spline_entropy_regularization_weight=float(
+            flow.spline_entropy_regularization_weight
+        ),
+        spline_entropy_floor=float(flow.spline_entropy_floor),
+        spline_min_bin_ratio_target=float(flow.spline_min_bin_ratio_target),
+        spline_min_derivative_target=float(flow.spline_min_derivative_target),
+        spline_max_derivative_target=float(flow.spline_max_derivative_target),
         # training
         learning_rate=float(training.learning_rate),
         batch_size=int(training.batch_size),
         num_epochs=int(training.num_epochs),
         parameter_space=str(training.parameter_space),
         training_objective=str(training.training_objective),
+        elbo_num_samples=int(training.elbo_num_samples),
+        elbo_beta_start=float(training.elbo_beta_start),
+        elbo_anneal_fraction=float(training.elbo_anneal_fraction),
         aux_scale_loss_weight=float(training.aux_scale_loss_weight),
         weight_decay=float(training.weight_decay),
         gradient_clip_norm=training.gradient_clip_norm,
@@ -175,4 +203,6 @@ __all__ = [
     "TrainingConfig",
     "StabilityConfig",
     "build_conditional_flow_posterior",
+]
+,
 ]
