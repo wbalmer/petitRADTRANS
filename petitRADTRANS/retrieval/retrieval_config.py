@@ -1113,7 +1113,7 @@ class RetrievalConfig:
             or photometric_bin_edges is not None
         )
 
-        if photometry:
+        if photometry != _UNSET:
             warnings.warn(
                 "The 'photometry' argument is deprecated; add_data() now infers PhotometryData from "
                 "'photometric_transformation_function' and 'photometric_bin_edges'.",
