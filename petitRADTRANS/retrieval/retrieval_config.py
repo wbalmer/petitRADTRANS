@@ -1130,7 +1130,7 @@ class RetrievalConfig:
                 "'photometric_bin_edges'."
             )
 
-        if photometry and not inferred_photometry:
+        if photometry != _UNSET and not inferred_photometry:
             raise ValueError(
                 "The deprecated 'photometry' flag no longer controls dataset type. Provide both "
                 "'photometric_transformation_function' and 'photometric_bin_edges' to configure photometric data."
