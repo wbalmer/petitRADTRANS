@@ -43,6 +43,7 @@ struct PairSample {
 };
 
 struct Scratch {
+  // Store the per-cell samples and intermediates here
   std::vector<PairSample> samples;
   std::vector<double> current;
   std::vector<double> next_current;
@@ -61,6 +62,7 @@ struct Scratch {
 
 double InterpolateLinear(const std::vector<double>& x, const std::vector<double>& y,
                          int n, double x_out) {
+  // Linear interpolation, but in C++
   int idx = 0;
   if (x_out >= x[n - 1]) {
     idx = n - 2;
@@ -93,6 +95,22 @@ void MixCells(const T* weighted_ptr, const T* continuum_ptr,
               const std::vector<double>& g_points,
               const std::vector<double>& gauss_weights, int fl_begin, int fl_end,
               int n_species, int n_g, Scratch& scratch, T* output_ptr) {
+  // Actual per-cell mixing logic: for each species, form the n_g x n_g pairwise
+  // sums with the current mixture, sort them, reweight to cumulative g, and
+  // reinterpolate onto the Gaussian grid. Skip species below the 1% threshold.
+  //
+  // Args:
+  //     weighted_ptr: (n_fl, n_species, n_g) mass-fraction-weighted opacities
+  //     continuum_ptr: (n_fl) continuum opacities
+  //     g_points: (n_g) Gaussian quadrature points
+  //     gauss_weights: (n_g) Gaussian quadrature weights
+  //     fl_begin: first flattened (frequency, layer) index to process
+  //     fl_end: one past the last flattened (frequency, layer) index to process
+  //     n_species: number of species (including continuum as species 0)
+  //     n_g: number of Gaussian quadrature points
+  //     scratch: preallocated temporary storage for this worker thread
+  //     output_ptr: (n_fl, n_g) output mixed opacities (row-major)
+
   const int n_sample = n_g * n_g;
   auto& samples = scratch.samples;
   auto& current = scratch.current;
@@ -101,6 +119,9 @@ void MixCells(const T* weighted_ptr, const T* continuum_ptr,
   auto& g_out = scratch.g_out;
   auto& k_out = scratch.k_out;
 
+  // We're going to compare the two species opacities,
+  // combine them (from two 16x16 arrays to one 256 array),
+  // then re-sort them and re-interpolate them back to 16 points.
   for (int fl = fl_begin; fl < fl_end; ++fl) {
     const T* cell_ptr = weighted_ptr + static_cast<size_t>(fl) * n_species * n_g;
     const double continuum = static_cast<double>(continuum_ptr[fl]);
@@ -173,8 +194,11 @@ ffi::Error PrtCombineCkMixImpl(ffi::ThreadPool thread_pool,
                                  ffi::Buffer<DT> g_gauss,
                                  ffi::Buffer<DT> weights_gauss,
                                  ffi::ResultBuffer<DT> output) {
+  // Validate inputs, prepare for parallel processing, and dispatch to MixCells.
+
   using T = ffi::NativeType<DT>;
 
+  // Sanity check input suzes
   if (weighted_all.dimensions().size() != 3) {
     return ffi::Error::InvalidArgument("weighted_all must be rank-3");
   }
@@ -187,6 +211,7 @@ ffi::Error PrtCombineCkMixImpl(ffi::ThreadPool thread_pool,
     return ffi::Error::InvalidArgument("output must be rank-2");
   }
 
+  // Define constants for array sizes
   const int n_fl = static_cast<int>(weighted_all.dimensions()[0]);
   const int n_species = static_cast<int>(weighted_all.dimensions()[1]);
   const int n_g = static_cast<int>(weighted_all.dimensions()[2]);
@@ -204,6 +229,7 @@ ffi::Error PrtCombineCkMixImpl(ffi::ThreadPool thread_pool,
     return ffi::Error::InvalidArgument("n_species must be at least 1");
   }
 
+  // Convert quadrature points and weights to double precision
   std::vector<double> g_points(n_g);
   std::vector<double> gauss_weights(n_g);
   for (int i = 0; i < n_g; ++i) {
@@ -211,6 +237,7 @@ ffi::Error PrtCombineCkMixImpl(ffi::ThreadPool thread_pool,
     gauss_weights[i] = static_cast<double>(weights_gauss.typed_data()[i]);
   }
 
+  // Get raw pointers to input and output data
   const T* weighted_ptr = weighted_all.typed_data();
   const T* continuum_ptr = continuum_flat.typed_data();
   T* output_ptr = output->typed_data();
@@ -223,6 +250,7 @@ ffi::Error PrtCombineCkMixImpl(ffi::ThreadPool thread_pool,
   const int chunk = (n_fl + max_tasks - 1) / max_tasks;
   const int n_tasks = (n_fl + chunk - 1) / chunk;
 
+  // If the problem is too small, or we have only one worker thread, skip parallelism
   if (n_tasks <= 1 || pool_threads <= 1) {
     Scratch scratch(n_g);
     MixCells<T>(weighted_ptr, continuum_ptr, g_points, gauss_weights, 0, n_fl,
@@ -234,14 +262,17 @@ ffi::Error PrtCombineCkMixImpl(ffi::ThreadPool thread_pool,
   std::mutex done_mutex;
   std::condition_variable done_cv;
 
+  // Schedule all but the first task, which we run immediately.
   for (int task = 1; task < n_tasks; ++task) {
     const int begin = task * chunk;
     const int end = std::min(begin + chunk, n_fl);
+    // thread pool parallelises over cells.
     thread_pool.Schedule([=, &remaining, &done_mutex, &done_cv, &g_points,
                           &gauss_weights]() {
       Scratch scratch(n_g);
       MixCells<T>(weighted_ptr, continuum_ptr, g_points, gauss_weights, begin, end,
                   n_species, n_g, scratch, output_ptr);
+      // Wait until everything is done.
       if (remaining.fetch_sub(1, std::memory_order_acq_rel) == 1) {
         std::lock_guard<std::mutex> lock(done_mutex);
         done_cv.notify_one();
