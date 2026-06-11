@@ -29,6 +29,32 @@ from petitRADTRANS.jax_dtype import JAX_DTYPE
 SQRT2 = jnp.sqrt(2.0)
 
 
+def _eager_grids_match(wavelengths_model, data_wavelengths) -> bool:
+    """True only when both wavelength grids are concrete (not JAX tracers) and identical.
+
+    Used to skip rebinning when a model is already evaluated on the observation
+    grid, mirroring the equality short-circuit in the legacy likelihood path.
+    Under JIT tracing the values are unavailable, so this conservatively returns
+    False and the rebinning branch is taken.
+    """
+    import jax
+
+    if data_wavelengths is None:
+        return False
+    if isinstance(wavelengths_model, jax.core.Tracer) or isinstance(
+        data_wavelengths, jax.core.Tracer
+    ):
+        return False
+
+    wavelengths_model = jnp.asarray(wavelengths_model)
+    data_wavelengths = jnp.asarray(data_wavelengths)
+
+    if wavelengths_model.shape != data_wavelengths.shape:
+        return False
+
+    return bool(jnp.all(wavelengths_model == data_wavelengths))
+
+
 def _get_parameter_value(
     parameters: object, name: str, default: object = None
 ) -> object:
@@ -435,6 +461,11 @@ def process_spectrum_pipeline(
                 wavelengths_model_shifted,
                 model_spectrum_convolved,
             )
+        elif _eager_grids_match(wavelengths_model_shifted, data.wavelengths):
+            # The model is already evaluated on the observation grid: pass it
+            # through unchanged, matching the legacy likelihood short-circuit
+            # so the runtime and legacy paths return identical values.
+            model_spectrum_rebinned = model_spectrum_convolved
         else:
             model_spectrum_rebinned = rebin_spectrum_bin_function(
                 wavelengths_model_shifted,

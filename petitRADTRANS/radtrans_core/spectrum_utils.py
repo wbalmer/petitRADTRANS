@@ -637,9 +637,9 @@ def rebinning_interpolation(
     segment_width = segment_high - segment_low
     segment_slope = (input_spectrum[1:] - input_spectrum[:-1]) / segment_width
     segment_intercept = input_spectrum[:-1] - segment_slope * segment_low
-    bin_widths = rebin_bin_high - rebin_bin_low
 
-    def accumulate_bin_integrals(integrals, segment_data):
+    def accumulate_bin_integrals(carry, segment_data):
+        integrals, covered_widths = carry
         low, high, slope, intercept = segment_data
         overlap_low = jnp.maximum(low, rebin_bin_low)
         overlap_high = jnp.minimum(high, rebin_bin_high)
@@ -650,15 +650,25 @@ def rebinning_interpolation(
         )
         segment_integral = jnp.where(overlap_width > 0.0, segment_integral, 0.0)
 
-        return integrals + segment_integral, None
+        return (integrals + segment_integral, covered_widths + overlap_width), None
 
-    initial_integrals = jnp.zeros_like(rebin_bin_low)
+    initial_carry = (jnp.zeros_like(rebin_bin_low), jnp.zeros_like(rebin_bin_low))
     scan_inputs = (segment_low, segment_high, segment_slope, segment_intercept)
-    integrated_flux, _ = lax.scan(
-        accumulate_bin_integrals, initial_integrals, scan_inputs
+    (integrated_flux, covered_widths), _ = lax.scan(
+        accumulate_bin_integrals, initial_carry, scan_inputs
     )
 
-    return integrated_flux / bin_widths
+    # Normalize by the width of the bin actually covered by the input grid, not
+    # the nominal bin width: bins extending beyond the input wavelength range
+    # would otherwise silently lose the uncovered fraction of their flux. For
+    # fully covered bins the two are identical (the segment overlaps telescope
+    # to the bin width). Bins with no coverage at all return 0.
+    safe_covered_widths = jnp.maximum(
+        covered_widths, jnp.asarray(jnp.finfo(rebin_dtype).tiny, dtype=rebin_dtype)
+    )
+    return jnp.where(
+        covered_widths > 0.0, integrated_flux / safe_covered_widths, 0.0
+    )
 
 
 def _raise_small_size(x):

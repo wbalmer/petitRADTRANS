@@ -1071,10 +1071,18 @@ class Retrieval:
             sampler_parameters=sampler_parameters,
         )
 
+        # Evaluate mode can reach this point without __init__ having created the
+        # output directories (e.g. results moved or deleted between sampling and
+        # a later evaluate run).
+        summary_directory = os.path.join(
+            self.output_directory,
+            "evaluate_" + self.configuration.retrieval_name,
+        )
+        os.makedirs(summary_directory, exist_ok=True)
+
         with open(
             os.path.join(
-                self.output_directory,
-                "evaluate_" + self.configuration.retrieval_name,
+                summary_directory,
                 self.configuration.retrieval_name + "_ret_summary.txt",
             ),
             "w+",
@@ -5055,9 +5063,20 @@ class Retrieval:
 
             self._register_sampler_results(sampler, results)
             if self.rank == 0:
-                self.generate_retrieval_summary()   # now self.sampler.get_summary() populates everything
+                # The summary is best-effort in evaluate mode: loading the saved
+                # results is the contract of this branch, and a summary failure
+                # (e.g. partially initialized retrieval state) must not discard
+                # successfully loaded results.
+                try:
+                    self.generate_retrieval_summary()   # self.sampler.get_summary() populates everything
+                except Exception as error:  # noqa: BLE001
+                    warnings.warn(
+                        f"could not generate the retrieval summary in evaluate mode: {error}"
+                    )
 
-            return self.sampler
+            # Match the sampling branches, which return the results object
+            # (via _finalize_sampler_run), not the sampler.
+            return results
 
         sampler = self.sampler
         error_checking = sampler_kwargs.pop("error_checking", True)
