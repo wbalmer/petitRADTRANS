@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a42] - 2026-06-10
+## [4.0.0a43] - 2026-06-11
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -91,6 +91,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Minimum supported Python version is 3.12.
 
 ### Added
+- a43: XLA Foreign function interface (C++) for c-k mixing gives ~10x performance improvement on CPU.
 - a42: Config interface for SBI
 - a41: Multichain HMC, NUTS and JAXNS - run multiple independent chains on different devices and combine.
 - a40: Aliases for some common parameter names in retrievals

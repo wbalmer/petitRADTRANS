@@ -175,11 +175,16 @@ def compute_cloud_particle_mean_radius(
                 f"({n_layers},) or ({n_clouds},), but was {cloud_particle_radius_distribution_std.shape}"
             )
     elif cloud_particle_radius_distribution_std.ndim == 2:
-        if cloud_particle_radius_distribution_std.shape == (n_clouds, n_layers):
+        # Check the documented (n_layers, n_clouds) layout first: for square
+        # inputs (n_layers == n_clouds) both shape tests match, and the
+        # documented layout (consistent with f_seds) must win.
+        if cloud_particle_radius_distribution_std.shape == (n_layers, n_clouds):
+            pass
+        elif cloud_particle_radius_distribution_std.shape == (n_clouds, n_layers):
             cloud_particle_radius_distribution_std = (
                 cloud_particle_radius_distribution_std.T
             )
-        elif cloud_particle_radius_distribution_std.shape != (n_layers, n_clouds):
+        else:
             raise ValueError(
                 "cloud_particle_radius_distribution_std must have shape "
                 f"({n_layers}, {n_clouds}), but was {cloud_particle_radius_distribution_std.shape}"
