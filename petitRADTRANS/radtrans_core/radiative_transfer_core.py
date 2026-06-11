@@ -3,6 +3,7 @@ JAX implementation of fortran_core.core
 - rayleigh scattering moved to jax_rayleigh_scattering
 """
 
+import os
 from functools import partial
 from typing import Literal, Optional, cast, overload
 
@@ -23,6 +24,14 @@ HUGE_SQRT = jnp.sqrt(jnp.finfo(FEAUTRIER_JAX_DTYPE).max)
 WORKING_TINIEST = jnp.finfo(WORKING_JAX_DTYPE).tiny
 
 _UNROLL_SPECIES_LIMIT = 8
+
+# Number of (frequency*layer) cells processed per chunk in the pure-JAX c-k
+# mixing kernel. The per-species combination materialises several (chunk, n_g**2)
+# intermediates; chunking caps their peak size so the full-resolution
+# (n_freq*n_layers, n_g**2) sort buffers are never resident at once. A
+# non-positive value (or a chunk >= the number of cells) disables chunking.
+# Tunable at import time via PRT_CK_CHUNK_SIZE.
+_CK_CHUNK_SIZE_DEFAULT = int(os.environ.get("PRT_CK_CHUNK_SIZE", "16384"))
 
 
 def build_ck_combination_state(weights_gauss: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
@@ -103,7 +112,7 @@ def _finalize_ck_opacity_shape(
     )
 
 
-@jit(static_argnames=("input_layout",))
+@jit(static_argnames=("input_layout", "ck_chunk_size"))
 def _combine_ck_opacities_jax(
     opacities_fortran_order: ArrayLike,
     g_gauss: ArrayLike,
@@ -113,6 +122,7 @@ def _combine_ck_opacities_jax(
     g_combination_weights: Optional[ArrayLike] = None,
     g_combination_weights_sum: Optional[ArrayLike] = None,
     input_layout: str = "ng_f_s_l",
+    ck_chunk_size: int = _CK_CHUNK_SIZE_DEFAULT,
 ) -> ArrayLike:
     """
     Combines correlated-k opacities across species.
@@ -132,6 +142,13 @@ def _combine_ck_opacities_jax(
         'fl_s_ng'               — shape (n_frequencies*n_layers, n_species, n_g).
             No transpose or copy. Use this layout if the caller already holds
             data in this order.
+    ck_chunk_size : int, optional
+        Number of (frequency*layer) cells combined per chunk. The per-species
+        combination materialises several (chunk, n_g**2) intermediates; chunking
+        bounds their peak size. A non-positive value, or a chunk that is not
+        smaller than the number of cells, disables chunking and processes every
+        cell at once. Each (f, l) cell is combined independently, so chunking is
+        numerically exact.
 
     Returns
     -------
@@ -233,36 +250,98 @@ def _combine_ck_opacities_jax(
         return y0 + t * (y1 - y0)
 
     # ------------------------------------------------------------------
-    # C2 + C3: Vectorized threshold & species loop.
+    # C2 + C3: Vectorized threshold & species loop, evaluated on a chunk of
+    # (frequency*layer) cells. Each cell is combined independently, so this is
+    # applied either to every cell at once or one chunk at a time (below).
     # ------------------------------------------------------------------
 
-    def _weight_species(species_index: int) -> ArrayLike:
-        return opacities_flat[:, species_index, :] * abundance_weights_flat[
-            :, species_index : species_index + 1
-        ]
+    def _combine_species_chunk(
+        opacities_chunk: ArrayLike,  # (chunk, n_species, n_g)
+        abundance_weights_chunk: ArrayLike,  # (chunk, n_species)
+        continuum_chunk: ArrayLike,  # (chunk,)
+    ) -> ArrayLike:
+        """Mix all species for one chunk of cells → (chunk, n_g)."""
 
-    # Initialize with first species + continuum  (n_fl, n_g)
-    current = _weight_species(0) + continuum_flat[:, None]
+        def _weight_species(species_index: int) -> ArrayLike:
+            return opacities_chunk[:, species_index, :] * abundance_weights_chunk[
+                :, species_index : species_index + 1
+            ]
 
-    if n_species > 1:
-        # C2: Vectorized threshold matching Fortran structure.
-        # Fortran uses g=1 (first/weakest g-point) to compute the threshold,
-        # then checks g=n_g (last/strongest) against it. The continuum has
-        # already been added to species 0 in the Fortran input, so fold it
-        # into the threshold probe here as well.
-        threshold_input = (opacities_flat[:, :, 0] * abundance_weights_flat).at[
-            :, 0
-        ].add(continuum_flat)
-        threshold = jnp.max(threshold_input, axis=1) * 1e-2  # (n_fl,)
-        active_mask = (
-            opacities_flat[:, :, -1] * abundance_weights_flat
-        ) >= threshold[:, None]  # (n_fl, n_species)
+        # Initialize with first species + continuum  (chunk, n_g)
+        current_chunk = _weight_species(0) + continuum_chunk[:, None]
 
-        # Batched species loop — no vmap, single sort kernel per species.
-        for s in range(1, n_species):
-            spec_s = _weight_species(s)  # (n_fl, n_g)
-            combined = _perform_combination_batched(current, spec_s)  # (n_fl, n_g)
-            current = jnp.where(active_mask[:, s : s + 1], combined, current)
+        if n_species > 1:
+            # C2: Vectorized threshold matching Fortran structure.
+            # Fortran uses g=1 (first/weakest g-point) to compute the threshold,
+            # then checks g=n_g (last/strongest) against it. The continuum has
+            # already been added to species 0 in the Fortran input, so fold it
+            # into the threshold probe here as well.
+            threshold_input = (
+                opacities_chunk[:, :, 0] * abundance_weights_chunk
+            ).at[:, 0].add(continuum_chunk)
+            threshold = jnp.max(threshold_input, axis=1) * 1e-2  # (chunk,)
+            active_mask = (
+                opacities_chunk[:, :, -1] * abundance_weights_chunk
+            ) >= threshold[:, None]  # (chunk, n_species)
+
+            # Batched species loop — no vmap, single sort kernel per species.
+            for s in range(1, n_species):
+                spec_s = _weight_species(s)  # (chunk, n_g)
+                combined = _perform_combination_batched(
+                    current_chunk, spec_s
+                )  # (chunk, n_g)
+                current_chunk = jnp.where(
+                    active_mask[:, s : s + 1], combined, current_chunk
+                )
+
+        return current_chunk
+
+    # ------------------------------------------------------------------
+    # Frequency/layer chunking. The per-species combination materialises
+    # several (cells, n_g**2) sort buffers; processing the cell axis in tiles
+    # keeps only one tile's buffers resident at a time. The final tile's start
+    # is clamped so every tile reads a full window (the overlap recomputes
+    # identical per-cell values and is overwritten on reassembly), mirroring the
+    # Feautrier chunking and avoiding a padded full-resolution copy.
+    # ------------------------------------------------------------------
+    n_fl = opacities_flat.shape[0]
+
+    if ck_chunk_size <= 0 or ck_chunk_size >= n_fl:
+        current = _combine_species_chunk(
+            opacities_flat, abundance_weights_flat, continuum_flat
+        )
+    else:
+        chunk = ck_chunk_size
+        n_chunks = (n_fl + chunk - 1) // chunk
+        chunk_starts = jnp.minimum(jnp.arange(n_chunks) * chunk, n_fl - chunk)
+
+        def _chunk_body(
+            _: None, start: ArrayLike
+        ) -> tuple[None, ArrayLike]:
+            opacities_chunk = lax.dynamic_slice(
+                opacities_flat, (start, 0, 0), (chunk, n_species, n_g)
+            )
+            abundance_weights_chunk = lax.dynamic_slice(
+                abundance_weights_flat, (start, 0), (chunk, n_species)
+            )
+            continuum_chunk = lax.dynamic_slice(continuum_flat, (start,), (chunk,))
+            return None, _combine_species_chunk(
+                opacities_chunk, abundance_weights_chunk, continuum_chunk
+            )
+
+        # current_chunks: (n_chunks, chunk, n_g) — only n_g wide, so this stacked
+        # output is cheap; the large (chunk, n_g**2) buffers live and die inside
+        # each scan step.
+        _, current_chunks = lax.scan(_chunk_body, None, chunk_starts)
+
+        current = jnp.zeros((n_fl, n_g), dtype=current_chunks.dtype)
+
+        def _place(i: ArrayLike, acc: ArrayLike) -> ArrayLike:
+            return lax.dynamic_update_slice_in_dim(
+                acc, current_chunks[i], chunk_starts[i], axis=0
+            )
+
+        current = lax.fori_loop(0, n_chunks, _place, current)
 
     return _finalize_ck_opacity_shape(
         current,
