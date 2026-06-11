@@ -1,6 +1,6 @@
 import numpy as np
 import jax
-from jax import jit, vmap, lax, debug, Array, pure_callback
+from jax import jit, vmap, lax, debug, Array
 from jax.typing import ArrayLike
 import jax.numpy as jnp
 import jax.scipy.special as jsp  # For gamma function
@@ -1139,36 +1139,6 @@ def _compute_mean_radius_hansen_single(
     return lax.cond(jnp.isnan(a_hansen_ij), lambda: 1e-17, lambda: a_hansen_ij)
 
 
-def _run_fortran_cloud_hansen_opacities(
-    atmospheric_densities,
-    clouds_particle_densities,
-    clouds_mass_fractions,
-    cloud_particle_mean_radii,
-    cloud_hansen_b,
-    cloud_particle_radii_bins,
-    cloud_particle_radii,
-    clouds_absorption_opacities,
-    clouds_scattering_opacities,
-    clouds_particle_asymmetry_parameters,
-):
-    from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
-
-    outputs = fcore.compute_cloud_hansen_opacities(
-        np.asarray(atmospheric_densities),
-        np.asarray(clouds_particle_densities),
-        np.asarray(clouds_mass_fractions),
-        np.asarray(cloud_particle_mean_radii),
-        np.asarray(cloud_hansen_b),
-        np.asarray(cloud_particle_radii_bins),
-        np.asarray(cloud_particle_radii),
-        np.asarray(clouds_absorption_opacities),
-        np.asarray(clouds_scattering_opacities),
-        np.asarray(clouds_particle_asymmetry_parameters),
-    )
-
-    return tuple(np.ascontiguousarray(output) for output in outputs)
-
-
 def compute_cloud_hansen_opacities(
     atmospheric_densities,
     clouds_particle_densities,
@@ -1181,33 +1151,121 @@ def compute_cloud_hansen_opacities(
     clouds_scattering_opacities,
     clouds_particle_asymmetry_parameters,
 ):
-    n_layers = atmospheric_densities.shape[0]
-    n_frequencies = clouds_absorption_opacities.shape[1]
-    output_shape = (
-        jax.ShapeDtypeStruct(
-            (n_frequencies, n_layers), clouds_absorption_opacities.dtype
-        ),
-        jax.ShapeDtypeStruct(
-            (n_frequencies, n_layers), clouds_scattering_opacities.dtype
-        ),
-        jax.ShapeDtypeStruct(
-            (n_frequencies, n_layers), clouds_scattering_opacities.dtype
-        ),
+    r"""Integrate cloud opacities over a Hansen particle size distribution.
+
+    JAX port of the former Fortran ``compute_cloud_hansen_opacities``
+    subroutine. The Hansen (1971) distribution in log space is
+
+    .. math::
+        \ln \frac{dn}{dr} = \ln N
+            + \frac{2b - 1}{b} \ln(a b)
+            - \ln \Gamma\!\left(\frac{1 - 2b}{b}\right)
+            + \frac{1 - 3b}{b} \ln r
+            - \frac{r}{a b}
+
+    with the number density normalization
+    ``N = 3 X rho_atm / (4 pi rho_p a^3 (b - 1)(2b - 1))``, where ``a`` is
+    the effective radius and ``b`` the effective variance (``b < 1/2``).
+
+    Args:
+        atmospheric_densities:
+            Density of the atmosphere at each of its layers (n_layers,)
+        clouds_particle_densities:
+            Density of each cloud particle species (n_clouds,)
+        clouds_mass_fractions:
+            Cloud mass fractions (n_layers, n_clouds)
+        cloud_particle_mean_radii:
+            Hansen ``a`` parameter (n_layers, n_clouds)
+        cloud_hansen_b:
+            Hansen ``b`` parameter (n_layers, n_clouds)
+        cloud_particle_radii_bins:
+            Bins of the particle radius grid (n_radii + 1,)
+        cloud_particle_radii:
+            Particle radius grid (n_radii,)
+        clouds_absorption_opacities:
+            Cloud absorption opacities (n_radii, n_wavelengths, n_clouds)
+        clouds_scattering_opacities:
+            Cloud scattering opacities (n_radii, n_wavelengths, n_clouds)
+        clouds_particle_asymmetry_parameters:
+            Cloud asymmetry parameters (n_radii, n_wavelengths, n_clouds)
+
+    Returns:
+        Tuple of cloud absorption opacities, scattering opacities, and the
+        scattering anisotropy reduction factor, each (n_wavelengths, n_layers).
+    """
+    mass_to_vol = (  # (n_layers, n_clouds)
+        0.75
+        * clouds_mass_fractions
+        * atmospheric_densities[:, None]
+        / jnp.pi
+        / clouds_particle_densities
     )
 
-    return pure_callback(
-        _run_fortran_cloud_hansen_opacities,
-        output_shape,
-        atmospheric_densities,
-        clouds_particle_densities,
-        clouds_mass_fractions,
-        cloud_particle_mean_radii,
-        cloud_hansen_b,
-        cloud_particle_radii_bins,
-        cloud_particle_radii,
-        clouds_absorption_opacities,
-        clouds_scattering_opacities,
-        clouds_particle_asymmetry_parameters,
+    n = mass_to_vol / (  # (n_layers, n_clouds)
+        cloud_particle_mean_radii**3
+        * (cloud_hansen_b - 1.0)
+        * (2.0 * cloud_hansen_b - 1.0)
+    )
+    log_dn_dr_scale = (  # (n_layers, n_clouds)
+        jnp.log(n)
+        + jnp.log(cloud_particle_mean_radii * cloud_hansen_b)
+        * ((2.0 * cloud_hansen_b - 1.0) / cloud_hansen_b)
+        - jsp.gammaln((1.0 - 2.0 * cloud_hansen_b) / cloud_hansen_b)
+    )
+
+    dn_dr = jnp.exp(  # (n_radii, n_layers, n_clouds)
+        log_dn_dr_scale
+        + jnp.log(cloud_particle_radii[:, None, None])
+        * ((1.0 - 3.0 * cloud_hansen_b) / cloud_hansen_b)
+        - cloud_particle_radii[:, None, None]
+        / (cloud_particle_mean_radii * cloud_hansen_b)
+    )
+
+    integrand_scale = (  # (n_radii, n_layers, n_clouds)
+        (4.0 * jnp.pi / 3.0)
+        * cloud_particle_radii[:, None, None] ** 3
+        * clouds_particle_densities
+        * dn_dr
+    )
+
+    integrand_absorption = (
+        integrand_scale[:, None] * clouds_absorption_opacities[:, :, None]
+    )
+    integrand_scattering = (
+        integrand_scale[:, None] * clouds_scattering_opacities[:, :, None]
+    )
+    integrand_anisotropy = integrand_scattering * (
+        1.0 - clouds_particle_asymmetry_parameters[:, :, None]
+    )
+
+    widths = jnp.diff(cloud_particle_radii_bins)[
+        :, None, None, None
+    ]  # (n_radii, 1, 1, 1)
+
+    _cloud_absorption_opacities = jnp.sum(
+        integrand_absorption * widths, axis=(0, 3)
+    )  # (n_wavelengths, n_layers)
+    _cloud_scattering_opacities = jnp.sum(
+        integrand_scattering * widths, axis=(0, 3)
+    )  # (n_wavelengths, n_layers)
+    cloud_anisotropic_fraction = jnp.sum(
+        integrand_anisotropy * widths, axis=(0, 3)
+    )  # (n_wavelengths, n_layers)
+
+    _cloud_scattering_opacities, cloud_anisotropic_fraction = (
+        _compute_cloud_scattering_reduction_factor(
+            cloud_scattering_weighted_reduction=cloud_anisotropic_fraction,
+            cloud_scattering_opacities=_cloud_scattering_opacities,
+        )
+    )
+
+    _cloud_absorption_opacities = _cloud_absorption_opacities / atmospheric_densities
+    _cloud_scattering_opacities = _cloud_scattering_opacities / atmospheric_densities
+
+    return (
+        _cloud_absorption_opacities,
+        _cloud_scattering_opacities,
+        cloud_anisotropic_fraction,
     )
 
 

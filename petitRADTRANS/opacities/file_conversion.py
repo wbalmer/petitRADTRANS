@@ -18,8 +18,35 @@ from scipy.interpolate import interp1d
 
 import petitRADTRANS
 
-# noinspection PyUnresolvedReferences
-from petitRADTRANS.fortran_inputs import fortran_inputs as finput
+
+class _MissingFortranExtension:
+    """Defer the import failure of an unbuilt legacy Fortran extension.
+
+    The Fortran extensions are no longer built by default: the radiative
+    transfer pipeline is pure JAX + native FFI kernels. Only the legacy
+    opacity file-conversion helpers in this module still rely on them.
+    """
+
+    def __init__(self, name):
+        self._name = name
+
+    def __getattr__(self, item):
+        raise ImportError(
+            f"the legacy Fortran extension '{self._name}' is required by "
+            f"this file-conversion helper but is not built. "
+            f"petitRADTRANS no longer builds its Fortran backend; to "
+            f"convert old-format opacity files, use an older petitRADTRANS "
+            f"version (<= 3.x) or build the extension manually with "
+            f"numpy.f2py from the sources in petitRADTRANS/fortran_src."
+        )
+
+
+try:
+    # noinspection PyUnresolvedReferences
+    from petitRADTRANS.fortran_inputs import fortran_inputs as finput
+except ImportError:
+    finput = _MissingFortranExtension("petitRADTRANS.fortran_inputs")
+
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.config.configuration import (
@@ -119,8 +146,11 @@ def _chemical_table_dat2h5(
     old_paths=False,
     clean=False,
 ):
-    # noinspection PyUnresolvedReferences
-    from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
+    try:
+        # noinspection PyUnresolvedReferences
+        from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
+    except ImportError:
+        fchem = _MissingFortranExtension("petitRADTRANS.fortran_chemistry")
 
     # Read in parameters of chemistry grid
     if old_paths:

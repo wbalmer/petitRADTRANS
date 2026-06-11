@@ -8,11 +8,12 @@ from typing import Literal, Optional, cast, overload
 
 import jax
 import jax.numpy as jnp
-from jax import custom_vjp, jit, lax, pure_callback, vmap
+from jax import custom_vjp, jit, lax, vmap
 from jax.typing import ArrayLike
 import petitRADTRANS.physical_constants as cst
 import petitRADTRANS.radtrans_core.physics_core as physics_core
 import petitRADTRANS.radtrans_core.linalg as linalg
+import petitRADTRANS.radtrans_core.ck_mixing_ffi as ck_mixing_ffi
 from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE, WORKING_JAX_DTYPE
 
 CST_PI = jnp.pi  # Or the specific precision from Fortran
@@ -276,90 +277,13 @@ def _combine_ck_opacities_jax(
 # ---------------------------------------------------------------------------
 
 
-def _prepare_fortran_ck_input(
-    opacities_fortran_order: ArrayLike,
-    line_species_mass_fractions: ArrayLike,
-    continuum_opacities: ArrayLike,
-    input_layout: str,
-) -> ArrayLike:
-    """Build mass-fraction-weighted opacities with continuum in (n_g, n_f, n_s, n_l) layout."""
-    if input_layout == "fl_s_ng":
-        n_f, n_l = continuum_opacities.shape
-        _, n_s, n_g = opacities_fortran_order.shape
-        opas = jnp.transpose(
-            opacities_fortran_order.reshape(n_f, n_l, n_s, n_g),
-            (3, 0, 2, 1),
-        )
-    else:
-        opas = opacities_fortran_order
-
-    # Apply mass-fraction weights: (n_l, n_s).T -> (n_s, n_l) -> broadcast to (n_g, n_f, n_s, n_l)
-    modified = opas * line_species_mass_fractions.T[None, None, :, :]
-    # Add continuum uniformly across g-points for species 0
-    modified = modified.at[:, :, 0, :].set(
-        modified[:, :, 0, :] + continuum_opacities[None, :, :]
-    )
-    return modified
-
-
-def _run_fortran_ck(modified_opas, g_gauss_arr, weights_gauss_arr):
-    """pure_callback target: invoke Fortran combine_ck_opacities on concrete arrays.
-
-    Returns float64 when inputs are float64 (x64 enabled path), or matches the
-    input dtype when x64 is disabled (float32 path). The declared ShapeDtypeStruct
-    in _combine_ck_opacities_fortran_callback always matches this return dtype.
-    """
-    import numpy as np
-    from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
-
-    return_dtype = np.asarray(modified_opas).dtype
-    m = np.asfortranarray(np.asarray(modified_opas, dtype=np.float64))
-    g = np.ascontiguousarray(np.asarray(g_gauss_arr, dtype=np.float64))
-    w = np.ascontiguousarray(np.asarray(weights_gauss_arr, dtype=np.float64))
-    result = fcore.combine_ck_opacities(m, g, w)
-    return np.array(result, dtype=return_dtype, order="C", copy=True)
-
-
-def _combine_ck_opacities_fortran_callback(
-    modified: ArrayLike,
-    g_gauss: ArrayLike,
-    weights_gauss: ArrayLike,
-) -> ArrayLike:
-    n_g, n_f, _, n_l = modified.shape
-    input_dtype = modified.dtype
-    # When x64 is disabled, jax.ShapeDtypeStruct cannot declare float64.
-    # In that case we pass float32 inputs and declare float32 output; the
-    # Fortran subroutine still runs in double precision internally, and
-    # _run_fortran_ck returns the dtype that matches what was declared here.
-    if jax.config.jax_enable_x64:
-        callback_dtype = jnp.float64
-        callback_inputs = (
-            jnp.asarray(modified, dtype=jnp.float64),
-            jnp.asarray(g_gauss, dtype=jnp.float64),
-            jnp.asarray(weights_gauss, dtype=jnp.float64),
-        )
-    else:
-        callback_dtype = input_dtype
-        callback_inputs = (
-            jnp.asarray(modified, dtype=input_dtype),
-            jnp.asarray(g_gauss, dtype=input_dtype),
-            jnp.asarray(weights_gauss, dtype=input_dtype),
-        )
-    result = pure_callback(
-        _run_fortran_ck,
-        jax.ShapeDtypeStruct((n_g, n_f, n_l), callback_dtype),
-        *callback_inputs,
-    )
-    return result.astype(input_dtype)
-
-
-def _use_fortran_ck_callback() -> bool:
-    """Use the Fortran callback only on CPU backends."""
+def _use_ck_mixing_ffi() -> bool:
+    """Use the native FFI mixing kernel only on CPU backends."""
     return jax.default_backend() == "cpu"
 
 
 @partial(custom_vjp, nondiff_argnums=(7,))
-def _combine_ck_opacities_fortran(
+def _combine_ck_opacities_ffi(
     opacities_fortran_order: ArrayLike,
     g_gauss: ArrayLike,
     weights_gauss: ArrayLike,
@@ -369,19 +293,41 @@ def _combine_ck_opacities_fortran(
     g_combination_weights_sum: ArrayLike,
     input_layout: str,
 ) -> ArrayLike:
-    """Correlated-k mixing: Fortran forward, JAX backward."""
-    modified = _prepare_fortran_ck_input(
+    """Correlated-k mixing: native FFI forward, JAX backward.
+
+    The forward pass runs the batched C++ kernel
+    (petitRADTRANS/cpp_src/prt_ck_mixing_ffi.cc) as a typed XLA custom call;
+    it reproduces the random-overlap mixing of the original Fortran
+    implementation, parallelized over (frequency, layer) cells on the XLA
+    intra-op thread pool.
+    """
+    (
+        opacities_flat,
+        abundance_weights_flat,
+        continuum_flat,
+        n_frequencies,
+        n_layers,
+        _,
+        n_g,
+    ) = _prepare_ck_opacity_inputs(
         opacities_fortran_order,
         line_species_mass_fractions,
         continuum_opacities,
-        input_layout,
+        input_layout=input_layout,
     )
-    return _combine_ck_opacities_fortran_callback(
-        modified, g_gauss, weights_gauss
+    weighted_opacities = opacities_flat * abundance_weights_flat[:, :, None]
+
+    mixed_flat = ck_mixing_ffi.combine_ck_mixing_ffi(
+        weighted_opacities,
+        continuum_flat,
+        g_gauss,
+        weights_gauss,
     )
 
+    return _finalize_ck_opacity_shape(mixed_flat, n_frequencies, n_layers, n_g)
 
-def _combine_ck_fortran_fwd(
+
+def _combine_ck_ffi_fwd(
     opacities_fortran_order,
     g_gauss,
     weights_gauss,
@@ -391,7 +337,7 @@ def _combine_ck_fortran_fwd(
     g_combination_weights_sum,
     input_layout,
 ):
-    result = _combine_ck_opacities_fortran(
+    result = _combine_ck_opacities_ffi(
         opacities_fortran_order,
         g_gauss,
         weights_gauss,
@@ -413,7 +359,7 @@ def _combine_ck_fortran_fwd(
     return result, residuals
 
 
-def _combine_ck_fortran_bwd(input_layout, residuals, g):
+def _combine_ck_ffi_bwd(input_layout, residuals, g):
     _, vjp_fn = jax.vjp(
         partial(_combine_ck_opacities_jax, input_layout=input_layout),
         *residuals,
@@ -421,7 +367,7 @@ def _combine_ck_fortran_bwd(input_layout, residuals, g):
     return vjp_fn(g)
 
 
-_combine_ck_opacities_fortran.defvjp(_combine_ck_fortran_fwd, _combine_ck_fortran_bwd)
+_combine_ck_opacities_ffi.defvjp(_combine_ck_ffi_fwd, _combine_ck_ffi_bwd)
 
 
 # ---------------------------------------------------------------------------
@@ -441,8 +387,8 @@ def combine_ck_opacities(
 ) -> ArrayLike:
     """Combine correlated-k opacities across species.
 
-    Uses the Fortran implementation on CPU for the forward pass (via
-    ``pure_callback``) and the JAX implementation for reverse-mode
+    Uses the native FFI kernel on CPU for the forward pass (a typed XLA
+    custom call) and the JAX implementation for reverse-mode
     differentiation. Non-CPU backends use the pure JAX implementation for both
     forward and backward execution.
     """
@@ -456,15 +402,15 @@ def combine_ck_opacities(
         )
 
     if weights_gauss is None:
-        raise ValueError("weights_gauss is required for the Fortran callback")
+        raise ValueError("weights_gauss is required for the c-k mixing kernel")
 
     if line_species_mass_fractions is None or continuum_opacities is None:
         raise ValueError(
             "line_species_mass_fractions and continuum_opacities are required"
         )
 
-    if _use_fortran_ck_callback():
-        return _combine_ck_opacities_fortran(
+    if _use_ck_mixing_ffi():
+        return _combine_ck_opacities_ffi(
             opacities_fortran_order,
             g_gauss,
             weights_gauss,

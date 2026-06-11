@@ -56,7 +56,7 @@ Follow the WSL installation instructions from the previous link, then install pR
 
 Native installation prerequisites
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1. Get a fortran compiler through, for example, `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_.
+1. Get a C++ compiler (used to build the native radiative transfer kernels) through, for example, `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_.
 2. If you already have a `Chromium-based browser <https://en.wikipedia.org/wiki/Chromium_(web_browser)#Browsers_based_on_Chromium>`_, you can skip this step. Otherwise, download Chromium, for example from its `official website <https://download-chromium.appspot.com/>`_.
 3. Go to the `Python website <https://www.python.org/>`_, then download and execute the Python installer.
 
@@ -208,16 +208,16 @@ When importing ``Radtrans``, you may see one of those two errors:
 .. code-block:: python
 
     # For a pip install
-    ModuleNotFoundError: No module named 'petitRADTRANS.<fortran_extension>'
+    ModuleNotFoundError: No module named 'petitRADTRANS.<native_extension>'
 
     # For an editable pip install
     FileNotFoundError: [Errno 2] No such file or directory: '/a/temporary/directory/overlay/bin/ninja'
 
-The issue is often caused by your setup installing the fortran extensions inside a temporary directory, that is then automatically removed.
+The issue is often caused by your setup installing the native extensions inside a temporary directory, that is then automatically removed.
 Try these fixes in that order:
 
 1. Ensure that you added the ``--no-build-isolation`` flag to the installation command. This should fix the issue in almost all cases.
-2. Ensure that all the installing elements of your setup (``pip``, ``conda``, fortran compiler, etc.) are up-to-date and installed cleanly.
+2. Ensure that all the installing elements of your setup (``pip``, ``conda``, C++ compiler, etc.) are up-to-date and installed cleanly.
 3. If you are on Mac, and use Homebrew, try first to execute ``brew upgrade``, ``brew update``, then to follow the instructions of ``brew doctor``, before re-trying the installation.
 4. If you are on Mac, and do not use Homebrew, the error may be related with your setup. Carefully check for libraries versions, dependencies, and duplicate installations.
 5. In last resort, you can add the ``--no-clean`` flag to the installation command. Beware however: this will create a temporary directory that will not be removed from your system, taking space on your disk. Each new installation with this flag will create a new temporary directory, but will **not** remove the previous one. You may need to perform manual cleaning to free space on your disk.

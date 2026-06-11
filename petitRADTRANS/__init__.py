@@ -17,8 +17,8 @@ if sys.platform == "win32":
     # Link to the libs folders on Windows
     if sys.version_info >= (3, 8):
         """
-        The fortran extensions need libgfortran*.dll to work but for some reason it does not (always?) work even if the
-        libgfortran*.dll directory is listed in the PATH variable environment.
+        Native extensions may need runtime DLLs (e.g. from the compiler toolchain) that are not
+        found even when their directory is listed in the PATH environment variable.
         """
         # Dirty but working solution: add all dirs in PATH and force Python to consider all of them as DLL dirs
         # TODO this is probably not needed if the OS/PATH is set up correctly

@@ -1,4 +1,5 @@
 py.install_sources([
+    'ck_mixing_ffi.py',
     'cloud_core.py',
     'interpolate_line_opacities.py',
     'linalg.py',
