@@ -2220,7 +2220,7 @@ class SpectralModel(Radtrans):
             cloud_species,
             filling_species,
             use_equilibrium_chemistry,
-            metallicity,
+            np.log10(metallicity),
             co_ratio,
             carbon_quench_pressure,
             **kwargs,
