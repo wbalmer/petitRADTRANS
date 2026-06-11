@@ -1325,6 +1325,7 @@ class Radtrans:
             "sum_opacities",
             "anisotropic_cloud_scattering",
             "compute_clear_opacities",
+            "defer_clear_opacity_combination",
         ]
     )
     def _calculate_opacities(
@@ -1356,6 +1357,7 @@ class Radtrans:
         additional_absorption_opacities_function=None,
         additional_scattering_opacities_function=None,
         compute_clear_opacities=False,
+        defer_clear_opacity_combination=False,
         sum_opacities=False,
         anisotropic_cloud_scattering=None,
         target_particle_radii=None,
@@ -1421,6 +1423,16 @@ class Radtrans:
                 Optional user-supplied scattering opacity callback.
             compute_clear_opacities:
                 If ``True``, also construct clear-column opacities.
+            defer_clear_opacity_combination:
+                If ``True`` (and ``compute_clear_opacities`` is ``True``),
+                skip the clear-column opacity combination and return its
+                inputs ``(line_opacities, clear_continuum_opacities,
+                combined_line_species_mass_fractions)`` in the
+                ``clear_opacities`` slot instead. Callers can then run the
+                combination lazily inside the ``cloud_fraction < 1`` branch
+                (see :meth:`_combine_deferred_clear_opacities`), so the
+                expensive correlated-k mixing is skipped entirely for
+                full-coverage spectra.
             target_particle_radii:
                 Particle radius to target for selective bin disabling. Radius bin closest the input value will be disabled.
             target_pressure:
@@ -1643,23 +1655,36 @@ class Radtrans:
                 continuum_opacities_scattering
                 + clear_cloud_continuum_opacities_scattering
             )
-            clear_opacities = continuum.compute_combined_opacities(
-                opacities=line_opacities,
-                continuum_opacities=clear_continuum_opacities,
-                line_species=self._line_species,
-                line_species_mass_fractions=combined_line_species_mass_fractions,
-                line_opacity_mode=self._line_opacity_mode,
-                sum_opacities=sum_opacities,
-                g_gauss=self._lines_loaded_opacities["g_gauss"],
-                weights_gauss=self._lines_loaded_opacities["weights_gauss"],
-                g_combination_weights=self._lines_loaded_opacities[
-                    "ck_g_combination_weights"
-                ],
-                g_combination_weights_sum=self._lines_loaded_opacities[
-                    "ck_g_combination_weights_sum"
-                ],
-                input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
-            )
+            if defer_clear_opacity_combination:
+                # Package the combination inputs instead of combining now.
+                # The caller runs the combination inside its
+                # ``cloud_fraction < 1`` branch, so full-coverage spectra
+                # never pay for the clear-column correlated-k mixing (values
+                # computed here would be lax.cond operands and therefore
+                # evaluated unconditionally).
+                clear_opacities = (
+                    line_opacities,
+                    clear_continuum_opacities,
+                    combined_line_species_mass_fractions,
+                )
+            else:
+                clear_opacities = continuum.compute_combined_opacities(
+                    opacities=line_opacities,
+                    continuum_opacities=clear_continuum_opacities,
+                    line_species=self._line_species,
+                    line_species_mass_fractions=combined_line_species_mass_fractions,
+                    line_opacity_mode=self._line_opacity_mode,
+                    sum_opacities=sum_opacities,
+                    g_gauss=self._lines_loaded_opacities["g_gauss"],
+                    weights_gauss=self._lines_loaded_opacities["weights_gauss"],
+                    g_combination_weights=self._lines_loaded_opacities[
+                        "ck_g_combination_weights"
+                    ],
+                    g_combination_weights_sum=self._lines_loaded_opacities[
+                        "ck_g_combination_weights_sum"
+                    ],
+                    input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
+                )
         else:
             clear_opacities = jnp.zeros_like(opacities)
             clear_continuum_opacities_scattering = jnp.zeros_like(
@@ -1678,6 +1703,55 @@ class Radtrans:
             clear_continuum_opacities_scattering,
             clear_cloud_scattering_opacities,
             clear_cloud_absorption_opacities,
+        )
+
+    def _combine_deferred_clear_opacities(
+        self, deferred_clear_opacity_inputs, sum_opacities
+    ):
+        """Run the clear-column opacity combination deferred by
+        ``_calculate_opacities(defer_clear_opacity_combination=True)``.
+
+        Intended to be called inside the ``cloud_fraction < 1`` lax.cond
+        branch of the spectrum kernels, so the (expensive, for correlated-k
+        emission with scattering) combination only executes when a clear
+        column actually contributes to the blended spectrum.
+
+        Args:
+            deferred_clear_opacity_inputs:
+                Tuple ``(line_opacities, clear_continuum_opacities,
+                combined_line_species_mass_fractions)`` as returned in the
+                ``clear_opacities`` slot of ``_calculate_opacities``.
+            sum_opacities:
+                Same static flag that was passed to ``_calculate_opacities``.
+
+        Returns:
+            Combined clear-column opacities, identical to what
+            ``_calculate_opacities`` returns when the combination is not
+            deferred.
+        """
+        (
+            line_opacities,
+            clear_continuum_opacities,
+            combined_line_species_mass_fractions,
+        ) = deferred_clear_opacity_inputs
+        ck_flattened_layout = self._line_opacity_mode == "c-k" and sum_opacities
+
+        return continuum.compute_combined_opacities(
+            opacities=line_opacities,
+            continuum_opacities=clear_continuum_opacities,
+            line_species=self._line_species,
+            line_species_mass_fractions=combined_line_species_mass_fractions,
+            line_opacity_mode=self._line_opacity_mode,
+            sum_opacities=sum_opacities,
+            g_gauss=self._lines_loaded_opacities["g_gauss"],
+            weights_gauss=self._lines_loaded_opacities["weights_gauss"],
+            g_combination_weights=self._lines_loaded_opacities[
+                "ck_g_combination_weights"
+            ],
+            g_combination_weights_sum=self._lines_loaded_opacities[
+                "ck_g_combination_weights_sum"
+            ],
+            input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
         )
 
     def _calculate_transit_radii(
@@ -2831,6 +2905,15 @@ class Radtrans:
         else:
             should_compute_clear_opacities = False
 
+        # Unless the clear spectrum is explicitly requested, defer the
+        # clear-column opacity combination to the cloud_fraction < 1 branch
+        # below, so full-coverage spectra skip its cost (for correlated-k
+        # emission with scattering this is a second full c-k g-grid mixing).
+        # return_clear_spectrum is static, so this is a Python bool.
+        defer_clear_opacity_combination = (
+            should_compute_clear_opacities and not return_clear_spectrum
+        )
+
         (
             opacities,
             continuum_opacities_scattering,
@@ -2884,6 +2967,7 @@ class Radtrans:
                 "additional_scattering_opacities_function"
             ],
             compute_clear_opacities=should_compute_clear_opacities,
+            defer_clear_opacity_combination=defer_clear_opacity_combination,
             return_opacities=return_opacities,
             sum_opacities=sum_opacities,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
@@ -2959,11 +3043,19 @@ class Radtrans:
             else:
                 # Only compute clear flux and blend when cloud_fraction < 1.
                 def _blend_partial_cloud_flux(cloudy_flux):
+                    # The clear-column opacity combination was deferred by
+                    # _calculate_opacities and runs here, inside the branch,
+                    # so it is skipped entirely when cloud_fraction == 1.
+                    combined_clear_opacities = (
+                        self._combine_deferred_clear_opacities(
+                            clear_opacities, sum_opacities
+                        )
+                    )
                     clear_flux, _, _, _, _ = self._calculate_flux(
                         pressures=pressures,
                         temperatures=temperatures,
                         reference_gravity=reference_gravity,
-                        opacities=clear_opacities,
+                        opacities=combined_clear_opacities,
                         continuum_opacities_scattering=clear_continuum_opacities_scattering,
                         irradiation_geometry=irradiation_geometry,
                         star_irradiation_cos_angle=emission_inputs[
@@ -3871,6 +3963,14 @@ class Radtrans:
         else:
             should_compute_clear_opacities = False
 
+        # Unless the clear spectrum is explicitly requested, defer the
+        # clear-column opacity combination to the cloud_fraction < 1 branch
+        # below, so full-coverage spectra skip its cost.
+        # return_clear_spectrum is static, so this is a Python bool.
+        defer_clear_opacity_combination = (
+            should_compute_clear_opacities and not return_clear_spectrum
+        )
+
         (
             opacities,
             continuum_opacities_scattering,
@@ -3924,6 +4024,7 @@ class Radtrans:
                 "additional_scattering_opacities_function"
             ],
             compute_clear_opacities=should_compute_clear_opacities,
+            defer_clear_opacity_combination=defer_clear_opacity_combination,
             return_opacities=return_opacities,
             sum_opacities=sum_opacities,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
@@ -3975,6 +4076,14 @@ class Radtrans:
             else:
                 # Only compute clear radii and blend when cloud_fraction < 1.
                 def _blend_partial_cloud_transit(cloudy_radii):
+                    # The clear-column opacity combination was deferred by
+                    # _calculate_opacities and runs here, inside the branch,
+                    # so it is skipped entirely when cloud_fraction == 1.
+                    combined_clear_opacities = (
+                        self._combine_deferred_clear_opacities(
+                            clear_opacities, sum_opacities
+                        )
+                    )
                     clear_radii, _, _ = self._calculate_transit_radii(
                         pressures=pressures,
                         temperatures=temperatures,
@@ -3983,7 +4092,7 @@ class Radtrans:
                         reference_pressure=reference_pressure,
                         planet_radius=planet_radius,
                         variable_gravity=variable_gravity,
-                        opacities=clear_opacities,
+                        opacities=combined_clear_opacities,
                         continuum_opacities_scattering=clear_continuum_opacities_scattering,
                         sum_opacities=sum_opacities,
                         return_contributions=False,
