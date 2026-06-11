@@ -1,4 +1,5 @@
 import math
+import os
 from functools import partial
 
 from jax import default_backend
@@ -20,570 +21,46 @@ GRAD_SAFE_DENOM = jnp.sqrt(TINIEST)
 # Detect GPU once at import time to choose optimal tridiagonal solver.
 _USE_GPU = default_backend() != "cpu"
 
+# Batch threshold (n_gf * n_angles) above which the Thomas-factorisation
+# Feautrier path is preferred over parallel cyclic reduction (PCR) on GPU.
+#
+# Conventional wisdom prefers PCR on GPU because Thomas is sequential over
+# layers. But GPU benchmarking (testjaxprt/benchmarking/benchmark_gpu_kernels.py)
+# shows the opposite once the batch is large. The Thomas factorisation feeds an
+# associative-scan solve (O(log n_layers) depth, O(n_layers) work) that is the
+# fastest solver measured at every size — e.g. at xl (batch ~9.6e4, 300 layers)
+# the assoc solve is ~6x faster than PCR (which runs ceil(log2(n_layers))
+# full-array sweeps with heavy memory traffic) and ~1.8x faster than the
+# sequential Thomas scan. The solve is the per-scattering-iteration hot loop, so
+# this dominates the emission cost. PCR is retained only at small batch, where
+# its near-free vectorised prepare wins the full prepare+solve loop (the Thomas
+# factorisation cannot be amortised over enough solves). Frequency chunking does
+# not change n_layers, so it cannot move this crossover in PCR's favour.
+#
+# The full-loop crossover on an A100 sits below batch ~24k for scattering
+# (multiple solves); 16384 routes production-scale and medium batches to the
+# assoc path while leaving tiny batches on PCR. Tunable via
+# PRT_FEAUTRIER_THOMAS_MIN_BATCH (huge value forces PCR everywhere; 0 forces the
+# Thomas-factor/assoc path everywhere).
+_FEAUTRIER_THOMAS_MIN_BATCH = int(
+    os.environ.get("PRT_FEAUTRIER_THOMAS_MIN_BATCH", "16384")
+)
 
-@jit
-def solve_tridiagonal_thomas(a, b, c, d):
+
+def _feautrier_use_thomas(n_gf: int, n_angles: int) -> bool:
+    """Whether to use the Thomas-factorisation Feautrier path over PCR.
+
+    The Thomas factorisation (``prepare``) feeds either the sequential scan solve
+    on CPU or the associative-scan solve on GPU; PCR is the alternative. Always
+    true on CPU. On GPU, true when the batch ``n_gf * n_angles`` is large enough
+    that the assoc solve's speed outweighs the Thomas factorisation's higher
+    one-time prepare cost. ``n_gf`` and ``n_angles`` are static, so this resolves
+    at trace time and keeps the ``prepare``/``solve`` choice consistent (their
+    solver states are not interchangeable).
     """
-    Solves a tridiagonal system of equations using the Thomas algorithm.
-    The system is of the form Ax = d, where A is a tridiagonal matrix.
-    The inputs are Jax arrays.
-    The implementation is a Jax port of the naive implementation of the Thomas algorithm.
-    See https://en.wikipedia.org/wiki/Tridiagonal_matrix_algorithm
-    WARNING: This implementation is not stable for all matrices. It is recommended to use it only for
-    diagonally dominant matrices.
-    See https://en.wikipedia.org/wiki/Tridiagonal_matrix_algorithm#Numerical_stability
-
-    Args:
-        a (jnp.ndarray): The lower diagonal of the matrix A.
-        b (jnp.ndarray): The main diagonal of the matrix A.
-        c (jnp.ndarray): The upper diagonal of the matrix A.
-        d (jnp.ndarray): The right-hand side of the equation.
-
-    Returns:
-        jnp.ndarray: The solution of the system.
-    """
-    n = b.shape[-1]
-    c_p = jnp.zeros_like(c)
-    d_p = jnp.zeros_like(d)
-
-    # Forward sweep
-    c_p = c_p.at[..., 0].set(c[..., 0] / b[..., 0])
-    d_p = d_p.at[..., 0].set(d[..., 0] / b[..., 0])
-
-    def forward_sweep(i, val):
-        c_p, d_p = val
-        denominator = b[..., i] - a[..., i] * c_p[..., i - 1]
-
-        # if jnp.any(jnp.abs(denominator) < 1e-10):
-        #     raise ValueError("The matrix is singular.")
-
-        c_p = c_p.at[..., i].set(c[..., i] / denominator)
-        d_p = d_p.at[..., i].set(
-            (d[..., i] - a[..., i] * d_p[..., i - 1]) / denominator
-        )
-
-        return c_p, d_p
-
-    c_p, d_p = lax.fori_loop(1, n - 1, forward_sweep, (c_p, d_p))
-
-    # Handle the last element
-    denominator = b[..., n - 1] - a[..., n - 1] * c_p[..., n - 2]
-    d_p = d_p.at[..., n - 1].set(
-        (d[..., n - 1] - a[..., n - 1] * d_p[..., n - 2]) / denominator
-    )
-
-    # Backward substitution
-    x = jnp.zeros_like(d)
-    x = x.at[..., -1].set(d_p[..., -1])
-
-    def backward_substitution(i, x):
-        x = x.at[..., i].set(d_p[..., i] - c_p[..., i] * x[..., i + 1])
-        return x
-
-    x = lax.fori_loop(0, n - 1, lambda i, x: backward_substitution(n - 2 - i, x), x)
-
-    return jnp.clip(x, max=HUGE_SQRT)
-
-
-@jit
-def solve_tridiagonal_thomas_batched(a, b, c, d):
-    """
-    Solves n independent tridiagonal systems simultaneously.
-
-    Parameters
-    ----------
-    a, b, c, d : (batch, n_layers)
-        Lower diagonal (a[:,0] unused), main diagonal,
-        upper diagonal (c[:,-1] unused), RHS.
-
-    Returns
-    -------
-    x : (batch, n_layers)
-    """
-    n = b.shape[1]
-
-    # ---- forward sweep: initialise with row 0 ----
-    c0 = c[:, 0] / b[:, 0]  # (batch,)
-    d0 = d[:, 0] / b[:, 0]  # (batch,)
-
-    def fwd_step(carry, k):
-        c_prev, d_prev = carry
-        denom = b[:, k] - a[:, k] * c_prev
-        safe_den = jnp.where(jnp.abs(denom) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom)
-        c_k = c[:, k] / safe_den
-        d_k = (d[:, k] - a[:, k] * d_prev) / safe_den
-        return (c_k, d_k), (c_k, d_k)
-
-    _, (c_rest, d_rest) = lax.scan(fwd_step, (c0, d0), jnp.arange(1, n))
-    # prepend layer-0 results  →  (n, batch) each
-    c_all = jnp.concatenate([c0[None, :], c_rest], axis=0)
-    d_all = jnp.concatenate([d0[None, :], d_rest], axis=0)
-
-    # ---- back substitution ----
-    x_last = d_all[n - 1, :]  # (batch,)
-
-    def bwd_step(x_next, k):
-        x_k = d_all[k, :] - c_all[k, :] * x_next
-        return x_k, x_k
-
-    _, x_rest = lax.scan(bwd_step, x_last, jnp.arange(n - 2, -1, -1))
-    # x_rest is (n-1, batch) in reverse order; rebuild full solution
-    x_all = jnp.concatenate([x_rest[::-1, :], x_last[None, :]], axis=0)  # (n, batch)
-
-    return x_all.T  # (batch, n)
-
-
-@partial(jit, static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
-def factor_feautrier_thomas(
-    a,
-    b,
-    c,
-    n_g,
-    n_freq_bins,
-    n_angles,
-    n_layers,
-):
-    """Pre-factor the LHS of the Feautrier tridiagonal system.
-
-    Performs the forward elimination that depends only on (a, b, c),
-    caching the modified upper diagonal and reciprocal denominators so
-    that subsequent solves with different RHS vectors only need the
-    cheaper RHS-only forward sweep and backward substitution.
-
-    The elimination runs as a single uniform scan over all rows; the
-    Feautrier coefficient padding (``a[:, 0] == 0`` and ``c[:, -1] == 0``)
-    makes the boundary rows fall out of the generic recurrence with a
-    zero-initialised carry, so no per-row stitching (concatenates) is
-    needed. Callers must respect that padding convention.
-
-    Parameters
-    ----------
-    a, b, c : jax.Array, shape (batch, n_layers)
-        Tridiagonal coefficients where batch = n_g * n_freq_bins * n_angles.
-        ``a[:, 0]`` and ``c[:, -1]`` must be zero (Feautrier padding).
-    n_g, n_freq_bins, n_angles, n_layers : int
-        Static shape parameters.
-
-    Returns
-    -------
-    c_prime : jax.Array, shape (n_layers, batch)
-        Modified upper diagonal from Thomas forward elimination.
-        ``c_prime[n_layers-1]`` is zero (from the ``c`` padding).
-    inv_denom : jax.Array, shape (n_layers, batch)
-        Reciprocal of the elimination denominators.  Includes the surface
-        row at index ``n_layers - 1``.
-    a_times_inv_denom : jax.Array, shape (n_layers, batch)
-        ``a[:, k] * inv_denom[k]`` pre-multiplied for the RHS sweep.
-        ``a_times_inv_denom[0]`` is zero (from the ``a`` padding).
-    """
-    batch = n_g * n_freq_bins * n_angles
-
-    # Transpose once to layer-major so each scan step reads contiguous rows
-    # (a[:, k] slices would stride by n_layers on every step).
-    a_lm = a.T  # (n_layers, batch)
-    b_lm = b.T
-    c_lm = c.T
-
-    def fwd_step(c_prev, abc_k):
-        a_k, b_k, c_k_row = abc_k
-        denom = b_k - a_k * c_prev
-        safe_den = jnp.where(jnp.abs(denom) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom)
-        inv_den = 1.0 / safe_den
-        c_k = c_k_row * inv_den
-        a_inv_k = a_k * inv_den
-        return c_k, (c_k, inv_den, a_inv_k)
-
-    _, (c_prime, inv_denom, a_times_inv_denom) = lax.scan(
-        fwd_step,
-        jnp.zeros(batch, dtype=a.dtype),
-        (a_lm, b_lm, c_lm),
-    )
-
-    return c_prime, inv_denom, a_times_inv_denom
-
-
-@partial(jit, static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
-def solve_feautrier_thomas_prefactored(
-    c_prime,
-    inv_denom,
-    a_times_inv_denom,
-    d_inner,
-    d_surf,
-    angle_weight_a,
-    n_g,
-    n_freq_bins,
-    n_angles,
-    n_layers,
-):
-    """Solve the Feautrier tridiagonal system using pre-factored LHS arrays.
-
-    Uses the output of :func:`factor_feautrier_thomas` to skip the LHS
-    forward elimination, performing only the RHS forward sweep and backward
-    substitution.
-
-    Parameters
-    ----------
-    c_prime : jax.Array, shape (n_layers, batch)
-        Modified upper diagonal from :func:`factor_feautrier_thomas`.
-    inv_denom : jax.Array, shape (n_layers, batch)
-        Reciprocal denominators from :func:`factor_feautrier_thomas`.
-    a_times_inv_denom : jax.Array, shape (n_layers, batch)
-        Pre-multiplied ``a * inv_denom`` from :func:`factor_feautrier_thomas`.
-    d_inner : jax.Array, shape (n_g, n_freq_bins, n_layers - 1)
-        Angle-independent RHS entries for layers 0 .. n_layers-2.
-    d_surf : jax.Array, shape (n_g, n_freq_bins, n_angles)
-        Boundary RHS entry for the surface layer.
-    angle_weight_a : jax.Array, shape (n_angles,)
-        Angular quadrature weights for mean-intensity accumulation.
-    n_g, n_freq_bins, n_angles, n_layers : int
-        Static shape parameters.
-
-    Returns
-    -------
-    I_H_top : jax.Array, shape (n_g, n_freq_bins, n_angles)
-    x_last : jax.Array, shape (n_g, n_freq_bins, n_angles)
-    x_nm2 : jax.Array, shape (n_g, n_freq_bins, n_angles)
-    J_bol_gfl : jax.Array, shape (n_g, n_freq_bins, n_layers)
-    """
-    n = n_layers
-    n_gf = n_g * n_freq_bins
-    batch = n_gf * n_angles
-
-    def _broadcast_rhs_layer(layer_idx):
-        return jnp.broadcast_to(
-            d_inner[:, :, layer_idx][:, :, None],
-            (n_g, n_freq_bins, n_angles),
-        ).reshape(batch)
-
-    def _weighted_gf(x_k):
-        return jnp.sum(
-            x_k.reshape(n_gf, n_angles) * angle_weight_a[None, :],
-            axis=1,
-        )
-
-    if n == 1:
-        x_last_flat = d_surf.reshape(batch) * inv_denom[0]
-        weighted_layers = _weighted_gf(x_last_flat)[None, :]
-        return (
-            (-x_last_flat).reshape(n_g, n_freq_bins, n_angles),
-            x_last_flat.reshape(n_g, n_freq_bins, n_angles),
-            x_last_flat.reshape(n_g, n_freq_bins, n_angles),
-            weighted_layers.T.reshape(n_g, n_freq_bins, n),
-        )
-
-    # RHS-only forward sweep using cached factors. A zero-initialised carry
-    # makes row 0 fall out of the generic recurrence (a_times_inv_denom[0] is
-    # zero by the Feautrier padding convention), so the sweep is one uniform
-    # scan and its stacked output is used directly — no concatenate.
-    def fwd_rhs_step(d_prev, k):
-        rhs_k = _broadcast_rhs_layer(k)
-        d_k = rhs_k * inv_denom[k] - a_times_inv_denom[k] * d_prev
-        return d_k, d_k
-
-    d_nm2, d_upto_nm2 = lax.scan(
-        fwd_rhs_step,
-        jnp.zeros(batch, dtype=inv_denom.dtype),
-        jnp.arange(n - 1),
-    )  # d_upto_nm2: (n-1, batch)
-
-    # Surface row
-    x_last_flat = (
-        d_surf.reshape(batch) * inv_denom[n - 1] - a_times_inv_denom[n - 1] * d_nm2
-    )
-
-    # Backward substitution; the reverse scan emits rows in natural layer
-    # order, avoiding a flip copy.
-    x_nm2_flat = d_upto_nm2[n - 2, :] - c_prime[n - 2, :] * x_last_flat
-    weighted_last = _weighted_gf(x_last_flat)
-    weighted_nm2 = _weighted_gf(x_nm2_flat)
-
-    def bwd_step(x_next, k):
-        x_k = d_upto_nm2[k, :] - c_prime[k, :] * x_next
-        return x_k, _weighted_gf(x_k)
-
-    x0_flat, weighted_rest = lax.scan(
-        bwd_step,
-        x_nm2_flat,
-        jnp.arange(n - 2),
-        reverse=True,
-    )
-    weighted_layers = jnp.concatenate(
-        [
-            weighted_rest,
-            weighted_nm2[None, :],
-            weighted_last[None, :],
-        ],
-        axis=0,
-    )
-
-    I_H_top = (-x0_flat).reshape(n_g, n_freq_bins, n_angles)
-    x_last = x_last_flat.reshape(n_g, n_freq_bins, n_angles)
-    x_nm2 = x_nm2_flat.reshape(n_g, n_freq_bins, n_angles)
-    J_bol_gfl = weighted_layers.T.reshape(n_g, n_freq_bins, n)
-
-    return I_H_top, x_last, x_nm2, J_bol_gfl
-
-
-@partial(jit, static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
-def solve_tridiagonal_thomas_batched_feautrier_fused(
-    a,
-    b,
-    c,
-    d_inner,
-    d_surf,
-    angle_weight_a,
-    n_g,
-    n_freq_bins,
-    n_angles,
-    n_layers,
-):
-    """
-    Solves Feautrier tridiagonal systems without materialising the full
-    (g, f, a, l) solution tensor.
-
-    Parameters
-    ----------
-    a, b, c : (batch, n_layers)
-        Tridiagonal coefficients where batch = n_g * n_freq_bins * n_angles.
-    d_inner : (n_g, n_freq_bins, n_layers - 1)
-        Angle-independent RHS entries for layers 0 .. n_layers-2.
-    d_surf : (n_g, n_freq_bins, n_angles)
-        Boundary RHS entry for the surface layer.
-    angle_weight_a : (n_angles,)
-        Angular quadrature weights for mean-intensity accumulation.
-
-    Returns
-    -------
-    I_H_top : (n_g, n_freq_bins, n_angles)
-    x_last : (n_g, n_freq_bins, n_angles)
-    x_nm2 : (n_g, n_freq_bins, n_angles)
-    J_bol_gfl : (n_g, n_freq_bins, n_layers)
-    """
-    n = n_layers
-    n_gf = n_g * n_freq_bins
-    batch = n_gf * n_angles
-
-    def _broadcast_rhs_layer(layer_idx):
-        return jnp.broadcast_to(
-            d_inner[:, :, layer_idx][:, :, None],
-            (n_g, n_freq_bins, n_angles),
-        ).reshape(batch)
-
-    def _weighted_gf(x_k):
-        return jnp.sum(
-            x_k.reshape(n_gf, n_angles) * angle_weight_a[None, :],
-            axis=1,
-        )
-
-    c0 = c[:, 0] / b[:, 0]
-    d0 = _broadcast_rhs_layer(0) / b[:, 0]
-
-    if n > 2:
-
-        def fwd_step(carry, k):
-            c_prev, d_prev = carry
-            denom = b[:, k] - a[:, k] * c_prev
-            safe_den = jnp.where(jnp.abs(denom) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom)
-            rhs_k = _broadcast_rhs_layer(k)
-            c_k = c[:, k] / safe_den
-            d_k = (rhs_k - a[:, k] * d_prev) / safe_den
-            return (c_k, d_k), (c_k, d_k)
-
-        _, (c_mid, d_mid) = lax.scan(
-            fwd_step,
-            (c0, d0),
-            jnp.arange(1, n - 1),
-        )
-
-        c_nm2 = c_mid[-1, :]
-        d_nm2 = d_mid[-1, :]
-        c_upto_nm2 = jnp.concatenate([c0[None, :], c_mid], axis=0)
-        d_upto_nm2 = jnp.concatenate([d0[None, :], d_mid], axis=0)
-    else:
-        c_nm2 = c0
-        d_nm2 = d0
-        c_upto_nm2 = c0[None, :]
-        d_upto_nm2 = d0[None, :]
-
-    denom_last = b[:, n - 1] - a[:, n - 1] * c_nm2
-    safe_denom_last = jnp.where(
-        jnp.abs(denom_last) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom_last
-    )
-    x_last_flat = (d_surf.reshape(batch) - a[:, n - 1] * d_nm2) / safe_denom_last
-
-    if n == 1:
-        weighted_layers = _weighted_gf(x_last_flat)[None, :]
-        return (
-            (-x_last_flat).reshape(n_g, n_freq_bins, n_angles),
-            x_last_flat.reshape(n_g, n_freq_bins, n_angles),
-            x_last_flat.reshape(n_g, n_freq_bins, n_angles),
-            weighted_layers.T.reshape(n_g, n_freq_bins, n),
-        )
-
-    x_nm2_flat = d_upto_nm2[n - 2, :] - c_upto_nm2[n - 2, :] * x_last_flat
-    weighted_last = _weighted_gf(x_last_flat)
-    weighted_nm2 = _weighted_gf(x_nm2_flat)
-
-    if n > 2:
-
-        def bwd_step(x_next, k):
-            x_k = d_upto_nm2[k, :] - c_upto_nm2[k, :] * x_next
-            return x_k, _weighted_gf(x_k)
-
-        x0_flat, weighted_rest_desc = lax.scan(
-            bwd_step,
-            x_nm2_flat,
-            jnp.arange(n - 3, -1, -1),
-        )
-        weighted_layers = jnp.concatenate(
-            [
-                weighted_rest_desc[::-1, :],
-                weighted_nm2[None, :],
-                weighted_last[None, :],
-            ],
-            axis=0,
-        )
-    else:
-        x0_flat = x_nm2_flat
-        weighted_layers = jnp.stack([weighted_nm2, weighted_last], axis=0)
-
-    I_H_top = (-x0_flat).reshape(n_g, n_freq_bins, n_angles)
-    x_last = x_last_flat.reshape(n_g, n_freq_bins, n_angles)
-    x_nm2 = x_nm2_flat.reshape(n_g, n_freq_bins, n_angles)
-    J_bol_gfl = weighted_layers.T.reshape(n_g, n_freq_bins, n)
-
-    return I_H_top, x_last, x_nm2, J_bol_gfl
-
-
-# @jit(static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
-def solve_tridiagonal_thomas_batched_fused(
-    a, b, c, d, mu_weight_flat, n_g, n_freq_bins, n_angles, n_layers
-):
-    """
-    Solves n_batch independent tridiagonal systems simultaneously and fuses
-    three downstream post-processing steps into the backward substitution pass,
-    eliminating the full (batch, n_layers) solution array. More memory efficient,
-    but slowe on CPU.
-
-    Parameters
-    ----------
-    a, b, c, d : (batch, n_layers)
-        Lower diagonal (a[:,0] unused), main diagonal,
-        upper diagonal (c[:,-1] unused), RHS.
-    mu_weight_flat : (batch,)
-        Per-batch-element quadrature weight for J_bol accumulation.
-        Equals mu_weight_a[angle_index] for each batch element, tiled over
-        (g, f) so that mu_weight_flat[g*n_freq_bins*n_angles + f*n_angles + a]
-        = mu_weight_a[a].
-    n_g, n_freq_bins : int
-        Used to reshape the J_bol accumulator.
-
-    Returns
-    -------
-    I_H_top_flat      : (batch,)   = -x[0],   the top-boundary intensity.
-    x_nm1_flat        : (batch,)   = x[n-1],  solution at the surface layer.
-    x_nm2_flat        : (batch,)   = x[n-2],  solution at the penultimate layer.
-    J_bol_gfl         : (n_g, n_freq_bins, n_layers)
-                        Angle-quadrature-weighted mean intensity per (g,f,l):
-                        J_bol_gfl[g,f,l] = sum_a( x[g,f,a,l] * mu_weight_a[a] ).
-
-    Design
-    ------
-    Forward sweep  : identical to the original solver.
-    Backward pass  :
-      Rather than emitting x[k] at every scan step (which would materialise the
-      full (n-1, batch) solution), we carry only what is needed:
-        • x_next      (batch,)        — rolling solution value, used to compute x[k]
-        • J_bol_acc   (n_g*n_freq_bins, n_layers) — per-(g,f,l) weighted partial sum;
-                      updated at each step via a dynamic .at[:, k].add() scatter.
-
-      x[n-1] and x[n-2] are extracted before the scan; x[0] is the final
-      value of x_next in the carry after the scan.
-
-    Memory saved vs. the original solver + downstream uses
-    -------------------------------------------------------
-      Eliminated : I_J_flat  (batch, n_layers)  — full Thomas solution
-                   x_rest    (n-1, batch)        — backward scan output
-                   I_J_gfal  (g, f, a, l)        — reshape of I_J_flat
-                   Total ≈ 2 × n_g × n_freq_bins × n_angles × n_layers float64
-      Added      : J_bol_acc (n_g*n_freq_bins, n_layers) in backward scan carry
-                   ≈ n_g × n_freq_bins × n_layers float64  (factor n_angles smaller)
-      Net saving ≈ (2*n_angles − 1) × n_g × n_freq_bins × n_layers float64.
-    """
-    # n_g, n_freq_bins, n_angles, n_layers are all static (concrete Python ints).
-    # We never call b.shape for n or derive n_angles from a traced value, so
-    # jnp.zeros and jnp.arange receive concrete arguments throughout.
-    n = n_layers
-    n_gf = n_g * n_freq_bins
-
-    # ----------------------------------------------------------------
-    # Forward sweep — identical to the original solver.
-    # Produces c_all (n, batch) and d_all (n, batch).
-    # ----------------------------------------------------------------
-    c0 = c[:, 0] / b[:, 0]  # (batch,)
-    d0 = d[:, 0] / b[:, 0]  # (batch,)
-
-    def fwd_step(carry, k):
-        c_prev, d_prev = carry
-        denom = b[:, k] - a[:, k] * c_prev
-        safe_den = jnp.where(jnp.abs(denom) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, denom)
-        c_k = c[:, k] / safe_den
-        d_k = (d[:, k] - a[:, k] * d_prev) / safe_den
-        return (c_k, d_k), (c_k, d_k)
-
-    _, (c_rest, d_rest) = lax.scan(fwd_step, (c0, d0), jnp.arange(1, n))
-    # c_all, d_all: (n, batch)
-    c_all = jnp.concatenate([c0[None, :], c_rest], axis=0)
-    d_all = jnp.concatenate([d0[None, :], d_rest], axis=0)
-
-    # ----------------------------------------------------------------
-    # Backward substitution — fused with J_bol accumulation.
-    #
-    # Extract x[n-1] and x[n-2] before the scan so they can be
-    # returned without being emitted as scan outputs.
-    # ----------------------------------------------------------------
-
-    # Helper: weighted reduction over the angle axis for J_bol accumulation.
-    # x_k: (batch,) = (n_gf, n_angles) flattened in C-order.
-    # weighted_k: (n_gf,) = sum over angles of x_k * mu_weight_flat.
-    def _weighted_gf(x_k):
-        # reshape (n_gf * n_angles,) → (n_gf, n_angles), then dot with mu_weight_a
-        return (
-            x_k.reshape(n_gf, n_angles) * mu_weight_flat.reshape(n_gf, n_angles)
-        ).sum(axis=1)
-        # shape (n_gf,)
-
-    x_last = d_all[n - 1, :]  # x[n-1], (batch,)
-    x_nm2 = d_all[n - 2, :] - c_all[n - 2, :] * x_last  # x[n-2], (batch,)
-
-    # Seed J_bol accumulator with contributions from layers n-1 and n-2.
-    J_bol_acc = jnp.zeros((n_gf, n))  # (n_gf, n_layers)
-    J_bol_acc = J_bol_acc.at[:, n - 1].set(_weighted_gf(x_last))
-    J_bol_acc = J_bol_acc.at[:, n - 2].set(_weighted_gf(x_nm2))
-
-    # Backward scan over k = n-3 down to 0.
-    # Carry: (x_next, J_bol_acc)
-    # xs:    layer indices k in descending order
-    # No scan output (ys=None) — only the carry is used.
-    def bwd_step(carry, k):
-        x_next, J_bol = carry
-        x_k = d_all[k, :] - c_all[k, :] * x_next  # (batch,)
-        J_bol = J_bol.at[:, k].add(_weighted_gf(x_k))  # dynamic scatter
-        return (x_k, J_bol), None
-
-    (x_0, J_bol_acc), _ = lax.scan(
-        bwd_step,
-        (x_nm2, J_bol_acc),
-        jnp.arange(n - 3, -1, -1),
-    )
-
-    # ----------------------------------------------------------------
-    # Assemble outputs — no I_J_flat or I_J_gfal ever materialised.
-    # ----------------------------------------------------------------
-    I_H_top_flat = -x_0  # (batch,)
-    J_bol_gfl = J_bol_acc.reshape(n_g, n_freq_bins, n)  # (g, f, l)
-
-    return I_H_top_flat, x_last, x_nm2, J_bol_gfl
+    if not _USE_GPU:
+        return True
+    return (n_gf * n_angles) >= _FEAUTRIER_THOMAS_MIN_BATCH
 
 
 @jit
@@ -699,189 +176,6 @@ def solve_tridiagonal_pcr(a, b, c, d):
 
     # Reshape solution back to original batch dimensions
     return x_flat.reshape(original_shape)
-
-
-@partial(jit, static_argnames=("n_g", "n_freq_bins", "n_angles", "n_layers"))
-def solve_tridiagonal_pcr_batched_feautrier_fused(
-    a,
-    b,
-    c,
-    d_inner,
-    d_surf,
-    angle_weight_a,
-    n_g,
-    n_freq_bins,
-    n_angles,
-    n_layers,
-):
-    """PCR-based Feautrier tridiagonal solver optimised for GPU.
-
-    Mirrors the interface of ``solve_tridiagonal_thomas_batched_feautrier_fused``
-    but uses the O(log N) parallel cyclic reduction algorithm internally.
-
-    Parameters
-    ----------
-    a, b, c : (batch, n_layers)
-        Tridiagonal coefficients where batch = n_g * n_freq_bins * n_angles.
-    d_inner : (n_g, n_freq_bins, n_layers - 1)
-        Angle-independent RHS entries for layers 0 .. n_layers-2.
-    d_surf : (n_g, n_freq_bins, n_angles)
-        Boundary RHS entry for the surface layer.
-    angle_weight_a : (n_angles,)
-        Angular quadrature weights for mean-intensity accumulation.
-    n_g, n_freq_bins, n_angles, n_layers : int
-        Static shape parameters.
-
-    Returns
-    -------
-    I_H_top : (n_g, n_freq_bins, n_angles)
-    x_last : (n_g, n_freq_bins, n_angles)
-    x_nm2 : (n_g, n_freq_bins, n_angles)
-    J_bol_gfl : (n_g, n_freq_bins, n_layers)
-    """
-    n = n_layers
-    n_gf = n_g * n_freq_bins
-    batch = n_gf * n_angles
-
-    # Build the full RHS (batch, n_layers) by broadcasting d_inner over
-    # angles and placing d_surf at the surface layer.
-    d_inner_broadcast = (
-        jnp.broadcast_to(
-            d_inner[:, :, :, None],  # (g, f, l-1, 1)
-            (n_g, n_freq_bins, n_layers - 1, n_angles),
-        )
-        .transpose(0, 1, 3, 2)
-        .reshape(batch, n_layers - 1)
-    )  # (batch, l-1)
-    d_surf_flat = d_surf.reshape(batch, 1)  # (batch, 1)
-    d_full = jnp.concatenate([d_inner_broadcast, d_surf_flat], axis=1)  # (batch, n)
-
-    # Solve with PCR
-    x_full = solve_tridiagonal_pcr(a, b, c, d_full)  # (batch, n)
-
-    # Extract outputs matching the Thomas fused solver interface
-    x_last_flat = x_full[:, n - 1]  # (batch,)
-    x_nm2_flat = x_full[:, n - 2] if n > 1 else x_last_flat
-    x0_flat = x_full[:, 0]  # (batch,)
-
-    # J_bol: angle-weighted mean intensity per (g, f, l)
-    x_gfal = x_full.reshape(n_gf, n_angles, n)  # (gf, a, l)
-    J_bol_gfl = jnp.sum(x_gfal * angle_weight_a[None, :, None], axis=1).reshape(
-        n_g, n_freq_bins, n
-    )  # (g, f, l)
-
-    I_H_top = (-x0_flat).reshape(n_g, n_freq_bins, n_angles)
-    x_last = x_last_flat.reshape(n_g, n_freq_bins, n_angles)
-    x_nm2 = x_nm2_flat.reshape(n_g, n_freq_bins, n_angles)
-
-    return I_H_top, x_last, x_nm2, J_bol_gfl
-
-
-def solve_feautrier_tridiagonal(
-    a, b, c, d_inner, d_surf, angle_weight_a, n_g, n_freq_bins, n_angles, n_layers
-):
-    """Dispatch to the optimal Feautrier tridiagonal solver for the current device.
-
-    Uses the sequential Thomas algorithm on CPU (good sequential throughput)
-    and the parallel cyclic reduction algorithm on GPU (O(log N) depth).
-
-    Parameters are identical to ``solve_tridiagonal_thomas_batched_feautrier_fused``.
-    """
-    if _USE_GPU:
-        return solve_tridiagonal_pcr_batched_feautrier_fused(
-            a,
-            b,
-            c,
-            d_inner,
-            d_surf,
-            angle_weight_a,
-            n_g,
-            n_freq_bins,
-            n_angles,
-            n_layers,
-        )
-    return solve_tridiagonal_thomas_batched_feautrier_fused(
-        a,
-        b,
-        c,
-        d_inner,
-        d_surf,
-        angle_weight_a,
-        n_g,
-        n_freq_bins,
-        n_angles,
-        n_layers,
-    )
-
-
-def factor_feautrier(a, b, c, n_g, n_freq_bins, n_angles, n_layers):
-    """Pre-factor the Feautrier tridiagonal LHS.
-
-    On CPU, delegates to :func:`factor_feautrier_thomas`.
-    On GPU, returns ``None`` (PCR has no separable factorisation step).
-
-    Returns
-    -------
-    factors : tuple or None
-        ``(c_prime, inv_denom, a_times_inv_denom)`` on CPU, ``None`` on GPU.
-    """
-    if _USE_GPU:
-        return None
-    return factor_feautrier_thomas(a, b, c, n_g, n_freq_bins, n_angles, n_layers)
-
-
-def solve_feautrier_prefactored(
-    factors,
-    a,
-    b,
-    c,
-    d_inner,
-    d_surf,
-    angle_weight_a,
-    n_g,
-    n_freq_bins,
-    n_angles,
-    n_layers,
-):
-    """Solve the Feautrier system, using pre-factored LHS when available.
-
-    On CPU (``factors is not None``), uses :func:`solve_feautrier_thomas_prefactored`
-    which skips the LHS forward elimination.  On GPU (``factors is None``), falls
-    back to the full PCR solver.
-
-    Parameters
-    ----------
-    factors : tuple or None
-        Output of :func:`factor_feautrier`.  ``None`` triggers the GPU path.
-    a, b, c, d_inner, d_surf, angle_weight_a, n_g, n_freq_bins, n_angles, n_layers
-        Same as :func:`solve_feautrier_tridiagonal`.
-    """
-    if factors is not None:
-        c_prime, inv_denom, a_times_inv_denom = factors
-        return solve_feautrier_thomas_prefactored(
-            c_prime,
-            inv_denom,
-            a_times_inv_denom,
-            d_inner,
-            d_surf,
-            angle_weight_a,
-            n_g,
-            n_freq_bins,
-            n_angles,
-            n_layers,
-        )
-    return solve_tridiagonal_pcr_batched_feautrier_fused(
-        a,
-        b,
-        c,
-        d_inner,
-        d_surf,
-        angle_weight_a,
-        n_g,
-        n_freq_bins,
-        n_angles,
-        n_layers,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1085,13 +379,15 @@ def prepare_feautrier_system_lm(
     """Build the per-chunk Feautrier solver state, Lambda diagonal and surface
     stencil coefficient from layer-major delta-optical-depths.
 
-    Dispatches to the fused scan on CPU and to the materialising PCR
-    preparation on GPU; the returned state is consumed by
-    :func:`solve_feautrier_system_lm`.
+    Dispatches to the Thomas fused scan (CPU always, and GPU at large batch) or
+    to the materialising PCR preparation (GPU at small batch); the returned
+    state is consumed by :func:`solve_feautrier_system_lm`, which must make the
+    same choice. See :func:`_feautrier_use_thomas`.
     """
     prepare = (
-        _prepare_feautrier_system_lm_gpu if _USE_GPU
-        else _prepare_feautrier_system_lm_cpu
+        _prepare_feautrier_system_lm_cpu
+        if _feautrier_use_thomas(n_gf, n_angles)
+        else _prepare_feautrier_system_lm_gpu
     )
     return prepare(
         dtau1_lm,
@@ -1196,6 +492,111 @@ def _solve_feautrier_system_lm_cpu(
     )
 
 
+# ---------------------------------------------------------------------------
+# Experimental: prefactored Thomas solve with the two layer-axis recurrences
+# expressed as parallel (associative) scans instead of sequential lax.scan.
+#
+# Both Thomas RHS sweeps are first-order affine recurrences y_k = A_k y_{k-1} +
+# B_k. An affine map x -> A x + B composes associatively:
+#   (A2,B2) o (A1,B1) = (A2 A1, A2 B1 + B2)
+# so lax.associative_scan over (A,B) yields every prefix in O(log n_layers)
+# depth (vs the n_layers sequential steps of lax.scan), at O(n_layers) work. On
+# GPU this trades sequential-step launch/sync overhead for extra parallel work;
+# whether it wins is what the benchmark measures.
+# ---------------------------------------------------------------------------
+
+
+def _affine_compose(earlier, later):
+    """Compose two affine maps applied earlier-then-later.
+
+    Each operand is a pytree ``(A, B)`` representing ``x -> A x + B``. Returns
+    the composition ``later ∘ earlier``. Used as the associative operator for
+    :func:`lax.associative_scan`, whose inclusive prefix at position ``k`` is the
+    map taking the initial value to ``y_k``.
+    """
+    A_e, B_e = earlier
+    A_l, B_l = later
+    return (A_l * A_e, A_l * B_e + B_l)
+
+
+@partial(jit, static_argnames=("n_gf", "n_angles", "n_layers"))
+def _solve_feautrier_system_lm_assoc(
+    factors,
+    source_lm,
+    r_surf_ga,
+    angle_weight_a,
+    n_gf,
+    n_angles,
+    n_layers,
+):
+    """Associative-scan variant of :func:`_solve_feautrier_system_lm_cpu`.
+
+    Identical interface, factors and result; the forward RHS sweep and backward
+    substitution are evaluated with :func:`lax.associative_scan` (O(log n_layers)
+    depth) rather than sequential ``lax.scan``. The full per-layer solution is
+    materialised once to form the angle-weighted ``J_bol`` (the fused
+    sequential solve avoids this, trading memory for the parallel depth).
+    """
+    c_prime, inv_denom, a_times_inv_denom = factors
+    n = n_layers
+    batch = n_gf * n_angles
+
+    if n == 1:
+        x_last_flat = r_surf_ga.reshape(batch) * inv_denom[0]
+        J_bol_lm = jnp.sum(
+            x_last_flat.reshape(n_gf, n_angles) * angle_weight_a[None, :], axis=1
+        )[None, :]
+        return (
+            (-x_last_flat).reshape(n_gf, n_angles),
+            x_last_flat.reshape(n_gf, n_angles),
+            x_last_flat.reshape(n_gf, n_angles),
+            J_bol_lm,
+        )
+
+    # RHS for inner rows 0 .. n-2, broadcast over angles → (n-1, batch).
+    rhs_inner = jnp.broadcast_to(
+        source_lm[: n - 1, :, None], (n - 1, n_gf, n_angles)
+    ).reshape(n - 1, batch)
+
+    # Forward sweep: d_k = rhs_k*inv_denom_k - a_times_inv_denom_k*d_{k-1},
+    # d_{-1}=0. a_times_inv_denom[0]=0 (Feautrier padding) makes row 0 exact.
+    A_fwd = -a_times_inv_denom[: n - 1]  # (n-1, batch)
+    B_fwd = rhs_inner * inv_denom[: n - 1]  # (n-1, batch)
+    _, d_upto_nm2 = lax.associative_scan(_affine_compose, (A_fwd, B_fwd), axis=0)
+    d_nm2 = d_upto_nm2[n - 2]
+
+    # Surface row.
+    x_last_flat = (
+        r_surf_ga.reshape(batch) * inv_denom[n - 1]
+        - a_times_inv_denom[n - 1] * d_nm2
+    )
+
+    # Backward substitution: x_k = d_k - c_prime_k * x_{k+1}, x_{n-1}=x_last.
+    # Reverse the row order so it becomes a forward affine recurrence seeded by
+    # x_last, run the prefix scan, then map the seed through each prefix.
+    A_bwd = (-c_prime[: n - 1])[::-1]  # (n-1, batch), reversed
+    B_bwd = d_upto_nm2[::-1]  # (n-1, batch), reversed
+    A_cum, B_cum = lax.associative_scan(_affine_compose, (A_bwd, B_bwd), axis=0)
+    x_rev = A_cum * x_last_flat[None, :] + B_cum  # X_j = x_{n-2-j}
+    x_inner = x_rev[::-1]  # (n-1, batch): rows 0 .. n-2
+
+    x0_flat = x_inner[0]
+    x_nm2_flat = x_inner[n - 2]
+
+    # Angle-weighted J_bol over the full layer stack (rows 0..n-2 + surface).
+    x_full = jnp.concatenate([x_inner, x_last_flat[None, :]], axis=0)  # (n, batch)
+    J_bol_lm = jnp.sum(
+        x_full.reshape(n, n_gf, n_angles) * angle_weight_a[None, None, :], axis=2
+    )  # (n, n_gf)
+
+    return (
+        (-x0_flat).reshape(n_gf, n_angles),
+        x_last_flat.reshape(n_gf, n_angles),
+        x_nm2_flat.reshape(n_gf, n_angles),
+        J_bol_lm,
+    )
+
+
 @partial(jit, static_argnames=("n_gf", "n_angles", "n_layers"))
 def _solve_feautrier_system_lm_gpu(
     state,
@@ -1246,13 +647,31 @@ def solve_feautrier_system_lm(
 ):
     """Solve the prepared layer-major Feautrier system for one source iterate.
 
-    ``state`` must come from :func:`prepare_feautrier_system_lm` on the same
-    backend. Returns ``(I_H_top, x_last, x_nm2, J_bol_lm)`` with the angular
-    arrays shaped (n_gf, n_angles) and ``J_bol_lm`` shaped (n_layers, n_gf).
+    ``state`` must come from :func:`prepare_feautrier_system_lm` with the same
+    batch (the Thomas-factor and PCR-coefficient states are not interchangeable);
+    the shared :func:`_feautrier_use_thomas` decision guarantees this. Returns
+    ``(I_H_top, x_last, x_nm2, J_bol_lm)`` with the angular arrays shaped
+    (n_gf, n_angles) and ``J_bol_lm`` shaped (n_layers, n_gf).
+
+    Solver choice (see GPU benchmarking):
+    - Thomas-factor path (CPU always, GPU at large batch): on GPU the
+      associative-scan solve is fastest at every measured size (e.g. ~6x faster
+      than PCR and ~1.8x faster than the sequential Thomas scan at xl), so it is
+      used there; on CPU the sequential scan stays best (the parallel scan's
+      O(n_layers log n_layers) extra work does not pay off without massive
+      device parallelism).
+    - PCR path (GPU at small batch): kept because its near-free vectorised
+      ``prepare`` wins the full prepare+solve loop when the batch is too small to
+      amortise the Thomas factorisation.
     """
-    solve = (
-        _solve_feautrier_system_lm_gpu if _USE_GPU else _solve_feautrier_system_lm_cpu
-    )
+    if _feautrier_use_thomas(n_gf, n_angles):
+        solve = (
+            _solve_feautrier_system_lm_assoc
+            if _USE_GPU
+            else _solve_feautrier_system_lm_cpu
+        )
+    else:
+        solve = _solve_feautrier_system_lm_gpu
     return solve(
         state,
         source_lm,

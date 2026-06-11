@@ -30,8 +30,16 @@ _UNROLL_SPECIES_LIMIT = 8
 # intermediates; chunking caps their peak size so the full-resolution
 # (n_freq*n_layers, n_g**2) sort buffers are never resident at once. A
 # non-positive value (or a chunk >= the number of cells) disables chunking.
-# Tunable at import time via PRT_CK_CHUNK_SIZE.
-_CK_CHUNK_SIZE_DEFAULT = int(os.environ.get("PRT_CK_CHUNK_SIZE", "16384"))
+#
+# Default OFF. GPU benchmarking showed chunking lowers peak memory by ~1.7-2.3x
+# (e.g. xl from 6.4 to 3.7 GB) but costs ~5-36% runtime, and the remaining peak
+# is dominated by the input opacity array and its transpose (which this chunking
+# does not touch), not the sort buffers it caps. It is therefore an opt-in tool
+# for memory-constrained runs (large frequency grids / heavily vmapped
+# retrievals near the device memory limit) rather than a default. Enable and size
+# it via PRT_CK_CHUNK_SIZE (e.g. 16384-65536); larger chunks regress speed less
+# but cap memory less.
+_CK_CHUNK_SIZE_DEFAULT = int(os.environ.get("PRT_CK_CHUNK_SIZE", "0"))
 
 
 def build_ck_combination_state(weights_gauss: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
