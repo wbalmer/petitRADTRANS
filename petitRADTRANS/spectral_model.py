@@ -2212,6 +2212,8 @@ class SpectralModel(Radtrans):
             A dictionary containing the mass mixing ratios.
         """
 
+        if metallicity is not None and use_equilibrium_chemistry:
+            metallicity = jnp.log10(metallicity)
         mass_fractions, _ = calculate_gas_mass_fractions(
             pressures,
             temperatures,
@@ -2220,7 +2222,7 @@ class SpectralModel(Radtrans):
             cloud_species,
             filling_species,
             use_equilibrium_chemistry,
-            np.log10(metallicity),
+            metallicity,
             co_ratio,
             carbon_quench_pressure,
             **kwargs,
