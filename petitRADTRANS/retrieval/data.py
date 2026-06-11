@@ -270,13 +270,22 @@ class Data:
             if wavelength_bin_widths is not None:
                 self.wavelength_bin_widths = wavelength_bin_widths
             else:
-                self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
-                self.wavelength_bin_widths = self.wavelength_bin_widths.at[
-                    :-1
-                ].set(jnp.diff(self.wavelengths))
-                self.wavelength_bin_widths = self.wavelength_bin_widths.at[
-                    -1
-                ].set(self.wavelength_bin_widths[-2])
+                if self.wavelengths.ndim == 1:
+                    self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
+                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[
+                        :-1
+                    ].set(jnp.diff(self.wavelengths))
+                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[
+                        -1
+                    ].set(self.wavelength_bin_widths[-2])
+                else:
+                    self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
+                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[:-1, :].set(
+                        jnp.diff(self.wavelengths, axis=0)
+                    )
+                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[-1, :].set(
+                        self.wavelength_bin_widths[-2, :]
+                    )
 
         self._validate_covariance_configuration()
 
