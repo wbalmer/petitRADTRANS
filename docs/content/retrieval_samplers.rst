@@ -4,8 +4,8 @@
 Retrieval Samplers
 ==================
 
-This page summarizes the sampler backends available in the pRT retrieval package,
-the most important keyword arguments for each backend, and the interface you need
+This page summarizes the samplers available in the pRT retrieval package,
+the most important keyword arguments for each, and the interface you need
 to implement if you want to add your own sampler.
 
 Sampler choice in pRT is controlled through ``RetrievalConfig.sampler_type``.
@@ -21,8 +21,8 @@ For example, to run a Dynesty retrieval you would typically write:
        pressures=pressures,
        sampler_type="dynesty",
    )
-
-   retrieval = Retrieval(rc, model_generating_function=my_model)
+   ...
+   retrieval = Retrieval(rc)
    retrieval.run(nlive=800, dlogz_init=0.05, use_jit=True)
 
 All built-in samplers follow the same high-level flow:
@@ -422,8 +422,8 @@ A typical run with multi-start, an L-BFGS polish, and a Laplace posterior:
        pressures=pressures,
        sampler_type="optimal_estimation",
    )
-
-   retrieval = Retrieval(rc, model_generating_function=my_model)
+   ...
+   retrieval = Retrieval(rc)
    retrieval.run(
        optimizer="adam",
        learning_rate=1e-2,
@@ -462,8 +462,8 @@ defaults to Adam.
        pressures=pressures,
        sampler_type="numpyro_nuts",   # or "blackjaxnuts", "numpyro_hmc", "blackjaxhmc"
    )
-
-   retrieval = Retrieval(rc, model_generating_function=my_model)
+   ...
+   retrieval = Retrieval(rc)
    retrieval.run(
        num_warmup=1000,
        num_samples=1500,

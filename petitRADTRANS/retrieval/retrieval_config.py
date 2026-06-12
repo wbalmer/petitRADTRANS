@@ -350,7 +350,7 @@ class RetrievalConfig:
 
     def set_line_species(
         self,
-        line_species: list[str],
+        line_species: list[str] | tuple[str],
         use_equilibrium_chemistry: bool = False,
         free_mass_fraction_limits: tuple[float, float] = (-6.0, -0.5),
         plot_in_corner: bool = True,

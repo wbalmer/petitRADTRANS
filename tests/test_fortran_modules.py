@@ -1,4 +1,4 @@
-"""Test the spectrum_utility modules.
+"""Test the JAX/native replacements of the former Fortran modules.
 """
 import jax
 import jax.numpy as jnp
@@ -8,7 +8,6 @@ import pytest
 from .context import petitRADTRANS
 from .benchmark import Benchmark
 from .utils import reference_filenames
-from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.radtrans_core import radiative_transfer_core as rtc
 
 relative_tolerance = 1e-6  # relative tolerance when comparing with older results
@@ -67,6 +66,14 @@ def test_rebin_spectrum_bin_preserves_float64_scan_dtype():
 
 
 def test_compute_radius_hydrostatic_equilibrium_reference_pressure_below_grid():
+    # Cross-validation against the legacy Fortran backend; only runs when the
+    # (no longer built by default) f2py extension is available.
+    fcore_module = pytest.importorskip(
+        "petitRADTRANS.fortran_radtrans_core",
+        reason="legacy Fortran extension is not built",
+    )
+    fcore = fcore_module.fortran_radtrans_core
+
     pressures = np.logspace(-6, 2, 100, dtype=np.float64) * 1e6
     temperatures = np.linspace(500.0, 2000.0, pressures.size, dtype=np.float64)
     mean_molar_masses = np.full(pressures.size, 2.3, dtype=np.float64)
@@ -346,9 +353,11 @@ def test_compute_transmission_spectrum_contribution_matches_previous_leave_one_o
     )
 
 
-def test_combine_ck_opacities_cpu_float32_callback_matches_fortran_reference():
+def test_combine_ck_opacities_cpu_float32_matches_threshold_reference():
+    # Exercises the native FFI forward path on CPU, including the
+    # weak-species threshold skip inherited from the Fortran kernel.
     if jax.default_backend() != "cpu":
-        pytest.skip("callback-path regression is CPU-only")
+        pytest.skip("native FFI forward path is CPU-only")
 
     g_gauss = jnp.array([0.05, 0.3, 0.7, 0.95], dtype=jnp.float32)
     weights_gauss = jnp.full((4,), 0.25, dtype=jnp.float32)

@@ -12,6 +12,7 @@ py.install_sources([
     'log_likelihood.py',
     'optimal_estimation.py',
     'preparing.py',
+    'psis.py',
     'retrieval.py',
     'retrieval_config.py',
     'sampler.py',

@@ -259,7 +259,8 @@ One MPI rank per core. SLURM:
 
    rc = RetrievalConfig(retrieval_name="run", run_mode="retrieval",
                         pressures=pressures, sampler_type="pymultinest")
-   retrieval = Retrieval(rc, model_generating_function=my_model)
+   ...
+   retrieval = Retrieval(rc)
    retrieval.run(n_live_points=400, use_MPI=True, resume=False)
 
 Scaling is near-linear in the number of live-point proposals up to a few hundred

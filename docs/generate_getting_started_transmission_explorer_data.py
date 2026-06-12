@@ -23,10 +23,12 @@ OUTPUT_PATH = (
     / "getting_started_transmission_explorer_data.json"
 )
 
+LINE_SPECIES_RES = ("H2O__POKAZATEL.R400", "CO-NatAbund.R400", "CH4__MM.R400", "CO2.R400", "Na__NewAllard.R400", "K__Allard.R400")
 LINE_SPECIES = ("H2O", "CO-NatAbund", "CH4", "CO2", "Na", "K")
+
 RAYLEIGH_SPECIES = ("H2", "He")
 GAS_CONTINUUM_CONTRIBUTORS = ("H2--H2", "H2--He")
-WAVELENGTH_BOUNDARIES = (0.3, 15.0)
+WAVELENGTH_BOUNDARIES = (0.5, 12.0)
 
 BACKGROUND_H2_FRACTION = 0.74 / (0.74 + 0.24)
 BACKGROUND_HE_FRACTION = 0.24 / (0.74 + 0.24)
@@ -42,6 +44,17 @@ SPECIES_LABELS = {
     "H2": "H2",
     "He": "He",
 }
+SPECIES_LABELS_OPAS = {
+    "H2O__POKAZATEL": "H2O",
+    "CO-NatAbund": "CO-NatAbund",
+    "CO2": "CO2",
+    "CH4__MM": "CH4",
+    "Na__NewAllard": "Na",
+    "K__Allard": "K",
+    "H2": "H2",
+    "He": "He",
+}
+
 SPECIES_COLORS = {
     "H2O": "#2f7ed8",
     "CO-NatAbund": "#f28f43",
@@ -82,7 +95,7 @@ CONTROL_SPECS = {
         "step": 50.0,
         "default": 1200.0,
         "decimals": 0,
-        "grid": [400.0, 800.0, 1200.0, 1800.0, 2500.0],
+        "grid": [400.0, 800.0, 1000.0, 1200.0, 1500.0, 2000.0, 2500.0],
     },
     "temperature_bottom": {
         "label": "T deep [K]",
@@ -102,7 +115,7 @@ CONTROL_SPECS = {
         "step": 0.25,
         "default": -3.0,
         "decimals": 2,
-        "grid": [-10.0, -6.0, -3.0, -2.0, -1.0],
+        "grid": [-10.0, -6.0, -3.0, -2.0, -1.5, -1.0],
     },
     "log_co": {
         "label": "log10 X(CO)",
@@ -112,7 +125,7 @@ CONTROL_SPECS = {
         "step": 0.25,
         "default": -2.0,
         "decimals": 2,
-        "grid": [-10.0, -6.0, -2.0, -1.5, -1.0],
+        "grid": [-10.0, -6.0, -2.0, -1.75, -1.5, -1.25, -1.0],
     },
     "log_co2": {
         "label": "log10 X(CO2)",
@@ -172,7 +185,7 @@ CONTROL_SPECS = {
         "step": 0.02,
         "default": 1.0,
         "decimals": 2,
-        "grid": [0.7, 0.85, 1.0, 1.4, 2.0],
+        "grid": [0.7, 0.85, 1.0, 1.2, 1.4, 2.0],
     },
 }
 
@@ -185,8 +198,8 @@ DEFAULT_PARAMETERS["reference_pressure"] = 0.01
 
 def build_radtrans() -> Radtrans:
     return Radtrans(
-        pressures=jnp.logspace(-6, 2, 100),
-        line_species=LINE_SPECIES,
+        pressures=jnp.logspace(-6, 2, 800),
+        line_species=LINE_SPECIES_RES,
         rayleigh_species=RAYLEIGH_SPECIES,
         gas_continuum_contributors=GAS_CONTINUUM_CONTRIBUTORS,
         wavelength_boundaries=WAVELENGTH_BOUNDARIES,
@@ -225,12 +238,12 @@ def build_mass_fraction_profiles(
     log_k: float,
 ) -> tuple[dict[str, jnp.ndarray], jnp.ndarray]:
     trace_mass_fractions = {
-        "H2O": 10.0 ** log_h2o,
+        "H2O__POKAZATEL": 10.0 ** log_h2o,
         "CO-NatAbund": 10.0 ** log_co,
         "CO2": 10.0 ** log_co2,
-        "CH4": 10.0 ** log_ch4,
-        "Na": 10.0 ** log_na,
-        "K": 10.0 ** log_k,
+        "CH4__MM": 10.0 ** log_ch4,
+        "Na__NewAllard": 10.0 ** log_na,
+        "K__Allard": 10.0 ** log_k,
     }
 
     remaining_background = 1.0 - sum(trace_mass_fractions.values())
@@ -256,7 +269,7 @@ def build_mass_fraction_profiles(
         "He": remaining_background * BACKGROUND_HE_FRACTION,
     }
     inverse_mean_molar_mass = sum(
-        value / MOLAR_MASSES[species]
+        value / MOLAR_MASSES[SPECIES_LABELS_OPAS[species]]
         for species, value in combined_mass_fractions.items()
     )
     mean_molar_mass = 1.0 / inverse_mean_molar_mass

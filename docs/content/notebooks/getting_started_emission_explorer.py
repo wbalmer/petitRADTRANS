@@ -31,7 +31,7 @@ def _build_iframe_srcdoc() -> str:
     )
 
 
-def display_getting_started_emission_explorer(height: int = 900) -> None:
+def display_getting_started_emission_explorer(height: int = 632) -> None:
     srcdoc = escape(_build_iframe_srcdoc(), quote=True)
     iframe_html = (
         '<div style="width: 100%; overflow: visible;">'

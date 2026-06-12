@@ -323,7 +323,10 @@ def optimize_unconstrained_position(
 
 
 def _lbfgs_polish(logdensity, position, n_steps, verbose=True):
-    """Refine ``position`` with optax.lbfgs (zoom line-search) minimising -logdensity."""
+    """Refine ``position`` with optax.lbfgs (zoom line-search) minimising -logdensity.
+    https://en.wikipedia.org/wiki/Limited-memory_BFGS
+
+    """
     _require_jax_local()
     _require_optax()
 
