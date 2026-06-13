@@ -349,7 +349,8 @@ class Radtrans:
         self.load_all_opacities()
 
     def __getattr__(self, name):
-        """Override of the object base __getattr__ method, in order to hint towards pRT3 names when pRT2 names are used."""
+        """Override of the object base __getattr__ method, in order to hint towards
+        pRT3 names when pRT2 names are used."""
         # TODO remove in version 4.0.0
         base_message = f"'{self.__class__.__name__}' object has no attribute '{name}'"
 
@@ -1434,9 +1435,11 @@ class Radtrans:
                 expensive correlated-k mixing is skipped entirely for
                 full-coverage spectra.
             target_particle_radii:
-                Particle radius to target for selective bin disabling. Radius bin closest the input value will be disabled.
+                Particle radius to target for selective bin disabling. Radius bin closest
+                the input value will be disabled.
             target_pressure:
-                Pressure to target for selective bin disabling. Pressure bin closest to the input value will be disabled.
+                Pressure to target for selective bin disabling. Pressure bin closest to
+                the input value will be disabled.
 
         Returns:
             Tuple containing cloudy opacities, cloudy scattering opacities,
@@ -1835,10 +1838,8 @@ class Radtrans:
                 )
             )
         if return_contributions:
-            transit_radii_squared = jnp.square(transit_radii)
             transmission_contribution, radius_hydrostatic_equilibrium = (
                 radiative_transfer_core.compute_transmission_spectrum_contribution(
-                    transit_radii_squared=transit_radii_squared,
                     opacities=opacities,
                     temperatures=temperatures,
                     pressures=pressures * 1e-6,  # cgs to bar
@@ -1847,7 +1848,12 @@ class Radtrans:
                     reference_pressure=reference_pressure,
                     planet_radius=planet_radius,
                     weights_gauss=self._lines_loaded_opacities["weights_gauss"],
-                    scattering_in_transmission=self.__scattering_in_transmission,
+                    # The main transit radii above include
+                    # continuum_opacities_scattering unconditionally (the array
+                    # is zero when nothing scatters), so the contribution must
+                    # too. self.__scattering_in_transmission is stale here: it
+                    # is only updated by the photospheric-radius path.
+                    scattering_in_transmission=True,
                     continuum_opacities_scattering=continuum_opacities_scattering,
                     variable_gravity=variable_gravity,
                 )
@@ -2667,9 +2673,11 @@ class Radtrans:
             return_particle_radii (Optional[bool]):
                 If True, return the particle radii.
             target_particle_radii (Optional[ArrayLike]:
-                Particle radius to target for selective bin disabling. Radius bin closest the input value will be disabled.
+                Particle radius to target for selective bin disabling. Radius bin closest
+                the input value will be disabled.
             target_pressure (Optional[ArrayLike]:
-                Pressure to target for selective bin disabling. Pressure bin closest to the input value will be disabled.
+                Pressure to target for selective bin disabling. Pressure bin closest to
+                the input value will be disabled.
         """
         has_partial_coverage_background_cloud = (
             self._has_partial_coverage_background_cloud(
@@ -3777,9 +3785,11 @@ class Radtrans:
                 return_particle_densities (Optional[bool]):
                     If True, return the particles densities.
                 target_particle_radii (Optional[ArrayLike]:
-                    Particle radius to target for selective bin disabling. Radius bin closest the input value will be disabled.
+                    Particle radius to target for selective bin disabling. Radius bin closest
+                    the input value will be disabled.
                 target_pressure (Optional[ArrayLike]:
-                    Pressure to target for selective bin disabling. Pressure bin closest to the input value will be disabled.
+                    Pressure to target for selective bin disabling. Pressure bin closest to
+                    the input value will be disabled.
         """
         has_partial_coverage_background_cloud = (
             self._has_partial_coverage_background_cloud(

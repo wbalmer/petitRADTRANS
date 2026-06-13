@@ -760,7 +760,8 @@ def rebin_spectrum_bin(
     rebin_bin_high = rebinned_wavelengths + (bin_widths * 0.5)
 
     # if (input_wavelengths[0] >= rebin_bin_low[0]) or (input_wavelengths[-1] <= rebin_bin_high[-1]):
-    #    raise ValueError(f"Error: input wavelength array needs to extend at least half a bin width further than output wavelength array on both sides:\n"
+    #    raise ValueError(f"Error: input wavelength array needs to extend at least half a "
+    #                     f"bin width further than output wavelength array on both sides:\n"
     #                     f"input interval: {input_wavelengths[0]} -- {input_wavelengths[-1]}\n"
     #                     f"required interval: {rebin_bin_low[0]} -- {rebin_bin_high[-1]}")
 

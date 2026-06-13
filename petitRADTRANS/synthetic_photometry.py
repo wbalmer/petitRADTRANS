@@ -943,7 +943,7 @@ def download_filter(
                 "on the SVO Filter Profile Service."
             )
 
-        except:
+        except Exception:
             os.remove(filter_path)
 
             raise ValueError(

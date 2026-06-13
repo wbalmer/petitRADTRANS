@@ -900,7 +900,9 @@ class ConditionalNeuralAutoregressiveTransform(eqx.Module):
         lower_value, _ = evaluate(lower)
         upper_value, _ = evaluate(upper)
 
-        def needs_expansion(state: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]) -> jnp.ndarray:
+        def needs_expansion(
+            state: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]
+        ) -> jnp.ndarray:
             lower_bound, upper_bound, lower_eval, upper_eval, count = state
             del lower_bound, upper_bound
             return jnp.logical_and(

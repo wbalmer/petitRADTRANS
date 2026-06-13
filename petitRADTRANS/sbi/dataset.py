@@ -24,11 +24,6 @@ from .simulator import SimulationBatch
 from .task import SBITask
 
 try:
-    import zarr
-except ImportError:  # pragma: no cover - exercised through runtime guards.
-    zarr = None
-
-try:
     import h5py
 except ImportError:  # pragma: no cover - exercised through runtime guards.
     h5py = None
@@ -133,137 +128,6 @@ class SimulationDatasetStore(abc.ABC):
 
 
 @dataclass(frozen=True)
-class StoredSimulationDataset:
-    """Read-only handle for a stored chunked simulation dataset."""
-
-    manifest: SimulationDatasetManifest
-    storage_uri: str
-    root: Any
-
-    def iter_split_chunks(
-        self,
-        split: DatasetSplit = DatasetSplit.TRAIN,
-        chunk_size: int = 256,
-        indices: Any = None,
-        observation_fields: frozenset[str] | None = None,
-    ) -> "Iterator[dict[str, Any]]":
-        """Yield row-slices of one split without loading it all into RAM.
-
-        Parameters
-        ----------
-        split:
-            Dataset split to iterate.
-        chunk_size:
-            Number of rows per yielded chunk.
-        indices:
-            Optional integer array of row indices to read.  When supplied only
-            those rows are fetched in ascending order.  When ``None`` every row
-            in the split is visited sequentially.
-        observation_fields:
-            Optional set of observation field names to load.  When ``None``
-            every dataset field is loaded.  Pass
-            ``_OBSERVATION_TRAINING_FIELDS`` to skip large unused fields such
-            as ``covariance`` during training.
-
-        Yields
-        ------
-        dict[str, Any]
-            Same structure as :meth:`read_split` but covering only
-            ``chunk_size`` rows per iteration.
-        """
-        split_name = split.value
-        if split_name not in self.root:
-            raise KeyError(
-                f"Split '{split_name}' is not present in dataset '{self.storage_uri}'."
-            )
-        split_group = self.root[split_name]
-        n_total = int(split_group["parameters"].shape[0])
-        row_indices = np.arange(n_total) if indices is None else np.asarray(indices)
-        obs_names = list(split_group["observations"].keys()) if "observations" in split_group else []
-        obs_metadata: dict[str, Any] = {}
-        for obs_name in obs_names:
-            obs_group = split_group["observations"][obs_name]
-            if "metadata_json" in obs_group.attrs:
-                obs_metadata[obs_name] = json.loads(obs_group.attrs["metadata_json"])
-
-        for start in range(0, len(row_indices), chunk_size):
-            chunk_idx = np.sort(row_indices[start : start + chunk_size])
-            chunk: dict[str, Any] = {
-                "parameters": split_group["parameters"][chunk_idx],
-                "cube_parameters": (
-                    split_group["cube_parameters"][chunk_idx]
-                    if "cube_parameters" in split_group
-                    else None
-                ),
-                "unconstrained_parameters": (
-                    split_group["unconstrained_parameters"][chunk_idx]
-                    if "unconstrained_parameters" in split_group
-                    else None
-                ),
-                "observations": {},
-            }
-            for obs_name in obs_names:
-                obs_group = split_group["observations"][obs_name]
-                payload: dict[str, Any] = {
-                    field: obs_group[field][chunk_idx]
-                    for field in obs_group.array_keys()
-                    if observation_fields is None or field in observation_fields
-                }
-                if obs_name in obs_metadata:
-                    payload["metadata"] = obs_metadata[obs_name]
-                chunk["observations"][obs_name] = payload
-            yield chunk
-
-    def read_split(self, split: DatasetSplit = DatasetSplit.TRAIN) -> dict[str, Any]:
-        split_name = split.value
-
-        if split_name not in self.root:
-            raise KeyError(
-                f"Split '{split_name}' is not present in dataset '{self.storage_uri}'."
-            )
-
-        split_group = self.root[split_name]
-        loaded = {
-            "parameters": split_group["parameters"][:],
-            "cube_parameters": (
-                split_group["cube_parameters"][:]
-                if "cube_parameters" in split_group
-                else None
-            ),
-            "unconstrained_parameters": (
-                split_group["unconstrained_parameters"][:]
-                if "unconstrained_parameters" in split_group
-                else None
-            ),
-            "log_likelihood": (
-                split_group["log_likelihood"][:]
-                if "log_likelihood" in split_group
-                else None
-            ),
-            "observations": {},
-        }
-
-        if "observations" not in split_group:
-            return loaded
-
-        for observation_name in split_group["observations"].keys():
-            observation_group = split_group["observations"][observation_name]
-            observation_payload = {}
-
-            for field_name in observation_group.array_keys():
-                observation_payload[field_name] = observation_group[field_name][:]
-
-            if "metadata_json" in observation_group.attrs:
-                observation_payload["metadata"] = json.loads(
-                    observation_group.attrs["metadata_json"]
-                )
-
-            loaded["observations"][observation_name] = observation_payload
-
-        return loaded
-
-
-@dataclass(frozen=True)
 class GeneratedSimulationDataset:
     """Return value for one-call simulation corpus generation."""
 
@@ -272,7 +136,7 @@ class GeneratedSimulationDataset:
     preprocessing_metadata: TaskPreprocessingMetadata | None = None
 
 
-def _validate_finite_split_observations(dataset: StoredSimulationDataset | HDF5StoredSimulationDataset) -> None:
+def _validate_finite_split_observations(dataset: HDF5StoredSimulationDataset) -> None:
     """Abort when generated observations contain non-finite values."""
     for split_name, split_count in dataset.manifest.splits.items():
         if int(split_count) == 0:
@@ -388,7 +252,7 @@ def _prepare_batch_for_storage(
 class NormalizedObservationDatasetReader:
     """Lightweight reader yielding normalized ObservationBlock batches for training."""
 
-    dataset: StoredSimulationDataset | HDF5StoredSimulationDataset
+    dataset: HDF5StoredSimulationDataset
     preprocessing_metadata: TaskPreprocessingMetadata
     _split_cache: dict = field(default_factory=dict, repr=False, compare=False)
 
@@ -461,9 +325,9 @@ class NormalizedObservationDatasetReader:
             # to avoid keeping covariance (42 GB) in the RAM cache.
             split_data = self.dataset.read_split(split)
             for obs_payload in split_data.get("observations", {}).values():
-                for field in list(obs_payload):
-                    if field not in _OBSERVATION_TRAINING_FIELDS and field != "metadata":
-                        del obs_payload[field]
+                for field_name in list(obs_payload):
+                    if field_name not in _OBSERVATION_TRAINING_FIELDS and field_name != "metadata":
+                        del obs_payload[field_name]
             raw_blocks = build_observation_block_batch(
                 split_data["observations"],
                 self.dataset.manifest.observation_schema["modalities"],
@@ -557,228 +421,6 @@ class NormalizedObservationDatasetReader:
         raise ValueError(f"Unsupported parameter_space: {parameter_space!r}")
 
 
-class ZarrSimulationDatasetWriter(SimulationDatasetWriter):
-    """Append-only Zarr-backed writer for simulation corpora."""
-
-    def __init__(
-        self, manifest: SimulationDatasetManifest, root: Any, chunk_size: int = 256
-    ):
-        self._manifest = manifest
-        self._root = root
-        self._chunk_size = int(chunk_size)
-        self._split_counts = {
-            str(name): int(count) for name, count in manifest.splits.items()
-        }
-        self._available_fields = set(manifest.available_fields)
-        self._write_manifest()
-
-    @staticmethod
-    def _get_or_create_group(parent: Any, name: str) -> Any:
-        if name in parent:
-            return parent[name]
-        return parent.create_group(name)
-
-    def _write_manifest(self) -> None:
-        manifest_payload = self._manifest.to_payload()
-        manifest_payload["splits"] = dict(self._split_counts)
-        manifest_payload["available_fields"] = sorted(self._available_fields)
-        manifest_payload["n_simulations"] = int(sum(self._split_counts.values()))
-        self._root.attrs["manifest_json"] = json.dumps(manifest_payload, sort_keys=True)
-
-    def _append_array(
-        self, group: Any, name: str, values: Any, leading_chunk: int | None = None
-    ) -> None:
-        array_values = np.asarray(values)
-
-        if array_values.ndim == 0:
-            array_values = array_values.reshape(1)
-
-        chunk_leading = self._chunk_size if leading_chunk is None else leading_chunk
-        target_chunks = (
-            min(chunk_leading, max(array_values.shape[0], 1)),
-        ) + array_values.shape[1:]
-
-        if name not in group:
-            group.create_array(
-                name,
-                shape=(0,) + array_values.shape[1:],
-                chunks=target_chunks,
-                dtype=array_values.dtype,
-            )
-
-        array = group[name]
-        start = array.shape[0]
-        stop = start + array_values.shape[0]
-        array.resize((stop,) + array.shape[1:])
-        array[start:stop] = array_values
-
-    def _append_observations(
-        self, split_group: Any, observations: Mapping[str, Any]
-    ) -> None:
-        observations_group = self._get_or_create_group(split_group, "observations")
-
-        for observation_name, payload in observations.items():
-            observation_group = self._get_or_create_group(
-                observations_group, observation_name
-            )
-
-            metadata_payload = payload.get("metadata")
-            if metadata_payload is not None:
-                if isinstance(metadata_payload, list):
-                    if len(metadata_payload) == 0:
-                        metadata_payload = None
-                    else:
-                        first_metadata = metadata_payload[0]
-                        if any(item != first_metadata for item in metadata_payload[1:]):
-                            raise ValueError(
-                                f"Observation metadata for dataset '{observation_name}' varies within one batch."
-                            )
-                        metadata_payload = first_metadata
-
-            if metadata_payload is not None:
-                metadata_json = json.dumps(metadata_payload, sort_keys=True)
-                existing_metadata_json = observation_group.attrs.get("metadata_json")
-
-                if (
-                    existing_metadata_json is not None
-                    and existing_metadata_json != metadata_json
-                ):
-                    raise ValueError(
-                        f"Observation metadata mismatch for dataset '{observation_name}' across appended batches."
-                    )
-
-                observation_group.attrs["metadata_json"] = metadata_json
-
-            for field_name, values in payload.items():
-                if field_name == "metadata" or values is None:
-                    continue
-                self._append_array(observation_group, field_name, values)
-
-    def append(
-        self, batch: SimulationBatch, split: DatasetSplit = DatasetSplit.TRAIN
-    ) -> None:
-        split_name = split.value
-        split_group = self._get_or_create_group(self._root, split_name)
-        self._append_array(split_group, "parameters", batch.parameters)
-        self._available_fields.add("parameters")
-
-        if batch.cube_parameters is not None:
-            self._append_array(split_group, "cube_parameters", batch.cube_parameters)
-            self._available_fields.add("cube_parameters")
-
-        if batch.unconstrained_parameters is not None:
-            self._append_array(
-                split_group, "unconstrained_parameters", batch.unconstrained_parameters
-            )
-            self._available_fields.add("unconstrained_parameters")
-
-        if batch.log_likelihood is not None:
-            self._append_array(split_group, "log_likelihood", batch.log_likelihood)
-            self._available_fields.add("log_likelihood")
-
-        self._append_observations(split_group, batch.observations)
-        self._available_fields.add("observations")
-        self._split_counts[split_name] = (
-            self._split_counts.get(split_name, 0) + batch.n_samples
-        )
-        self._write_manifest()
-
-    def finalize(self) -> SimulationDatasetManifest:
-        finalized_manifest = SimulationDatasetManifest(
-            task_name=self._manifest.task_name,
-            parameter_names=self._manifest.parameter_names,
-            n_simulations=int(sum(self._split_counts.values())),
-            splits=dict(self._split_counts),
-            storage_uri=self._manifest.storage_uri,
-            task_fingerprint=self._manifest.task_fingerprint,
-            observation_schema=self._manifest.observation_schema,
-            available_fields=tuple(sorted(self._available_fields)),
-            metadata=dict(self._manifest.metadata),
-        )
-        self._manifest = finalized_manifest
-        self._write_manifest()
-        return finalized_manifest
-
-
-class ZarrSimulationDatasetStore(SimulationDatasetStore):
-    """Concrete Zarr-backed store for chunked simulation corpora."""
-
-    def __init__(self, chunk_size: int = 256):
-        self.chunk_size = int(chunk_size)
-
-    @staticmethod
-    def _require_zarr() -> None:
-        if zarr is None:
-            raise ImportError(
-                "Zarr is required for SimulationDatasetStore operations. Install petitRADTRANS with the 'sbi' extra."
-            )
-
-    def create_writer(
-        self,
-        manifest: SimulationDatasetManifest,
-        mode: str = "w",
-    ) -> SimulationDatasetWriter:
-        self._require_zarr()
-
-        if not manifest.storage_uri:
-            raise ValueError(
-                "SimulationDatasetManifest.storage_uri must be set before creating a writer."
-            )
-
-        storage_path = Path(manifest.storage_uri)
-        storage_path.parent.mkdir(parents=True, exist_ok=True)
-        root = zarr.open_group(storage_path.as_posix(), mode=mode)
-
-        if mode == "a" and "manifest_json" in root.attrs:
-            existing_manifest = SimulationDatasetManifest.from_payload(
-                json.loads(root.attrs["manifest_json"])
-            )
-            if (
-                manifest.task_fingerprint is not None
-                and existing_manifest.task_fingerprint is not None
-                and manifest.task_fingerprint != existing_manifest.task_fingerprint
-            ):
-                raise ValueError(
-                    "Existing dataset fingerprint does not match the requested task family."
-                )
-            manifest = existing_manifest
-
-        return ZarrSimulationDatasetWriter(
-            manifest=manifest, root=root, chunk_size=self.chunk_size
-        )
-
-    def open(
-        self, manifest_or_uri: SimulationDatasetManifest | str
-    ) -> StoredSimulationDataset:
-        self._require_zarr()
-
-        if isinstance(manifest_or_uri, SimulationDatasetManifest):
-            storage_uri = manifest_or_uri.storage_uri
-            manifest = manifest_or_uri
-        else:
-            storage_uri = manifest_or_uri
-            manifest = None
-
-        if not storage_uri:
-            raise ValueError(
-                "A dataset manifest or URI with a valid storage location is required."
-            )
-
-        root = zarr.open_group(Path(storage_uri).as_posix(), mode="r")
-
-        if manifest is None:
-            manifest_json = root.attrs.get("manifest_json")
-            if manifest_json is None:
-                raise ValueError(
-                    f"Dataset at '{storage_uri}' does not contain a serialized manifest."
-                )
-            manifest = SimulationDatasetManifest.from_payload(json.loads(manifest_json))
-
-        return StoredSimulationDataset(
-            manifest=manifest, storage_uri=storage_uri, root=root
-        )
-
-
 # ---------------------------------------------------------------------------
 # HDF5-backed implementation (single file, no file-count explosion)
 # ---------------------------------------------------------------------------
@@ -787,8 +429,8 @@ class ZarrSimulationDatasetStore(SimulationDatasetStore):
 class HDF5SimulationDatasetWriter(SimulationDatasetWriter):
     """Append-only HDF5-backed writer for simulation corpora.
 
-    All simulation data is stored in a single ``.h5`` file, which avoids the
-    large number of chunk files produced by the Zarr directory-store backend.
+    All simulation data is stored in a single ``.h5`` file, keeping the file
+    count at 1 regardless of the number of simulations or splits.
     Datasets are created with an unlimited first dimension (``maxshape=(None,
     ...)``) so that batches can be appended incrementally without pre-allocation.
     """
@@ -1303,19 +945,17 @@ def generate_simulation_dataset(
     include_preprocessing_metadata: bool = True,
     dataset_version: str = "0.1.0",
     resume: bool = False,
-    backend: str = "hdf5",
     data_parallel: bool | None = None,
     store_covariance: bool = False,
 ) -> GeneratedSimulationDataset:
     """Generate and persist a simulation corpus in one call.
 
+    All simulation data is written to a single ``.h5`` file via
+    :class:`HDF5SimulationDatasetStore`, keeping the file count at 1 regardless
+    of the number of simulations.
+
     Parameters
     ----------
-    backend:
-        Storage backend to use. ``'hdf5'`` (default) writes all data into a
-        single ``.h5`` file, keeping the file count at 1 regardless of the
-        number of simulations. ``'zarr'`` uses the Zarr directory store
-        which produces one file per compressed chunk.
     data_parallel:
         When ``True`` (or ``None`` with multiple JAX devices), the vmapped RT
         kernel is distributed across devices using ``jax.pmap``.  The
@@ -1339,15 +979,9 @@ def generate_simulation_dataset(
     split_assignments = _build_split_assignments(
         split_plan, resolved_split_policy, split_seed
     )
-    normalized_backend = backend.lower()
-    if normalized_backend == "hdf5":
-        dataset_store: SimulationDatasetStore = HDF5SimulationDatasetStore(chunk_size=chunk_size)
-    elif normalized_backend == "zarr":
-        dataset_store = ZarrSimulationDatasetStore(chunk_size=chunk_size)
-    else:
-        raise ValueError(
-            f"Unknown dataset backend '{backend}'. Supported values are 'hdf5' and 'zarr'."
-        )
+    dataset_store: SimulationDatasetStore = HDF5SimulationDatasetStore(
+        chunk_size=chunk_size
+    )
     requested_manifest = SimulationDatasetManifest.from_task(
         task,
         storage_uri=storage_uri,
@@ -1518,8 +1152,5 @@ __all__ = [
     "SimulationDatasetStore",
     "SimulationDatasetWriter",
     "SplitSamplingPolicy",
-    "StoredSimulationDataset",
-    "ZarrSimulationDatasetStore",
-    "ZarrSimulationDatasetWriter",
     "generate_simulation_dataset",
 ]

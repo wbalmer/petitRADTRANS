@@ -104,6 +104,7 @@ def build_adaptive_pressure_grid(
 
     return jnp.power(10.0, refined_log_pressures)
 
+
 _solar_elemental_abundances = (  # Source: Lodders 2020 https://arxiv.org/abs/1912.00844
     # atomic number, log10 elemental abundance, uncertainty
     """

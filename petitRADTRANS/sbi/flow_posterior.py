@@ -1945,6 +1945,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             # gate: it passes usable flows but disqualifies the collapsed ones from
             # checkpoint selection (and the shared pathology gate, inverse_error >
             # 0.1 etc., still bars them from resetting early-stop patience).
+
             def _elbo_selection_metric(
                 validation_loss: float, diagnostics: Mapping[str, float] | None
             ) -> float:

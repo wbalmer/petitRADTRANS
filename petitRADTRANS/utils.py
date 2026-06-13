@@ -7,7 +7,6 @@ import warnings
 import h5py
 import jax.numpy as jnp
 from jax import Array
-from jax.typing import ArrayLike
 import numpy as np
 import numpy.typing as npt
 from jax.tree_util import register_pytree_node_class

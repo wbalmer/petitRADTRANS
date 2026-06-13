@@ -267,7 +267,6 @@ def compute_block_normalization_stats(
         block_lengths = [np.asarray(b.values, dtype=float).reshape(-1).shape[0]
                          for b in block_group]
         if len(set(block_lengths)) == 1 and block_lengths[0] > 1:
-            n_wl = block_lengths[0]
             # Build (n_samples, n_wl) matrix
             value_matrix = np.stack(
                 [np.asarray(b.values, dtype=float).reshape(-1) for b in block_group],

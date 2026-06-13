@@ -160,7 +160,7 @@ class Data_table(Spectral_object):
         inheriting classes put here to avoid duplicates
         """
         if self.kdata is not None:
-            #if self._settings._convert_to_mks:
+            # if self._settings._convert_to_mks:
             #    if p_unit == "unspecified":
             #        p_unit = "Pa"
             #    if kdata_unit == "unspecified":
@@ -438,6 +438,9 @@ class Ktable(Data_table):
             compression_opts=compression_level,
         )
 
+        # No per-dataset "long_name" attributes are defined for this writer yet;
+        # kept as an explicit (empty) mapping so the loop below is a safe no-op.
+        ktable_long_name_attributes: dict = {}
         for key, val in ktable_long_name_attributes.items():
             if key in f:
                 f[key].attrs["long_name"] = val

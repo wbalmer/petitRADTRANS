@@ -1,4 +1,3 @@
-import copy
 import os
 import warnings
 from typing import Callable
@@ -6,6 +5,7 @@ from typing import Callable
 import numpy as np
 import jax.numpy as jnp
 from numpy import genfromtxt
+from jax.scipy.linalg import solve_triangular
 from jax.typing import ArrayLike
 from astropy.io import fits
 
@@ -92,8 +92,8 @@ class Data:
             Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the
             retrieval.
         scale_uncertainties:
-            Turn on or off scaling the uncertainties by a constant factor. Set to True if scaling the uncertainties during the
-            retrieval.
+            Turn on or off scaling the uncertainties by a constant factor. Set to True if
+            scaling the uncertainties during the retrieval.
         fit_flux_offset:
             Turn on or off fitting a flux offset. Set to True if fitting a flux offset during the retrieval.
         fit_covariance:
@@ -324,6 +324,8 @@ class Data:
                 The character used to indicate the start of a comment.
                 All the characters occurring on a line after a comment are discarded
         """
+        if self.__class__ == PhotometryData:
+            return
 
         obs = np.genfromtxt(path, delimiter=delimiter, comments=comments)
         obs = jnp.array(obs)
@@ -597,10 +599,20 @@ class Data:
             else None
         )
         log_likelihood_normalization = None
+        inv_covariance_diagonal = None
 
         if not has_parameter_dependent_noise:
             if covariance_cholesky_factor is not None:
                 log_likelihood_normalization = -0.5 * self.log_covariance_determinant
+                # Pre-computed once for the fixed-covariance case so the
+                # per-datapoint (PSIS-LOO) path avoids a triangular solve
+                # against the identity on every sample.
+                inverse_cholesky_factor = solve_triangular(
+                    covariance_cholesky_factor,
+                    jnp.eye(covariance_cholesky_factor.shape[0], dtype=JAX_DTYPE),
+                    lower=True,
+                )
+                inv_covariance_diagonal = jnp.sum(inverse_cholesky_factor**2, axis=0)
             elif self.uncertainties is not None:
                 log_likelihood_normalization = -0.5 * jnp.sum(
                     jnp.log(2.0 * jnp.pi * self.uncertainties**2)
@@ -611,6 +623,7 @@ class Data:
             data_covariance=data_covariance,
             mask=self.mask,
             inv_covariance=None,
+            inv_covariance_diagonal=inv_covariance_diagonal,
             covariance_cholesky_factor=covariance_cholesky_factor,
             log_covariance_determinant=self.log_covariance_determinant,
             log_likelihood_normalization=log_likelihood_normalization,
@@ -845,6 +858,7 @@ class PhotometryData(Data):
             data_covariance=likelihood.data_covariance,
             mask=likelihood.mask,
             inv_covariance=likelihood.inv_covariance,
+            inv_covariance_diagonal=likelihood.inv_covariance_diagonal,
             covariance_cholesky_factor=likelihood.covariance_cholesky_factor,
             log_covariance_determinant=likelihood.log_covariance_determinant,
             log_likelihood_normalization=likelihood.log_likelihood_normalization,
@@ -1087,4 +1101,3 @@ class TimeSeriesData(Data):
             )
         else:
             raise ValueError("data_resolution must be array like to interpolate!")
-

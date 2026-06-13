@@ -1,5 +1,5 @@
 nbsphinx
 sphinx-autoapi
-sphinx_book_theme
+shibuya
 sphinx_new_tab_link
 ipython

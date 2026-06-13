@@ -51,10 +51,10 @@ def He_rayleigh(wavelengths_angstroem, mass_fractions):
         JAX array of Rayleigh scattering opacities for each wavelength and layer.
     """
     lambda_cm = wavelengths_angstroem * 1e-8
-    l = lambda_cm * 1e4
+    lambda_um = lambda_cm * 1e4
 
     # Calculate alpha_polarization
-    alpha_polarization = 2.265983321 - 3.721350022 * l + 3.016150391 * l**2
+    alpha_polarization = 2.265983321 - 3.721350022 * lambda_um + 3.016150391 * lambda_um**2
 
     # Adjust for wavelengths above the threshold
     alpha_polarization = jnp.where(lambda_cm >= 0.9110e-4, 1.379, alpha_polarization)
@@ -104,7 +104,7 @@ def h2o_rayleigh(
     luv, lir = 0.2292020, 5.432937
     mass_h2o = 18 * cst.amu
 
-    l = lambda_cm / 1e-4 / 0.589
+    lambda_norm = lambda_cm / 1e-4 / 0.589
     d = mean_molar_masses * cst.amu * pressures / cst.kB / temperatures * mass_fractions
     temperatures_ = temperatures / 273.15
 
@@ -117,10 +117,10 @@ def h2o_rayleigh(
             a0
             + a1 * d[i_str]
             + a2 * temperatures_[i_str]
-            + a3 * l**2 * temperatures_[i_str]
-            + a4 / l**2
-            + a5 / (l**2 - luv**2)
-            + a6 / (l**2 - lir**2)
+            + a3 * lambda_norm**2 * temperatures_[i_str]
+            + a4 / lambda_norm**2
+            + a5 / (lambda_norm**2 - luv**2)
+            + a6 / (lambda_norm**2 - lir**2)
             + a7 * d[i_str] ** 2
         ) * d[i_str]
 
@@ -299,7 +299,6 @@ def n2_rayleigh(
     wavelengths_angstroem, mass_fractions, mean_molar_masses, pressures, temperatures
 ):
     """Calculates N2 Rayleigh scattering opacities (JIT-compatible)."""
-    d = mean_molar_masses * cst.amu * pressures / cst.kB / temperatures * mass_fractions
     lambda_cm = wavelengths_angstroem * 1e-8
     lamb_inv = 1.0 / lambda_cm
     mass_n2 = 34.0 * cst.amu
@@ -311,8 +310,6 @@ def n2_rayleigh(
 
     # Use lax.cond for conditional execution within JIT
     def compute_opacity(i_str, opacities):
-        scale = d[i_str] / mass_n2 / 2.546899e19
-
         # Nested jnp.where for conditional assignment of A, B, and C
         A = jnp.where(
             lamb_inv > 21360.0,

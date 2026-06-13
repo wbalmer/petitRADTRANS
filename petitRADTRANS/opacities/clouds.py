@@ -189,9 +189,8 @@ def _maybe_add_opaque_cloud_deck(
         dtype=JAX_DTYPE,
     )
 
-
     deck_active = jnp.greater_equal(opaque_cloud_top_pressure, 0.0)
-    mask = jnp.greater(pressures, opaque_cloud_top_pressure * 1e6) # bar to pascal
+    mask = jnp.greater(pressures, opaque_cloud_top_pressure * 1e6)  # bar to pascal
     deck = jnp.where(
         jnp.logical_and(deck_active, mask)[jnp.newaxis, :],
         _OPAQUE_DECK_OPACITY,
@@ -1386,7 +1385,6 @@ def _compute_cloud_opacities(
         cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
         cloud_opacities, cloud_particle_mean_radii)``.
     """
-    n_clouds = len(cloud_species)
     atmospheric_densities = (
         pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
     )

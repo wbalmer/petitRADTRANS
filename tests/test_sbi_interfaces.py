@@ -44,7 +44,7 @@ from petitRADTRANS.sbi import (  # noqa: E402
     SimulationConfig,
     TaskCompatibilityError,
     TaskPreprocessingMetadata,
-    ZarrSimulationDatasetStore,
+    HDF5SimulationDatasetStore,
     local_sensitivity_report_to_payload,
     normalize_observation_blocks,
     plot_posterior_corner,
@@ -294,7 +294,7 @@ def test_amortized_retrieval_can_emit_posterior_predictive_report(tmp_path):
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "amortized_predictive_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "amortized_predictive_dataset").as_posix(),
         n_simulations=18,
         chunk_size=3,
         split_counts={
@@ -303,9 +303,8 @@ def test_amortized_retrieval_can_emit_posterior_predictive_report(tmp_path):
             DatasetSplit.TEST: 4,
         },
         dataset_version="0.8.6",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=3)
+    store = HDF5SimulationDatasetStore(chunk_size=3)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -371,7 +370,7 @@ def test_amortized_retrieval_normalizes_raw_observations_but_reports_raw_scale(
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "amortized_preprocessing_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "amortized_preprocessing_dataset").as_posix(),
         n_simulations=18,
         chunk_size=3,
         split_counts={
@@ -380,9 +379,8 @@ def test_amortized_retrieval_normalizes_raw_observations_but_reports_raw_scale(
             DatasetSplit.TEST: 4,
         },
         dataset_version="0.8.7",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=3)
+    store = HDF5SimulationDatasetStore(chunk_size=3)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -460,7 +458,7 @@ def test_amortized_retrieval_uses_posterior_preprocessing_metadata_by_default(tm
     generated = generate_simulation_dataset(
         task=task,
         storage_uri=(
-            tmp_path / "amortized_preprocessing_payload_dataset.zarr"
+            tmp_path / "amortized_preprocessing_payload_dataset"
         ).as_posix(),
         n_simulations=18,
         chunk_size=3,
@@ -470,9 +468,8 @@ def test_amortized_retrieval_uses_posterior_preprocessing_metadata_by_default(tm
             DatasetSplit.TEST: 4,
         },
         dataset_version="0.8.8",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=3)
+    store = HDF5SimulationDatasetStore(chunk_size=3)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -827,16 +824,16 @@ def test_concatenate_simulation_batches_preserves_static_masks():
     assert combined.parameters.shape == (2, 1)
 
 
-def test_zarr_simulation_dataset_store_round_trip(tmp_path):
+def test_hdf5_simulation_dataset_store_round_trip(tmp_path):
     task = _build_runtime_task(
         retrieval_name="dataset_round_trip_demo", noise_mode="no_noise", seed=21
     )
     manifest = SimulationDatasetManifest.from_task(
         task,
-        storage_uri=(tmp_path / "simulation_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "simulation_dataset").as_posix(),
         metadata={"test_case": "round_trip"},
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     writer = store.create_writer(manifest)
     observation_metadata = {
         "photometry": False,
@@ -911,7 +908,7 @@ def test_zarr_simulation_dataset_store_round_trip(tmp_path):
     )
 
 
-def test_runtime_simulator_and_zarr_store_integration(tmp_path):
+def test_runtime_simulator_and_hdf5_store_integration(tmp_path):
     task = _build_runtime_task(
         retrieval_name="integration_dataset_demo",
         noise_mode="gaussian",
@@ -925,9 +922,9 @@ def test_runtime_simulator_and_zarr_store_integration(tmp_path):
 
     manifest = SimulationDatasetManifest.from_task(
         task,
-        storage_uri=(tmp_path / "integration_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "integration_dataset").as_posix(),
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     writer = store.create_writer(manifest)
     writer.append(batch, split=DatasetSplit.TRAIN)
     finalized_manifest = writer.finalize()
@@ -1004,15 +1001,14 @@ def test_generate_simulation_dataset_returns_preprocessing_artifact(tmp_path):
 
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "generated_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "generated_dataset").as_posix(),
         n_simulations=5,
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 3, DatasetSplit.VALIDATION: 2},
         dataset_version="0.3.0",
-        backend="zarr",
     )
 
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     train_split = dataset.read_split(DatasetSplit.TRAIN)
 
@@ -1045,12 +1041,11 @@ def test_generate_simulation_dataset_aborts_on_non_finite_observations(tmp_path)
     ):
         generate_simulation_dataset(
             task=task,
-            storage_uri=(tmp_path / "invalid_dataset.zarr").as_posix(),
+            storage_uri=(tmp_path / "invalid_dataset").as_posix(),
             n_simulations=2,
             chunk_size=2,
             split_counts={DatasetSplit.TRAIN: 2},
             dataset_version="0.3.1",
-            backend="zarr",
         )
 
 
@@ -1081,15 +1076,14 @@ def test_generate_simulation_dataset_supports_mixed_spectrum_and_photometry(tmp_
 
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "mixed_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "mixed_dataset").as_posix(),
         n_simulations=4,
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 2, DatasetSplit.TEST: 2},
         dataset_version="0.4.0",
-        backend="zarr",
     )
 
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     train_split = dataset.read_split(DatasetSplit.TRAIN)
     test_split = dataset.read_split(DatasetSplit.TEST)
@@ -1151,14 +1145,13 @@ def test_normalized_dataset_reader_yields_training_batches(tmp_path):
     task = _build_mixed_modality_task(seed=12, noise_mode="gaussian")
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "reader_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "reader_dataset").as_posix(),
         n_simulations=4,
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 4},
         dataset_version="0.5.0",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -1185,14 +1178,13 @@ def test_normalized_dataset_reader_supports_encoded_mode(tmp_path):
     task = _build_mixed_modality_task(seed=14, noise_mode="gaussian")
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "encoded_reader_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "encoded_reader_dataset").as_posix(),
         n_simulations=4,
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 4},
         dataset_version="0.5.1",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -1326,14 +1318,13 @@ def test_conditional_flow_posterior_fit_sample_and_save_load(tmp_path):
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "posterior_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "posterior_dataset").as_posix(),
         n_simulations=8,
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
         dataset_version="0.8.0",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -1402,14 +1393,13 @@ def test_neural_autoregressive_posterior_fit_sample_and_generic_load(tmp_path):
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "neural_autoregressive_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "neural_autoregressive_dataset").as_posix(),
         n_simulations=8,
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
         dataset_version="0.8.0",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -1580,14 +1570,13 @@ def test_spline_posterior_training_resumes_from_latest_checkpoint(tmp_path):
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "resume_posterior_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "resume_posterior_dataset").as_posix(),
         n_simulations=10,
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 8, DatasetSplit.VALIDATION: 2},
         dataset_version="0.8.1",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -1653,14 +1642,13 @@ def test_posterior_model_save_registers_artifact_metadata(tmp_path):
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "registry_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "registry_dataset").as_posix(),
         n_simulations=8,
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
         dataset_version="0.8.2",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -1707,14 +1695,13 @@ def test_posterior_checkpoint_falls_back_from_orbax_for_callable_leaves(
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "orbax_fallback_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "orbax_fallback_dataset").as_posix(),
         n_simulations=8,
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
         dataset_version="0.8.3",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -1785,14 +1772,13 @@ def test_generic_loader_supports_legacy_flow_metadata(tmp_path):
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "legacy_loader_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "legacy_loader_dataset").as_posix(),
         n_simulations=8,
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
         dataset_version="0.8.2",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -1839,14 +1825,13 @@ def test_flow_matching_posterior_fit_sample_and_generic_load(tmp_path):
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "flow_matching_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "flow_matching_dataset").as_posix(),
         n_simulations=8,
         chunk_size=2,
         split_counts={DatasetSplit.TRAIN: 6, DatasetSplit.VALIDATION: 2},
         dataset_version="0.8.9",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -1901,7 +1886,7 @@ def test_spline_posterior_holdout_interval_coverage(tmp_path):
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "calibration_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "calibration_dataset").as_posix(),
         n_simulations=18,
         chunk_size=3,
         split_counts={
@@ -1910,9 +1895,8 @@ def test_spline_posterior_holdout_interval_coverage(tmp_path):
             DatasetSplit.TEST: 4,
         },
         dataset_version="0.8.3",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=3)
+    store = HDF5SimulationDatasetStore(chunk_size=3)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -1971,7 +1955,7 @@ def test_generate_sbc_report_returns_rank_summaries(tmp_path):
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "sbc_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "sbc_dataset").as_posix(),
         n_simulations=16,
         chunk_size=2,
         split_counts={
@@ -1980,9 +1964,8 @@ def test_generate_sbc_report_returns_rank_summaries(tmp_path):
             DatasetSplit.TEST: 4,
         },
         dataset_version="0.8.4",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -2103,7 +2086,7 @@ def test_generate_posterior_predictive_report_summarizes_heldout_split(tmp_path)
     )
     generated = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "predictive_dataset.zarr").as_posix(),
+        storage_uri=(tmp_path / "predictive_dataset").as_posix(),
         n_simulations=18,
         chunk_size=3,
         split_counts={
@@ -2112,9 +2095,8 @@ def test_generate_posterior_predictive_report_summarizes_heldout_split(tmp_path)
             DatasetSplit.TEST: 4,
         },
         dataset_version="0.8.5",
-        backend="zarr",
     )
-    store = ZarrSimulationDatasetStore(chunk_size=3)
+    store = HDF5SimulationDatasetStore(chunk_size=3)
     dataset = store.open(generated.manifest)
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
@@ -2160,7 +2142,7 @@ def test_generate_posterior_predictive_report_summarizes_heldout_split(tmp_path)
 def test_generate_simulation_dataset_supports_resume_and_deterministic_split_policy(
     tmp_path,
 ):
-    storage_uri = (tmp_path / "resume_dataset.zarr").as_posix()
+    storage_uri = (tmp_path / "resume_dataset").as_posix()
     task = _build_runtime_task(
         retrieval_name="resume_demo",
         noise_mode="no_noise",
@@ -2178,7 +2160,6 @@ def test_generate_simulation_dataset_supports_resume_and_deterministic_split_pol
         split_counts={DatasetSplit.TRAIN: 2, DatasetSplit.VALIDATION: 2},
         split_policy=SplitSamplingPolicy.ROUND_ROBIN,
         dataset_version="0.6.0",
-        backend="zarr",
     )
     resumed = generate_simulation_dataset(
         task=task,
@@ -2189,10 +2170,9 @@ def test_generate_simulation_dataset_supports_resume_and_deterministic_split_pol
         split_policy=SplitSamplingPolicy.ROUND_ROBIN,
         dataset_version="0.6.0",
         resume=True,
-        backend="zarr",
     )
 
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     resumed_dataset = store.open(resumed.manifest)
     train_split = resumed_dataset.read_split(DatasetSplit.TRAIN)
     validation_split = resumed_dataset.read_split(DatasetSplit.VALIDATION)
@@ -2216,28 +2196,26 @@ def test_shuffled_split_policy_is_deterministic_for_same_seed(tmp_path):
 
     first = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "shuffle_a.zarr").as_posix(),
+        storage_uri=(tmp_path / "shuffle_a").as_posix(),
         n_simulations=5,
         chunk_size=2,
         split_fractions={DatasetSplit.TRAIN: 0.6, DatasetSplit.TEST: 0.4},
         split_policy=SplitSamplingPolicy.SHUFFLED,
         split_seed=99,
         dataset_version="0.7.0",
-        backend="zarr",
     )
     second = generate_simulation_dataset(
         task=task,
-        storage_uri=(tmp_path / "shuffle_b.zarr").as_posix(),
+        storage_uri=(tmp_path / "shuffle_b").as_posix(),
         n_simulations=5,
         chunk_size=2,
         split_fractions={DatasetSplit.TRAIN: 0.6, DatasetSplit.TEST: 0.4},
         split_policy=SplitSamplingPolicy.SHUFFLED,
         split_seed=99,
         dataset_version="0.7.0",
-        backend="zarr",
     )
 
-    store = ZarrSimulationDatasetStore(chunk_size=2)
+    store = HDF5SimulationDatasetStore(chunk_size=2)
     first_dataset = store.open(first.manifest)
     second_dataset = store.open(second.manifest)
     first_train = first_dataset.read_split(DatasetSplit.TRAIN)

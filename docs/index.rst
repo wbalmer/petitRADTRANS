@@ -17,11 +17,10 @@ In a nutshell, pRT allows you to calculate planetary transmission or emission sp
 .. important:: **This is the documentation of petitRADTRANS, Version 4.**
    Version 4 replaces the previous Fortran radiative transfer implementation with one written in JAX.
    JAX is a python library designed to enable fast numerical calculations on CPUs and GPUs, and enables
-   automatic differentiation, which can be used to speed up sampling methods. However, this means that
-   due to small differences in the implementation, version 4 has small numerical differences compared
-   to previous versions (of about 0.1%).  In addition to this major change, version 4 brings many optimizations,
-   code cleanup, additional opacities, but also a few breaking changes.
-   See the `pRT4 changes page <content/pRT4_changes_description.html>`_ for a summary of the pRT 4 improvements and changes.
+   automatic differentiation, which can be used to speed up sampling methods. In addition to this major
+   change, version 4 brings many optimizations, code cleanup, additional opacities, but also a few
+   breaking changes. See the `pRT4 changes page <content/pRT4_changes_description.html>`_ for a summary
+   of the pRT 4 improvements and changes.
 
 pRT feature list
 ================
@@ -95,8 +94,6 @@ Former contributors and developers
    content/pRT4_changes_description
    content/tutorial
    content/retrieval_examples
-   content/retrieval_samplers
-   content/retrieval_parallelisation
    content/available_opacities
    content/adding_opacities
    content/contributing

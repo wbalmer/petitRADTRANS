@@ -1,4 +1,4 @@
-"""Test the spectrum_utility modules.
+"""Test the JAX/native replacements of the former Fortran modules.
 """
 import jax
 import jax.numpy as jnp
@@ -8,7 +8,6 @@ import pytest
 from .context import petitRADTRANS
 from .benchmark import Benchmark
 from .utils import reference_filenames
-from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.radtrans_core import radiative_transfer_core as rtc
 
 relative_tolerance = 1e-6  # relative tolerance when comparing with older results
@@ -67,6 +66,14 @@ def test_rebin_spectrum_bin_preserves_float64_scan_dtype():
 
 
 def test_compute_radius_hydrostatic_equilibrium_reference_pressure_below_grid():
+    # Cross-validation against the legacy Fortran backend; only runs when the
+    # (no longer built by default) f2py extension is available.
+    fcore_module = pytest.importorskip(
+        "petitRADTRANS.fortran_radtrans_core",
+        reason="legacy Fortran extension is not built",
+    )
+    fcore = fcore_module.fortran_radtrans_core
+
     pressures = np.logspace(-6, 2, 100, dtype=np.float64) * 1e6
     temperatures = np.linspace(500.0, 2000.0, pressures.size, dtype=np.float64)
     mean_molar_masses = np.full(pressures.size, 2.3, dtype=np.float64)
@@ -186,13 +193,6 @@ def test_compute_transmission_spectrum_contribution_matches_previous_leave_one_o
     reference_pressure = jnp.array(1.0, dtype=jnp.float32)
     planet_radius = jnp.array(7e9, dtype=jnp.float32)
     weights_gauss = jnp.array([0.2, 0.3, 0.5], dtype=jnp.float32)
-    transit_radii_squared = jax.random.uniform(
-        subkeys[3],
-        (4,),
-        minval=1e18,
-        maxval=1e20,
-        dtype=jnp.float32,
-    )
     continuum_opacities_scattering = jax.random.uniform(
         subkeys[4],
         (4, 6),
@@ -211,7 +211,6 @@ def test_compute_transmission_spectrum_contribution_matches_previous_leave_one_o
             reference_pressure,
             planet_radius,
             weights_gauss,
-            transit_radii_squared,
             continuum_opacities_scattering,
             scattering_in_transmission,
             True,
@@ -284,26 +283,17 @@ def test_compute_transmission_spectrum_contribution_matches_previous_leave_one_o
         (opacities.shape[1], 1), dtype=rtc.WORKING_JAX_DTYPE
     )
 
-    def _reference_leave_one_out(i_leave_str_idx):
-        path_by_layer = layer_path_weights_by_layer[i_leave_str_idx]
-        gas_optical_depths_leave_one_out = gas_optical_depths_active - (
-            opacity_times_rho_by_layer[i_leave_str_idx][..., None] * path_by_layer
-        )
-
-        gas_transmission_active = jnp.exp(-gas_optical_depths_leave_one_out)
+    def _reference_transit_radii_squared(gas_optical_depths, scattering_optical_depths):
+        gas_transmission = jnp.exp(-gas_optical_depths)
         gas_transmission_by_species = jnp.sum(
-            gas_transmission_active * weights_gauss_expanded,
+            gas_transmission * weights_gauss_expanded,
             axis=0,
         )
         total_transmission_active = jnp.prod(gas_transmission_by_species, axis=1)
 
         if scattering_in_transmission:
-            scattering_optical_depths_leave_one_out = (
-                scattering_optical_depths_active
-                - continuum_times_rho_by_layer[i_leave_str_idx][:, None] * path_by_layer
-            )
             total_transmission_active = total_transmission_active * jnp.exp(
-                -scattering_optical_depths_leave_one_out
+                -scattering_optical_depths
             )
 
         total_transmission = jnp.concatenate(
@@ -315,11 +305,36 @@ def test_compute_transmission_spectrum_contribution_matches_previous_leave_one_o
             effective_area_fraction[:, 1:] * reference_radius[None, 1:]
             + effective_area_fraction[:, :-1] * reference_radius[None, :-1]
         )
-        transit_radii_leave_one_out_squared = (
+        return (
             jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1)
             + radius_squared[-1]
         )
-        return transit_radii_squared - transit_radii_leave_one_out_squared
+
+    # The baseline is computed with the same numerics as the leave-one-out
+    # evaluations, matching the function's internal-baseline contract.
+    transit_radii_baseline_squared = _reference_transit_radii_squared(
+        gas_optical_depths_active, scattering_optical_depths_active
+    )
+
+    def _reference_leave_one_out(i_leave_str_idx):
+        path_by_layer = layer_path_weights_by_layer[i_leave_str_idx]
+        gas_optical_depths_leave_one_out = gas_optical_depths_active - (
+            opacity_times_rho_by_layer[i_leave_str_idx][..., None] * path_by_layer
+        )
+
+        if scattering_in_transmission:
+            scattering_optical_depths_leave_one_out = (
+                scattering_optical_depths_active
+                - continuum_times_rho_by_layer[i_leave_str_idx][:, None] * path_by_layer
+            )
+        else:
+            scattering_optical_depths_leave_one_out = scattering_optical_depths_active
+
+        transit_radii_leave_one_out_squared = _reference_transit_radii_squared(
+            gas_optical_depths_leave_one_out,
+            scattering_optical_depths_leave_one_out,
+        )
+        return transit_radii_baseline_squared - transit_radii_leave_one_out_squared
 
     reference_contribution_raw = jax.lax.map(
         _reference_leave_one_out,
@@ -346,9 +361,11 @@ def test_compute_transmission_spectrum_contribution_matches_previous_leave_one_o
     )
 
 
-def test_combine_ck_opacities_cpu_float32_callback_matches_fortran_reference():
+def test_combine_ck_opacities_cpu_float32_matches_threshold_reference():
+    # Exercises the native FFI forward path on CPU, including the
+    # weak-species threshold skip inherited from the Fortran kernel.
     if jax.default_backend() != "cpu":
-        pytest.skip("callback-path regression is CPU-only")
+        pytest.skip("native FFI forward path is CPU-only")
 
     g_gauss = jnp.array([0.05, 0.3, 0.7, 0.95], dtype=jnp.float32)
     weights_gauss = jnp.full((4,), 0.25, dtype=jnp.float32)

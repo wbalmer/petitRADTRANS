@@ -127,20 +127,74 @@ def _normalize_legacy_output_value(value):
     return value
 
 
-def _compute_gravity(physical_params):
+def _unit_to_cgs_factor(unit, target):
+    """Return the float factor converting ``unit`` to the cgs ``target`` ('cm' or 'g').
+
+    Returns ``None`` when ``unit`` is ``None`` (i.e. the value is already assumed to be in
+    cgs). The factor is a static Python float derived from the astropy unit, so multiplying a
+    traced JAX value by it remains JIT/grad safe.
+    """
+    if unit is None:
+        return None
+
+    import astropy.units as u
+
+    target_unit = {"cm": u.cm, "g": u.g}[target]
+    return float((1.0 * unit).to(target_unit).value)
+
+
+def _resolve_parameter_unit(physical_params, parameter_units, name):
+    """Resolve the astropy unit declared for ``name``.
+
+    Units are looked up first in an explicit ``parameter_units`` mapping (the runtime path,
+    where ``physical_params`` carries only unwrapped values), then fall back to a ``.units``
+    attribute on a legacy ``Parameter`` object stored in the mapping. Returns ``None`` when no
+    unit is declared.
+    """
+    if parameter_units:
+        unit = parameter_units.get(name)
+        if unit is not None:
+            return unit
+
+    entry = physical_params.get(name)
+    return getattr(entry, "units", None)
+
+
+def _parameter_value_in_cgs(physical_params, parameter_units, name, target):
+    """Read ``name`` from ``physical_params`` and convert it to the cgs ``target`` unit."""
+    value = _get_parameter_value(physical_params, name)
+    unit = _resolve_parameter_unit(physical_params, parameter_units, name)
+    factor = _unit_to_cgs_factor(unit, target)
+
+    if factor is not None:
+        value = value * factor
+
+    return value
+
+
+def _compute_gravity(physical_params, parameter_units=None):
     if "log_g" in physical_params.keys() and "planet_mass" in physical_params.keys():
         gravity = 10 ** _get_parameter_value(physical_params, "log_g")
         planet_radius, _, _ = reference_gravity2radius_jax(
             reference_gravity=gravity,
-            mass=_get_parameter_value(physical_params, "planet_mass"),
+            mass=_parameter_value_in_cgs(
+                physical_params, parameter_units, "planet_mass", "g"
+            ),
         )
     elif "log_g" in physical_params.keys():
         gravity = 10 ** _get_parameter_value(physical_params, "log_g")
-        planet_radius = _get_parameter_value(physical_params, "planet_radius")
+        planet_radius = _parameter_value_in_cgs(
+            physical_params, parameter_units, "planet_radius", "cm"
+        )
     elif "planet_mass" in physical_params.keys() and "planet_radius" in physical_params.keys():
-        planet_radius = _get_parameter_value(physical_params, "planet_radius")
+        planet_radius = _parameter_value_in_cgs(
+            physical_params, parameter_units, "planet_radius", "cm"
+        )
         gravity, _, _ = mass2reference_gravity_jax(
-            mass=_get_parameter_value(physical_params, "planet_mass"), radius=planet_radius
+            mass=_parameter_value_in_cgs(
+                physical_params, parameter_units, "planet_mass", "g"
+            ),
+            radius=planet_radius,
         )
     else:
         raise KeyError("Pick two of log_g, planet_radius and planet_mass priors!")
@@ -207,7 +261,9 @@ def molliere_2020_emission(
     delta = ((10.0 ** (-3.0 + 5.0 * physical_params["log_delta"])) * 1e6) ** (
         -physical_params["alpha"]
     )
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
 
     temp_arr = jnp.array([t1, t2, t3])
     carbon_to_oxygen = 0
@@ -271,10 +327,10 @@ def molliere_2020_two_column(
     )
     t2 = t3 * (1.0 - physical_params["T2"])
     t1 = t2 * (1.0 - physical_params["T1"])
-    delta = ((10.0 ** (-3.0 + 5.0 * physical_params["log_delta"])) * 1e6) ** (
+    delta = ((10.0 ** (-3.0 + 5.0 * physical_params["log_delta"])) * 1e6) ** (  # noqa: F841
         -physical_params["alpha"]
     )
-    temp_arr = jnp.array([t1, t2, t3])
+    temp_arr = jnp.array([t1, t2, t3])  # noqa: F841
 
     t3_clear = (
         (3.0 / 4.0 * physical_params["T_int"] ** 4.0 * (0.1 + 2.0 / 3.0)) ** 0.25
@@ -285,7 +341,9 @@ def molliere_2020_two_column(
     delta_clear = (
         (10.0 ** (-3.0 + 5.0 * physical_params["log_delta_clear"])) * 1e6
     ) ** (-physical_params["alpha_clear"])
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
 
     cloudy_temperature_builder = _wrap_runtime_temperature_builder(
         physical_params,
@@ -403,11 +461,13 @@ def guillot_emission(
     pt_plot_mode: bool = False,
 ) -> ModelResult:
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
 
     gamma = _resolve_guillot_gamma(physical_params)
 
-    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    redistribution_coefficient = _get_parameter_value(physical_params, "redistribution_coefficient")
     if redistribution_coefficient is None:
         redistribution_coefficient = 0.25
 
@@ -487,10 +547,12 @@ def guillot_relative_emission(
         used.
     """
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
 
     gamma = _resolve_guillot_gamma(physical_params)
-    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    redistribution_coefficient = _get_parameter_value(physical_params, "redistribution_coefficient")
     if redistribution_coefficient is None:
         redistribution_coefficient = 0.25
 
@@ -588,18 +650,19 @@ def guillot_emission_add_gaussian_temperature(
     pt_plot_mode: bool = False,
 ) -> ModelResult:
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
 
     gamma = _resolve_guillot_gamma(physical_params)
-    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    redistribution_coefficient = _get_parameter_value(physical_params, "redistribution_coefficient")
     if redistribution_coefficient is None:
-                redistribution_coefficient = 0.25
+        redistribution_coefficient = 0.25
 
     def gaussian(x, scale, mu, sig):
         return scale * jnp.exp(-jnp.power((x - mu) / sig, 2.0) / 2)
 
     def base_temperature_builder(pressures):
-
 
         temperature_builder = _wrap_runtime_temperature_builder(
             physical_params,
@@ -620,7 +683,7 @@ def guillot_emission_add_gaussian_temperature(
             physical_params["temperature_location_log_pressure"],
             physical_params["temperature_width_log_pressure"],
         )
-        temperatures = temperatures + temperature_addition
+        temperatures = temperature_builder(pressures) + temperature_addition
         safe_inds = jnp.where(temperatures < 1.0)
         return temperatures.at[safe_inds].set(1.0)
 
@@ -671,7 +734,9 @@ def interpolated_profile_emission(
     pt_plot_mode: bool = False,
 ) -> ModelResult:
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
     nnodes = _as_structural_int(physical_params["nnodes"], "nnodes")
 
     temp_arr = jnp.array(
@@ -762,7 +827,9 @@ def gradient_profile_emission(
     pt_plot_mode: bool = False,
 ) -> ModelResult:
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
 
     num_layer = _as_structural_int(physical_params["N_layers"], "N_layers")
     # Build directly: an all-NaN initialiser + scatter-fill is a forward NaN
@@ -962,7 +1029,9 @@ def time_series_gradient_emission(
 
     # Pressure grid and gravity are constant across timesteps
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
     num_layer = _as_structural_int(physical_params["N_layers"], "N_layers")
 
     top_of_atmosphere_pressure = -3
@@ -1088,7 +1157,9 @@ def power_law_profile_emission(
     pt_plot_mode: bool = False,
 ) -> ModelResult:
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
 
     temperature_builder = _wrap_runtime_temperature_builder(
         physical_params,
@@ -1137,10 +1208,12 @@ def guillot_transmission(
     if "reference_pressure" in physical_params.keys():
         reference_pressure = physical_params["reference_pressure"]
 
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
 
     gamma = _resolve_guillot_gamma(physical_params)
-    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    redistribution_coefficient = _get_parameter_value(physical_params, "redistribution_coefficient")
     if redistribution_coefficient is None:
         redistribution_coefficient = 0.25
 
@@ -1209,7 +1282,9 @@ def madhushudhan_seager_emission(
     pt_plot_mode: bool = False,
 ) -> ModelResult:
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
 
     offset = jnp.log10(p_use[0])
     log_p3 = physical_params["log_P3"] - offset
@@ -1277,7 +1352,9 @@ def madhushudhan_seager_transmission(
     if "reference_pressure" in physical_params.keys():
         reference_pressure = physical_params["reference_pressure"]
 
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
     offset = jnp.log10(p_use[0])
     log_p3 = physical_params["log_P3"] - offset
     log_p2 = log_p3 * (1.0 - physical_params["P2"])
@@ -1373,7 +1450,9 @@ def isothermal_transmission(
         ),
     )
     temperatures = temperature_builder(p_use)
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
 
     result, abundance_state = _resolve_runtime_abundance_state(
         model_context,
@@ -1416,7 +1495,9 @@ def power_law_profile_transmission(
     pt_plot_mode: bool = False,
 ) -> ModelResult:
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
-    gravity, planet_radius = _compute_gravity(physical_params)
+    gravity, planet_radius = _compute_gravity(
+        physical_params, model_context.parameter_units
+    )
 
     reference_pressure = 100.0
     if "reference_pressure" in physical_params.keys():
@@ -1728,8 +1809,8 @@ def legacy_molliere_2020_two_column(
     ) * (1.0 - parameters["T3_clear"].value)
     t2_clear = t3_clear * (1.0 - parameters["T2_clear"].value)
     t1_clear = t2_clear * (1.0 - parameters["T1_clear"].value)
-    temps_clear = jnp.array([t1_clear, t2_clear, t3_clear])
-    delta_clear = (
+    temps_clear = jnp.array([t1_clear, t2_clear, t3_clear])  # noqa: F841
+    delta_clear = (  # noqa: F841
         (10.0 ** (-3.0 + 5.0 * parameters["log_delta_clear"].value)) * 1e6
     ) ** (-parameters["alpha_clear"].value)
     gravity, planet_radius = _compute_gravity(parameters)
@@ -2504,7 +2585,7 @@ def legacy_power_law_profile_emission(
     # 1.4 assemble the P-T slopes for these layers
     # Build directly: an all-NaN initialiser + scatter-fill is a forward NaN
     # that poisons reverse-mode gradients via 0*NaN in the multiply's tangent.
-    layer_pt_slopes = jnp.stack(
+    layer_pt_slopes = jnp.stack(  # noqa: F841
         [parameters[f"PTslope_{num_layer - index}"].value for index in range(num_layer)]
     )
 
@@ -3456,11 +3537,21 @@ def _build_model_context_from_parameters(
         _return_any,
     ) = get_calculate_flux_return_values(parameters)
 
+    from petitRADTRANS.retrieval.parameter_aliases import normalize_parameter_name
+
+    parameter_units = {
+        normalize_parameter_name(parameter_name): getattr(parameter, "units", None)
+        for parameter_name, parameter in parameters.items()
+        if getattr(parameter, "units", None) is not None
+    }
+
     return ModelContext(
         name=name,
         mode=mode,
         radtrans=prt_object,
         adaptive_mesh_refinement=adaptive_mesh_refinement,
+        scattering_in_emission=getattr(prt_object, "scattering_in_emission", False),
+        parameter_units=parameter_units,
         variability_atmospheric_column_model_flux_return_mode=(
             variability_atmospheric_column_model_flux_return_mode
         ),
@@ -3927,8 +4018,11 @@ def calculate_emission_spectrum_runtime(
     # reverse-mode differentiable -- so a smaller chunk size cuts the per-chunk
     # peak roughly proportionally. Tunable via PRT_FEAUTRIER_CHUNK_SIZE so the
     # CPU/GPU runs can trade memory against the (modest) extra scan overhead
-    # without editing code.
-    feautrier_chunk_size = int(os.environ.get("PRT_FEAUTRIER_CHUNK_SIZE", "128"))
+    # without editing code. A value supplied via RetrievalConfig (carried on the
+    # ModelContext) takes precedence over the environment variable.
+    feautrier_chunk_size = model_context.feautrier_chunk_size
+    if feautrier_chunk_size is None:
+        feautrier_chunk_size = int(os.environ.get("PRT_FEAUTRIER_CHUNK_SIZE", "128"))
 
     results = model_context.radtrans.calculate_flux(
         pressures=model_inputs.pressures,
@@ -3948,7 +4042,8 @@ def calculate_emission_spectrum_runtime(
         return_cloud_contribution=model_context.return_cloud_contribution,
         return_abundances=model_context.return_abundances,
         return_opacities=model_context.return_opacities,
-        chunk_feautrier=True,
+        chunk_feautrier=model_context.chunk_feautrier,
+        adaptive_feautrier_iterations=model_context.adaptive_feautrier_iterations,
         feautrier_chunk_size=feautrier_chunk_size,
     )
 
@@ -3961,10 +4056,20 @@ def calculate_emission_spectrum_runtime(
             "distance_to_system is required for emission spectrum evaluation"
         )
 
+    # Convert the system distance to cm (matching the cgs planet_radius) before applying the
+    # (planet_radius / distance)^2 flux dilution. The factor is None when no unit is declared,
+    # in which case the value is assumed to already be in cm.
+    distance_to_system = model_inputs.distance_to_system
+    distance_factor = _unit_to_cgs_factor(
+        model_context.parameter_units.get("system_distance"), "cm"
+    )
+    if distance_factor is not None:
+        distance_to_system = distance_to_system * distance_factor
+
     spectrum_model = flux2irradiance(
         flux_lambda,
         model_inputs.planet_radius,
-        model_inputs.distance_to_system,
+        distance_to_system,
     )
 
     if (
@@ -3979,7 +4084,7 @@ def calculate_emission_spectrum_runtime(
         )
         blackbody_spectrum = (
             blackbody_spectrum
-            * (model_inputs.disk_radius / model_inputs.distance_to_system) ** 2
+            * (model_inputs.disk_radius / distance_to_system) ** 2
         )
         spectrum_model = spectrum_model + blackbody_spectrum
 
@@ -4265,6 +4370,7 @@ def calculate_transmission_spectrum(
 #
 # The ``legacy_*`` prefixed names are preserved for callers that need the old API.
 # ---------------------------------------------------------------------------
+
 
 molliere_2020_emission = make_unified_model(
     molliere_2020_emission,

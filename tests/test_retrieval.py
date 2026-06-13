@@ -1209,6 +1209,244 @@ def test_log_likelihood_jax_routes_normal_path_through_runtime():
     np.testing.assert_allclose(runtime_value, legacy_value)
 
 
+def _make_amplitude_line_data(name="simple", covariance=None, uncertainties=None):
+    def simple_model(
+        _prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
+    ):
+        del pt_plot_mode, adaptive_mesh_refinement
+        amplitude = parameters["amplitude"].value
+        return (
+            jnp.array([1.0, 2.0, 3.0]),
+            jnp.array([amplitude, amplitude + 1.0, amplitude + 2.0]),
+        )
+
+    return Data(
+        name=name,
+        model_generating_function=simple_model,
+        radtrans_object=SimpleNamespace(),
+        wavelengths=jnp.array([1.0, 2.0, 3.0]),
+        spectrum=jnp.array([2.0, 3.0, 5.0]),
+        uncertainties=uncertainties,
+        covariance=covariance,
+    )
+
+
+def _make_amplitude_runtime(data):
+    configuration = SimpleNamespace(
+        parameters={
+            "amplitude": Parameter(
+                name="amplitude",
+                is_free_parameter=True,
+                value=0.0,
+                transform_prior_cube_coordinate=lambda x: 4.0 * x,
+            )
+        },
+        data={data.name: data},
+        adaptive_mesh_refinement=False,
+    )
+    parameter_layout = ParameterLayout.from_parameters(configuration.parameters)
+    runtime = RetrievalRuntime.from_configuration(
+        configuration,
+        parameter_layout=parameter_layout,
+        n_free_parameters=parameter_layout.n_free_parameters,
+    )
+    return configuration, parameter_layout, runtime
+
+
+def test_runtime_per_datapoint_terms_match_closed_form_and_sum_to_total():
+    data = _make_amplitude_line_data(
+        uncertainties=jnp.array([0.5, 0.4, 0.3]),
+    )
+    _, parameter_layout, runtime = _make_amplitude_runtime(data)
+
+    physical_params = parameter_layout.physical_params_from_vector(np.array([2.0]))
+    per_datapoint = np.asarray(
+        runtime.evaluate_per_datapoint_jax(physical_params)["simple"]
+    )
+
+    model_spectrum = np.array([2.0, 3.0, 4.0])
+    data_spectrum = np.array([2.0, 3.0, 5.0])
+    uncertainties = np.array([0.5, 0.4, 0.3])
+    expected = (
+        -0.5 * np.log(2.0 * np.pi * uncertainties**2)
+        - 0.5 * ((data_spectrum - model_spectrum) / uncertainties) ** 2
+    )
+
+    np.testing.assert_allclose(per_datapoint, expected, rtol=1e-10)
+
+    total = runtime.evaluate_jax(physical_params=physical_params)
+    np.testing.assert_allclose(per_datapoint.sum(), np.asarray(total), rtol=1e-10)
+
+    np.testing.assert_array_equal(
+        runtime.per_datapoint_keep_mask("simple"), np.ones(3, dtype=bool)
+    )
+
+
+def test_runtime_per_datapoint_terms_with_covariance_match_buerkner_reference():
+    covariance = np.array(
+        [
+            [0.25, 0.05, 0.00],
+            [0.05, 0.16, 0.02],
+            [0.00, 0.02, 0.09],
+        ]
+    )
+    data = _make_amplitude_line_data(covariance=jnp.asarray(covariance))
+    _, parameter_layout, runtime = _make_amplitude_runtime(data)
+
+    inv_covariance = np.linalg.inv(covariance)
+    np.testing.assert_allclose(
+        np.asarray(runtime.likelihoods["simple"].inv_covariance_diagonal),
+        np.diag(inv_covariance),
+        rtol=1e-10,
+    )
+
+    physical_params = parameter_layout.physical_params_from_vector(np.array([2.0]))
+    per_datapoint = np.asarray(
+        runtime.evaluate_per_datapoint_jax(physical_params)["simple"]
+    )
+
+    # Conditional leave-one-out terms of Buerkner, Gabry & Vehtari (2020)
+    residual = np.array([2.0, 3.0, 5.0]) - np.array([2.0, 3.0, 4.0])
+    g = inv_covariance @ residual
+    inv_diagonal = np.diag(inv_covariance)
+    expected = (
+        -0.5 * np.log(2.0 * np.pi / inv_diagonal) - 0.5 * g**2 / inv_diagonal
+    )
+
+    np.testing.assert_allclose(per_datapoint, expected, rtol=1e-10)
+
+
+def test_runtime_per_datapoint_invalid_model_fills_invalid_log_likelihood():
+    from petitRADTRANS.retrieval.runtime import INVALID_LOG_LIKELIHOOD
+
+    def nan_model(
+        _prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
+    ):
+        del parameters, pt_plot_mode, adaptive_mesh_refinement
+        return jnp.array([1.0, 2.0, 3.0]), jnp.array([jnp.nan, jnp.nan, jnp.nan])
+
+    data = _make_amplitude_line_data(uncertainties=jnp.array([0.5, 0.4, 0.3]))
+    data.model_generating_function = nan_model
+    _, parameter_layout, runtime = _make_amplitude_runtime(data)
+
+    physical_params = parameter_layout.physical_params_from_vector(np.array([2.0]))
+    per_datapoint = np.asarray(
+        runtime.evaluate_per_datapoint_jax(physical_params)["simple"]
+    )
+
+    np.testing.assert_array_equal(
+        per_datapoint, np.full(3, float(INVALID_LOG_LIKELIHOOD))
+    )
+
+
+def test_runtime_per_datapoint_2d_masked_observation_zeroes_masked_points():
+    observation = ObservationState(
+        name="orders",
+        wavelengths=jnp.array([1.0, 2.0]),
+        spectrum=jnp.array([[2.0, 3.0], [2.5, 3.5]]),
+        mask=jnp.array([[False, True], [False, False]]),
+        uncertainties=jnp.full((2, 2), 0.5),
+    )
+    likelihood = LikelihoodState(
+        data_uncertainties=observation.uncertainties,
+        n_free_parameters=0,
+    )
+    runtime = RetrievalRuntime(
+        parameter_layout=SimpleNamespace(n_free_parameters=0),
+        observations={"orders": observation},
+        likelihoods={"orders": likelihood},
+    )
+
+    model_wavelengths = jnp.array([1.0, 2.0])
+    model_spectrum = jnp.array([2.2, 3.1])
+
+    per_datapoint = np.asarray(
+        runtime._score_dataset_per_datapoint(
+            "orders",
+            {},
+            model_wavelengths,
+            model_spectrum,
+        )
+    )
+
+    flat_data = np.array([2.0, 3.0, 2.5, 3.5])
+    flat_model = np.array([2.2, 3.1, 2.2, 3.1])
+    expected = -0.5 * np.log(2.0 * np.pi * 0.25) - 0.5 * (
+        (flat_data - flat_model) / 0.5
+    ) ** 2
+    expected[1] = 0.0  # masked point
+
+    np.testing.assert_allclose(per_datapoint, expected, rtol=1e-10)
+
+    keep_mask = runtime.per_datapoint_keep_mask("orders")
+    np.testing.assert_array_equal(
+        keep_mask, np.array([True, False, True, True])
+    )
+
+    total = runtime._score_dataset(
+        "orders",
+        {},
+        model_wavelengths,
+        model_spectrum,
+        0.0,
+    )
+    np.testing.assert_allclose(per_datapoint.sum(), np.asarray(total), rtol=1e-10)
+
+
+def test_get_log_likelihood_per_datapoint_vmapped_matches_per_sample_runtime(tmp_path):
+    model_function = lambda context, params, pt_plot_mode=False: ModelResult(
+        kind="spectrum",
+        wavelengths=jnp.array([1.0, 2.0, 3.0]),
+        spectrum=jnp.array(
+            [params["amplitude"], params["amplitude"] + 1.0, params["amplitude"] + 2.0]
+        ),
+    )
+    data = _make_amplitude_line_data(uncertainties=jnp.array([0.5, 0.4, 0.3]))
+    configuration, _, _ = _make_amplitude_runtime(data)
+    configuration.retrieval_name = "per_datapoint_test"
+
+    retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
+    retrieval.configuration = configuration
+    retrieval.output_directory = str(tmp_path)
+    retrieval.runtime = _build_runtime(configuration, model_function)
+    retrieval.parameter_layout = retrieval.runtime.parameter_layout
+
+    samples = np.linspace(0.5, 3.5, 7)[:, np.newaxis]
+
+    log_l_per_datapoint = retrieval.get_log_likelihood_per_datapoint(
+        samples, batch_size=3
+    )
+
+    assert log_l_per_datapoint["simple"].shape == (7, 3)
+
+    # Reference is jitted like the batched path: under tracing the
+    # grid-equality rebin short-circuit is skipped, so an unjitted reference
+    # would differ for models evaluated directly on the observation grid.
+    single_sample_reference = jax.jit(
+        lambda free_values: retrieval.runtime.evaluate_per_datapoint_jax(
+            retrieval.parameter_layout.physical_params_from_free_values(free_values)
+        )
+    )
+
+    for sample_index, sample in enumerate(samples):
+        reference = np.asarray(single_sample_reference(jnp.asarray(sample))["simple"])
+        np.testing.assert_allclose(
+            log_l_per_datapoint["simple"][sample_index], reference, rtol=1e-8
+        )
+
+    saved = np.load(
+        tmp_path
+        / "evaluate_per_datapoint_test"
+        / "per_datapoint_test_logL_per_datapoint_simple.npy"
+    )
+    np.testing.assert_allclose(saved, log_l_per_datapoint["simple"])
+
+    thinned = retrieval.get_log_likelihood_per_datapoint(
+        samples, n_samples_max=4, batch_size=3, sample_thinning_seed=0
+    )
+    assert thinned["simple"].shape == (4, 3)
+
+
 def test_prior_ultranest_supports_transform_and_distribution_priors():
     retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
     retrieval.configuration = SimpleNamespace(

@@ -8,12 +8,24 @@ import textwrap
 def test_float32_scattering_flux_stays_finite():
     repo_root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
-    pythonpath = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = (
-        str(repo_root) if not pythonpath else f"{repo_root}{os.pathsep}{pythonpath}"
+
+    # Exercise the *installed* petitRADTRANS (with its compiled native
+    # extensions such as prt_ck_mixing_ffi), mirroring tests/context.py. Under
+    # tox the package is installed into site-packages and the native extension
+    # is NOT built into the source tree, so the source tree must not shadow the
+    # install. For `python -c`, sys.path[0] is "" (the CWD, set to repo_root
+    # below), which would otherwise import the un-built source package; strip
+    # every path entry that resolves to the repo root and append it only as a
+    # last-resort fallback for pure source checkouts.
+    bootstrap = (
+        "import sys, os\n"
+        f"_repo_root = {repr(str(repo_root))}\n"
+        "sys.path = [p for p in sys.path "
+        "if os.path.abspath(p or os.getcwd()) != _repo_root]\n"
+        "sys.path.append(_repo_root)\n"
     )
 
-    code = textwrap.dedent(
+    code = bootstrap + textwrap.dedent(
         """
         from jax import config
         config.update("jax_enable_x64", False)

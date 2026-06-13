@@ -11,9 +11,8 @@ import numpy as np
 import numpy.typing as npt
 from typing import Callable
 
-from scipy.stats import binned_statistic
 from jax import errors as jax_errors
-from jax import vmap, lax, numpy as jnp
+from jax import jit, vmap, lax, numpy as jnp
 
 import petitRADTRANS
 from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity, CorrelatedKOpacity
@@ -22,14 +21,13 @@ from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.radtrans_core.spectrum_utils import (
     convolve,
     convolve_and_sample_variable_resolution_breads,
-    filter_spectrum_with_spline,
     rebin_spectrum_bin,
 )
 from petitRADTRANS.physics import (
     shift_wavelengths_by_radial_velocity,
 )
 from petitRADTRANS.radtrans import Radtrans
-from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
+from petitRADTRANS.retrieval.data import Data, PhotometryData
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.models import (
     MODEL_CONTRACT_DIFFERENTIABLE,
@@ -2245,6 +2243,7 @@ class Retrieval:
         return norm
 
     def get_elpd_per_datapoint(self, ret_name: str = None):
+        # Leave one out cross validation analysis
         from .psis import psisloo
 
         if ret_name is None:
@@ -2267,12 +2266,21 @@ class Retrieval:
                     f"{self.output_directory}/evaluate_{ret_name_i}/{ret_name_i}_logL_per_datapoint_{d_name}.npy",
                 )
 
+                if log_l_per_datapoint_j.ndim != 2:
+                    raise ValueError(
+                        f"the per-datapoint log-likelihood array for retrieval "
+                        f"'{ret_name_i}' and data '{d_name}' must have shape "
+                        f"(n_samples, n_datapoints), but has shape "
+                        f"{log_l_per_datapoint_j.shape}; regenerate it with "
+                        f"get_log_likelihood_per_datapoint"
+                    )
+
                 # Compute the ELPDs with the PSIS module
                 (
                     elpd_tot[d_name][ret_name_i],
                     elpd[d_name][ret_name_i],
                     pareto_k[d_name][ret_name_i],
-                ) = psisloo(log_l_per_datapoint_j, Reff=1)
+                ) = psisloo(log_l_per_datapoint_j, r_eff=1.0)
 
                 if ret_name_i == self.configuration.retrieval_name:
                     data.elpd_tot = elpd_tot[d_name][ret_name_i]
@@ -2648,30 +2656,136 @@ class Retrieval:
         )
 
     def get_log_likelihood_per_datapoint(
-        self, samples_use: npt.NDArray[np.floating], ret_name: str = None
-    ):
+        self,
+        samples_use: npt.NDArray[np.floating],
+        ret_name: str = None,
+        n_samples_max: int = 2000,
+        batch_size: int = 128,
+        sample_thinning_seed: int = None,
+    ) -> dict[str, npt.NDArray[np.floating]]:
+        """Compute and save per-datapoint log-likelihoods over posterior samples.
+
+        The per-point log-likelihood terms are evaluated through the JAX
+        ``RetrievalRuntime``. When all model groups use the differentiable
+        model contract, samples are evaluated in jit-compiled, vmapped chunks
+        of ``batch_size``; otherwise (or when a model is not vmap-safe) the
+        samples are evaluated one at a time through the same runtime path.
+
+        The resulting arrays of shape ``(n_samples, n_datapoints)`` are saved
+        to ``evaluate_{ret_name}/{ret_name}_logL_per_datapoint_{data_name}.npy``
+        for use by :meth:`get_elpd_per_datapoint`.
+
+        Args:
+            samples_use : numpy.ndarray
+                Posterior free-parameter samples with shape
+                ``(n_samples, n_free_parameters)``, e.g. the equal-weighted
+                posterior without the log-likelihood column.
+            ret_name : string
+                Retrieval name used for the output file names. Defaults to the
+                current retrieval name.
+            n_samples_max : int
+                Maximum number of posterior samples to evaluate. PSIS tail
+                fits stabilize with ~1000-2000 samples, so evaluating more
+                equal-weight samples is usually wasted forward-model work.
+                If the input holds more samples, a random subset of this size
+                is used. Set to None to evaluate all samples.
+            batch_size : int
+                Number of samples evaluated per vmapped chunk. Bounds device
+                memory usage during batched forward-model evaluation.
+            sample_thinning_seed : int
+                Seed for the random subsampling applied when ``n_samples_max``
+                truncates the input.
+
+        Returns:
+            A dictionary mapping each data name to its per-datapoint
+            log-likelihood array of shape ``(n_samples, n_datapoints)``.
+        """
         if ret_name is None:
             ret_name = self.configuration.retrieval_name
 
-        # Set up the dictionary structure
-        log_l_per_datapoint_dict = {}
-        for name in self.configuration.data.keys():
-            log_l_per_datapoint_dict[name] = []
+        samples = np.atleast_2d(np.asarray(samples_use, dtype=float))
 
-        for sample_i in samples_use:
-            # Append the logL per datapoint for each posterior sample
-            log_l_per_datapoint_dict = self.log_likelihood(
-                cube=sample_i, log_l_per_datapoint_dict=log_l_per_datapoint_dict
+        if n_samples_max is not None and samples.shape[0] > n_samples_max:
+            rng = np.random.default_rng(sample_thinning_seed)
+            thinning_indices = np.sort(
+                rng.choice(samples.shape[0], size=n_samples_max, replace=False)
             )
+            samples = samples[thinning_indices]
 
-        # Save the logL's for each instrument
+        runtime = self._get_runtime()
+        parameter_layout = self._get_parameter_layout()
+
+        def evaluate_single(free_parameter_values):
+            physical_params = parameter_layout.physical_params_from_free_values(
+                free_parameter_values
+            )
+            return runtime.evaluate_per_datapoint_jax(physical_params)
+
+        all_native = all(
+            group.model_contract == MODEL_CONTRACT_DIFFERENTIABLE
+            for group in runtime.model_groups
+        )
+
+        chunk_results = None
+
+        if all_native:
+            batched_evaluate = jit(vmap(evaluate_single))
+
+            try:
+                chunk_results = []
+
+                for chunk_start in range(0, samples.shape[0], batch_size):
+                    chunk = jnp.asarray(
+                        samples[chunk_start:chunk_start + batch_size],
+                        dtype=JAX_DTYPE,
+                    )
+                    chunk_results.append(
+                        {
+                            data_name: np.asarray(values)
+                            for data_name, values in batched_evaluate(chunk).items()
+                        }
+                    )
+            except _VMAP_FALLBACK_JAX_ERRORS as error:
+                warnings.warn(
+                    "Falling back to per-sample evaluation of the per-datapoint "
+                    f"log-likelihoods because a model is not vmap-safe: {error}",
+                    RuntimeWarning,
+                )
+                chunk_results = None
+
+        if chunk_results is None:
+            chunk_results = [
+                {
+                    data_name: np.asarray(values)[np.newaxis, :]
+                    for data_name, values in evaluate_single(
+                        jnp.asarray(sample, dtype=JAX_DTYPE)
+                    ).items()
+                }
+                for sample in samples
+            ]
+
+        output_directory = os.path.join(self.output_directory, f"evaluate_{ret_name}")
+        os.makedirs(output_directory, exist_ok=True)
+
+        log_l_per_datapoint_dict = {}
+
         for name in self.configuration.data.keys():
-            log_l_per_datapoint_dict[name] = np.array(log_l_per_datapoint_dict[name])
+            values = np.concatenate(
+                [chunk[name] for chunk in chunk_results],
+                axis=0,
+            )
+            # Drop placeholder columns produced by masked points of 2-D data
+            values = values[:, runtime.per_datapoint_keep_mask(name)]
+            log_l_per_datapoint_dict[name] = values
 
             np.save(
-                f"{self.output_directory}/evaluate_{ret_name}/{ret_name}_logL_per_datapoint_{name}",
-                log_l_per_datapoint_dict[name],
+                os.path.join(
+                    output_directory, f"{ret_name}_logL_per_datapoint_{name}"
+                ),
+                values,
             )
+
+        return log_l_per_datapoint_dict
 
     def get_mass_fractions(
         self, sample: npt.NDArray[np.floating], parameters_read: list[str] = None
@@ -2695,7 +2809,6 @@ class Retrieval:
         from petitRADTRANS.chemistry.core import get_abundances_from_legacy_dict
 
         parameters = self.build_param_dict(sample, parameters_read)
-
 
         name = self.plotter.get_reference_radtrans_name()
         pressures, temps = self.calculate_temperature_profile(sample)[name]
@@ -3886,19 +3999,36 @@ class Retrieval:
         """Sampler-facing log-likelihood entry point.
 
         The normal scalar retrieval path now executes through ``RetrievalRuntime``.
-        Less common debug and per-datapoint modes still fall back to the legacy
-        implementation until the entire retrieval stack has been migrated.
+        Less common debug modes still fall back to the legacy implementation
+        until the entire retrieval stack has been migrated.
+
+        When *log_l_per_datapoint_dict* is a dict, the per-datapoint
+        log-likelihood vector of each dataset is appended to the corresponding
+        dict entry and the dict is returned (used by PSIS leave-one-out
+        analysis; see :meth:`get_log_likelihood_per_datapoint`).
         """
-        if isinstance(log_l_per_datapoint_dict, dict) or return_model:
+        if return_model:
             return self._log_likelihood_legacy(
                 cube,
                 ndim=ndim,
                 nparam=nparam,
-                log_l_per_datapoint_dict=log_l_per_datapoint_dict,
                 return_model=return_model,
             )
 
         physical_params = self.parameter_layout.physical_params_from_vector(cube)
+
+        if isinstance(log_l_per_datapoint_dict, dict):
+            per_datapoint_log_likelihoods = self.runtime.evaluate_per_datapoint_jax(
+                physical_params
+            )
+
+            for data_name, values in per_datapoint_log_likelihoods.items():
+                log_l_per_datapoint_dict.setdefault(data_name, []).append(
+                    np.asarray(values)[self.runtime.per_datapoint_keep_mask(data_name)]
+                )
+
+            return log_l_per_datapoint_dict
+
         return self.runtime.evaluate_scalar(
             physical_params=physical_params,
             uncertainties_mode=self.uncertainties_mode,
@@ -3910,7 +4040,6 @@ class Retrieval:
         cube: npt.NDArray[np.floating],
         ndim: int = 0,  # noqa: F811 keeping unused parameters for Multinest compatibility.
         nparam: int = 0,  # noqa: F811 keeping unused parameters for Multinest compatibility.
-        log_l_per_datapoint_dict: dict = None,
         return_model: bool = False,
     ):
         """Legacy scalar likelihood implementation retained for fallback modes."""
@@ -3954,23 +4083,14 @@ class Retrieval:
                 f"but was '{self.uncertainties_mode}'"
             )
 
-        # Store per data-object
-        per_datapoint = False
-
-        if isinstance(log_l_per_datapoint_dict, dict):
-            per_datapoint = True
-
         # Update model parameters with the sampled free-parameter values.
         self._set_free_parameter_values(cube)
 
         for data_name, data in self.configuration.data.items():
             data_spectrum = data.spectrum
 
-            if per_datapoint:
-                # Keep logL's separate per data-object
-                log_likelihood = 0.0
-
-            # Only calculate spectra within a given wavelengths range once if data.scale_flux or data.scale_uncertainties:
+            # Only calculate spectra within a given wavelengths range once if
+            # data.scale_flux or data.scale_uncertainties:
             data_spectrum = data.apply_flux_scaling(
                 data_spectrum, self.configuration.parameters
             )
@@ -4203,9 +4323,6 @@ class Retrieval:
                 spectrum_model = None
                 additional_log_l = None
 
-            if per_datapoint:
-                log_l_per_datapoint_dict[data_name].append(log_likelihood)
-
             # Check for data using the same pRT object
             # Calculate log likelihood
             for data_name_2, data_2 in self.configuration.data.items():
@@ -4312,9 +4429,6 @@ class Retrieval:
                             + additional_log_l
                         )
 
-        if per_datapoint:
-            return log_l_per_datapoint_dict
-
         if "log_prior_weight" in self.configuration.parameters.keys():
             log_prior += self.configuration.parameters[
                 "log_prior_weight"
@@ -4416,7 +4530,8 @@ class Retrieval:
     def _ensure_jax_sampler_model_support(self, sampler_name: str) -> None:
         if self._has_only_legacy_model_groups():
             raise ValueError(
-                f"{sampler_name} requires at least one differentiable model group; legacy-only retrievals are not supported."
+                f"{sampler_name} requires at least one differentiable model group; "
+                f"legacy-only retrievals are not supported."
             )
 
     def _get_ultranest_vectorization_disable_reason(self) -> str | None:
@@ -4468,14 +4583,12 @@ class Retrieval:
         reconstructing it on every call.  Accepts either a legacy *parameters*
         dict (for backward compatibility) or a *physical_params* instance.
 
-        Falls back to the legacy implementation when *log_l_per_datapoint_dict*,
-        *return_model*, or *generate_mock_data* are requested.
+        Falls back to the legacy implementation when *return_model* or
+        *generate_mock_data* are requested. When *log_l_per_datapoint_dict* is
+        a dict, the per-datapoint log-likelihood vector of each dataset is
+        appended to the corresponding dict entry and the dict is returned.
         """
-        if (
-            isinstance(log_l_per_datapoint_dict, dict)
-            or return_model
-            or generate_mock_data
-        ):
+        if return_model or generate_mock_data:
             if configuration is None:
                 configuration = self.configuration
             if parameters is None and physical_params is not None:
@@ -4485,7 +4598,6 @@ class Retrieval:
             return Retrieval._log_likelihood_jax_legacy(
                 parameters=parameters,
                 configuration=configuration,
-                log_l_per_datapoint_dict=log_l_per_datapoint_dict,
                 return_model=return_model,
                 uncertainties_mode=uncertainties_mode,
                 generate_mock_data=generate_mock_data,
@@ -4508,6 +4620,18 @@ class Retrieval:
                 }
             )
 
+        if isinstance(log_l_per_datapoint_dict, dict):
+            per_datapoint_log_likelihoods = runtime.evaluate_per_datapoint_jax(
+                physical_params
+            )
+
+            for data_name, values in per_datapoint_log_likelihoods.items():
+                log_l_per_datapoint_dict.setdefault(data_name, []).append(
+                    np.asarray(values)[runtime.per_datapoint_keep_mask(data_name)]
+                )
+
+            return log_l_per_datapoint_dict
+
         return runtime.evaluate_jax(
             physical_params=physical_params,
             uncertainties_mode=uncertainties_mode,
@@ -4518,7 +4642,6 @@ class Retrieval:
     def _log_likelihood_jax_legacy(
         parameters,
         configuration,
-        log_l_per_datapoint_dict: dict = None,
         return_model: bool = False,
         uncertainties_mode: str = "default",
         generate_mock_data: bool = False,
@@ -4559,8 +4682,6 @@ class Retrieval:
             )
 
         # === Setup ===
-        per_datapoint = isinstance(log_l_per_datapoint_dict, dict)
-
         # Count free parameters (outside loops)
         n_free_parameters = sum(
             1 for parameter in parameters if parameters[parameter].is_free_parameter
@@ -4583,7 +4704,7 @@ class Retrieval:
                 parameters
             )
 
-            per_datapoint_contribution = 0.0
+            dataset_contribution = 0.0
 
             # === Process Primary Data Source ===
             if data.external_radtrans_reference is None:
@@ -4635,7 +4756,7 @@ class Retrieval:
                     and data.spectrum.dtype == "O"
                 ):
                     # Object array: loop over object entries
-                    per_datapoint_contribution += (
+                    dataset_contribution += (
                         Retrieval._compute_object_array_log_likelihood(
                             data, spectrum_model, beta, beta_mode
                         )
@@ -4667,11 +4788,11 @@ class Retrieval:
                             n_free_parameters=n_free_parameters,
                         ).calculate_log_likelihood()
 
-                        per_datapoint_contribution += log_l + additional_log_l
+                        dataset_contribution += log_l + additional_log_l
 
                     elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 2:
                         # 1D data, 2D model: take first row
-                        per_datapoint_contribution += data.log_likelihood(
+                        dataset_contribution += data.log_likelihood(
                             spectrum_model[0, :],
                             data.spectrum,
                             data.uncertainties,
@@ -4680,7 +4801,7 @@ class Retrieval:
                         )
                     elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 3:
                         # 1D data, 3D model: take first [0, 0, :]
-                        per_datapoint_contribution += data.log_likelihood(
+                        dataset_contribution += data.log_likelihood(
                             spectrum_model[0, 0, :],
                             data.spectrum,
                             data.uncertainties,
@@ -4691,7 +4812,7 @@ class Retrieval:
                         # 2D data: loop over first dimension
                         for i, spectrum_data in enumerate(data.spectrum):
                             if ~data.mask[i, :] is not None:
-                                per_datapoint_contribution += data.log_likelihood(
+                                dataset_contribution += data.log_likelihood(
                                     spectrum_model[i, ~data.mask[i, :]],
                                     spectrum_data,
                                     data.uncertainties[i],
@@ -4703,7 +4824,7 @@ class Retrieval:
                         for i, detector in enumerate(data.spectrum):
                             for j, spectrum_data in enumerate(detector):
                                 if ~data.mask[i, j, :] is not None:
-                                    per_datapoint_contribution += data.log_likelihood(
+                                    dataset_contribution += data.log_likelihood(
                                         spectrum_model[i, j, ~data.mask[i, j, :]],
                                         spectrum_data,
                                         data.uncertainties[i, j],
@@ -4752,17 +4873,9 @@ class Retrieval:
                         n_free_parameters=n_free_parameters,
                     ).calculate_log_likelihood()
 
-                    per_datapoint_contribution += log_l_2
+                    dataset_contribution += log_l_2
 
-            # === Handle Per-Datapoint Tracking ===
-            if per_datapoint:
-                log_l_per_datapoint_dict[data_name].append(per_datapoint_contribution)
-            else:
-                log_likelihood_contributions.append(per_datapoint_contribution)
-
-        # === Return Per-Datapoint if Requested ===
-        if per_datapoint:
-            return log_l_per_datapoint_dict
+            log_likelihood_contributions.append(dataset_contribution)
 
         # === Compute Total Log Likelihood ===
         log_likelihood = jnp.sum(jnp.array(log_likelihood_contributions))
@@ -4894,7 +5007,8 @@ class Retrieval:
             parameter = self.configuration.parameters[parameter_name]
             if parameter.distribution is None:
                 raise ValueError(
-                    f"JAXNS samplers require distribution-backed free parameters; '{parameter_name}' has no distribution."
+                    f"JAXNS samplers require distribution-backed free parameters; "
+                    f"'{parameter_name}' has no distribution."
                 )
             priors.append(parameter.set_prior())
 
@@ -5161,7 +5275,7 @@ class Retrieval:
         # Set up the pRT object
         self._rebin_opacities(resolution=resolution)
 
-        species = ()
+        species = []
 
         for _species in self.configuration.line_species:
             name, natural_abundance, charge, cloud_info, source, spectral_info = (
@@ -5184,14 +5298,12 @@ class Retrieval:
 
         radtrans_object = Radtrans(
             pressures=pressures,
-            line_species=copy.copy(species),
-            rayleigh_species=copy.copy(self.configuration.rayleigh_species),
-            gas_continuum_contributors=copy.copy(
-                self.configuration.continuum_opacities
-            ),
-            cloud_species=copy.copy(self.configuration.cloud_species),
+            line_species=tuple(species),
+            rayleigh_species=self.configuration.rayleigh_species,
+            gas_continuum_contributors=self.configuration.continuum_opacities,
+            cloud_species=self.configuration.cloud_species,
             line_opacity_mode="c-k",
-            wavelength_boundaries=np.array([0.5, 28]),
+            wavelength_boundaries=tuple([0.5, 28]),
             scattering_in_emission=self.configuration.scattering_in_emission,
         )
 
@@ -5788,7 +5900,8 @@ class Retrieval:
         mode="bestfit",
     ):
         """
-        Generate all standard plots for a retrieval, including best-fit spectrum, sample spectra, PT profile, corner plot, and abundances.
+        Generate all standard plots for a retrieval, including best-fit spectrum,
+        sample spectra, PT profile, corner plot, and abundances.
         This is a wrapper for RetrievalPlotter.plot_all.
 
         Args:

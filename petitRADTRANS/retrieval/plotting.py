@@ -5,14 +5,11 @@ import warnings
 import numpy as np
 from scipy.stats import binned_statistic
 
-import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.math import running_mean
 from petitRADTRANS.opacities.opacities import Opacity
 from petitRADTRANS.physics import wavelength2frequency
 from petitRADTRANS.radtrans import Radtrans
-from petitRADTRANS.radtrans_core.spectrum_utils import filter_spectrum_with_spline
 from petitRADTRANS.retrieval.data import PhotometryData
-from petitRADTRANS.retrieval.parameter import Parameter
 
 
 class RetrievalPlotter:
@@ -1455,7 +1452,6 @@ class RetrievalPlotter:
 
             markersize = None
             markerfacecolors = {}
-            has_correlated_noise = False
 
             if marker_color_type is not None:
                 from matplotlib.colors import Normalize
@@ -1524,7 +1520,6 @@ class RetrievalPlotter:
 
                 if covariance is not None:
                     covariance = np.asarray(covariance, dtype=float)
-                    has_correlated_noise = True
 
                 best_fit_spectrum_name = name
                 if (

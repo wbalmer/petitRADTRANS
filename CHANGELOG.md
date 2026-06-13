@@ -4,26 +4,16 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a43] - 2026-06-11
+## [4.0.0b0] - 2026-06-13
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
-to run natively on GPUs and TPUs. Version 4.0 is still experimental, and should not be used for production work!
-As of version 4.0.0a6 most functionality should "work". Tests still fail, but most results are correct to within <0.01%.
-As of version 4.0.0a10 everything required for a retrieval should be JIT compilable.
-Ready for beta testing with version 4.0.0.a16.
+to run natively on GPUs and TPUs. Version 4.0 is in beta, and is subject to change.
 
 ### TODO
-- Feature completion: New cloud opacities to be compatible with new condensation curves.
 - Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
-- Feature completion: Re-implement `additional_absorption_opacities_function`
-- Testing: generate new reference files where necessary, once commited to changes (e.g. chemistry update).
-- Testing: Further testing on AMD GPUs, possibly TPUs.
-- Documentation: Add typing throughout
-- Documentation: Add further example scripts (ready-to-use) to examples directory.
 - Documentation: Update contribution section with JAX philosophy and links.
 - Housekeeping: Address all remaining TODOs in code.
-- Housekeeping: Ensure Flake8 compatibility and linting.
 - Future goals: JAXify EasyChem
 - Future goals: Incorporate next pRT developments (pRT orange, multi-dimensional retrievals etc.)
 - Future goals: Times series retrieval plotting
@@ -31,6 +21,8 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
 
 ### Changed
+- a45: Updated failing test references where there are genuine numerical differences.
+- a44: Stable test version, later versions will have updated reference files.
 - a42: Can now specify fits extensions when loading fits file for Data objects
 - a37: Memory optimisation - Feautrier chunking enabled by default.
 - a36: array input to fortran ck mixing is strictly typed

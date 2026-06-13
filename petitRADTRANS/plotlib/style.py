@@ -149,7 +149,6 @@ def set_petitradtrans_plot_style():
     if not have_display:
         matplotlib.use('Agg')
 
-
     font = {'family': 'sans',
             'size': 24}
     lines = {'markeredgecolor': 'k',
@@ -181,7 +180,7 @@ def set_petitradtrans_plot_style():
               'autolayout': True}
     legend = {'fancybox': True,
               'fontsize': 24,
-              'frameon':False}
+              'frameon': False}
     scatter = {'marker': 'o',
                'edgecolors': 'k'}
 

@@ -1252,10 +1252,38 @@ def _diagonal_inverse_mass_from_hessian(logdensity, map_position):
     diagonal. Any non-finite or non-positive entry falls back to 1.0, leaving
     NUTS' own warmup adaptation to refine it. Returns a 1-D NumPy array (the
     diagonal metric expected when ``is_mass_matrix_diagonal=True``).
+
+    The diagonal is computed matrix-free, ONE coordinate at a time, via
+    Hessian-vector products: ``diag(H)_i = (H e_i)_i`` where ``H e_i`` is the
+    forward-over-reverse product ``jvp(grad(logdensity), e_i)``. This avoids ever
+    materialising the dense Hessian. ``jax.hessian`` would vectorise all ``n``
+    directions simultaneously, holding ``n`` reverse-mode tapes of the (very
+    large, full-resolution radiative-transfer) forward model at once -- which for
+    the lbl line-by-line models needs hundreds of GB and OOM-kills a whole node.
+    Each HVP here keeps only a SINGLE such tape resident (~the cost of one
+    gradient, which the MAP optimiser already evaluates comfortably), so peak
+    memory is ~1x a gradient instead of ~n x.
     """
     _require_jax()
+    from jax import grad as _grad, jvp as _jvp
+
     map_position = jnp.asarray(map_position)
-    precision_diag = -jnp.diag(hessian(logdensity)(map_position))
+    n = int(map_position.shape[0])
+    grad_fn = _grad(logdensity)
+
+    @jit
+    def _hessian_vector_product(tangent):
+        # H @ tangent via forward-over-reverse AD (jvp of the gradient). jit so the
+        # forward model is compiled once and reused across the n coordinate calls.
+        return _jvp(grad_fn, (map_position,), (tangent,))[1]
+
+    eye = jnp.eye(n, dtype=map_position.dtype)
+    # Plain Python loop (not vmap/hessian) so only one HVP's tape is live at a time;
+    # each call returns just the length-n product vector and its transient is freed
+    # before the next iteration. n is tiny (number of free parameters).
+    precision_diag = -jnp.stack(
+        [_hessian_vector_product(eye[i])[i] for i in range(n)]
+    )
     valid = jnp.isfinite(precision_diag) & (precision_diag > 0.0)
     inv_mass = jnp.where(valid, 1.0 / jnp.where(valid, precision_diag, 1.0), 1.0)
     return np.asarray(inv_mass, dtype=float)
@@ -2215,8 +2243,9 @@ class PymultinestSampler(Sampler):
                 values
             mode_tolerance: float
                 MultiNest can find multiple modes & also specify which samples belong to which mode. It might be
-                desirable to have separate samples & mode statistics for modes with local log-evidence value greater than a
-                particular value in which case Ztol should be set to that value. If there isn't any particularly interesting
+                desirable to have separate samples & mode statistics for modes with local
+                log-evidence value greater than a particular value in which case Ztol should
+                be set to that value. If there isn't any particularly interesting
                 Ztol value, then Ztol should be set to a very large negative number (e.g. -1e90).
             evidence_tolerance: float
                 A value of 0.5 should give good enough accuracy.
@@ -2305,7 +2334,8 @@ class PymultinestSampler(Sampler):
             )
         except Exception as error:
             warnings.warn(
-                f"Unable to construct PyMultiNest analyzer for '{self.retrieval_name}' while loading saved results: {error}",
+                f"Unable to construct PyMultiNest analyzer for '{self.retrieval_name}' "
+                f"while loading saved results: {error}",
                 RuntimeWarning,
             )
             return super().load_results()
@@ -3703,7 +3733,8 @@ class JAXNSSampler(Sampler):
         if sample_matrix.ndim == 1:
             if len(parameter_names) != 1:
                 warnings.warn(
-                    "Skipping JAXNS equal-weight sample export because the sample matrix is 1-D but the parameter list is not.",
+                    "Skipping JAXNS equal-weight sample export because the sample "
+                    "matrix is 1-D but the parameter list is not.",
                     RuntimeWarning,
                 )
                 return None, None
@@ -3717,14 +3748,16 @@ class JAXNSSampler(Sampler):
 
         if len(parameter_names) == 0 or sample_matrix.shape[1] != len(parameter_names):
             warnings.warn(
-                "Skipping JAXNS equal-weight sample export because parameter names do not match the sample matrix columns.",
+                "Skipping JAXNS equal-weight sample export because parameter names "
+                "do not match the sample matrix columns.",
                 RuntimeWarning,
             )
             return None, None
 
         if log_likelihood.shape[0] != sample_matrix.shape[0]:
             warnings.warn(
-                "Skipping JAXNS equal-weight sample export because log-likelihood values do not match the number of samples.",
+                "Skipping JAXNS equal-weight sample export because log-likelihood "
+                "values do not match the number of samples.",
                 RuntimeWarning,
             )
             return None, None

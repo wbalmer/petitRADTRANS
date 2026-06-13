@@ -23,12 +23,12 @@ import copy
 from dataclasses import dataclass, field, replace
 import logging
 from typing import Any, Mapping, TYPE_CHECKING
-import warnings
 
 import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
 from jax import Array, core as jax_core, lax, vmap, nn, tree_util, debug
+from jax.scipy.linalg import solve_triangular
 
 from petitRADTRANS.retrieval.parameter import JAX_DTYPE, Parameter
 from petitRADTRANS.retrieval.utils import _get_parameter_value
@@ -222,6 +222,7 @@ class LikelihoodState:
     data_covariance: Any = None
     mask: Any = None
     inv_covariance: Any = None
+    inv_covariance_diagonal: Any = None
     covariance_cholesky_factor: Any = None
     log_covariance_determinant: Any = None
     log_likelihood_normalization: Any = None
@@ -249,6 +250,11 @@ class ModelContext:
     return_radius_hydrostatic_equilibrium: bool = False
     return_cloud_contribution: bool = False
     return_abundances: bool = False
+    scattering_in_emission: bool = False
+    chunk_feautrier: bool = True
+    adaptive_feautrier_iterations: bool = False
+    feautrier_chunk_size: int | None = None
+    parameter_units: Mapping[str, Any] = field(default_factory=dict)
     model_metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -512,6 +518,10 @@ class RetrievalRuntime:
         data: Mapping[str, Any],
         n_free_parameters: int | None = None,
         adaptive_mesh_refinement: bool = False,
+        feautrier_chunk_size: int | None = None,
+        scattering_in_emission: bool = False,
+        chunk_feautrier: bool = True,
+        adaptive_feautrier_iterations: bool = False,
     ) -> "RetrievalRuntime":
         """Build a runtime from retrieval data objects.
 
@@ -519,9 +529,24 @@ class RetrievalRuntime:
         observations that share a single model evaluation.
         """
         from petitRADTRANS.retrieval.models import coerce_model_generating_function
+        from petitRADTRANS.retrieval.parameter_aliases import normalize_parameter_name
 
         if n_free_parameters is None:
             n_free_parameters = parameter_layout.n_free_parameters
+
+        # Map (alias-normalized) parameter names to their astropy units so that
+        # runtime-native model functions can convert parameter values to the cgs
+        # units expected by the radiative transfer. Parameters without units are
+        # omitted, leaving an empty map when no parameter declares units.
+        parameter_units = {
+            normalize_parameter_name(name): template.units
+            for name, template in zip(
+                parameter_layout.parameter_names,
+                parameter_layout.parameter_templates,
+                strict=True,
+            )
+            if getattr(template, "units", None) is not None
+        }
 
         observations = {}
         for data_name, data_object in data.items():
@@ -594,11 +619,22 @@ class RetrievalRuntime:
             ):
                 if key in obs_meta and obs_meta[key] is not None:
                     group_metadata[key] = obs_meta[key]
+            # Prefer the Radtrans object's own scattering setting so the context
+            # never disagrees with how the radiative transfer was actually built;
+            # fall back to the configuration value when the object does not expose it.
+            group_scattering_in_emission = getattr(
+                source_observation.radtrans_object,
+                "scattering_in_emission",
+                scattering_in_emission,
+            )
             prebuilt_context = ModelContext(
                 name=source_name,
                 mode=group_metadata.get("mode", "unknown"),
                 radtrans=source_observation.radtrans_object,
                 adaptive_mesh_refinement=adaptive_mesh_refinement,
+                scattering_in_emission=group_scattering_in_emission,
+                chunk_feautrier=chunk_feautrier,
+                adaptive_feautrier_iterations=adaptive_feautrier_iterations,
                 variability_atmospheric_column_model_flux_return_mode=(
                     source_observation.variability_atmospheric_column_model_flux_return_mode
                 ),
@@ -609,6 +645,8 @@ class RetrievalRuntime:
                 return_radius_hydrostatic_equilibrium=_return_radius_hydrostatic_equilibrium,
                 return_cloud_contribution=_return_cloud_contribution,
                 return_abundances=_return_abundances,
+                feautrier_chunk_size=feautrier_chunk_size,
+                parameter_units=parameter_units,
                 model_metadata=group_metadata,
             )
             model_groups.append(
@@ -650,6 +688,14 @@ class RetrievalRuntime:
             n_free_parameters=n_free_parameters,
             adaptive_mesh_refinement=getattr(
                 configuration, "adaptive_mesh_refinement", False
+            ),
+            feautrier_chunk_size=getattr(configuration, "feautrier_chunk_size", None),
+            scattering_in_emission=getattr(
+                configuration, "scattering_in_emission", False
+            ),
+            chunk_feautrier=getattr(configuration, "chunk_feautrier", True),
+            adaptive_feautrier_iterations=getattr(
+                configuration, "adaptive_feautrier_iterations", False
             ),
         )
 
@@ -855,13 +901,14 @@ class RetrievalRuntime:
                             observation.spectrum.shape[:-1] + (spectrum_model.shape[-1],),
                         )
 
-                    project_epoch = lambda spectrum_epoch: project_model_to_observation_space(
-                        wavelengths_model,
-                        spectrum_epoch,
-                        observation,
-                        parameters,
-                        data_name,
-                    )
+                    def project_epoch(spectrum_epoch):
+                        return project_model_to_observation_space(
+                            wavelengths_model,
+                            spectrum_epoch,
+                            observation,
+                            parameters,
+                            data_name,
+                        )
 
                     if _uses_variable_resolution_convolution(observation):
                         projected_model = lax.map(project_epoch, spectrum_model)
@@ -934,6 +981,210 @@ class RetrievalRuntime:
             return log_likelihood + additional_log_likelihood
 
         raise ValueError("unsupported spectrum dimensionality for runtime evaluation")
+
+    def _score_dataset_per_datapoint(
+        self,
+        data_name: str,
+        parameters: Mapping[str, Any],
+        wavelengths_model: Any,
+        spectrum_model: Any,
+        model_auxiliary_outputs: Mapping[str, Any] | None = None,
+    ) -> Any:
+        """Per-datapoint sibling of :meth:`_score_dataset`.
+
+        Returns the flattened vector of per-point log-likelihood terms on the
+        full observation grid, as required by PSIS leave-one-out analysis
+        (Vehtari et al. 2017). For 2-D diagonal observations masked points are
+        present in the output with value 0; use
+        :meth:`per_datapoint_keep_mask` to drop them after batching (the
+        masked positions must stay in place so vmapped outputs keep a static
+        shape).
+
+        Per-point terms contain only the Gaussian data terms; any
+        ``additional_log_likelihood`` returned by the model and prior weights
+        are not attributable to single datapoints and are excluded, matching
+        the pre-runtime ``Data.get_chisq(per_datapoint=True)`` convention.
+        """
+        observation = self.observations[data_name]
+        likelihood_state = self.likelihoods[data_name]
+
+        data_spectrum = observation.spectrum
+        data_spectrum = _apply_flux_scaling(data_spectrum, observation, parameters)
+        data_spectrum = _offset_flux(data_spectrum, observation, parameters)
+        data_uncertainties, data_covariance = _scale_and_inflate_uncertainties(
+            observation, parameters
+        )
+        covariance_cholesky_factor = likelihood_state.covariance_cholesky_factor
+
+        if covariance_cholesky_factor is not None:
+            data_covariance = None
+
+        if isinstance(spectrum_model, np.ma.MaskedArray):
+            spectrum_model = spectrum_model.filled(0)
+
+        if (
+            not isinstance(observation.spectrum, float)
+            and hasattr(observation.spectrum, "dtype")
+            and observation.spectrum.dtype == "O"
+        ):
+            raise NotImplementedError(
+                f"per-datapoint log-likelihoods are not implemented for "
+                f"object-dtype (ragged) observations such as '{data_name}'"
+            )
+
+        # --- Standard 1-D spectrum and photometry path ---
+        if (
+            isinstance(observation.spectrum, float)
+            or jnp.ndim(observation.spectrum) == 1
+        ):
+            if jnp.ndim(spectrum_model) == 1:
+                model_processed = project_model_to_observation_space(
+                    wavelengths_model,
+                    spectrum_model,
+                    observation,
+                    parameters,
+                    data_name,
+                )
+            elif jnp.ndim(spectrum_model) == 2:
+                model_processed = spectrum_model[0, :]
+            elif jnp.ndim(spectrum_model) == 3:
+                model_processed = spectrum_model[0, 0, :]
+            else:
+                raise ValueError(
+                    f"unsupported model spectrum dimensionality "
+                    f"({jnp.ndim(spectrum_model)}) for dataset '{data_name}'"
+                )
+
+            return compute_observation_log_likelihood_per_datapoint(
+                model_processed,
+                data_spectrum,
+                data_uncertainties,
+                data_covariance=data_covariance,
+                covariance_cholesky_factor=covariance_cholesky_factor,
+                inv_covariance_diagonal=likelihood_state.inv_covariance_diagonal,
+            )
+
+        # --- 2-D spectrum with shared wavelength grid and diagonal noise ---
+        if (
+            jnp.ndim(observation.spectrum) == 2
+            and jnp.ndim(observation.wavelengths) == 1
+            and data_covariance is None
+            and covariance_cholesky_factor is None
+            and data_uncertainties is not None
+        ):
+            projected_model = None
+
+            if model_auxiliary_outputs is not None:
+                model_times = model_auxiliary_outputs.get("model_times")
+
+                if model_times is not None and jnp.ndim(spectrum_model) == 2:
+                    projected_model = project_model_time_series_to_observation_space(
+                        wavelengths_model,
+                        spectrum_model,
+                        model_times,
+                        observation,
+                        parameters,
+                        data_name,
+                    )
+
+            if projected_model is None:
+                if jnp.ndim(spectrum_model) == 1:
+                    spectrum_model = jnp.broadcast_to(
+                        spectrum_model,
+                        observation.spectrum.shape[:-1] + (spectrum_model.shape[-1],),
+                    )
+
+                def project_epoch(spectrum_epoch):
+                    return project_model_to_observation_space(
+                        wavelengths_model,
+                        spectrum_epoch,
+                        observation,
+                        parameters,
+                        data_name,
+                    )
+
+                if _uses_variable_resolution_convolution(observation):
+                    projected_model = lax.map(project_epoch, spectrum_model)
+                else:
+                    projected_model = vmap(project_epoch)(spectrum_model)
+
+            if observation.mask is None:
+                valid_mask = jnp.ones_like(
+                    jnp.asarray(data_spectrum, dtype=JAX_DTYPE), dtype=bool
+                )
+            else:
+                valid_mask = ~jnp.asarray(observation.mask, dtype=bool)
+
+            safe_uncertainties = jnp.where(valid_mask, data_uncertainties, 1.0)
+            residual = jnp.where(valid_mask, data_spectrum - projected_model, 0.0)
+            log_likelihood_terms = jnp.where(
+                valid_mask,
+                -0.5 * jnp.log(2.0 * jnp.pi * safe_uncertainties**2)
+                - 0.5 * (residual / safe_uncertainties) ** 2,
+                0.0,
+            )
+            log_likelihood_terms = jnp.where(
+                jnp.isnan(jnp.where(valid_mask, projected_model, 0.0)).any(),
+                INVALID_LOG_LIKELIHOOD,
+                log_likelihood_terms,
+            )
+
+            return log_likelihood_terms.reshape(-1)
+
+        raise NotImplementedError(
+            f"per-datapoint log-likelihoods are not implemented for the "
+            f"dimensionality/noise configuration of dataset '{data_name}' "
+            f"(spectrum ndim {jnp.ndim(observation.spectrum)}, "
+            f"covariance: {data_covariance is not None or covariance_cholesky_factor is not None})"
+        )
+
+    def per_datapoint_keep_mask(self, data_name: str) -> np.ndarray:
+        """Boolean keep-mask aligned with `_score_dataset_per_datapoint` output.
+
+        ``True`` marks columns holding real datapoints; ``False`` marks
+        placeholder columns produced by masked points of 2-D observations.
+        """
+        observation = self.observations[data_name]
+        spectrum = observation.spectrum
+
+        if isinstance(spectrum, float):
+            return np.ones(1, dtype=bool)
+
+        if jnp.ndim(spectrum) == 2 and observation.mask is not None:
+            return ~np.asarray(observation.mask, dtype=bool).reshape(-1)
+
+        return np.ones(int(np.size(np.asarray(spectrum))), dtype=bool)
+
+    def evaluate_per_datapoint_jax(
+        self,
+        physical_params: PhysicalParams,
+    ) -> dict[str, Any]:
+        """Evaluate per-datapoint log-likelihood terms for one parameter point.
+
+        JAX-compatible companion of :meth:`evaluate_jax` used by PSIS
+        leave-one-out analysis. Returns a dict mapping each observation name
+        to its vector of per-point log-likelihood terms; the dict is a valid
+        pytree, so the method can be passed through ``jax.vmap``/``jax.jit``
+        to batch over posterior samples. Invalid model evaluations produce
+        vectors filled with ``INVALID_LOG_LIKELIHOOD``.
+        """
+        per_datapoint_log_likelihoods: dict[str, Any] = {}
+
+        for group in self.model_groups:
+            model_result = self._evaluate_model_group(group, physical_params)
+
+            for observation_name in group.observation_names:
+                per_datapoint_log_likelihoods[observation_name] = (
+                    self._score_dataset_per_datapoint(
+                        observation_name,
+                        physical_params,
+                        model_result.wavelengths,
+                        model_result.spectrum,
+                        model_auxiliary_outputs=model_result.auxiliary_outputs,
+                    )
+                )
+
+        return per_datapoint_log_likelihoods
 
     def evaluate_scalar(
         self,
@@ -1674,6 +1925,7 @@ def _clone_parameter(parameter: Parameter, value: Any) -> Parameter:
         corner_ranges=copy.deepcopy(parameter.corner_ranges),
         corner_transform=parameter.corner_transform,
         corner_label=parameter.corner_label,
+        units=getattr(parameter, "units", None),
     )
 
 
@@ -1787,11 +2039,6 @@ def _scale_and_inflate_uncertainties(
     )
 
     if observation.fit_covariance:
-        from petitRADTRANS.retrieval.covariance import (
-            build_global_covariance_kernel,
-            build_local_covariance_kernel,
-        )
-
         scaled_covariance = _build_fitted_covariance_from_observation(
             observation,
             parameters,
@@ -2044,13 +2291,14 @@ def project_model_time_series_to_observation_space(
     model_times = jnp.asarray(model_times)
     model_spectra = jnp.asarray(model_spectra)
 
-    project_epoch = lambda spectrum_epoch: project_model_to_observation_space(
-        wavelengths_model,
-        spectrum_epoch,
-        observation,
-        parameters,
-        data_name,
-    )
+    def project_epoch(spectrum_epoch):
+        return project_model_to_observation_space(
+            wavelengths_model,
+            spectrum_epoch,
+            observation,
+            parameters,
+            data_name,
+        )
 
     if _uses_variable_resolution_convolution(observation):
         projected_model_spectra = lax.map(project_epoch, model_spectra)
@@ -2136,6 +2384,78 @@ def compute_observation_log_likelihood(
             n_free_parameters=n_free_parameters,
         ).calculate_log_likelihood(),
         operand=None,
+    )
+
+
+def compute_observation_log_likelihood_per_datapoint(
+    model_spectrum: Any,
+    data_spectrum: Any,
+    data_uncertainties: Any | None,
+    data_covariance: Any | None = None,
+    covariance_cholesky_factor: Any | None = None,
+    inv_covariance_diagonal: Any | None = None,
+) -> Any:
+    """Compute the per-datapoint log-likelihood terms for a 1-D observation.
+
+    With diagonal noise this returns the elementwise terms of
+    :func:`compute_diagonal_observation_log_likelihood`. With a covariance
+    matrix the terms follow the conditional leave-one-out decomposition of
+    Buerkner, Gabry & Vehtari (2020, DOI 10.1080/00949655.2020.1783262):
+    with ``g = C^-1 (y - m)`` and ``c_ii = diag(C^-1)`` each term is
+    ``-0.5 log(2 pi / c_ii) - 0.5 g_i^2 / c_ii``.
+
+    The terms sum to the dataset log-likelihood only in the diagonal case; in
+    the covariance case they are the conditional predictive densities needed
+    by PSIS-LOO, not a decomposition of the joint likelihood.
+
+    NaN model values yield a vector filled with ``INVALID_LOG_LIKELIHOOD``.
+    """
+    model_spectrum = jnp.atleast_1d(jnp.asarray(model_spectrum, dtype=JAX_DTYPE))
+    data_spectrum = jnp.atleast_1d(jnp.asarray(data_spectrum, dtype=JAX_DTYPE))
+    residual = data_spectrum - model_spectrum
+
+    if covariance_cholesky_factor is not None or data_covariance is not None:
+        if covariance_cholesky_factor is not None:
+            cholesky_factor = jnp.asarray(covariance_cholesky_factor, dtype=JAX_DTYPE)
+        else:
+            cholesky_factor = jnp.linalg.cholesky(
+                jnp.asarray(data_covariance, dtype=JAX_DTYPE)
+            )
+
+        whitened_residual = solve_triangular(cholesky_factor, residual, lower=True)
+        inv_covariance_times_residual = solve_triangular(
+            cholesky_factor.T, whitened_residual, lower=False
+        )
+
+        if inv_covariance_diagonal is None:
+            inverse_cholesky_factor = solve_triangular(
+                cholesky_factor,
+                jnp.eye(cholesky_factor.shape[0], dtype=JAX_DTYPE),
+                lower=True,
+            )
+            inv_covariance_diagonal = jnp.sum(inverse_cholesky_factor**2, axis=0)
+        else:
+            inv_covariance_diagonal = jnp.asarray(
+                inv_covariance_diagonal, dtype=JAX_DTYPE
+            )
+
+        log_likelihood_terms = (
+            -0.5 * jnp.log(2.0 * jnp.pi / inv_covariance_diagonal)
+            - 0.5 * inv_covariance_times_residual**2 / inv_covariance_diagonal
+        )
+    else:
+        data_uncertainties = jnp.atleast_1d(
+            jnp.asarray(data_uncertainties, dtype=JAX_DTYPE)
+        )
+        log_likelihood_terms = (
+            -0.5 * jnp.log(2.0 * jnp.pi * data_uncertainties**2)
+            - 0.5 * (residual / data_uncertainties) ** 2
+        )
+
+    return jnp.where(
+        jnp.isnan(model_spectrum).any(),
+        INVALID_LOG_LIKELIHOOD,
+        log_likelihood_terms,
     )
 
 

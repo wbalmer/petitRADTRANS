@@ -1,13 +1,9 @@
 import datetime
 import numpy as np
-import jax.numpy as jnp
 import h5py
 
 import petitRADTRANS
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
-
-
-from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 def write_cia_opacities(

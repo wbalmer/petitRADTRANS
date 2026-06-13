@@ -23,7 +23,7 @@ any optax optimiser can be supplied.
 import json
 import os
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 import numpy as np
@@ -323,7 +323,10 @@ def optimize_unconstrained_position(
 
 
 def _lbfgs_polish(logdensity, position, n_steps, verbose=True):
-    """Refine ``position`` with optax.lbfgs (zoom line-search) minimising -logdensity."""
+    """Refine ``position`` with optax.lbfgs (zoom line-search) minimising -logdensity.
+    https://en.wikipedia.org/wiki/Limited-memory_BFGS
+
+    """
     _require_jax_local()
     _require_optax()
 

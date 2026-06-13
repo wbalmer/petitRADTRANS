@@ -42,7 +42,7 @@ copyright = "2019-2026, the pRT team"
 author = "pRT team"
 
 # The full version, including alpha/beta/rc tags
-release = "4.0.0a43"
+release = "4.0.0b0"
 
 
 # -- General configuration ---------------------------------------------------
@@ -112,9 +112,11 @@ GETTING_STARTED_EMISSION_EXPLORER_DATA_PATH = (
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "sphinx_book_theme"
-html_logo = "_static/petitlogo.png"
-
+html_theme = "shibuya"
+html_logo = "_static/prt4word.png"
+html_theme_options = {
+  "accent_color": "sky",
+}
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
