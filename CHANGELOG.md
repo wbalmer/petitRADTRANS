@@ -13,11 +13,9 @@ to run natively on GPUs and TPUs. Version 4.0 is in beta, and is subject to chan
 ### TODO
 - Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
 - Testing: generate new reference files where necessary, once commited to changes (e.g. chemistry update).
-- Documentation: Add typing throughout
 - Documentation: Add further example scripts (ready-to-use) to examples directory.
 - Documentation: Update contribution section with JAX philosophy and links.
 - Housekeeping: Address all remaining TODOs in code.
-- Housekeeping: Ensure Flake8 compatibility and linting.
 - Future goals: JAXify EasyChem
 - Future goals: Incorporate next pRT developments (pRT orange, multi-dimensional retrievals etc.)
 - Future goals: Times series retrieval plotting
