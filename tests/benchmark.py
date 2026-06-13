@@ -53,6 +53,14 @@ def _iter_output_lookup_keys(key):
     if key != string_key:
         yield key
 
+    # Dict outputs keyed by integers (e.g. atomic numbers in the
+    # mass_fractions2metallicity h_ratios output) are stringified by the HDF5
+    # writer, so a loaded reference key is the string "11" while the freshly
+    # computed output dict still uses the int 11. Yield the int form so the two
+    # match.
+    if isinstance(key, str) and key.lstrip("-").isdigit():
+        yield int(key)
+
     for alias in _REFERENCE_OUTPUT_KEY_ALIASES.get(string_key, ()):
         yield alias
 

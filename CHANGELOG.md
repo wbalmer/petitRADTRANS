@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a44] - 2026-06-13
+## [4.0.0a45] - 2026-06-13
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -28,6 +28,7 @@ Ready for beta testing with version 4.0.0.a16.
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
 
 ### Changed
+- a45: Updated failing test references where there are genuine numerical differences.
 - a44: Stable test version, later versions will have updated reference files.
 - a42: Can now specify fits extensions when loading fits file for Data objects
 - a37: Memory optimisation - Feautrier chunking enabled by default.
