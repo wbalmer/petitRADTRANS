@@ -59,6 +59,21 @@ _ELBO_STABILITY_INVERSE_FORWARD_MAX_ABS_ERROR = 5.0
 _ELBO_STABILITY_LOGDET_CLOSURE_MAX_ABS_ERROR = 10.0
 _ELBO_STABILITY_CUBE_EDGE_HIT_RATE = 0.5
 
+# Hard-pathology gate for the iterative-inverse round-trip error of the NPE
+# (forward-KL) flows. A neural autoregressive flow inverts by bisection, so a
+# small, non-zero worst-case round-trip error is expected -- and it *grows as
+# the posterior sharpens*. It is a sampler-accuracy property, not a density
+# collapse. The previous hardcoded 0.1 cutoff therefore flagged well-trained,
+# usable epochs as "pathological", which (a) poisoned their selection metric to
+# the 1e6 sentinel so an undertrained early epoch was deployed, and (b) barred
+# them from resetting early-stop patience so the run halted ~halfway through the
+# budget with val_loss still descending. Relax it to a full unit-cube width: a
+# max round-trip error >= 1.0 means at least one coordinate maps across the
+# entire prior range, i.e. the map is non-invertible in practice. Genuinely
+# collapsed flows (O(several)+, the same scale the ELBO gate rejects) are still
+# caught, while sharp-but-usable NPE epochs are not.
+_PATHOLOGICAL_INVERSE_FORWARD_MAX_ABS_ERROR = 1.0
+
 
 def _cube_epsilon(dtype: Any) -> float:
     dtype = jnp.dtype(dtype)
@@ -972,7 +987,10 @@ def _flow_validation_stability_metrics(
         not np.isfinite(float(validation_loss))
         or (np.isfinite(edge_hit_rate) and edge_hit_rate > 0.5)
         or (np.isfinite(max_derivative) and max_derivative > 1.0e4)
-        or (np.isfinite(inverse_error) and inverse_error > 0.1)
+        or (
+            np.isfinite(inverse_error)
+            and inverse_error > _PATHOLOGICAL_INVERSE_FORWARD_MAX_ABS_ERROR
+        )
     )
     metrics["checkpoint_is_pathological"] = 1.0 if is_pathological else 0.0
     return metrics

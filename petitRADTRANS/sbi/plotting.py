@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -25,6 +25,52 @@ def _require_matplotlib() -> Any:
             "matplotlib is required for SBI plotting helpers. Install it in the active environment to use plotting.py."
         )
     return plt
+
+
+def _prt_style_module() -> Any:
+    """Return the ``petitRADTRANS.plotlib.style`` module (needs matplotlib)."""
+    from ..plotlib import style
+
+    return style
+
+
+def _prt_palette() -> dict:
+    """Named categorical colours taken from the petitRADTRANS style sheet.
+
+    Every SBI plot draws its colours from the shared
+    ``petitRADTRANS.plotlib.style`` colour cycle so the outputs are visually
+    consistent with the rest of the package.
+    """
+
+    cycle = list(_prt_style_module().prt_default_colour_cycle)
+    return {
+        "primary": cycle[0],  # blue
+        "accent": cycle[1],  # pink
+        "highlight": cycle[2],  # amber
+        "positive": cycle[3],  # green
+        "data": "#000000",  # observed points
+    }
+
+
+def _prt_density_colormap(colour: str) -> Any:
+    """White-to-``colour`` sequential colormap for 2-D density panels."""
+    from matplotlib.colors import LinearSegmentedColormap
+
+    return LinearSegmentedColormap.from_list("prt_density", ["white", colour])
+
+
+def _smooth_histogram2d(counts: np.ndarray, passes: int = 1) -> np.ndarray:
+    """Light separable ``[1, 2, 1]/4`` smoothing for cleaner density contours."""
+    smoothed = np.asarray(counts, dtype=float)
+    kernel = np.array([0.25, 0.5, 0.25])
+    for _ in range(max(0, int(passes))):
+        smoothed = np.apply_along_axis(
+            lambda row: np.convolve(row, kernel, mode="same"), 0, smoothed
+        )
+        smoothed = np.apply_along_axis(
+            lambda row: np.convolve(row, kernel, mode="same"), 1, smoothed
+        )
+    return smoothed
 
 
 def plot_posterior_marginals(
@@ -76,12 +122,15 @@ def plot_posterior_marginals(
     if figsize is None:
         figsize = (4.5 * n_cols, 3.0 * n_rows)
 
+    palette = _prt_palette()
     fig, axes = pyplot.subplots(n_rows, n_cols, figsize=figsize, squeeze=False)
     flat_axes = axes.flatten()
 
     for index in range(parameter_dim):
         axis = flat_axes[index]
-        axis.hist(sample_array[:, index], bins=bins, color="tab:blue", alpha=0.8)
+        axis.hist(
+            sample_array[:, index], bins=bins, color=palette["primary"], alpha=0.8
+        )
         axis.set_title(str(parameter_names[index]))
         axis.set_xlabel("Value")
         axis.set_ylabel("Count")
@@ -149,14 +198,32 @@ def plot_posterior_corner(
         side = max(2.8 * parameter_dim, 3.5)
         figsize = (side, side)
 
+    # Only the x-axis is shared down each column. The y-axis is deliberately
+    # NOT shared per row: the diagonal panels are 1-D histograms whose y-axis is
+    # a *count*, while the off-diagonal panels share the row parameter's *value*
+    # range. The previous ``sharey='row'`` tied the diagonal count axis to that
+    # value range, so the histogram bars (counts of order 1e2-1e3) overflowed a
+    # window scaled to the parameter values and rendered as solid filled blocks
+    # that did not match the standalone marginals plot. Off-diagonal y-ranges
+    # are instead pinned explicitly below.
     fig, axes = pyplot.subplots(
         parameter_dim,
         parameter_dim,
         figsize=figsize,
         squeeze=False,
         sharex='col',
-        sharey='row',
     )
+
+    palette = _prt_palette()
+    density_cmap = _prt_density_colormap(palette['primary'])
+
+    # Per-parameter display ranges (with a small margin) so every column shares
+    # one x-range and every off-diagonal row shares one y-range.
+    data_min = sample_array.min(axis=0)
+    data_max = sample_array.max(axis=0)
+    span = np.where(data_max > data_min, data_max - data_min, 1.0)
+    lower = data_min - 0.02 * span
+    upper = data_max + 0.02 * span
 
     for row in range(parameter_dim):
         for col in range(parameter_dim):
@@ -166,34 +233,68 @@ def plot_posterior_corner(
                 continue
 
             if row == col:
+                # 1-D marginal histogram, identical in construction to
+                # ``plot_posterior_marginals`` so the two views agree.
                 axis.hist(
                     sample_array[:, col],
                     bins=bins,
-                    color='tab:blue',
+                    color=palette['primary'],
                     alpha=0.85,
                 )
                 axis.axvline(
                     float(np.median(sample_array[:, col])),
-                    color='black',
-                    linewidth=1.0,
-                    alpha=0.7,
+                    color=palette['accent'],
+                    linewidth=1.2,
+                    alpha=0.9,
                 )
+                # The diagonal owns an independent count axis; hide it so it is
+                # not confused with the row parameter's value ticks.
+                axis.tick_params(labelleft=False, left=False)
             else:
-                axis.hist2d(
+                # 2-D marginal as smoothed density contours.
+                counts, x_edges, y_edges = np.histogram2d(
                     sample_array[:, col],
                     sample_array[:, row],
                     bins=bins,
-                    cmap='Blues',
+                    range=[[lower[col], upper[col]], [lower[row], upper[row]]],
                 )
+                counts = _smooth_histogram2d(counts.T, passes=1)
+                x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
+                y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
+                peak = float(counts.max())
+                if peak > 0.0:
+                    levels = np.linspace(0.05 * peak, peak, 6)
+                    axis.contourf(
+                        x_centers,
+                        y_centers,
+                        counts,
+                        levels=levels,
+                        cmap=density_cmap,
+                    )
+                    axis.contour(
+                        x_centers,
+                        y_centers,
+                        counts,
+                        levels=levels,
+                        colors=palette['primary'],
+                        linewidths=0.5,
+                        alpha=0.6,
+                    )
+                axis.set_ylim(lower[row], upper[row])
+
+            axis.set_xlim(lower[col], upper[col])
 
             if row == parameter_dim - 1:
                 axis.set_xlabel(str(parameter_names[col]))
+                for tick_label in axis.get_xticklabels():
+                    tick_label.set_rotation(45)
+                    tick_label.set_horizontalalignment('right')
             else:
                 axis.tick_params(labelbottom=False)
 
             if col == 0 and row > 0:
                 axis.set_ylabel(str(parameter_names[row]))
-            elif col > 0:
+            elif col > 0 and row != col:
                 axis.tick_params(labelleft=False)
 
     fig.tight_layout()
@@ -303,7 +404,7 @@ def plot_local_sensitivity_singular_values(
             np.arange(1, singular_values.shape[0] + 1),
             np.maximum(singular_values, 1e-12),
             marker='o',
-            color='tab:blue',
+            color=_prt_palette()['primary'],
         )
         axis.set_title(point_report.label)
         axis.set_xlabel('Singular value index')
@@ -320,6 +421,9 @@ def plot_posterior_predictive_report(
     report: PosteriorPredictiveReport,
     dataset_names: Sequence[str] | None = None,
     figsize: tuple[float, float] | None = None,
+    x_coordinates: Mapping[str, Any] | Any | None = None,
+    x_label: str = r"Wavelength [$\mu$m]",
+    y_label: str = "Observation scale",
 ) -> tuple[Any, np.ndarray]:
     """Plot observed values against posterior-predictive means and intervals.
 
@@ -332,6 +436,20 @@ def plot_posterior_predictive_report(
         the report.
     figsize:
         Optional Matplotlib figure size.
+    x_coordinates:
+        Physical x-axis sample positions (e.g. wavelength in micron). May be a
+        single array applied to every dataset, or a mapping from dataset name to
+        array. When ``None`` -- or when a supplied array does not match the
+        number of plotted samples -- the helper falls back to the integer sample
+        index. Supplying wavelengths replaces the bare coordinate index on the
+        x-axis.
+    x_label:
+        Label for the x-axis (defaults to a wavelength label). Used only when an
+        ``x_coordinates`` array is actually applied.
+    y_label:
+        Label for the y-axis. Pass the observable-specific unit, e.g.
+        ``"Flux [W m^-2 um^-1]"`` for emission or ``"Transit depth"`` for
+        transmission.
 
     Returns
     -------
@@ -340,9 +458,15 @@ def plot_posterior_predictive_report(
 
     Notes
     -----
+    Spectrum plots adopt the full ``petitRADTRANS.plotlib.style`` style (fonts,
+    ticks and colour cycle) for the duration of the call via a temporary rc
+    context, so the global Matplotlib state is left untouched on return.
+
     For batched reports the helper currently visualizes only the first case for
     each dataset, which keeps the plot compact for quick inspection.
     """
+
+    import matplotlib
 
     pyplot = _require_matplotlib()
     selected_dataset_names = (
@@ -355,85 +479,113 @@ def plot_posterior_predictive_report(
             "At least one dataset name is required to plot a posterior-predictive report."
         )
 
+    def _resolve_x(name: str, n_samples: int) -> tuple[np.ndarray, bool]:
+        if x_coordinates is None:
+            return np.arange(n_samples), False
+        if isinstance(x_coordinates, Mapping):
+            candidate = x_coordinates.get(name)
+        else:
+            candidate = x_coordinates
+        if candidate is None:
+            return np.arange(n_samples), False
+        candidate = np.asarray(candidate, dtype=float).reshape(-1)
+        if candidate.shape[0] != n_samples:
+            return np.arange(n_samples), False
+        return candidate, True
+
     n_rows = len(selected_dataset_names)
     if figsize is None:
-        figsize = (8.0, 3.0 * n_rows)
+        figsize = (12.0, 5.0 * n_rows)
 
-    fig, axes = pyplot.subplots(n_rows, 1, figsize=figsize, squeeze=False)
-    flat_axes = axes.flatten()
+    palette = _prt_palette()
 
-    for index, dataset_name in enumerate(selected_dataset_names):
-        if dataset_name not in report.observed_values:
-            raise KeyError(
-                f"Dataset '{dataset_name}' is not present in the posterior-predictive report."
+    with matplotlib.rc_context():
+        # Spectra adopt the full pRT style (fonts/ticks/colour cycle); the rc
+        # context restores global Matplotlib state when the block exits.
+        _prt_style_module().set_petitradtrans_plot_style()
+
+        fig, axes = pyplot.subplots(n_rows, 1, figsize=figsize, squeeze=False)
+        flat_axes = axes.flatten()
+
+        for index, dataset_name in enumerate(selected_dataset_names):
+            if dataset_name not in report.observed_values:
+                raise KeyError(
+                    f"Dataset '{dataset_name}' is not present in the posterior-predictive report."
+                )
+
+            axis = flat_axes[index]
+            observed = np.asarray(report.observed_values[dataset_name], dtype=float)
+            predictive_mean = np.asarray(
+                report.predictive_mean[dataset_name], dtype=float
+            )
+            interval_lower = np.asarray(
+                report.interval_lower[dataset_name], dtype=float
+            )
+            interval_upper = np.asarray(
+                report.interval_upper[dataset_name], dtype=float
             )
 
-        axis = flat_axes[index]
-        observed = np.asarray(report.observed_values[dataset_name], dtype=float)
-        predictive_mean = np.asarray(report.predictive_mean[dataset_name], dtype=float)
-        interval_lower = np.asarray(report.interval_lower[dataset_name], dtype=float)
-        interval_upper = np.asarray(report.interval_upper[dataset_name], dtype=float)
+            # Visualize a single spectrum: the first case for batched reports.
+            observed_series = observed if observed.ndim == 1 else observed[0]
+            mean_series = (
+                predictive_mean if predictive_mean.ndim == 1 else predictive_mean[0]
+            )
+            lower_series = (
+                interval_lower if interval_lower.ndim == 1 else interval_lower[0]
+            )
+            upper_series = (
+                interval_upper if interval_upper.ndim == 1 else interval_upper[0]
+            )
 
-        if observed.ndim == 1:
-            x_coordinates = np.arange(observed.shape[0])
+            x_values, used_physical_x = _resolve_x(
+                dataset_name, int(observed_series.shape[0])
+            )
+            order = np.argsort(x_values)
+            x_values = x_values[order]
+
+            axis.fill_between(
+                x_values,
+                lower_series[order],
+                upper_series[order],
+                alpha=0.25,
+                color=palette["primary"],
+                label="90% interval",
+            )
             axis.plot(
-                x_coordinates,
-                observed,
+                x_values,
+                mean_series[order],
+                label="Predictive mean",
+                color=palette["primary"],
+            )
+            axis.plot(
+                x_values,
+                observed_series[order],
                 marker="o",
                 linestyle="none",
+                markersize=3.0,
                 label="Observed",
-                color="black",
-            )
-            axis.plot(
-                x_coordinates,
-                predictive_mean,
-                label="Predictive mean",
-                color="tab:blue",
-            )
-            axis.fill_between(
-                x_coordinates,
-                interval_lower,
-                interval_upper,
-                alpha=0.25,
-                color="tab:blue",
-            )
-        else:
-            x_coordinates = np.arange(observed.shape[-1])
-            axis.plot(
-                x_coordinates,
-                observed[0],
-                marker="o",
-                linestyle="none",
-                label="Observed",
-                color="black",
-            )
-            axis.plot(
-                x_coordinates,
-                predictive_mean[0],
-                label="Predictive mean",
-                color="tab:blue",
-            )
-            axis.fill_between(
-                x_coordinates,
-                interval_lower[0],
-                interval_upper[0],
-                alpha=0.25,
-                color="tab:blue",
+                color=palette["data"],
             )
 
-        title_parts = [
-            f"coverage={report.interval_coverage.get(dataset_name, float('nan')):.3f}",
-            f"mae={report.mean_absolute_error.get(dataset_name, float('nan')):.3e}",
-        ]
-        mae_sigma = report.mean_absolute_error_sigma.get(dataset_name, float("nan"))
-        if np.isfinite(mae_sigma):
-            title_parts.append(f"mae_sigma={mae_sigma:.2f}")
-        axis.set_title(f"{dataset_name} | " + ", ".join(title_parts))
-        axis.set_xlabel("Index")
-        axis.set_ylabel("Observation scale")
-        axis.legend(loc="best")
+            title_parts = [
+                f"coverage={report.interval_coverage.get(dataset_name, float('nan')):.3f}",
+                f"mae={report.mean_absolute_error.get(dataset_name, float('nan')):.3e}",
+            ]
+            mae_sigma = report.mean_absolute_error_sigma.get(
+                dataset_name, float("nan")
+            )
+            if np.isfinite(mae_sigma):
+                title_parts.append(f"mae_sigma={mae_sigma:.2f}")
+            axis.set_title(f"{dataset_name} | " + ", ".join(title_parts))
+            axis.set_xlabel(x_label if used_physical_x else "Sample index")
+            axis.set_ylabel(y_label)
+            axis.legend(loc="best")
 
-    fig.tight_layout()
+        fig.tight_layout()
+        # Realise the styled ticks/labels while the rc context is still active so
+        # the appearance survives the caller's later ``savefig``.
+        fig.canvas.draw()
+
     return fig, axes
 
 
@@ -477,13 +629,14 @@ def plot_sbc_rank_histograms(
     if figsize is None:
         figsize = (4.5 * n_cols, 3.0 * n_rows)
 
+    palette = _prt_palette()
     fig, axes = pyplot.subplots(n_rows, n_cols, figsize=figsize, squeeze=False)
     flat_axes = axes.flatten()
     x_values = np.arange(counts.shape[1])
 
     for index in range(parameter_dim):
         axis = flat_axes[index]
-        axis.bar(x_values, counts[index], color="tab:green", alpha=0.85)
+        axis.bar(x_values, counts[index], color=palette["positive"], alpha=0.85)
         axis.set_title(str(parameter_names[index]))
         axis.set_xlabel("Rank")
         axis.set_ylabel("Count")

@@ -1632,27 +1632,20 @@ class SBITrainer:
                     best_loss_validation_loss = validation_metric
                     best_loss_validation_metrics = dict(epoch_validation_metrics)
                     best_loss_model = model
-                    # Early stopping tracks real quality: an improvement in the
-                    # primary validation loss resets patience, even if the
-                    # stability-gated selection metric did not improve this
-                    # epoch. This prevents premature stopping when a sharpening
-                    # posterior keeps improving val_loss while transiently
-                    # tripping the (strict) invertibility stability gate.
-                    #
-                    # The reset is suppressed for *pathological* (collapsed)
-                    # checkpoints: a density-collapsing run drives val_loss
-                    # arbitrarily negative, which is not real improvement. Not
-                    # resetting patience there lets early stopping halt the
-                    # collapse instead of running to the epoch budget and
-                    # selecting a degenerate model.
-                    is_pathological_checkpoint = bool(
-                        epoch_validation_metrics.get(
-                            'checkpoint_is_pathological', 0.0
-                        )
-                        >= 0.5
-                    )
-                    if not is_pathological_checkpoint:
-                        patience_counter = 0
+                    # Early stopping tracks the primary validation loss directly,
+                    # decoupled from the stability/selection metrics. A sharpening
+                    # posterior keeps lowering the held-out loss while its
+                    # iterative-inverse round-trip diagnostic transiently trips the
+                    # (strict) invertibility gate; previously the patience reset was
+                    # suppressed for any such "pathological" epoch, which halted
+                    # NAF runs ~halfway through the budget with the loss still
+                    # descending and locked deployment onto an undertrained
+                    # checkpoint. This block only runs for a finite new-best
+                    # validation loss, so any genuine improvement resets patience.
+                    # This governs *when training stops* only: a collapsed /
+                    # non-invertible checkpoint is still barred from being the
+                    # deployed model by the selection-metric pathology sentinel.
+                    patience_counter = 0
                     self._save_checkpoint(
                         'best_loss',
                         _checkpoint_state(best_loss_model, epoch + 1),
