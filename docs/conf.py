@@ -113,9 +113,9 @@ GETTING_STARTED_EMISSION_EXPLORER_DATA_PATH = (
 # a list of builtin themes.
 #
 html_theme = "shibuya"
-html_logo = "_static/pRTv4Logov1.png"
+html_logo = "_static/prt4word.png"
 html_theme_options = {
-  "accent_color": "red",
+  "accent_color": "sky",
 }
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the

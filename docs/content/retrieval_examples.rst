@@ -11,10 +11,11 @@ They also demonstrate the JAX retrieval setup through the same `Data` and `Retri
 
 .. toctree::
     :maxdepth: 2
+
     notebooks/retrieval_basic
-    retrieval_parameters.rst
-    retrieval_samplers.rst
-    content/retrieval_parallelisation
+    retrieval_parameters
+    retrieval_samplers
+    retrieval_parallelisation
     notebooks/retrieval_advanced
     notebooks/retrieval_emission_tutorial
     notebooks/retrieval_model_functions_tutorial

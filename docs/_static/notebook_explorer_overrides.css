@@ -7,3 +7,14 @@
 .jp-CodeCell:has(iframe[title="Interactive petitRADTRANS emission explorer"]) {
     margin-top: 0.75rem;
 }
+
+/* Logo in the left sidebar, above the global table of contents. */
+.sidebar-logo {
+    margin-bottom: 1.5rem;
+}
+
+.sidebar-logo img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
