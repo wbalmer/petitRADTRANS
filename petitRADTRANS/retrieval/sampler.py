@@ -1252,10 +1252,38 @@ def _diagonal_inverse_mass_from_hessian(logdensity, map_position):
     diagonal. Any non-finite or non-positive entry falls back to 1.0, leaving
     NUTS' own warmup adaptation to refine it. Returns a 1-D NumPy array (the
     diagonal metric expected when ``is_mass_matrix_diagonal=True``).
+
+    The diagonal is computed matrix-free, ONE coordinate at a time, via
+    Hessian-vector products: ``diag(H)_i = (H e_i)_i`` where ``H e_i`` is the
+    forward-over-reverse product ``jvp(grad(logdensity), e_i)``. This avoids ever
+    materialising the dense Hessian. ``jax.hessian`` would vectorise all ``n``
+    directions simultaneously, holding ``n`` reverse-mode tapes of the (very
+    large, full-resolution radiative-transfer) forward model at once -- which for
+    the lbl line-by-line models needs hundreds of GB and OOM-kills a whole node.
+    Each HVP here keeps only a SINGLE such tape resident (~the cost of one
+    gradient, which the MAP optimiser already evaluates comfortably), so peak
+    memory is ~1x a gradient instead of ~n x.
     """
     _require_jax()
+    from jax import grad as _grad, jvp as _jvp
+
     map_position = jnp.asarray(map_position)
-    precision_diag = -jnp.diag(hessian(logdensity)(map_position))
+    n = int(map_position.shape[0])
+    grad_fn = _grad(logdensity)
+
+    @jit
+    def _hessian_vector_product(tangent):
+        # H @ tangent via forward-over-reverse AD (jvp of the gradient). jit so the
+        # forward model is compiled once and reused across the n coordinate calls.
+        return _jvp(grad_fn, (map_position,), (tangent,))[1]
+
+    eye = jnp.eye(n, dtype=map_position.dtype)
+    # Plain Python loop (not vmap/hessian) so only one HVP's tape is live at a time;
+    # each call returns just the length-n product vector and its transient is freed
+    # before the next iteration. n is tiny (number of free parameters).
+    precision_diag = -jnp.stack(
+        [_hessian_vector_product(eye[i])[i] for i in range(n)]
+    )
     valid = jnp.isfinite(precision_diag) & (precision_diag > 0.0)
     inv_mass = jnp.where(valid, 1.0 / jnp.where(valid, precision_diag, 1.0), 1.0)
     return np.asarray(inv_mass, dtype=float)
