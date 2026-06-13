@@ -112,8 +112,8 @@ GETTING_STARTED_EMISSION_EXPLORER_DATA_PATH = (
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "sphinx_book_theme"
-html_logo = "_static/petitlogo.png"
+html_theme = "shibuya"
+html_logo = "_static/pRTv4Logov1.png"
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
