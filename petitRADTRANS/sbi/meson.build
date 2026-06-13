@@ -1,7 +1,6 @@
 py.install_sources([
     '__init__.py',
     'artifacts.py',
-    'benchmark.py',
     'calibration.py',
     'compatibility.py',
     'config.py',

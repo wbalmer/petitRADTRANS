@@ -3,17 +3,9 @@
 The modules in :mod:`petitRADTRANS.sbi` provide a production-oriented
 architecture for amortized inference workflows built on top of the existing
 retrieval runtime. The package is intentionally lightweight at this stage: it
-defines the core task, simulation, dataset, posterior, and benchmarking
-interfaces without committing to one training backend or storage engine.
+defines the core task, simulation, dataset, and posterior interfaces without
+committing to one training backend or storage engine.
 """
-
-# Benchmarking
-from .benchmark import (
-    BenchmarkComparison,
-    BenchmarkMetrics,
-    RetrievalBenchmarkCase,
-    RetrievalBenchmarkSuite,
-)
 
 # Calibration / diagnostics
 from .calibration import (
@@ -36,8 +28,6 @@ from .compatibility import TaskCompatibilityError
 from .dataset import (
     HDF5SimulationDatasetStore,
     SimulationDatasetStore,
-    StoredSimulationDataset,
-    ZarrSimulationDatasetStore,
     generate_simulation_dataset,
     DatasetSplit,
     NormalizedObservationDatasetReader
@@ -127,11 +117,6 @@ from .task import (
 from .training import EarlyStoppingConfig, SBITrainer
 
 __all__ = [
-    # Benchmarking
-    "BenchmarkComparison",
-    "BenchmarkMetrics",
-    "RetrievalBenchmarkCase",
-    "RetrievalBenchmarkSuite",
     # Calibration / diagnostics
     "LocalSensitivityPointReport",
     "LocalSensitivityReport",
@@ -149,8 +134,6 @@ __all__ = [
     # Datasets
     "HDF5SimulationDatasetStore",
     "SimulationDatasetStore",
-    "StoredSimulationDataset",
-    "ZarrSimulationDatasetStore",
     "generate_simulation_dataset",
     "DatasetSplit",
     "NormalizedObservationDatasetReader",

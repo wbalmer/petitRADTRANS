@@ -76,8 +76,6 @@ full = [
     "dynesty>=3.0.0",
     "equinox>=0.13.8",
     "optax>=0.2.8",
-    "zarr>=2.18",
-    "numcodecs>=0.13",
     "orbax-checkpoint>=0.6",
     "distrax>=0.1.5",
     "ultranest",
@@ -102,8 +100,6 @@ retrieval = [
 sbi = [
     "equinox>=0.11",
     "optax>=0.2.8",
-    "zarr>=2.18",
-    "numcodecs>=0.13",
     "orbax-checkpoint>=0.6",
     "distrax>=0.1.5"
 ]
@@ -125,8 +121,6 @@ test = [
     "numpyro>=0.21.0",
     "equinox>=0.11",
     "optax>=0.2.8",
-    "zarr>=2.18",
-    "numcodecs>=0.13",
     "ultranest",
 ]
 
