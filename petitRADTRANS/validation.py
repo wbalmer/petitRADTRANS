@@ -189,7 +189,7 @@ def _check_wavelength_boundaries(boundaries: ArrayLike):
     Args:
         boundaries: The wavelength boundaries.
     """
-    if jnp.size(boundaries) != 2:
+    if jnp.size(jnp.asarray(boundaries)) != 2:
         raise ValueError(
             f"wavelengths boundaries must be an array of 2 floats, but was {boundaries}"
         )

@@ -3040,12 +3040,19 @@ def compute_transmission_spectrum_contribution(
     reference_pressure: ArrayLike,  # scalar, in bar
     planet_radius: ArrayLike,  # scalar, in cm
     weights_gauss: ArrayLike,  # (n_g)
-    transit_radii_squared: ArrayLike,  # (n_frequencies) -> R_eff^2 with all layers
     continuum_opacities_scattering: ArrayLike,  # (n_frequencies, n_layers)
     scattering_in_transmission: bool = True,  # boolean
     variable_gravity: bool = True,  # boolean
 ) -> tuple[ArrayLike, ArrayLike]:
     """Calculate normalized layer contributions to the transmission spectrum.
+
+    The baseline (all-layers) transit radii are computed internally with the
+    same working-precision numerics as the leave-one-out evaluations. Using the
+    externally computed transit radii from the main transmission path would add
+    a constant, layer-independent offset (main path vs. this function's working
+    precision) to every leave-one-out difference; that offset dwarfs the true
+    per-layer signal and flattens the normalized contribution toward
+    ``1 / n_layers``.
 
     Parameters
     ----------
@@ -3065,8 +3072,6 @@ def compute_transmission_spectrum_contribution(
         Planet radius at ``reference_pressure`` in cm.
     weights_gauss : jax.Array, shape (n_g,)
         Correlated-k quadrature weights.
-    transit_radii_squared : jax.Array, shape (n_frequencies,)
-        Baseline effective transit radius squared computed with all layers included.
     continuum_opacities_scattering : jax.Array, shape (n_frequencies, n_layers)
         Continuum scattering opacity used in transmission.
     scattering_in_transmission : bool, optional
@@ -3152,31 +3157,20 @@ def compute_transmission_spectrum_contribution(
         (opacities.shape[1], 1), dtype=WORKING_JAX_DTYPE
     )
 
-    def _leave_one_out_contribution(i_leave_str_idx: ArrayLike) -> ArrayLike:
-        path_by_layer = layer_path_weights_by_layer[i_leave_str_idx]
-        rho_by_layer = rho_work[i_leave_str_idx]
-        gas_opacity_times_rho = opacities_work[..., i_leave_str_idx] * rho_by_layer
-        gas_optical_depths_leave_one_out = gas_optical_depths_active - (
-            gas_opacity_times_rho[..., None] * path_by_layer
-        )
-
-        gas_transmission_active = jnp.exp(-gas_optical_depths_leave_one_out)
+    def _transit_radii_squared_from_optical_depths(
+        gas_optical_depths: ArrayLike,
+        scattering_optical_depths: ArrayLike,
+    ) -> ArrayLike:
+        gas_transmission = jnp.exp(-gas_optical_depths)
         gas_transmission_by_species = jnp.sum(
-            gas_transmission_active * weights_gauss_expanded,
+            gas_transmission * weights_gauss_expanded,
             axis=0,
         )
         total_transmission_active = jnp.prod(gas_transmission_by_species, axis=1)
 
         if scattering_in_transmission:
-            continuum_opacity_times_rho = (
-                continuum_opacities_scattering_work[:, i_leave_str_idx] * rho_by_layer
-            )
-            scattering_optical_depths_leave_one_out = (
-                scattering_optical_depths_active
-                - continuum_opacity_times_rho[:, None] * path_by_layer
-            )
             total_transmission_active = total_transmission_active * jnp.exp(
-                -scattering_optical_depths_leave_one_out
+                -scattering_optical_depths
             )
 
         total_transmission = jnp.concatenate(
@@ -3189,11 +3183,42 @@ def compute_transmission_spectrum_contribution(
             + effective_area_fraction[:, :-1]
             * radius_hydrostatic_equilibrium[None, :-1]
         )
-        transit_radii_leave_one_out_squared = (
+        return (
             jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1)
             + radius_squared[-1]
         )
-        return transit_radii_squared - transit_radii_leave_one_out_squared
+
+    transit_radii_baseline_squared = _transit_radii_squared_from_optical_depths(
+        gas_optical_depths_active,
+        scattering_optical_depths_active,
+    )
+
+    def _leave_one_out_contribution(i_leave_str_idx: ArrayLike) -> ArrayLike:
+        path_by_layer = layer_path_weights_by_layer[i_leave_str_idx]
+        rho_by_layer = rho_work[i_leave_str_idx]
+        gas_opacity_times_rho = opacities_work[..., i_leave_str_idx] * rho_by_layer
+        gas_optical_depths_leave_one_out = gas_optical_depths_active - (
+            gas_opacity_times_rho[..., None] * path_by_layer
+        )
+
+        if scattering_in_transmission:
+            continuum_opacity_times_rho = (
+                continuum_opacities_scattering_work[:, i_leave_str_idx] * rho_by_layer
+            )
+            scattering_optical_depths_leave_one_out = (
+                scattering_optical_depths_active
+                - continuum_opacity_times_rho[:, None] * path_by_layer
+            )
+        else:
+            scattering_optical_depths_leave_one_out = scattering_optical_depths_active
+
+        transit_radii_leave_one_out_squared = (
+            _transit_radii_squared_from_optical_depths(
+                gas_optical_depths_leave_one_out,
+                scattering_optical_depths_leave_one_out,
+            )
+        )
+        return transit_radii_baseline_squared - transit_radii_leave_one_out_squared
 
     transmission_contribution_raw = lax.map(
         _leave_one_out_contribution,
@@ -3203,7 +3228,7 @@ def compute_transmission_spectrum_contribution(
     sum_contrib = jnp.sum(transmission_contribution_raw, axis=0, keepdims=True)
 
     transmission_contribution_final = jnp.where(
-        sum_contrib == 0, 0.0, transmission_contribution_raw / sum_contrib
+        sum_contrib == 0, 0.0, transmission_contribution_raw/sum_contrib
     )
 
     return transmission_contribution_final, radius_hydrostatic_equilibrium

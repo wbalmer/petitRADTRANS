@@ -2167,6 +2167,7 @@ class SpectralModel(Radtrans):
         filling_species=None,
         use_equilibrium_chemistry=False,
         metallicity=None,
+        log10_metallicities=None,
         co_ratio=0.55,
         carbon_quench_pressure=None,
         verbose=False,
@@ -2197,7 +2198,10 @@ class SpectralModel(Radtrans):
             cloud_species: list of cloud species, required to not count cloud species in the gas mass fractions.
             temperatures: (K) temperatures of the mass mixing ratios, used with equilibrium chemistry
             co_ratio: carbon over oxygen ratios of the model, used with equilibrium chemistry
-            metallicity: ratio between heavy elements and H2 + He compared to solar, used with equilibrium chemistry
+            metallicity: ratio between heavy elements and H2 + He compared to solar (linear scale), used with
+                equilibrium chemistry; converted internally to dex. Mutually exclusive with log10_metallicities.
+            log10_metallicities: (dex) base-10 logarithm of the metallicity relative to solar (i.e. [M/H]), used
+                with equilibrium chemistry; passed to the chemistry table as-is. Mutually exclusive with metallicity.
             carbon_quench_pressure: (bar) pressure where the carbon species are quenched, used with equilibrium
                 chemistry
             imposed_mass_fractions: imposed mass mixing ratios
@@ -2212,8 +2216,20 @@ class SpectralModel(Radtrans):
             A dictionary containing the mass mixing ratios.
         """
 
-        if metallicity is not None and use_equilibrium_chemistry:
+        if log10_metallicities is not None and metallicity is not None:
+            raise ValueError(
+                "give either 'metallicity' (linear, relative to solar) or "
+                "'log10_metallicities' (dex), not both"
+            )
+
+        # calculate_gas_mass_fractions expects the metallicity in dex (on the
+        # retrieval side it is aliased with 'Fe/H' and 'M/H'), while
+        # SpectralModel's 'metallicity' parameter is linear.
+        if log10_metallicities is not None:
+            metallicity = log10_metallicities
+        elif metallicity is not None and use_equilibrium_chemistry:
             metallicity = jnp.log10(metallicity)
+
         mass_fractions, _ = calculate_gas_mass_fractions(
             pressures,
             temperatures,

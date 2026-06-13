@@ -200,9 +200,13 @@ class RetrievalParameter:
             raise ValueError(
                 f"'prior_parameters' must be an iterable of size 2, but is of type '{type(prior_parameters)}'"
             )
-        elif jnp.size(prior_parameters) < 2:
+        elif isinstance(prior_parameters, jnp.ndarray) and jnp.size(prior_parameters) < 2:
             raise ValueError(
                 f"'prior_parameters' must be of size 2, but is of size '{jnp.size(prior_parameters)}'"
+            )
+        elif len(prior_parameters) < 2:
+            raise ValueError(
+                f"'prior_parameters' must be of size 2, but is of size '{len(prior_parameters)}'"
             )
         elif prior_parameters[0] > prior_parameters[1] and (
             prior_type == "log" or prior_type == "uniform"

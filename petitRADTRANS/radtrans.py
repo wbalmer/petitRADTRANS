@@ -1835,10 +1835,8 @@ class Radtrans:
                 )
             )
         if return_contributions:
-            transit_radii_squared = jnp.square(transit_radii)
             transmission_contribution, radius_hydrostatic_equilibrium = (
                 radiative_transfer_core.compute_transmission_spectrum_contribution(
-                    transit_radii_squared=transit_radii_squared,
                     opacities=opacities,
                     temperatures=temperatures,
                     pressures=pressures * 1e-6,  # cgs to bar
@@ -1847,7 +1845,12 @@ class Radtrans:
                     reference_pressure=reference_pressure,
                     planet_radius=planet_radius,
                     weights_gauss=self._lines_loaded_opacities["weights_gauss"],
-                    scattering_in_transmission=self.__scattering_in_transmission,
+                    # The main transit radii above include
+                    # continuum_opacities_scattering unconditionally (the array
+                    # is zero when nothing scatters), so the contribution must
+                    # too. self.__scattering_in_transmission is stale here: it
+                    # is only updated by the photospheric-radius path.
+                    scattering_in_transmission=True,
                     continuum_opacities_scattering=continuum_opacities_scattering,
                     variable_gravity=variable_gravity,
                 )

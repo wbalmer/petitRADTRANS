@@ -193,13 +193,6 @@ def test_compute_transmission_spectrum_contribution_matches_previous_leave_one_o
     reference_pressure = jnp.array(1.0, dtype=jnp.float32)
     planet_radius = jnp.array(7e9, dtype=jnp.float32)
     weights_gauss = jnp.array([0.2, 0.3, 0.5], dtype=jnp.float32)
-    transit_radii_squared = jax.random.uniform(
-        subkeys[3],
-        (4,),
-        minval=1e18,
-        maxval=1e20,
-        dtype=jnp.float32,
-    )
     continuum_opacities_scattering = jax.random.uniform(
         subkeys[4],
         (4, 6),
@@ -218,7 +211,6 @@ def test_compute_transmission_spectrum_contribution_matches_previous_leave_one_o
             reference_pressure,
             planet_radius,
             weights_gauss,
-            transit_radii_squared,
             continuum_opacities_scattering,
             scattering_in_transmission,
             True,
@@ -291,26 +283,17 @@ def test_compute_transmission_spectrum_contribution_matches_previous_leave_one_o
         (opacities.shape[1], 1), dtype=rtc.WORKING_JAX_DTYPE
     )
 
-    def _reference_leave_one_out(i_leave_str_idx):
-        path_by_layer = layer_path_weights_by_layer[i_leave_str_idx]
-        gas_optical_depths_leave_one_out = gas_optical_depths_active - (
-            opacity_times_rho_by_layer[i_leave_str_idx][..., None] * path_by_layer
-        )
-
-        gas_transmission_active = jnp.exp(-gas_optical_depths_leave_one_out)
+    def _reference_transit_radii_squared(gas_optical_depths, scattering_optical_depths):
+        gas_transmission = jnp.exp(-gas_optical_depths)
         gas_transmission_by_species = jnp.sum(
-            gas_transmission_active * weights_gauss_expanded,
+            gas_transmission * weights_gauss_expanded,
             axis=0,
         )
         total_transmission_active = jnp.prod(gas_transmission_by_species, axis=1)
 
         if scattering_in_transmission:
-            scattering_optical_depths_leave_one_out = (
-                scattering_optical_depths_active
-                - continuum_times_rho_by_layer[i_leave_str_idx][:, None] * path_by_layer
-            )
             total_transmission_active = total_transmission_active * jnp.exp(
-                -scattering_optical_depths_leave_one_out
+                -scattering_optical_depths
             )
 
         total_transmission = jnp.concatenate(
@@ -322,11 +305,36 @@ def test_compute_transmission_spectrum_contribution_matches_previous_leave_one_o
             effective_area_fraction[:, 1:] * reference_radius[None, 1:]
             + effective_area_fraction[:, :-1] * reference_radius[None, :-1]
         )
-        transit_radii_leave_one_out_squared = (
+        return (
             jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1)
             + radius_squared[-1]
         )
-        return transit_radii_squared - transit_radii_leave_one_out_squared
+
+    # The baseline is computed with the same numerics as the leave-one-out
+    # evaluations, matching the function's internal-baseline contract.
+    transit_radii_baseline_squared = _reference_transit_radii_squared(
+        gas_optical_depths_active, scattering_optical_depths_active
+    )
+
+    def _reference_leave_one_out(i_leave_str_idx):
+        path_by_layer = layer_path_weights_by_layer[i_leave_str_idx]
+        gas_optical_depths_leave_one_out = gas_optical_depths_active - (
+            opacity_times_rho_by_layer[i_leave_str_idx][..., None] * path_by_layer
+        )
+
+        if scattering_in_transmission:
+            scattering_optical_depths_leave_one_out = (
+                scattering_optical_depths_active
+                - continuum_times_rho_by_layer[i_leave_str_idx][:, None] * path_by_layer
+            )
+        else:
+            scattering_optical_depths_leave_one_out = scattering_optical_depths_active
+
+        transit_radii_leave_one_out_squared = _reference_transit_radii_squared(
+            gas_optical_depths_leave_one_out,
+            scattering_optical_depths_leave_one_out,
+        )
+        return transit_radii_baseline_squared - transit_radii_leave_one_out_squared
 
     reference_contribution_raw = jax.lax.map(
         _reference_leave_one_out,
