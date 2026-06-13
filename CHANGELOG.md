@@ -8,10 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
-to run natively on GPUs and TPUs. Version 4.0 is still experimental, and should not be used for production work!
-As of version 4.0.0a6 most functionality should "work". Tests still fail, but most results are correct to within <0.01%.
-As of version 4.0.0a10 everything required for a retrieval should be JIT compilable.
-Ready for beta testing with version 4.0.0.a16.
+to run natively on GPUs and TPUs. Version 4.0 is in beta, and is subject to change.
 
 ### TODO
 - Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
