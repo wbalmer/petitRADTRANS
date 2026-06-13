@@ -54,6 +54,21 @@ class RetrievalConfig:
         pressures : numpy.array
             A log-spaced array of pressures over which to retrieve. 100 points is standard, between
             10^-6 and 10^3.
+        feautrier_chunk_size : int, optional
+            Number of frequency bins solved per chunk of the Feautrier scattering solver used for
+            emission spectra. Smaller values reduce the peak memory of the radiative transfer at the
+            cost of a modest amount of extra scan overhead, which is useful on memory-constrained
+            GPUs. If None (default), the value is taken from the ``PRT_FEAUTRIER_CHUNK_SIZE``
+            environment variable (falling back to a built-in default). This is forwarded to the
+            ``ModelContext`` objects used to compute the radiative transfer.
+        chunk_feautrier : bool
+            Whether the Feautrier scattering solver chunks the frequency axis (see
+            ``feautrier_chunk_size``). Only relevant when ``scattering_in_emission`` is True.
+            Forwarded to the ``ModelContext`` objects.
+        adaptive_feautrier_iterations : bool
+            Whether the Feautrier scattering solver adaptively sets the number of iterations based
+            on the photon destruction probability. Only relevant when ``scattering_in_emission`` is
+            True. Forwarded to the ``ModelContext`` objects.
     """
 
     def __init__(
@@ -64,6 +79,9 @@ class RetrievalConfig:
         adaptive_mesh_refinement: bool = False,
         scattering_in_emission: bool = False,
         pressures: ArrayLike | None = None,
+        feautrier_chunk_size: int | None = None,
+        chunk_feautrier: bool = True,
+        adaptive_feautrier_iterations: bool = False,
         # --- deprecated arguments ---
         amr=_UNSET,
     ):
@@ -95,6 +113,9 @@ class RetrievalConfig:
             self.pressures = jnp.logspace(-6, 3, 100)
 
         self.scattering_in_emission = scattering_in_emission
+        self.feautrier_chunk_size = feautrier_chunk_size
+        self.chunk_feautrier = chunk_feautrier
+        self.adaptive_feautrier_iterations = adaptive_feautrier_iterations
         self.parameters = (
             {}
         )  #: Dictionary of the parameters passed to the model generating function
@@ -120,6 +141,7 @@ class RetrievalConfig:
         corner_transform: Callable | None = None,
         transform_prior_cube_coordinate: Callable | None = None,
         corner_label: str | None = None,
+        units: Any | None = None,
         # --- deprecated arguments ---
         free=_UNSET,
     ) -> None:
@@ -139,6 +161,12 @@ class RetrievalConfig:
             transform_prior_cube_coordinate : method
                 A function that transforms the unit interval to the physical units of the parameter.
                 Typically given as a lambda function.
+            units : astropy.units.UnitBase, optional
+                The physical units of the parameter value. Defaults to None (value already in the
+                units expected by the model function). When set to an astropy unit, model functions
+                can convert the value to the units required by the radiative transfer (e.g. cm, g).
+                Currently used by ``planet_radius``, ``system_distance``, and ``planet_mass`` (and
+                their aliases).
         """
 
         if free is not _UNSET:
@@ -159,6 +187,7 @@ class RetrievalConfig:
             corner_transform=corner_transform,
             transform_prior_cube_coordinate=transform_prior_cube_coordinate,
             corner_label=corner_label,
+            units=units,
         )
 
     def _add_uniform_free_parameter(

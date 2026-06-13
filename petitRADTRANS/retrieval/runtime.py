@@ -250,6 +250,11 @@ class ModelContext:
     return_radius_hydrostatic_equilibrium: bool = False
     return_cloud_contribution: bool = False
     return_abundances: bool = False
+    scattering_in_emission: bool = False
+    chunk_feautrier: bool = True
+    adaptive_feautrier_iterations: bool = False
+    feautrier_chunk_size: int | None = None
+    parameter_units: Mapping[str, Any] = field(default_factory=dict)
     model_metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -513,6 +518,10 @@ class RetrievalRuntime:
         data: Mapping[str, Any],
         n_free_parameters: int | None = None,
         adaptive_mesh_refinement: bool = False,
+        feautrier_chunk_size: int | None = None,
+        scattering_in_emission: bool = False,
+        chunk_feautrier: bool = True,
+        adaptive_feautrier_iterations: bool = False,
     ) -> "RetrievalRuntime":
         """Build a runtime from retrieval data objects.
 
@@ -520,9 +529,24 @@ class RetrievalRuntime:
         observations that share a single model evaluation.
         """
         from petitRADTRANS.retrieval.models import coerce_model_generating_function
+        from petitRADTRANS.retrieval.parameter_aliases import normalize_parameter_name
 
         if n_free_parameters is None:
             n_free_parameters = parameter_layout.n_free_parameters
+
+        # Map (alias-normalized) parameter names to their astropy units so that
+        # runtime-native model functions can convert parameter values to the cgs
+        # units expected by the radiative transfer. Parameters without units are
+        # omitted, leaving an empty map when no parameter declares units.
+        parameter_units = {
+            normalize_parameter_name(name): template.units
+            for name, template in zip(
+                parameter_layout.parameter_names,
+                parameter_layout.parameter_templates,
+                strict=True,
+            )
+            if getattr(template, "units", None) is not None
+        }
 
         observations = {}
         for data_name, data_object in data.items():
@@ -595,11 +619,22 @@ class RetrievalRuntime:
             ):
                 if key in obs_meta and obs_meta[key] is not None:
                     group_metadata[key] = obs_meta[key]
+            # Prefer the Radtrans object's own scattering setting so the context
+            # never disagrees with how the radiative transfer was actually built;
+            # fall back to the configuration value when the object does not expose it.
+            group_scattering_in_emission = getattr(
+                source_observation.radtrans_object,
+                "scattering_in_emission",
+                scattering_in_emission,
+            )
             prebuilt_context = ModelContext(
                 name=source_name,
                 mode=group_metadata.get("mode", "unknown"),
                 radtrans=source_observation.radtrans_object,
                 adaptive_mesh_refinement=adaptive_mesh_refinement,
+                scattering_in_emission=group_scattering_in_emission,
+                chunk_feautrier=chunk_feautrier,
+                adaptive_feautrier_iterations=adaptive_feautrier_iterations,
                 variability_atmospheric_column_model_flux_return_mode=(
                     source_observation.variability_atmospheric_column_model_flux_return_mode
                 ),
@@ -610,6 +645,8 @@ class RetrievalRuntime:
                 return_radius_hydrostatic_equilibrium=_return_radius_hydrostatic_equilibrium,
                 return_cloud_contribution=_return_cloud_contribution,
                 return_abundances=_return_abundances,
+                feautrier_chunk_size=feautrier_chunk_size,
+                parameter_units=parameter_units,
                 model_metadata=group_metadata,
             )
             model_groups.append(
@@ -651,6 +688,14 @@ class RetrievalRuntime:
             n_free_parameters=n_free_parameters,
             adaptive_mesh_refinement=getattr(
                 configuration, "adaptive_mesh_refinement", False
+            ),
+            feautrier_chunk_size=getattr(configuration, "feautrier_chunk_size", None),
+            scattering_in_emission=getattr(
+                configuration, "scattering_in_emission", False
+            ),
+            chunk_feautrier=getattr(configuration, "chunk_feautrier", True),
+            adaptive_feautrier_iterations=getattr(
+                configuration, "adaptive_feautrier_iterations", False
             ),
         )
 
@@ -1880,6 +1925,7 @@ def _clone_parameter(parameter: Parameter, value: Any) -> Parameter:
         corner_ranges=copy.deepcopy(parameter.corner_ranges),
         corner_transform=parameter.corner_transform,
         corner_label=parameter.corner_label,
+        units=getattr(parameter, "units", None),
     )
 
 

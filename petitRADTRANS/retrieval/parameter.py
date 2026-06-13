@@ -75,6 +75,11 @@ class Parameter:
             A function to scale or transform the value of the parameter for prettier plotting.
         corner_label : string
             The axis label for the parameter, defaults to name.
+        units : astropy.units.UnitBase, optional
+            The physical units of the parameter value. Defaults to None, in which case the
+            value is assumed to already be in the units expected by the model function (cgs).
+            If set to an astropy unit, the model functions can use it to convert the value to
+            the units required for the radiative transfer calculation (e.g. cm, g).
     """
 
     def __init__(
@@ -88,6 +93,7 @@ class Parameter:
         corner_ranges=None,
         corner_transform=None,
         corner_label=None,
+        units=None,
     ):
 
         self.name = name
@@ -104,6 +110,7 @@ class Parameter:
         self.corner_ranges = corner_ranges
         self.corner_transform = corner_transform
         self.corner_label = corner_label
+        self.units = units
 
     def _tree_flatten(self):
         children = (self.value,)  # arrays / dynamic values
@@ -116,6 +123,7 @@ class Parameter:
             "corner_ranges": self.corner_ranges,
             "corner_transform": self.corner_transform,
             "corner_label": self.corner_label,
+            "units": self.units,
         }  # static values
         return (children, aux_data)
 
