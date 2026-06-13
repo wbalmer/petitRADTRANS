@@ -63,16 +63,29 @@ _ELBO_STABILITY_CUBE_EDGE_HIT_RATE = 0.5
 # (forward-KL) flows. A neural autoregressive flow inverts by bisection, so a
 # small, non-zero worst-case round-trip error is expected -- and it *grows as
 # the posterior sharpens*. It is a sampler-accuracy property, not a density
-# collapse. The previous hardcoded 0.1 cutoff therefore flagged well-trained,
-# usable epochs as "pathological", which (a) poisoned their selection metric to
-# the 1e6 sentinel so an undertrained early epoch was deployed, and (b) barred
-# them from resetting early-stop patience so the run halted ~halfway through the
-# budget with val_loss still descending. Relax it to a full unit-cube width: a
-# max round-trip error >= 1.0 means at least one coordinate maps across the
-# entire prior range, i.e. the map is non-invertible in practice. Genuinely
-# collapsed flows (O(several)+, the same scale the ELBO gate rejects) are still
-# caught, while sharp-but-usable NPE epochs are not.
-_PATHOLOGICAL_INVERSE_FORWARD_MAX_ABS_ERROR = 1.0
+# collapse. The original hardcoded 0.1 cutoff flagged well-trained, usable
+# epochs as "pathological", which (a) poisoned their selection metric to the 1e6
+# sentinel so an undertrained early epoch was deployed, and (b) barred them from
+# resetting early-stop patience so the run halted ~halfway through the budget
+# with val_loss still descending. A first relaxation to 1.0 (one unit-cube
+# width) was still too strict for the emission NAF, whose inv_rt_err reaches
+# ~1.2-1.7 at exactly its best-loss epochs. Set the *hard* sentinel only for
+# genuinely collapsed / non-invertible maps (O(several), well above a unit-cube
+# width) and let the bounded soft penalty below grade everything in between, so
+# a much-better-loss epoch with a moderate inverse error can still be selected.
+_PATHOLOGICAL_INVERSE_FORWARD_MAX_ABS_ERROR = 2.0
+
+# Bounded soft penalty applied to the selection metric of an unstable-but-not-
+# pathological checkpoint (val_loss + penalty). Lowering the per-term weight
+# (2.0 -> 1.0) and the cap (25 -> 12) keeps the penalty discriminating between
+# better- and worse-conditioned inverses while no longer dominating val_loss:
+# with the previous weight/cap the large log-det-closure error (~2-5) saturated
+# the penalty for every well-trained epoch, pinning deployment to an
+# undertrained early epoch. These are paired with the emission run's conditioning
+# tuning (lower LR, tighter grad clip, larger NAF min-slope/min-residual), which
+# is what actually keeps the inverse error small.
+_SELECTION_PENALTY_WEIGHT = 1.0
+_SELECTION_PENALTY_CAP = 12.0
 
 
 def _cube_epsilon(dtype: Any) -> float:
@@ -892,17 +905,21 @@ def _flow_validation_selection_metric(
     ):
         excess, threshold = _threshold_excess(key)
         if excess > 0.0:
-            penalty += 2.0 * float(np.log1p(excess / threshold))
+            penalty += _SELECTION_PENALTY_WEIGHT * float(np.log1p(excess / threshold))
 
     edge_hit_excess, edge_hit_threshold = _threshold_excess("cube_edge_hit_rate")
     if edge_hit_excess > 0.0:
-        penalty += 2.0 * float(np.log1p(edge_hit_excess / edge_hit_threshold))
+        penalty += _SELECTION_PENALTY_WEIGHT * float(
+            np.log1p(edge_hit_excess / edge_hit_threshold)
+        )
 
     max_derivative = float(diagnostics.get("spline_max_derivative", float("nan")))
     if np.isfinite(max_derivative) and max_derivative > 0.0:
-        penalty += 2.0 * max(0.0, float(np.log10(max_derivative)) - 6.0)
+        penalty += _SELECTION_PENALTY_WEIGHT * max(
+            0.0, float(np.log10(max_derivative)) - 6.0
+        )
 
-    penalty = min(penalty, 25.0)
+    penalty = min(penalty, _SELECTION_PENALTY_CAP)
     if penalty <= 0.0:
         penalty = 1.0
 
