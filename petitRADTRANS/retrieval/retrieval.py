@@ -5275,7 +5275,7 @@ class Retrieval:
         # Set up the pRT object
         self._rebin_opacities(resolution=resolution)
 
-        species = ()
+        species = []
 
         for _species in self.configuration.line_species:
             name, natural_abundance, charge, cloud_info, source, spectral_info = (
@@ -5298,14 +5298,12 @@ class Retrieval:
 
         radtrans_object = Radtrans(
             pressures=pressures,
-            line_species=copy.copy(species),
-            rayleigh_species=copy.copy(self.configuration.rayleigh_species),
-            gas_continuum_contributors=copy.copy(
-                self.configuration.continuum_opacities
-            ),
-            cloud_species=copy.copy(self.configuration.cloud_species),
+            line_species=tuple(species),
+            rayleigh_species=self.configuration.rayleigh_species,
+            gas_continuum_contributors=self.configuration.continuum_opacities,
+            cloud_species=self.configuration.cloud_species,
             line_opacity_mode="c-k",
-            wavelength_boundaries=np.array([0.5, 28]),
+            wavelength_boundaries=tuple([0.5, 28]),
             scattering_in_emission=self.configuration.scattering_in_emission,
         )
 
