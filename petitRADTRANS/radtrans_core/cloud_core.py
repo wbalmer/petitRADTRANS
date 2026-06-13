@@ -1,7 +1,5 @@
 import numpy as np
-import jax
-from jax import jit, vmap, lax, debug, Array
-from jax.typing import ArrayLike
+from jax import jit, vmap, lax
 import jax.numpy as jnp
 import jax.scipy.special as jsp  # For gamma function
 from jax.scipy.ndimage import map_coordinates

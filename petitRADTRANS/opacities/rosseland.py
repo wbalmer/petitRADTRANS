@@ -1,9 +1,4 @@
-import jax.numpy as jnp
-from jax import jit
-from jax.typing import ArrayLike
 from petitRADTRANS.radtrans_core import physics_core
-
-from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 def compute_rosseland_opacities(

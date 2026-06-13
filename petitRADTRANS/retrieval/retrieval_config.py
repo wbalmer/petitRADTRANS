@@ -376,7 +376,8 @@ class RetrievalConfig:
                 individually.
             free_mass_fraction_limits : Tuple(float,float)
                 If free is True, this sets the boundaries of the uniform prior that will be applied for
-                each species in line_species. The range of the prior goes from free_mass_fraction_limits[0] to free_mass_fraction_limits[1].
+                each species in line_species. The range of the prior goes from
+                free_mass_fraction_limits[0] to free_mass_fraction_limits[1].
                 The abundance limits must be given in log10 units of the mass fraction.
         """
         if linelist is not _UNSET:
@@ -403,7 +404,8 @@ class RetrievalConfig:
 
         if free_mass_fraction_limits[1] > 0.0:
             raise ValueError(
-                f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! Please set abundance limits as (low, high)"
+                f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! "
+                f"Please set abundance limits as (low, high)"
             )
 
         self.line_species = tuple(line_species)
@@ -545,7 +547,8 @@ class RetrievalConfig:
         # parameter passed through loglike is log10 abundance
         if free_mass_fraction_limits[1] > 0.0:
             raise ValueError(
-                f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! Please set abundance limits as (low, high)"
+                f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! "
+                f"Please set abundance limits as (low, high)"
             )
 
         Opacity.check_name(species)
@@ -655,7 +658,8 @@ class RetrievalConfig:
         # parameter passed through loglike is log10 abundance
         if free_mass_fraction_limits[1] > 0.0:
             raise ValueError(
-                f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! Please set abundance limits as (low, high)"
+                f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! "
+                f"Please set abundance limits as (low, high)"
             )
 
         self.parameters[f"{species_full_name}_{mode}_abundance_profile"] = Parameter(
@@ -756,8 +760,10 @@ class RetrievalConfig:
         The limits set the prior ranges, both on a log scale.
 
         NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
-        abundance limits were set from free_mass_fraction_limits[0] to (free_mass_fraction_limits[0] + free_mass_fraction_limits[1]). This has been changed
-        so that the limits of the prior range are from free_mass_fraction_limits[0] to free_mass_fraction_limits[1] (ie the actual boundaries).
+        abundance limits were set from free_mass_fraction_limits[0] to
+        (free_mass_fraction_limits[0] + free_mass_fraction_limits[1]). This has been changed
+        so that the limits of the prior range are from free_mass_fraction_limits[0] to
+        free_mass_fraction_limits[1] (ie the actual boundaries).
         The same is true for PBase_lim.
 
         Args:
@@ -862,7 +868,8 @@ class RetrievalConfig:
         if not use_equilibrium_chemistry:
             if free_mass_fraction_limits[1] > 0.0:
                 raise ValueError(
-                    f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! Please set abundance limits as (low, high)"
+                    f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! "
+                    f"Please set abundance limits as (low, high)"
                 )
 
             if fixed_mass_fraction_value is None:
@@ -982,8 +989,8 @@ class RetrievalConfig:
                 Path to observations file, including filename. This can be a txt or dat file
                 containing the wavelength, flux, transit depth and error, or a fits file
                 containing the wavelength, spectrum and covariance matrix.
-                Alternatively, the data information can be directly given by the wavelengths, spectrum, uncertainties, and
-                mask attributes.
+                Alternatively, the data information can be directly given by the
+                wavelengths, spectrum, uncertainties, and mask attributes.
             wavelengths:
                 (um) Wavelengths of the data.
             spectrum:
@@ -1026,8 +1033,8 @@ class RetrievalConfig:
                 Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the
                 retrieval.
             scale_uncertainties:
-                Turn on or off scaling the uncertainties by a constant factor. Set to True if scaling the uncertainties during the
-                retrieval.
+                Turn on or off scaling the uncertainties by a constant factor. Set to True
+                if scaling the uncertainties during the retrieval.
             fit_flux_offset:
                 Turn on or off fitting a flux offset. Set to True if fitting a flux offset during the retrieval.
             fit_covariance:

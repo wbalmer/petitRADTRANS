@@ -2,10 +2,8 @@
 
 import jax.numpy as jnp
 from jax.typing import ArrayLike
-from jax import custom_gradient, config, Array
+from jax import Array
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS.math import running_mean
-from petitRADTRANS.temperature_profiles.guillot import guillot_modif_temperature_profile
 
 
 def calculate_distance_from_luminosity(t_irr, dist, t_star, r_star, mode, mode_what):

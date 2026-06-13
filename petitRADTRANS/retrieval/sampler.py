@@ -2243,8 +2243,9 @@ class PymultinestSampler(Sampler):
                 values
             mode_tolerance: float
                 MultiNest can find multiple modes & also specify which samples belong to which mode. It might be
-                desirable to have separate samples & mode statistics for modes with local log-evidence value greater than a
-                particular value in which case Ztol should be set to that value. If there isn't any particularly interesting
+                desirable to have separate samples & mode statistics for modes with local
+                log-evidence value greater than a particular value in which case Ztol should
+                be set to that value. If there isn't any particularly interesting
                 Ztol value, then Ztol should be set to a very large negative number (e.g. -1e90).
             evidence_tolerance: float
                 A value of 0.5 should give good enough accuracy.
@@ -2333,7 +2334,8 @@ class PymultinestSampler(Sampler):
             )
         except Exception as error:
             warnings.warn(
-                f"Unable to construct PyMultiNest analyzer for '{self.retrieval_name}' while loading saved results: {error}",
+                f"Unable to construct PyMultiNest analyzer for '{self.retrieval_name}' "
+                f"while loading saved results: {error}",
                 RuntimeWarning,
             )
             return super().load_results()
@@ -3731,7 +3733,8 @@ class JAXNSSampler(Sampler):
         if sample_matrix.ndim == 1:
             if len(parameter_names) != 1:
                 warnings.warn(
-                    "Skipping JAXNS equal-weight sample export because the sample matrix is 1-D but the parameter list is not.",
+                    "Skipping JAXNS equal-weight sample export because the sample "
+                    "matrix is 1-D but the parameter list is not.",
                     RuntimeWarning,
                 )
                 return None, None
@@ -3745,14 +3748,16 @@ class JAXNSSampler(Sampler):
 
         if len(parameter_names) == 0 or sample_matrix.shape[1] != len(parameter_names):
             warnings.warn(
-                "Skipping JAXNS equal-weight sample export because parameter names do not match the sample matrix columns.",
+                "Skipping JAXNS equal-weight sample export because parameter names "
+                "do not match the sample matrix columns.",
                 RuntimeWarning,
             )
             return None, None
 
         if log_likelihood.shape[0] != sample_matrix.shape[0]:
             warnings.warn(
-                "Skipping JAXNS equal-weight sample export because log-likelihood values do not match the number of samples.",
+                "Skipping JAXNS equal-weight sample export because log-likelihood "
+                "values do not match the number of samples.",
                 RuntimeWarning,
             )
             return None, None

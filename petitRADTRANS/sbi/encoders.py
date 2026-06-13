@@ -369,7 +369,10 @@ class SpectralPatchEncoder(eqx.Module):
         self.embedding_dim = int(embedding_dim)
         self.patch_size = int(patch_size)
         self.patch_mlp = eqx.nn.MLP(18, self.embedding_dim, hidden_dim, 2, key=mlp_key, dtype=jnp.float32)
-        self.amplitude_projection = eqx.nn.MLP(_AMPLITUDE_FEATURE_DIM, self.embedding_dim, hidden_dim, 1, key=amplitude_key, dtype=jnp.float32)
+        self.amplitude_projection = eqx.nn.MLP(
+            _AMPLITUDE_FEATURE_DIM, self.embedding_dim, hidden_dim, 1,
+            key=amplitude_key, dtype=jnp.float32,
+        )
         self.branch_projection = eqx.nn.Linear(
             self.embedding_dim * 3,
             self.embedding_dim,
@@ -640,7 +643,10 @@ class SpectralConv1DEncoder(eqx.Module):
         self.conv1 = eqx.nn.Conv1d(7, ch1, kernel_size=7, padding=3, key=k1, dtype=jnp.float32)
         self.conv2 = eqx.nn.Conv1d(ch1, ch2, kernel_size=5, padding=2, key=k2, dtype=jnp.float32)
         self.conv3 = eqx.nn.Conv1d(ch2, self.embedding_dim, kernel_size=3, padding=1, key=k3, dtype=jnp.float32)
-        self.amplitude_projection = eqx.nn.MLP(_AMPLITUDE_FEATURE_DIM, self.embedding_dim, max(self.embedding_dim, ch2), 1, key=k_amp, dtype=jnp.float32)
+        self.amplitude_projection = eqx.nn.MLP(
+            _AMPLITUDE_FEATURE_DIM, self.embedding_dim, max(self.embedding_dim, ch2), 1,
+            key=k_amp, dtype=jnp.float32,
+        )
         self.pool_projection = eqx.nn.Linear(
             self.embedding_dim * 2,
             self.embedding_dim,
@@ -1411,7 +1417,6 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
         if not blocks_batch:
             return jnp.zeros((0, self.embedding_dim), dtype=jnp.float32)
 
-        n_samples = len(blocks_batch)
         first_blocks = blocks_batch[0]
         n_blocks = len(first_blocks)
         modalities = [block.modality for block in first_blocks]

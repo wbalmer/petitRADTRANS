@@ -3,8 +3,7 @@ JAX implementation of fortran_core.physics
 """
 
 import jax.numpy as jnp
-import warnings
-from jax import jit, vmap, lax, debug
+from jax import jit, lax
 
 import petitRADTRANS.physical_constants as cst
 
@@ -79,7 +78,8 @@ def compute_rosseland_opacities_core(
     """Calculate the Rosseland mean opacity as a function of temperature.
 
     Args:
-        clouds_final_absorption_opacities (DeviceArray): Absorption opacities with shape (N_g, N_frequency_edges - 1, N_temperature).
+        clouds_final_absorption_opacities (DeviceArray): Absorption opacities with shape
+            (N_g, N_frequency_edges - 1, N_temperature).
         frequencies_bin_edges (DeviceArray): Frequency bin edges with shape (N_frequency_edges,).
         temperature (DeviceArray): Temperature with shape (N_temperature,).
         weights_gauss (DeviceArray): Gauss weights with shape (N_g,).

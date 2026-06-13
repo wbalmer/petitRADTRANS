@@ -1,14 +1,10 @@
 """Stores useful mathematical functions."""
 
-from typing import Literal
-
-import numpy as np
-from jax import lax, jit
+from jax import jit
 from jax.typing import ArrayLike
 from jaxtyping import Array, Float
 import jax.numpy as jnp
 from jax.scipy.special import erf, erfinv
-from scipy.interpolate import InterpolatedUnivariateSpline
 
 
 def bayes_factor2sigma(bayes_factor: float) -> [float, ArrayLike]:

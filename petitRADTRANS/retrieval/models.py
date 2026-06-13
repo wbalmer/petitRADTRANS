@@ -271,10 +271,10 @@ def molliere_2020_two_column(
     )
     t2 = t3 * (1.0 - physical_params["T2"])
     t1 = t2 * (1.0 - physical_params["T1"])
-    delta = ((10.0 ** (-3.0 + 5.0 * physical_params["log_delta"])) * 1e6) ** (
+    delta = ((10.0 ** (-3.0 + 5.0 * physical_params["log_delta"])) * 1e6) ** (  # noqa: F841
         -physical_params["alpha"]
     )
-    temp_arr = jnp.array([t1, t2, t3])
+    temp_arr = jnp.array([t1, t2, t3])  # noqa: F841
 
     t3_clear = (
         (3.0 / 4.0 * physical_params["T_int"] ** 4.0 * (0.1 + 2.0 / 3.0)) ** 0.25
@@ -407,7 +407,7 @@ def guillot_emission(
 
     gamma = _resolve_guillot_gamma(physical_params)
 
-    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    redistribution_coefficient = _get_parameter_value(physical_params, "redistribution_coefficient")
     if redistribution_coefficient is None:
         redistribution_coefficient = 0.25
 
@@ -490,7 +490,7 @@ def guillot_relative_emission(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     gamma = _resolve_guillot_gamma(physical_params)
-    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    redistribution_coefficient = _get_parameter_value(physical_params, "redistribution_coefficient")
     if redistribution_coefficient is None:
         redistribution_coefficient = 0.25
 
@@ -591,15 +591,14 @@ def guillot_emission_add_gaussian_temperature(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     gamma = _resolve_guillot_gamma(physical_params)
-    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    redistribution_coefficient = _get_parameter_value(physical_params, "redistribution_coefficient")
     if redistribution_coefficient is None:
-                redistribution_coefficient = 0.25
+        redistribution_coefficient = 0.25
 
     def gaussian(x, scale, mu, sig):
         return scale * jnp.exp(-jnp.power((x - mu) / sig, 2.0) / 2)
 
     def base_temperature_builder(pressures):
-
 
         temperature_builder = _wrap_runtime_temperature_builder(
             physical_params,
@@ -620,7 +619,7 @@ def guillot_emission_add_gaussian_temperature(
             physical_params["temperature_location_log_pressure"],
             physical_params["temperature_width_log_pressure"],
         )
-        temperatures = temperatures + temperature_addition
+        temperatures = temperature_builder(pressures) + temperature_addition
         safe_inds = jnp.where(temperatures < 1.0)
         return temperatures.at[safe_inds].set(1.0)
 
@@ -1140,7 +1139,7 @@ def guillot_transmission(
     gravity, planet_radius = _compute_gravity(physical_params)
 
     gamma = _resolve_guillot_gamma(physical_params)
-    redistribution_coefficient = _get_parameter_value(physical_params,"redistribution_coefficient")
+    redistribution_coefficient = _get_parameter_value(physical_params, "redistribution_coefficient")
     if redistribution_coefficient is None:
         redistribution_coefficient = 0.25
 
@@ -1728,8 +1727,8 @@ def legacy_molliere_2020_two_column(
     ) * (1.0 - parameters["T3_clear"].value)
     t2_clear = t3_clear * (1.0 - parameters["T2_clear"].value)
     t1_clear = t2_clear * (1.0 - parameters["T1_clear"].value)
-    temps_clear = jnp.array([t1_clear, t2_clear, t3_clear])
-    delta_clear = (
+    temps_clear = jnp.array([t1_clear, t2_clear, t3_clear])  # noqa: F841
+    delta_clear = (  # noqa: F841
         (10.0 ** (-3.0 + 5.0 * parameters["log_delta_clear"].value)) * 1e6
     ) ** (-parameters["alpha_clear"].value)
     gravity, planet_radius = _compute_gravity(parameters)
@@ -2504,7 +2503,7 @@ def legacy_power_law_profile_emission(
     # 1.4 assemble the P-T slopes for these layers
     # Build directly: an all-NaN initialiser + scatter-fill is a forward NaN
     # that poisons reverse-mode gradients via 0*NaN in the multiply's tangent.
-    layer_pt_slopes = jnp.stack(
+    layer_pt_slopes = jnp.stack(  # noqa: F841
         [parameters[f"PTslope_{num_layer - index}"].value for index in range(num_layer)]
     )
 
@@ -4265,6 +4264,7 @@ def calculate_transmission_spectrum(
 #
 # The ``legacy_*`` prefixed names are preserved for callers that need the old API.
 # ---------------------------------------------------------------------------
+
 
 molliere_2020_emission = make_unified_model(
     molliere_2020_emission,

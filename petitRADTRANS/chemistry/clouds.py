@@ -4,6 +4,7 @@ import copy
 import warnings
 
 import jax.numpy as jnp
+from petitRADTRANS.jax_dtype import JAX_DTYPE
 from petitRADTRANS.opacities.opacities import CloudOpacity
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.chemistry.vapour_pressures import (
@@ -101,8 +102,6 @@ __molar_masses = {
     "Ni": get_species_molar_mass("Ni"),
     "Zn": get_species_molar_mass("Zn"),
 }
-
-from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 
 def _get_species_molar_mass(species):
@@ -500,7 +499,7 @@ def calculate_vapour_pressure(name, pressure, args):
 
     base_name = _get_cloud_species_base_name(name)
     if base_name and base_name in cloud_species_functions:
-        vapour_pressure = cloud_species_functions[base_name](*args)
+        return cloud_species_functions[base_name](*args)
 
     warnings.warn(f"The condensation curve for {name} is not currently implemented.")
     return jnp.zeros_like(args[0])

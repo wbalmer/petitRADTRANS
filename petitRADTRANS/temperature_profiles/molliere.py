@@ -44,7 +44,7 @@ def molliere_2020_temperature_profile(
         pre_calculated_equilibrium_chemistry_table,
     )
 
-    #temperature_nodes, delta, alpha, t_internal, pressures, metallicity, co_ratio, conv = rad_trans_params
+    # temperature_nodes, delta, alpha, t_internal, pressures, metallicity, co_ratio, conv = rad_trans_params
     # Go from bar to cgs
     pressures_cgs = pressures * 1e6
 

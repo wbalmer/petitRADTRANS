@@ -479,6 +479,8 @@ def _continuum_cia_dat2h5(
     print("Successfully converted CIA opacities")
 
 # TODO add in new opacity DOIs for virga clouds
+
+
 def _continuum_clouds_opacities_dat2h5(
     path_input_data=petitradtrans_config_parser.get_input_data_path(),
     rewrite=False,
@@ -4176,7 +4178,8 @@ def load_dace(
             f"wavenumber coverage of converted opacities does not extend to "
             f"the requested wavelength lower value "
             f"({wavenumber_start}  cm-1 > {wavenumbers_petitradtrans_line_by_line[selection[0]]} cm-1)"
-            f"\nOpacities set to 0 within {wavenumbers_petitradtrans_line_by_line[selection[0]]}--{wavenumber_start} cm-1"
+            f"\nOpacities set to 0 within "
+            f"{wavenumbers_petitradtrans_line_by_line[selection[0]]}--{wavenumber_start} cm-1"
         )
         wavenumbers = np.insert(
             wavenumbers,
@@ -4879,4 +4882,3 @@ def convert_all(
         __remove_files([os.path.join(path_input_data, "opa_input_files")])
         print("Successfully removed opa_input_files directory")
         print("Final cleaning complete")
-

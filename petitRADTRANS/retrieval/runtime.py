@@ -23,7 +23,6 @@ import copy
 from dataclasses import dataclass, field, replace
 import logging
 from typing import Any, Mapping, TYPE_CHECKING
-import warnings
 
 import jax.numpy as jnp
 import numpy as np
@@ -857,13 +856,14 @@ class RetrievalRuntime:
                             observation.spectrum.shape[:-1] + (spectrum_model.shape[-1],),
                         )
 
-                    project_epoch = lambda spectrum_epoch: project_model_to_observation_space(
-                        wavelengths_model,
-                        spectrum_epoch,
-                        observation,
-                        parameters,
-                        data_name,
-                    )
+                    def project_epoch(spectrum_epoch):
+                        return project_model_to_observation_space(
+                            wavelengths_model,
+                            spectrum_epoch,
+                            observation,
+                            parameters,
+                            data_name,
+                        )
 
                     if _uses_variable_resolution_convolution(observation):
                         projected_model = lax.map(project_epoch, spectrum_model)
@@ -1049,13 +1049,14 @@ class RetrievalRuntime:
                         observation.spectrum.shape[:-1] + (spectrum_model.shape[-1],),
                     )
 
-                project_epoch = lambda spectrum_epoch: project_model_to_observation_space(
-                    wavelengths_model,
-                    spectrum_epoch,
-                    observation,
-                    parameters,
-                    data_name,
-                )
+                def project_epoch(spectrum_epoch):
+                    return project_model_to_observation_space(
+                        wavelengths_model,
+                        spectrum_epoch,
+                        observation,
+                        parameters,
+                        data_name,
+                    )
 
                 if _uses_variable_resolution_convolution(observation):
                     projected_model = lax.map(project_epoch, spectrum_model)
@@ -1992,11 +1993,6 @@ def _scale_and_inflate_uncertainties(
     )
 
     if observation.fit_covariance:
-        from petitRADTRANS.retrieval.covariance import (
-            build_global_covariance_kernel,
-            build_local_covariance_kernel,
-        )
-
         scaled_covariance = _build_fitted_covariance_from_observation(
             observation,
             parameters,
@@ -2249,13 +2245,14 @@ def project_model_time_series_to_observation_space(
     model_times = jnp.asarray(model_times)
     model_spectra = jnp.asarray(model_spectra)
 
-    project_epoch = lambda spectrum_epoch: project_model_to_observation_space(
-        wavelengths_model,
-        spectrum_epoch,
-        observation,
-        parameters,
-        data_name,
-    )
+    def project_epoch(spectrum_epoch):
+        return project_model_to_observation_space(
+            wavelengths_model,
+            spectrum_epoch,
+            observation,
+            parameters,
+            data_name,
+        )
 
     if _uses_variable_resolution_convolution(observation):
         projected_model_spectra = lax.map(project_epoch, model_spectra)

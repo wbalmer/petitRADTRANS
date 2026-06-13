@@ -11,7 +11,6 @@ import numpy as np
 import numpy.typing as npt
 from typing import Callable
 
-from scipy.stats import binned_statistic
 from jax import errors as jax_errors
 from jax import jit, vmap, lax, numpy as jnp
 
@@ -22,14 +21,13 @@ from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.radtrans_core.spectrum_utils import (
     convolve,
     convolve_and_sample_variable_resolution_breads,
-    filter_spectrum_with_spline,
     rebin_spectrum_bin,
 )
 from petitRADTRANS.physics import (
     shift_wavelengths_by_radial_velocity,
 )
 from petitRADTRANS.radtrans import Radtrans
-from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
+from petitRADTRANS.retrieval.data import Data, PhotometryData
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.models import (
     MODEL_CONTRACT_DIFFERENTIABLE,
@@ -2812,7 +2810,6 @@ class Retrieval:
 
         parameters = self.build_param_dict(sample, parameters_read)
 
-
         name = self.plotter.get_reference_radtrans_name()
         pressures, temps = self.calculate_temperature_profile(sample)[name]
 
@@ -4092,7 +4089,8 @@ class Retrieval:
         for data_name, data in self.configuration.data.items():
             data_spectrum = data.spectrum
 
-            # Only calculate spectra within a given wavelengths range once if data.scale_flux or data.scale_uncertainties:
+            # Only calculate spectra within a given wavelengths range once if
+            # data.scale_flux or data.scale_uncertainties:
             data_spectrum = data.apply_flux_scaling(
                 data_spectrum, self.configuration.parameters
             )
@@ -4532,7 +4530,8 @@ class Retrieval:
     def _ensure_jax_sampler_model_support(self, sampler_name: str) -> None:
         if self._has_only_legacy_model_groups():
             raise ValueError(
-                f"{sampler_name} requires at least one differentiable model group; legacy-only retrievals are not supported."
+                f"{sampler_name} requires at least one differentiable model group; "
+                f"legacy-only retrievals are not supported."
             )
 
     def _get_ultranest_vectorization_disable_reason(self) -> str | None:
@@ -5008,7 +5007,8 @@ class Retrieval:
             parameter = self.configuration.parameters[parameter_name]
             if parameter.distribution is None:
                 raise ValueError(
-                    f"JAXNS samplers require distribution-backed free parameters; '{parameter_name}' has no distribution."
+                    f"JAXNS samplers require distribution-backed free parameters; "
+                    f"'{parameter_name}' has no distribution."
                 )
             priors.append(parameter.set_prior())
 
@@ -5900,7 +5900,8 @@ class Retrieval:
         mode="bestfit",
     ):
         """
-        Generate all standard plots for a retrieval, including best-fit spectrum, sample spectra, PT profile, corner plot, and abundances.
+        Generate all standard plots for a retrieval, including best-fit spectrum,
+        sample spectra, PT profile, corner plot, and abundances.
         This is a wrapper for RetrievalPlotter.plot_all.
 
         Args:

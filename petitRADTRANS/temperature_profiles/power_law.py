@@ -1,4 +1,3 @@
-import jax.numpy as jnp
 from jax.typing import ArrayLike
 from jax import Array
 

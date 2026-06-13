@@ -774,8 +774,11 @@ class SBITrainer:
         # is given the behavior is unchanged: losses are called as
         # ``(model, batch)`` via a wrapper that ignores the conditioning scalar.
         if loss_conditioning_schedule is None:
-            _train_loss_fn = lambda _m, _b, _c: loss_fn(_m, _b)
-            _eval_loss_fn = lambda _m, _b, _c: eval_loss_fn(_m, _b)
+            def _train_loss_fn(_m, _b, _c):
+                return loss_fn(_m, _b)
+
+            def _eval_loss_fn(_m, _b, _c):
+                return eval_loss_fn(_m, _b)
         else:
             _train_loss_fn = loss_fn
             _eval_loss_fn = eval_loss_fn
@@ -1291,7 +1294,11 @@ class SBITrainer:
                 # Fast path: slice pre-loaded arrays by shuffled index
                 _all_params, _all_obs = preloaded_train
                 n_train = _all_params.shape[0]
-                _perm = np.random.default_rng(self.config.seed + epoch).permutation(n_train) if self.config.shuffle_train else np.arange(n_train)
+                _perm = (
+                    np.random.default_rng(self.config.seed + epoch).permutation(n_train)
+                    if self.config.shuffle_train
+                    else np.arange(n_train)
+                )
                 for _start in range(0, n_train, effective_batch_size):
                     _idx = _perm[_start : _start + effective_batch_size]
                     if len(_idx) < effective_batch_size:
@@ -1328,7 +1335,9 @@ class SBITrainer:
                         batch_params, _obs = _maybe_pad_and_shard(batch_params, _obs)
                     else:
                         batch_params = batch.parameters
-                    model, optimizer_state, loss_value = _jit_step(model, optimizer_state, batch_params, _obs, _train_cond)
+                    model, optimizer_state, loss_value = _jit_step(
+                        model, optimizer_state, batch_params, _obs, _train_cond
+                    )
                     epoch_losses.append(float(loss_value))
 
             train_metric = float(np.mean(epoch_losses)) if epoch_losses else float('nan')
@@ -1379,7 +1388,6 @@ class SBITrainer:
                     for _start in range(0, n_val, effective_batch_size):
                         _idx = np.arange(_start, min(_start + effective_batch_size, n_val))
                         _vp = _val_params[_idx]
-                        from .observation import PreStackedObservations
                         _vo = PreStackedObservations(
                             stacked_blocks=tuple(
                                 tuple(arr[_idx] for arr in block_tuple)

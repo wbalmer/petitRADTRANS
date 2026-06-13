@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -1674,7 +1673,7 @@ def generate_posterior_predictive_report(
                 restored_obs_names = [
                     name
                     for name in str(
-                    restored["_observation_names_joined"].item()
+                        restored["_observation_names_joined"].item()
                     ).split(",")
                     if name
                 ]

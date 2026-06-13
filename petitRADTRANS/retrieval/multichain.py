@@ -508,7 +508,6 @@ def _discover_chain_files(
     base_dir: Path, base_name: str
 ) -> list[tuple[int, Path]]:
     """Find ``<base_name>_chain<c>_samples.npz`` files, sorted by chain id."""
-    pattern = str(base_dir / f"{re.escape(base_name)}_chain*_samples.npz")
     found: list[tuple[int, Path]] = []
     regex = re.compile(rf"{re.escape(base_name)}_chain(\d+)_samples\.npz$")
     for path in glob.glob(str(base_dir / f"{base_name}_chain*_samples.npz")):

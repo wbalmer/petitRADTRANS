@@ -149,7 +149,8 @@ def _get_static_bool_parameter(parameter_name, parameter_value) -> bool:
 
     if isinstance(value, Tracer):
         raise TypeError(
-            f"Parameter '{parameter_name}' controls chemistry structure and must be a static scalar, not a traced JAX value."
+            f"Parameter '{parameter_name}' controls chemistry structure and must be "
+            f"a static scalar, not a traced JAX value."
         )
 
     if hasattr(value, "shape") and hasattr(value, "dtype"):

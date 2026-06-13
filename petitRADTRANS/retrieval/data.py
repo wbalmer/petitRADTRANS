@@ -1,4 +1,3 @@
-import copy
 import os
 import warnings
 from typing import Callable
@@ -93,8 +92,8 @@ class Data:
             Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the
             retrieval.
         scale_uncertainties:
-            Turn on or off scaling the uncertainties by a constant factor. Set to True if scaling the uncertainties during the
-            retrieval.
+            Turn on or off scaling the uncertainties by a constant factor. Set to True if
+            scaling the uncertainties during the retrieval.
         fit_flux_offset:
             Turn on or off fitting a flux offset. Set to True if fitting a flux offset during the retrieval.
         fit_covariance:
@@ -867,6 +866,7 @@ class PhotometryData(Data):
             metadata=updated_metadata,
         )
 
+
 class TimeSeriesData(Data):
     """
     Data class for photometric observations.
@@ -1101,4 +1101,3 @@ class TimeSeriesData(Data):
             )
         else:
             raise ValueError("data_resolution must be array like to interpolate!")
-

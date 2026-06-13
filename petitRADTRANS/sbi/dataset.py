@@ -461,9 +461,9 @@ class NormalizedObservationDatasetReader:
             # to avoid keeping covariance (42 GB) in the RAM cache.
             split_data = self.dataset.read_split(split)
             for obs_payload in split_data.get("observations", {}).values():
-                for field in list(obs_payload):
-                    if field not in _OBSERVATION_TRAINING_FIELDS and field != "metadata":
-                        del obs_payload[field]
+                for field_name in list(obs_payload):
+                    if field_name not in _OBSERVATION_TRAINING_FIELDS and field_name != "metadata":
+                        del obs_payload[field_name]
             raw_blocks = build_observation_block_batch(
                 split_data["observations"],
                 self.dataset.manifest.observation_schema["modalities"],

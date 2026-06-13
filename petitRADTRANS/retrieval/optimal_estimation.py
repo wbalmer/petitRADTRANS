@@ -23,7 +23,7 @@ any optax optimiser can be supplied.
 import json
 import os
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 import numpy as np

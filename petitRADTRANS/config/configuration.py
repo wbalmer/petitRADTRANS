@@ -30,7 +30,9 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         },
         'Filters': {
             'vega_mag': "0.03",
-            'database':  os.path.join(str(Path.home()), 'petitRADTRANS', 'input_data', 'filters', 'filter_database.hdf5'),
+            'database': os.path.join(
+                str(Path.home()), 'petitRADTRANS', 'input_data', 'filters', 'filter_database.hdf5'
+            ),
         }
     }
 
@@ -219,9 +221,6 @@ class PetitradtransConfigParser(configparser.ConfigParser):
     def init_filter_database(
         self, database_file: Optional[Union[str, PosixPath, WindowsPath]] = None
     ) -> None:
-        working_folder = Path.cwd()
-        #print(f"Working folder: {working_folder}")
-
         config = configparser.ConfigParser(allow_no_value=True)
         config_file = Path(self._config_file)
 
@@ -261,11 +260,7 @@ class PetitradtransConfigParser(configparser.ConfigParser):
             config.set("Filters", "data_folder", str(data_folder))
             config_update = True
 
-        if "vega_mag" in config["Filters"]:
-            vega_mag = config["Filters"]["vega_mag"]
-
-        else:
-            vega_mag = 0.03
+        if "vega_mag" not in config["Filters"]:
             config.set("Filters", "vega_mag", "0.03")
             config_update = True
 
@@ -287,10 +282,10 @@ class PetitradtransConfigParser(configparser.ConfigParser):
             h5_file.close()
             print(" [DONE]")
 
-        #print("\nConfiguration settings:")
-        #print(f"   - Database: {database_file}")
-        #print(f"   - Data folder: {data_folder}")
-        #print(f"   - Magnitude of Vega: {vega_mag}")
+        # print("\nConfiguration settings:")
+        # print(f"   - Database: {database_file}")
+        # print(f"   - Data folder: {data_folder}")
+        # print(f"   - Magnitude of Vega: {vega_mag}")
 
 
 def get_input_data_subpaths() -> LockedDict:

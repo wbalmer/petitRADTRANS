@@ -7,7 +7,7 @@ import inspect
 import os
 import sys
 import warnings
-from typing import Any, Callable
+from typing import Any, Callable, TYPE_CHECKING
 
 from jax import tree_util
 import jax.numpy as jnp
@@ -21,13 +21,11 @@ from petitRADTRANS.chemistry.pre_calculated_chemistry import (
 )
 from petitRADTRANS.chemistry.utils import (
     compute_mean_molar_masses,
-    fill_atmosphere,
     mass_fractions2volume_mixing_ratios,
-    simplify_species_list,
 )
 from petitRADTRANS.chemistry.core import calculate_gas_mass_fractions
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
-from petitRADTRANS.math import gaussian_weights_running, resolving_space
+from petitRADTRANS.math import resolving_space
 from petitRADTRANS.physics import (
     doppler_shift,
     flux2irradiance,
@@ -61,6 +59,13 @@ from petitRADTRANS.utils import (
     remove_mask,
     topological_sort,
 )
+
+if TYPE_CHECKING:
+    # Imported only for type annotations; the runtime imports are deferred
+    # inside methods to avoid circular imports with the retrieval package.
+    from petitRADTRANS.retrieval.data import Data
+    from petitRADTRANS.retrieval.retrieval import Retrieval
+    from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 
 
 class SpectralModel(Radtrans):
@@ -547,7 +552,7 @@ class SpectralModel(Radtrans):
         self.__check_model_parameters_relevance()
 
     def __check_model_parameters_relevance(self):
-        default_parameters = self.get_default_parameters(
+        self.get_default_parameters(
             sort=False, spectral_model_specific=False, from_maps=True
         )
 

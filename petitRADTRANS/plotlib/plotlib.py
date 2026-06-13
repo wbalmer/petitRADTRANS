@@ -21,6 +21,12 @@ from petitRADTRANS.chemistry.clouds import (
     condensation_temperature_mgsio3,
     condensation_temperature_na2s,
 )
+from petitRADTRANS.chemistry.vapour_pressures import (
+    vapour_pressure_fe_solid,
+    vapour_pressure_kcl,
+    vapour_pressure_mgsio3,
+    vapour_pressure_na2s,
+)
 
 from petitRADTRANS.chemistry.pre_calculated_chemistry import (
     pre_calculated_equilibrium_chemistry_table,

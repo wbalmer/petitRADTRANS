@@ -1628,6 +1628,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         )  # (g, f, l, a)
         transm_lfa = jnp.einsum("g,gfla->lfa", weights_gauss_work, transm_gfla)  # (l, f, a)
         del transm_gfla
+
         def i_mu_body(i_mu: int, acc: ArrayLike) -> ArrayLike:
             mu_val = emission_cos_angles_work[i_mu]
             mu_weight_val = emission_cos_angles_weights_work[i_mu]
@@ -2196,7 +2197,8 @@ def compute_optical_depths(
     scattering_in_emission : bool, optional
         If ``True``, include ``continuum_opacities_scattering`` in the total opacity
         used by the emission solver.
-    continuum_opacities_scattering : jax.Array, shape (n_g or 1, n_frequencies, n_layers) or (n_frequencies, n_layers), optional
+    continuum_opacities_scattering : jax.Array, optional
+        Shape (n_g or 1, n_frequencies, n_layers) or (n_frequencies, n_layers).
         Scattering opacity added to the first species channel when emission scattering
         is enabled.
 
