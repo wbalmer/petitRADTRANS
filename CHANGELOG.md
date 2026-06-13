@@ -12,7 +12,6 @@ to run natively on GPUs and TPUs. Version 4.0 is in beta, and is subject to chan
 
 ### TODO
 - Feature completion: Update keeper with ExoMol recommended line opacities, c-k and lbl (e.g. CH4__MM).
-- Testing: generate new reference files where necessary, once commited to changes (e.g. chemistry update).
 - Documentation: Update contribution section with JAX philosophy and links.
 - Housekeeping: Address all remaining TODOs in code.
 - Future goals: JAXify EasyChem
