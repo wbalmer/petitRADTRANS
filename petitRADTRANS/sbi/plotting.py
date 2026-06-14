@@ -495,7 +495,7 @@ def plot_posterior_predictive_report(
 
     n_rows = len(selected_dataset_names)
     if figsize is None:
-        figsize = (12.0, 5.0 * n_rows)
+        figsize = (14.0, 6.0 * n_rows)
 
     palette = _prt_palette()
 

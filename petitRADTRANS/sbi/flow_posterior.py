@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any, Callable, Mapping, cast
 
@@ -10,6 +11,7 @@ from jax import Array, random, vmap
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 from jax import nn
 
 from .encoders import HierarchicalObservationEncoder
@@ -1809,6 +1811,147 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             return -jnp.mean(elbo)
 
         return _elbo_loss
+
+    @staticmethod
+    def _tile_prestacked_observation(observation: Any, n_tiles: int) -> Any:
+        """Repeat a single (batch-1) prestacked observation ``n_tiles`` times."""
+        from .observation import PreStackedObservations
+
+        def _tile(arr: Any) -> jnp.ndarray:
+            arr = jnp.asarray(arr)
+            return jnp.repeat(arr, n_tiles, axis=0)
+
+        return PreStackedObservations(
+            stacked_blocks=tuple(
+                tuple(_tile(arr) for arr in block)
+                for block in observation.stacked_blocks
+            ),
+            modalities=observation.modalities,
+        )
+
+    def refine_posterior_on_observation(
+        self,
+        target_observation: Any,
+        elbo_log_likelihood_fn: Callable[[jnp.ndarray, Any], jnp.ndarray],
+        *,
+        num_steps: int = 300,
+        learning_rate: float = 1e-3,
+        num_samples: int = 16,
+        gradient_clip_norm: float = 2.0,
+        seed: int = 0,
+        verbose: bool = True,
+    ) -> "ConditionalFlowPosterior":
+        """Semi-amortized test-time refinement of the posterior for one
+        observation.
+
+        Starting from the trained amortized model, optimize the
+        single-observation ELBO (at ``beta = 1``)
+
+            ELBO(x_obs) = E_{q(theta|c)}[ log p(x_obs|theta) - log q(theta|c) ]
+
+        for ``num_steps`` Adam steps using the injected differentiable
+        forward-model likelihood, adapting the flow while holding the encoder
+        (and therefore the conditioning embedding ``c = encoder(x_obs)``) fixed
+        at its amortized value. This removes the amortization gap for the
+        specific target: the amortized network supplies the initialization, then
+        gradient steps specialize ``q`` so its posterior-predictive matches the
+        observation.
+
+        Returns a shallow copy of this posterior whose flow is specialized to
+        ``target_observation``; use it only for inference on that observation.
+        The original (amortized) posterior is left unchanged.
+
+        Parameters
+        ----------
+        target_observation:
+            A batch-1 :class:`PreStackedObservations` for the target spectrum,
+            normalized with the same preprocessing as training (so the encoder
+            sees the same representation and the likelihood can de-normalize it).
+        elbo_log_likelihood_fn:
+            The same differentiable ``(theta_cube, observations) -> (batch,)``
+            forward-model likelihood used for ELBO training.
+        num_steps, learning_rate, num_samples, gradient_clip_norm, seed:
+            Refinement optimization controls. ``num_samples`` reparameterized
+            draws are scored against the target each step.
+        """
+        if self.parameter_space != "cube":
+            raise ValueError(
+                "Semi-amortized refinement requires parameter_space='cube'."
+            )
+        n_draws = max(int(num_samples), 1)
+
+        # Fixed conditioning embedding from the (frozen) encoder, computed once.
+        embedding = ConditionalFlowPosterior._batch_embeddings(
+            self.model, target_observation
+        )
+        embedding = jax.lax.stop_gradient(
+            jnp.asarray(embedding, dtype=jnp.float32)
+        )  # (1, embedding_dim)
+        param_dim = self.model.flow.parameter_dim
+        # Tile the target so each reparameterized draw is scored against it.
+        target_tiled = self._tile_prestacked_observation(target_observation, n_draws)
+        embedding_tiled = jnp.broadcast_to(
+            embedding, (n_draws, embedding.shape[-1])
+        )
+
+        def _refine_loss(flow: Any, key: Array) -> jnp.ndarray:
+            latent = flow._base_sample(key, (n_draws, param_dim), jnp.float32)
+            theta_unc, log_det_inv = vmap(flow.inverse)(latent, embedding_tiled)
+            base_log_prob = vmap(flow._base_log_prob)(latent)
+            log_q_unc = base_log_prob - log_det_inv
+            theta_cube = nn.sigmoid(theta_unc)
+            clipped = jnp.clip(theta_cube, 1e-7, 1.0 - 1e-7)
+            log_jacobian = jnp.sum(
+                jnp.log(clipped) + jnp.log1p(-clipped), axis=-1
+            )
+            log_q_cube = log_q_unc - log_jacobian
+            log_likelihood = jnp.reshape(
+                elbo_log_likelihood_fn(theta_cube, target_tiled), (n_draws,)
+            )
+            elbo = log_likelihood - log_q_cube
+            elbo = jnp.where(jnp.isfinite(elbo), elbo, -1e6)
+            return -jnp.mean(elbo), jnp.mean(log_likelihood)
+
+        optimizer = optax.chain(
+            optax.clip_by_global_norm(float(gradient_clip_norm)),
+            optax.adam(float(learning_rate)),
+        )
+        flow = self.model.flow
+        opt_state = optimizer.init(eqx.filter(flow, eqx.is_inexact_array))
+
+        @eqx.filter_jit
+        def _step(_flow: Any, _opt_state: Any, _key: Array) -> tuple:
+            (loss_val, mean_ll), grads = eqx.filter_value_and_grad(
+                _refine_loss, has_aux=True
+            )(_flow, _key)
+            grads = jax.tree_util.tree_map(
+                lambda g: jnp.where(jnp.isfinite(g), g, jnp.zeros_like(g))
+                if g is not None
+                else None,
+                grads,
+                is_leaf=lambda x: x is None,
+            )
+            updates, _opt_state = optimizer.update(
+                grads, _opt_state, eqx.filter(_flow, eqx.is_inexact_array)
+            )
+            return eqx.apply_updates(_flow, updates), _opt_state, loss_val, mean_ll
+
+        key = random.PRNGKey(int(seed))
+        for step_index in range(int(num_steps)):
+            key, step_key = random.split(key)
+            flow, opt_state, loss_val, mean_ll = _step(flow, opt_state, step_key)
+            if verbose and (
+                step_index % 50 == 0 or step_index == int(num_steps) - 1
+            ):
+                print(
+                    f"  refine step {step_index:4d} | -ELBO {float(loss_val):.4f} "
+                    f"| mean log p(x|theta) {float(mean_ll):.4f}"
+                )
+
+        refined_model = eqx.tree_at(lambda m: m.flow, self.model, flow)
+        refined = copy.copy(self)
+        refined.model = refined_model
+        return refined
 
     def fit(
         self,

@@ -150,7 +150,7 @@ def set_petitradtrans_plot_style():
         matplotlib.use('Agg')
 
     font = {'family': 'sans',
-            'size': 24}
+            'size': 20}
     lines = {'markeredgecolor': 'k',
              'markersize': 8}
 
@@ -175,7 +175,7 @@ def set_petitradtrans_plot_style():
             ),
             'titlesize': 32,
             'linewidth': 3.5}
-    figure = {'titlesize': 32,
+    figure = {'titlesize': 24,
               'figsize': (16, 10),
               'autolayout': True}
     legend = {'fancybox': True,
