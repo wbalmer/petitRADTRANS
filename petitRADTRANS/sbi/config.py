@@ -80,6 +80,11 @@ class TrainingConfig:
     # 'npe' (conditional NLL, default and robust) or 'elbo' (amortized VI).
     training_objective: str = "npe"
     aux_scale_loss_weight: float = 0.0
+    # Weight of the differentiable inverse round-trip / log-det-closure penalty
+    # added to the NPE training loss. Keeps an iterative-inverse flow (NAF)
+    # invertible as it sharpens; 0.0 disables it (default, unchanged behaviour).
+    invertibility_loss_weight: float = 0.0
+    invertibility_loss_n_samples: int = 64
     # 'cube' (uniform prior) or 'unconstrained'. ELBO requires 'cube'.
     parameter_space: str = "cube"
     # ELBO-objective knobs (ignored when training_objective='npe').
@@ -169,6 +174,8 @@ def build_conditional_flow_posterior(
         elbo_beta_start=float(training.elbo_beta_start),
         elbo_anneal_fraction=float(training.elbo_anneal_fraction),
         aux_scale_loss_weight=float(training.aux_scale_loss_weight),
+        invertibility_loss_weight=float(training.invertibility_loss_weight),
+        invertibility_loss_n_samples=int(training.invertibility_loss_n_samples),
         weight_decay=float(training.weight_decay),
         gradient_clip_norm=training.gradient_clip_norm,
         early_stopping_patience=training.early_stopping_patience,

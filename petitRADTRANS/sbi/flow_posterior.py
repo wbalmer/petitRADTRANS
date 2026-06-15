@@ -45,6 +45,8 @@ class _PosteriorModel(eqx.Module):
     spline_min_bin_ratio_target: float = eqx.field(static=True)
     spline_min_derivative_target: float = eqx.field(static=True)
     spline_max_derivative_target: float = eqx.field(static=True)
+    invertibility_loss_weight: float = eqx.field(static=True)
+    invertibility_loss_n_samples: int = eqx.field(static=True)
 
 
 _VALIDATION_DIAGNOSTIC_SAMPLES = 64
@@ -1109,6 +1111,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         spline_entropy_floor: float = 0.6,
         spline_min_derivative_target: float = 0.25,
         spline_max_derivative_target: float = 5.0,
+        invertibility_loss_weight: float = 0.0,
+        invertibility_loss_n_samples: int = 64,
         weight_decay: float = 0.0,
         use_cosine_schedule: bool = False,
         warmup_fraction: float = 0.02,
@@ -1209,6 +1213,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.spline_entropy_floor = float(np.clip(spline_entropy_floor, 0.0, 1.0))
         self.spline_min_derivative_target = float(spline_min_derivative_target)
         self.spline_max_derivative_target = float(spline_max_derivative_target)
+        self.invertibility_loss_weight = float(invertibility_loss_weight)
+        self.invertibility_loss_n_samples = int(invertibility_loss_n_samples)
         self.weight_decay = float(weight_decay)
         self.use_cosine_schedule = bool(use_cosine_schedule)
         self.warmup_fraction = float(warmup_fraction)
@@ -1252,6 +1258,10 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             raise ValueError("spline_small_bin_regularization_weight must be non-negative")
         if self.spline_derivative_regularization_weight < 0.0:
             raise ValueError("spline_derivative_regularization_weight must be non-negative")
+        if self.invertibility_loss_weight < 0.0:
+            raise ValueError("invertibility_loss_weight must be non-negative")
+        if self.invertibility_loss_n_samples <= 0:
+            raise ValueError("invertibility_loss_n_samples must be positive")
         if self.spline_min_bin_ratio_target <= 0.0:
             raise ValueError("spline_min_bin_ratio_target must be positive")
         if self.spline_min_derivative_target <= 0.0:
@@ -1331,6 +1341,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             spline_min_bin_ratio_target=self.spline_min_bin_ratio_target,
             spline_min_derivative_target=self.spline_min_derivative_target,
             spline_max_derivative_target=self.spline_max_derivative_target,
+            invertibility_loss_weight=self.invertibility_loss_weight,
+            invertibility_loss_n_samples=self.invertibility_loss_n_samples,
         )
 
     def _build_flow(self, key: Array) -> Any:
@@ -1492,6 +1504,13 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 + model.spline_derivative_regularization_weight * derivative_penalty
             )
 
+        if include_spline_regularization and model.invertibility_loss_weight > 0.0:
+            total_loss = total_loss + model.invertibility_loss_weight * (
+                ConditionalFlowPosterior._invertibility_penalty(
+                    model, embeddings, model.invertibility_loss_n_samples
+                )
+            )
+
         if model.aux_scale_loss_weight <= 0.0:
             return total_loss
 
@@ -1506,6 +1525,59 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         n_scale = jnp.maximum(finite_scale_mask.sum(), 1)
         scale_loss = jnp.sum(jnp.square(scale_residual) * finite_scale_mask) / n_scale
         return total_loss + model.aux_scale_loss_weight * scale_loss
+
+    @staticmethod
+    def _invertibility_penalty(
+        model: _PosteriorModel,
+        embeddings: jnp.ndarray,
+        n_samples: int,
+    ) -> jnp.ndarray:
+        """Differentiable inverse round-trip + log-det-closure penalty.
+
+        Draws base samples ``z ~ N(0, I)``, maps them to flow space with the
+        (iterative) inverse, then back to latent space with the analytic
+        forward. The inverse output is detached with ``stop_gradient`` so no
+        gradient flows through the bisection solver; the gradient instead trains
+        the *forward* map to be consistent with its own inverse. This penalises
+        exactly the ``inverse_forward`` round-trip error and the inverse/forward
+        log-det closure that the validation diagnostics report -- the quantities
+        that diverge as a neural-autoregressive flow sharpens (val_loss keeps
+        falling while the sampler that draws posterior samples becomes
+        non-invertible, so the deployed posterior predicts nonsense).
+
+        The penalty is bounded in scale: the reconstruction term is a mean
+        squared error in latent space and the log-det term is normalised by the
+        parameter dimension, so a single ``invertibility_loss_weight`` controls
+        both. For flows with an exact analytic inverse (affine/spline) the
+        penalty is ~0 and merely costs a little compute.
+        """
+        n_context = int(embeddings.shape[0])
+        n = max(1, min(int(n_samples), n_context))
+        context = embeddings[:n]
+        # Fixed key: the base points are held constant, but the conditioning
+        # embeddings vary per batch, so the regularised (z, context) pairs differ
+        # across steps. This mirrors how ``_validation_diagnostics`` samples.
+        latent = random.normal(
+            random.PRNGKey(0),
+            shape=(n, model.flow.parameter_dim),
+            dtype=embeddings.dtype,
+        )
+        flow_inputs, inverse_logdet = vmap(
+            lambda z, ctx: model.flow.inverse(z, ctx)
+        )(latent, context)
+        flow_inputs = jax.lax.stop_gradient(flow_inputs)
+        inverse_logdet = jax.lax.stop_gradient(inverse_logdet)
+        recovered_latent, forward_logdet = vmap(
+            lambda sample, ctx: model.flow.forward(sample, ctx)
+        )(flow_inputs, context)
+        reconstruction = jnp.mean(jnp.square(recovered_latent - latent))
+        logdet_closure = jnp.mean(
+            jnp.square(
+                (forward_logdet + inverse_logdet)
+                / jnp.asarray(model.flow.parameter_dim, dtype=embeddings.dtype)
+            )
+        )
+        return reconstruction + logdet_closure
 
     def _validation_diagnostics(
         self,
@@ -2205,6 +2277,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "checkpoint_backend": self.checkpoint_backend,
             "resume_from_checkpoint": self.resume_from_checkpoint,
             "aux_scale_loss_weight": self.aux_scale_loss_weight,
+            "invertibility_loss_weight": self.invertibility_loss_weight,
+            "invertibility_loss_n_samples": self.invertibility_loss_n_samples,
             "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
             "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
             "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -2268,6 +2342,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "checkpoint_backend": self.checkpoint_backend,
                 "resume_from_checkpoint": self.resume_from_checkpoint,
                 "aux_scale_loss_weight": self.aux_scale_loss_weight,
+                "invertibility_loss_weight": self.invertibility_loss_weight,
+                "invertibility_loss_n_samples": self.invertibility_loss_n_samples,
                 "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
                 "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
                 "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -2354,6 +2430,10 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "resume_from_checkpoint": metadata.get("resume_from_checkpoint", False),
             "conditioner_depth": metadata.get("conditioner_depth", 2),
             "aux_scale_loss_weight": metadata.get("aux_scale_loss_weight", 0.0),
+            "invertibility_loss_weight": metadata.get("invertibility_loss_weight", 0.0),
+            "invertibility_loss_n_samples": metadata.get(
+                "invertibility_loss_n_samples", 64
+            ),
             "spline_small_bin_regularization_weight": small_bin_weight,
             "spline_min_bin_ratio_target": metadata.get("spline_min_bin_ratio_target", 0.2),
             "spline_entropy_regularization_weight": metadata.get(
@@ -2463,6 +2543,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             ),
             aux_scale_loss_weight=float(
                 estimator_config.get("aux_scale_loss_weight", 0.0)
+            ),
+            invertibility_loss_weight=float(
+                estimator_config.get("invertibility_loss_weight", 0.0)
+            ),
+            invertibility_loss_n_samples=int(
+                estimator_config.get("invertibility_loss_n_samples", 64)
             ),
             spline_small_bin_regularization_weight=float(
                 estimator_config.get(
