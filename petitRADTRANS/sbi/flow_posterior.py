@@ -1906,67 +1906,61 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         target_observation: Any,
         elbo_log_likelihood_fn: Callable[[jnp.ndarray, Any], jnp.ndarray],
         *,
-        num_steps: int = 300,
-        learning_rate: float = 1e-3,
+        num_steps: int = 400,
+        learning_rate: float = 1e-4,
         num_samples: int = 16,
-        gradient_clip_norm: float = 2.0,
+        beta_start: float = 1e-3,
+        beta_anneal_fraction: float = 0.5,
+        gradient_clip_norm: float = 1.0,
+        gradient_clip_value: float = 1.0,
         seed: int = 0,
         verbose: bool = True,
     ) -> "ConditionalFlowPosterior":
         """Semi-amortized test-time refinement of the posterior for one
-        observation.
+        observation (flow-based ELBO variant).
 
         Starting from the trained amortized model, optimize the
-        single-observation ELBO (at ``beta = 1``)
+        single-observation tempered ELBO
 
-            ELBO(x_obs) = E_{q(theta|c)}[ log p(x_obs|theta) - log q(theta|c) ]
+            ELBO_beta(x_obs) = E_{q(theta|c)}[ beta * log p(x_obs|theta)
+                                               - log q(theta|c) ]
 
-        for ``num_steps`` Adam steps using the injected differentiable
-        forward-model likelihood, adapting the flow while holding the encoder
-        (and therefore the conditioning embedding ``c = encoder(x_obs)``) fixed
-        at its amortized value. This removes the amortization gap for the
-        specific target: the amortized network supplies the initialization, then
-        gradient steps specialize ``q`` so its posterior-predictive matches the
-        observation.
+        adapting the flow while holding the encoder (hence the conditioning
+        embedding ``c = encoder(x_obs)``) fixed. ``beta`` is annealed soft -> 1
+        across the steps so the very small observational noise does not blow up
+        the single-observation gradient early (which previously made this step
+        diverge); a low learning rate and gradient clipping (both by global norm
+        and by value) further stabilize it. The **best beta=1 ELBO** state seen
+        during optimization is returned (not the last), so a late instability
+        cannot degrade the result.
 
         Returns a shallow copy of this posterior whose flow is specialized to
         ``target_observation``; use it only for inference on that observation.
-        The original (amortized) posterior is left unchanged.
 
-        Parameters
-        ----------
-        target_observation:
-            A batch-1 :class:`PreStackedObservations` for the target spectrum,
-            normalized with the same preprocessing as training (so the encoder
-            sees the same representation and the likelihood can de-normalize it).
-        elbo_log_likelihood_fn:
-            The same differentiable ``(theta_cube, observations) -> (batch,)``
-            forward-model likelihood used for ELBO training.
-        num_steps, learning_rate, num_samples, gradient_clip_norm, seed:
-            Refinement optimization controls. ``num_samples`` reparameterized
-            draws are scored against the target each step.
+        See also :meth:`map_laplace_posterior_on_observation`, the more robust
+        MAP + Laplace variant that sidesteps reverse-KL under-dispersion.
         """
         if self.parameter_space != "cube":
             raise ValueError(
                 "Semi-amortized refinement requires parameter_space='cube'."
             )
         n_draws = max(int(num_samples), 1)
+        beta_start = float(beta_start)
+        anneal_fraction = float(beta_anneal_fraction)
 
-        # Fixed conditioning embedding from the (frozen) encoder, computed once.
         embedding = ConditionalFlowPosterior._batch_embeddings(
             self.model, target_observation
         )
         embedding = jax.lax.stop_gradient(
             jnp.asarray(embedding, dtype=jnp.float32)
-        )  # (1, embedding_dim)
+        )
         param_dim = self.model.flow.parameter_dim
-        # Tile the target so each reparameterized draw is scored against it.
         target_tiled = self._tile_prestacked_observation(target_observation, n_draws)
         embedding_tiled = jnp.broadcast_to(
             embedding, (n_draws, embedding.shape[-1])
         )
 
-        def _refine_loss(flow: Any, key: Array) -> jnp.ndarray:
+        def _refine_loss(flow: Any, key: Array, beta: Any) -> tuple:
             latent = flow._base_sample(key, (n_draws, param_dim), jnp.float32)
             theta_unc, log_det_inv = vmap(flow.inverse)(latent, embedding_tiled)
             base_log_prob = vmap(flow._base_log_prob)(latent)
@@ -1980,11 +1974,24 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             log_likelihood = jnp.reshape(
                 elbo_log_likelihood_fn(theta_cube, target_tiled), (n_draws,)
             )
-            elbo = log_likelihood - log_q_cube
-            elbo = jnp.where(jnp.isfinite(elbo), elbo, -1e6)
-            return -jnp.mean(elbo), jnp.mean(log_likelihood)
+            tempered = jnp.where(
+                jnp.isfinite(beta * log_likelihood - log_q_cube),
+                beta * log_likelihood - log_q_cube,
+                -1e6,
+            )
+            # beta=1 ELBO, used only for best-state tracking.
+            elbo_full = jnp.where(
+                jnp.isfinite(log_likelihood - log_q_cube),
+                log_likelihood - log_q_cube,
+                -1e6,
+            )
+            return -jnp.mean(tempered), (
+                jnp.mean(log_likelihood),
+                -jnp.mean(elbo_full),
+            )
 
         optimizer = optax.chain(
+            optax.clip(float(gradient_clip_value)),
             optax.clip_by_global_norm(float(gradient_clip_norm)),
             optax.adam(float(learning_rate)),
         )
@@ -1992,10 +1999,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         opt_state = optimizer.init(eqx.filter(flow, eqx.is_inexact_array))
 
         @eqx.filter_jit
-        def _step(_flow: Any, _opt_state: Any, _key: Array) -> tuple:
-            (loss_val, mean_ll), grads = eqx.filter_value_and_grad(
-                _refine_loss, has_aux=True
-            )(_flow, _key)
+        def _step(_flow: Any, _opt_state: Any, _key: Array, _beta: Any) -> tuple:
+            (loss_val, (mean_ll, neg_elbo_full)), grads = (
+                eqx.filter_value_and_grad(_refine_loss, has_aux=True)(
+                    _flow, _key, _beta
+                )
+            )
             grads = jax.tree_util.tree_map(
                 lambda g: jnp.where(jnp.isfinite(g), g, jnp.zeros_like(g))
                 if g is not None
@@ -2006,23 +2015,196 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             updates, _opt_state = optimizer.update(
                 grads, _opt_state, eqx.filter(_flow, eqx.is_inexact_array)
             )
-            return eqx.apply_updates(_flow, updates), _opt_state, loss_val, mean_ll
+            return (
+                eqx.apply_updates(_flow, updates),
+                _opt_state,
+                loss_val,
+                mean_ll,
+                neg_elbo_full,
+            )
 
+        def _beta_for_step(index: int) -> float:
+            if anneal_fraction <= 0.0 or beta_start >= 1.0:
+                return 1.0
+            window = max(1.0, anneal_fraction * float(num_steps))
+            progress = min(1.0, float(index) / window)
+            return float(beta_start ** (1.0 - progress))
+
+        best_flow = flow
+        best_obj = float("inf")
         key = random.PRNGKey(int(seed))
         for step_index in range(int(num_steps)):
             key, step_key = random.split(key)
-            flow, opt_state, loss_val, mean_ll = _step(flow, opt_state, step_key)
+            beta = jnp.asarray(_beta_for_step(step_index), dtype=jnp.float32)
+            flow, opt_state, loss_val, mean_ll, neg_elbo_full = _step(
+                flow, opt_state, step_key, beta
+            )
+            obj = float(neg_elbo_full)
+            if np.isfinite(obj) and obj < best_obj:
+                best_obj = obj
+                best_flow = flow
             if verbose and (
                 step_index % 50 == 0 or step_index == int(num_steps) - 1
             ):
                 print(
-                    f"  refine step {step_index:4d} | -ELBO {float(loss_val):.4f} "
+                    f"  refine step {step_index:4d} | beta {float(beta):.3g} "
+                    f"| -ELBO(beta) {float(loss_val):.4f} "
+                    f"| -ELBO(beta=1) {obj:.4f} | best {best_obj:.4f} "
                     f"| mean log p(x|theta) {float(mean_ll):.4f}"
                 )
 
-        refined_model = eqx.tree_at(lambda m: m.flow, self.model, flow)
+        refined_model = eqx.tree_at(lambda m: m.flow, self.model, best_flow)
         refined = copy.copy(self)
         refined.model = refined_model
+        return refined
+
+    def map_laplace_posterior_on_observation(
+        self,
+        target_observation: Any,
+        standardized_residual_fn: Callable[[jnp.ndarray], jnp.ndarray],
+        *,
+        num_steps: int = 600,
+        learning_rate: float = 5e-2,
+        beta_start: float = 1e-3,
+        beta_anneal_fraction: float = 0.5,
+        n_posterior_samples: int = 4096,
+        gradient_clip_value: float = 10.0,
+        eigenvalue_floor: float = 1e-6,
+        seed: int = 0,
+        verbose: bool = True,
+    ) -> "ConditionalFlowPosterior":
+        """MAP + Laplace test-time inference for one observation (robust path).
+
+        Optimizes the (beta-annealed -> 1) log-posterior in the unconstrained
+        logit space ``u`` (``theta_cube = sigmoid(u)``, uniform-cube prior ->
+        logistic prior on ``u``) to the MAP, initialized from the amortized
+        posterior mean for the target, then forms a Gauss-Newton Laplace
+        covariance from the forward-model Jacobian and the prior curvature:
+
+            precision Lambda = J^T J + diag(2 c (1 - c)),  J = d r / d u
+
+        where ``r`` are the noise-standardized residuals. Posterior samples are
+        drawn as ``u ~ N(u*, Lambda^-1)`` and mapped through the sigmoid. This
+        gives the correct location (MAP) and correctly-scaled, per-direction
+        local widths (tight where well-constrained, e.g. planet radius; moderate
+        on degenerate directions), sidestepping the reverse-KL under-dispersion
+        of the flow ELBO.
+
+        Returns a shallow copy of this posterior carrying the Laplace cube
+        samples; its :meth:`sample_posterior` returns those samples, so the
+        existing inference/predictive pipeline can consume it unchanged. Use it
+        only for inference on ``target_observation``.
+
+        Parameters
+        ----------
+        target_observation:
+            Batch-1 prestacked target observation (used only for the amortized
+            MAP initialization via the encoder).
+        standardized_residual_fn:
+            Differentiable ``(theta_cube[param_dim]) -> (n_wavelengths,)``
+            returning noise-standardized residuals ``(model(theta) - x_obs)/sigma``
+            for the target. Masked channels should contribute 0.
+        """
+        if self.parameter_space != "cube":
+            raise ValueError("MAP+Laplace requires parameter_space='cube'.")
+        param_dim = self.model.flow.parameter_dim
+        beta_start = float(beta_start)
+        anneal_fraction = float(beta_anneal_fraction)
+
+        # Amortized initialization: posterior mean (cube) for the target.
+        embedding = ConditionalFlowPosterior._batch_embeddings(
+            self.model, target_observation
+        )
+        embedding = jnp.asarray(embedding, dtype=jnp.float32)
+        init_unconstrained = self.model.flow.sample(
+            context=embedding[0], n_samples=512, key=random.PRNGKey(int(seed))
+        )
+        init_cube = jnp.clip(nn.sigmoid(init_unconstrained).mean(axis=0), 1e-4, 1.0 - 1e-4)
+        u0 = jnp.log(init_cube) - jnp.log1p(-init_cube)
+
+        def _residual_of_u(u: jnp.ndarray) -> jnp.ndarray:
+            return standardized_residual_fn(nn.sigmoid(u))
+
+        def _neg_log_posterior(u: jnp.ndarray, beta: Any) -> jnp.ndarray:
+            residual = _residual_of_u(u)
+            log_likelihood = -0.5 * jnp.sum(residual * residual)
+            log_prior = -jnp.sum(nn.softplus(u) + nn.softplus(-u))
+            return -(beta * log_likelihood + log_prior)
+
+        optimizer = optax.chain(
+            optax.clip(float(gradient_clip_value)),
+            optax.adam(float(learning_rate)),
+        )
+        opt_state = optimizer.init(u0)
+
+        @jax.jit
+        def _step(u: jnp.ndarray, state: Any, beta: Any) -> tuple:
+            obj_beta, grad = jax.value_and_grad(_neg_log_posterior)(u, beta)
+            grad = jnp.where(jnp.isfinite(grad), grad, 0.0)
+            updates, state = optimizer.update(grad, state)
+            u = optax.apply_updates(u, updates)
+            obj_full = _neg_log_posterior(u, jnp.asarray(1.0, jnp.float32))
+            return u, state, obj_full
+
+        def _beta_for_step(index: int) -> float:
+            if anneal_fraction <= 0.0 or beta_start >= 1.0:
+                return 1.0
+            window = max(1.0, anneal_fraction * float(num_steps))
+            progress = min(1.0, float(index) / window)
+            return float(beta_start ** (1.0 - progress))
+
+        u = u0
+        best_u = u0
+        best_obj = float(_neg_log_posterior(u0, jnp.asarray(1.0, jnp.float32)))
+        for step_index in range(int(num_steps)):
+            beta = jnp.asarray(_beta_for_step(step_index), dtype=jnp.float32)
+            u, opt_state, obj_full = _step(u, opt_state, beta)
+            obj = float(obj_full)
+            if np.isfinite(obj) and obj < best_obj:
+                best_obj = obj
+                best_u = u
+            if verbose and (
+                step_index % 100 == 0 or step_index == int(num_steps) - 1
+            ):
+                chi2 = float(jnp.sum(_residual_of_u(best_u) ** 2))
+                print(
+                    f"  map step {step_index:4d} | beta {float(beta):.3g} "
+                    f"| -logpost(beta=1) {obj:.4f} | best {best_obj:.4f} "
+                    f"| chi2 {chi2:.2f}"
+                )
+
+        u_map = best_u
+        cube_map = nn.sigmoid(u_map)
+        # Gauss-Newton Laplace precision in u-space.
+        jacobian = jax.jacrev(_residual_of_u)(u_map)  # (n_wavelengths, param_dim)
+        fisher = jacobian.T @ jacobian
+        prior_precision = 2.0 * cube_map * (1.0 - cube_map)  # diag, logistic prior
+        precision = fisher + jnp.diag(prior_precision)
+        precision = 0.5 * (precision + precision.T)
+        # Regularize to PD: floor eigenvalues.
+        eigenvalues, eigenvectors = jnp.linalg.eigh(precision)
+        eigenvalues = jnp.maximum(eigenvalues, float(eigenvalue_floor))
+        covariance = (eigenvectors * (1.0 / eigenvalues)) @ eigenvectors.T
+        covariance = 0.5 * (covariance + covariance.T)
+        cov_sqrt = eigenvectors * jnp.sqrt(1.0 / eigenvalues)  # (P,P): cov = cov_sqrt cov_sqrt^T
+
+        sample_key = random.PRNGKey(int(seed) + 1)
+        standard_normal = random.normal(
+            sample_key, (int(n_posterior_samples), param_dim), dtype=jnp.float32
+        )
+        u_samples = u_map[None, :] + standard_normal @ cov_sqrt.T
+        cube_samples = _clip_cube_support(nn.sigmoid(u_samples))
+
+        if verbose:
+            final_chi2 = float(jnp.sum(_residual_of_u(u_map) ** 2))
+            print(
+                f"  MAP+Laplace done | chi2(MAP) {final_chi2:.2f} "
+                f"| cube std (first dims) "
+                f"{np.round(np.asarray(jnp.std(cube_samples, axis=0))[:4], 4)}"
+            )
+
+        refined = copy.copy(self)
+        refined._fixed_cube_samples = np.asarray(cube_samples, dtype=np.float64)
         return refined
 
     def fit(
@@ -2678,6 +2860,24 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             outputs are clamped to large finite values for downstream stability.
         """
         sample_seed = self.seed if seed is None else int(seed)
+        # Test-time refinement override: if MAP+Laplace (or another per-target
+        # method) attached fixed cube samples, return draws from those instead of
+        # the amortized flow. The flow is not specialized to the target in that
+        # case; the fixed samples already encode the target-specific posterior.
+        fixed_cube_samples = getattr(self, "_fixed_cube_samples", None)
+        if fixed_cube_samples is not None:
+            fixed_cube_samples = np.asarray(fixed_cube_samples)
+            rng = np.random.default_rng(sample_seed)
+            pool_size = fixed_cube_samples.shape[0]
+            if int(n_samples) <= pool_size:
+                indices = rng.choice(pool_size, size=int(n_samples), replace=False)
+            else:
+                indices = rng.integers(0, pool_size, size=int(n_samples))
+            return PosteriorSamples(
+                samples=np.nan_to_num(
+                    fixed_cube_samples[indices], nan=0.0, posinf=1e6, neginf=-1e6
+                )
+            )
         samples = self.model.flow.sample(
             context=jnp.asarray(observation.embedding, dtype=jnp.float32),
             n_samples=n_samples,

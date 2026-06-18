@@ -279,12 +279,20 @@ class Data:
                         -1
                     ].set(self.wavelength_bin_widths[-2])
                 else:
+                    # Wavelength is the LAST axis for every spectrum layout
+                    # ((n_epoch, n_wavelength) time series, (n_order, n_wavelength)
+                    # multi-order, ...), so the bin widths must be differenced
+                    # along axis=-1. Differencing along axis=0 (the former code)
+                    # is the epoch/order axis: for a time series whose epochs share
+                    # one wavelength grid the rows are identical, so diff(axis=0)
+                    # is identically zero -> zero bin widths -> the model rebins to
+                    # all zeros and the likelihood becomes blind to the model.
                     self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
-                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[:-1, :].set(
-                        jnp.diff(self.wavelengths, axis=0)
+                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[..., :-1].set(
+                        jnp.diff(self.wavelengths, axis=-1)
                     )
-                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[-1, :].set(
-                        self.wavelength_bin_widths[-2, :]
+                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[..., -1].set(
+                        self.wavelength_bin_widths[..., -2]
                     )
 
         self._validate_covariance_configuration()
