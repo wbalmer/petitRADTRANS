@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from pathlib import Path
 from typing import Any, Callable, Mapping, cast
 
@@ -1096,6 +1097,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         training_objective: str = "npe",
         elbo_num_samples: int = 1,
         elbo_beta_start: float = 1e-3,
+        elbo_beta_end: float = 1.0,
         elbo_anneal_fraction: float = 0.6,
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
@@ -1175,9 +1177,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             )
         self.elbo_num_samples = max(int(elbo_num_samples), 1)
         self.elbo_beta_start = float(elbo_beta_start)
+        self.elbo_beta_end = float(elbo_beta_end)
         self.elbo_anneal_fraction = float(elbo_anneal_fraction)
         if not (0.0 < self.elbo_beta_start <= 1.0):
             raise ValueError("elbo_beta_start must be in (0, 1]")
+        if not (0.0 < self.elbo_beta_end <= 1.0):
+            raise ValueError("elbo_beta_end must be in (0, 1]")
         if not (0.0 <= self.elbo_anneal_fraction <= 1.0):
             raise ValueError("elbo_anneal_fraction must be in [0, 1]")
         self.num_spline_bins = int(num_spline_bins)
@@ -2070,6 +2075,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         n_posterior_samples: int = 4096,
         gradient_clip_value: float = 10.0,
         eigenvalue_floor: float = 1e-6,
+        covariance_method: str = "laplace",
+        vi_num_steps: int = 300,
+        vi_learning_rate: float = 1e-2,
+        vi_num_samples: int = 32,
+        vi_freeze_mean: bool = True,
+        vi_beta: float = 1.0,
         seed: int = 0,
         verbose: bool = True,
     ) -> "ConditionalFlowPosterior":
@@ -2175,36 +2186,127 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
 
         u_map = best_u
         cube_map = nn.sigmoid(u_map)
-        # Gauss-Newton Laplace precision in u-space.
+        chi2_map = float(jnp.sum(_residual_of_u(u_map) ** 2))
+
+        # A posterior marginal must never be broader than the prior. In the
+        # logit space the logistic prior has variance pi^2/3, so we floor the
+        # precision eigenvalues at the corresponding value. This caps every
+        # direction's width at the prior and prevents weakly-identified /
+        # near-edge directions from blowing up (the old 1e-6 floor let them
+        # reach ~1e6 covariance -> >20x the noise in spectrum space, which
+        # Jensen-biased the posterior-mean prediction by ~6 sigma).
+        prior_variance_u = float(np.pi ** 2 / 3.0)
+        precision_floor = max(float(eigenvalue_floor), 1.0 / prior_variance_u)
         jacobian = jax.jacrev(_residual_of_u)(u_map)  # (n_wavelengths, param_dim)
-        fisher = jacobian.T @ jacobian
-        prior_precision = 2.0 * cube_map * (1.0 - cube_map)  # diag, logistic prior
-        precision = fisher + jnp.diag(prior_precision)
-        precision = 0.5 * (precision + precision.T)
-        # Regularize to PD: floor eigenvalues.
-        eigenvalues, eigenvectors = jnp.linalg.eigh(precision)
-        eigenvalues = jnp.maximum(eigenvalues, float(eigenvalue_floor))
-        covariance = (eigenvectors * (1.0 / eigenvalues)) @ eigenvectors.T
-        covariance = 0.5 * (covariance + covariance.T)
-        cov_sqrt = eigenvectors * jnp.sqrt(1.0 / eigenvalues)  # (P,P): cov = cov_sqrt cov_sqrt^T
 
         sample_key = random.PRNGKey(int(seed) + 1)
         standard_normal = random.normal(
             sample_key, (int(n_posterior_samples), param_dim), dtype=jnp.float32
         )
-        u_samples = u_map[None, :] + standard_normal @ cov_sqrt.T
+
+        if covariance_method == "gaussian_vi":
+            # Short mean-field Gaussian VI at beta=1 around the MAP:
+            # q(u) = N(m, diag(std^2)). Maximize E_q[log p(x|u) + log prior(u)]
+            # + H[q]. The likelihood tightens constrained directions, the
+            # entropy keeps q from collapsing, and the prior term bounds it near
+            # the prior width on unconstrained directions -- a properly
+            # conditioned, calibrated covariance, unlike the raw Gauss-Newton
+            # inverse. std is clamped to <= prior std so no marginal exceeds the
+            # prior.
+            diag_precision = jnp.sum(jacobian ** 2, axis=0) + 2.0 * cube_map * (
+                1.0 - cube_map
+            )
+            diag_precision = jnp.maximum(diag_precision, precision_floor)
+            init_log_std = 0.5 * jnp.log(1.0 / diag_precision)
+            log_std_min = float(np.log(1e-3))
+            log_std_max = float(0.5 * np.log(prior_variance_u))  # prior std
+            vi_beta_value = jnp.asarray(float(vi_beta), dtype=jnp.float32)
+            # By default freeze the mean at the MAP: optimizing it at beta=1
+            # under the tiny observational noise destabilizes it (it drifts off
+            # the MAP, ~doubling chi2). Only the widths are calibrated by the VI;
+            # use vi_beta < 1 to keep the width optimization out of the
+            # sigma-dominated regime.
+            freeze_mean = bool(vi_freeze_mean)
+            if freeze_mean:
+                vi_params = {"log_std": init_log_std}
+            else:
+                vi_params = {"mean": u_map, "log_std": init_log_std}
+
+            def _vi_neg_elbo(params: Any, key: Array) -> jnp.ndarray:
+                log_std = jnp.clip(params["log_std"], log_std_min, log_std_max)
+                std = jnp.exp(log_std)
+                eps = random.normal(
+                    key, (int(vi_num_samples), param_dim), dtype=jnp.float32
+                )
+                mean = u_map if freeze_mean else params["mean"]
+                u = mean[None, :] + eps * std[None, :]
+                residual = vmap(_residual_of_u)(u)
+                log_likelihood = -0.5 * jnp.sum(residual * residual, axis=1)
+                log_prior = -jnp.sum(
+                    nn.softplus(u) + nn.softplus(-u), axis=1
+                )
+                entropy = jnp.sum(log_std)  # H[N(m,diag std^2)] up to a constant
+                return -(jnp.mean(vi_beta_value * log_likelihood + log_prior) + entropy)
+
+            vi_optimizer = optax.chain(
+                optax.clip_by_global_norm(10.0),
+                optax.adam(float(vi_learning_rate)),
+            )
+            vi_state = vi_optimizer.init(vi_params)
+
+            @jax.jit
+            def _vi_step(params: Any, state: Any, key: Array) -> tuple:
+                loss, grads = jax.value_and_grad(_vi_neg_elbo)(params, key)
+                grads = jax.tree_util.tree_map(
+                    lambda g: jnp.where(jnp.isfinite(g), g, 0.0), grads
+                )
+                updates, state = vi_optimizer.update(grads, state)
+                return optax.apply_updates(params, updates), state, loss
+
+            vi_key = random.PRNGKey(int(seed) + 2)
+            for vi_index in range(int(vi_num_steps)):
+                vi_key, step_key = random.split(vi_key)
+                vi_params, vi_state, vi_loss = _vi_step(
+                    vi_params, vi_state, step_key
+                )
+                if verbose and (
+                    vi_index % 100 == 0 or vi_index == int(vi_num_steps) - 1
+                ):
+                    print(f"  vi step {vi_index:4d} | -ELBO {float(vi_loss):.4f}")
+
+            u_center = u_map if freeze_mean else vi_params["mean"]
+            posterior_std = jnp.exp(
+                jnp.clip(vi_params["log_std"], log_std_min, log_std_max)
+            )
+            u_samples = u_center[None, :] + standard_normal * posterior_std[None, :]
+        else:
+            # Capped Gauss-Newton Laplace (full covariance with correlations).
+            fisher = jacobian.T @ jacobian
+            prior_precision = 2.0 * cube_map * (1.0 - cube_map)
+            precision = fisher + jnp.diag(prior_precision)
+            precision = 0.5 * (precision + precision.T)
+            eigenvalues, eigenvectors = jnp.linalg.eigh(precision)
+            eigenvalues = jnp.maximum(eigenvalues, precision_floor)
+            cov_sqrt = eigenvectors * jnp.sqrt(1.0 / eigenvalues)
+            u_center = u_map
+            u_samples = u_map[None, :] + standard_normal @ cov_sqrt.T
+
         cube_samples = _clip_cube_support(nn.sigmoid(u_samples))
 
         if verbose:
-            final_chi2 = float(jnp.sum(_residual_of_u(u_map) ** 2))
+            chi2_center = float(jnp.sum(_residual_of_u(u_center) ** 2))
             print(
-                f"  MAP+Laplace done | chi2(MAP) {final_chi2:.2f} "
+                f"  {covariance_method} done | chi2(MAP) {chi2_map:.2f} "
+                f"| chi2(posterior centre) {chi2_center:.2f} "
                 f"| cube std (first dims) "
                 f"{np.round(np.asarray(jnp.std(cube_samples, axis=0))[:4], 4)}"
             )
 
         refined = copy.copy(self)
         refined._fixed_cube_samples = np.asarray(cube_samples, dtype=np.float64)
+        # MAP point estimate (cube): the un-Jensen-biased point prediction; the
+        # forward model evaluated here gives chi2(MAP) ~= the achievable floor.
+        refined._fixed_point_estimate_cube = np.asarray(cube_map, dtype=np.float64)
         return refined
 
     def fit(
@@ -2312,21 +2414,29 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             eval_loss_fn = elbo_loss_fn
 
             # Likelihood-temperature (beta-VI) annealing schedule. beta rises
-            # log-linearly from elbo_beta_start to 1 over the first
-            # elbo_anneal_fraction of epochs, then holds at 1 so training
-            # converges to the untempered posterior. Evaluation always uses
-            # beta = 1 (handled by the trainer), so selection tracks the true
-            # objective. When elbo_anneal_fraction == 0 (or beta_start == 1) the
-            # schedule is a constant 1.0 (no annealing).
+            # log-linearly from elbo_beta_start to elbo_beta_end over the first
+            # elbo_anneal_fraction of epochs, then holds at elbo_beta_end.
+            # Ending at beta_end < 1 keeps the amortized phase out of the
+            # sigma-dominated regime (sigma_eff = sigma/sqrt(beta_end)), which
+            # stops the over-confidence and the run-to-run basin flipping in the
+            # razor-sharp depth direction -- the amortized model is then a stable
+            # coarse warm-start and the test-time MAP+Laplace supplies the sharp
+            # final fit. Evaluation always uses beta = 1 (handled by the
+            # trainer), so selection still tracks the true objective.
             _beta_start = self.elbo_beta_start
+            _beta_end = self.elbo_beta_end
             _anneal_fraction = self.elbo_anneal_fraction
 
             def _elbo_beta_schedule(epoch: int, total_epochs: int) -> float:
-                if _anneal_fraction <= 0.0 or _beta_start >= 1.0:
-                    return 1.0
+                if _anneal_fraction <= 0.0:
+                    return _beta_end
                 anneal_epochs = max(1.0, _anneal_fraction * float(total_epochs))
                 progress = min(1.0, float(epoch) / anneal_epochs)
-                return float(_beta_start ** (1.0 - progress))
+                # log-linear interpolation beta_start -> beta_end
+                log_beta = (1.0 - progress) * math.log(_beta_start) + (
+                    progress
+                ) * math.log(_beta_end)
+                return float(math.exp(log_beta))
 
             loss_conditioning_schedule = _elbo_beta_schedule
             # ELBO is reverse-KL trained, so the *tight* NPE invertibility/edge
@@ -2355,17 +2465,32 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             def _elbo_stability_metrics(
                 validation_loss: float, diagnostics: Mapping[str, float] | None
             ) -> Mapping[str, float]:
-                return _flow_validation_stability_metrics(
-                    validation_loss,
-                    diagnostics,
-                    inverse_forward_max_abs_error_threshold=(
-                        _ELBO_STABILITY_INVERSE_FORWARD_MAX_ABS_ERROR
-                    ),
-                    inverse_forward_logdet_closure_max_abs_error_threshold=(
-                        _ELBO_STABILITY_LOGDET_CLOSURE_MAX_ABS_ERROR
-                    ),
-                    cube_edge_hit_rate_threshold=_ELBO_STABILITY_CUBE_EDGE_HIT_RATE,
+                # The forward<->inverse round-trip (rt_err / logdet closure) is
+                # irrelevant for a reverse-KL, sampling-only flow: that direction
+                # is never optimized, and the entropy log-det used in the ELBO is
+                # exact in the analytic spline inverse. Gating "stable" on it
+                # (thresholds 5 / 10) marked every ELBO epoch unstable, so
+                # best_stable never formed and the three checkpoints diverged.
+                # For ELBO, stability/pathology depend only on a finite loss and
+                # gross edge collapse (the one genuine flow failure here).
+                diagnostics = diagnostics or {}
+                finite = bool(np.isfinite(validation_loss))
+                edge_hit_rate = float(
+                    diagnostics.get("cube_edge_hit_rate", 0.0)
                 )
+                if not np.isfinite(edge_hit_rate):
+                    edge_hit_rate = 0.0
+                stable = finite and (
+                    edge_hit_rate <= _ELBO_STABILITY_CUBE_EDGE_HIT_RATE
+                )
+                pathological = (not finite) or (edge_hit_rate > 0.9)
+                return {
+                    "checkpoint_is_stable": 1.0 if stable else 0.0,
+                    "checkpoint_is_pathological": 1.0 if pathological else 0.0,
+                    "checkpoint_stability_violation_count": (
+                        0.0 if stable else 1.0
+                    ),
+                }
 
             selection_metric_fn = _elbo_selection_metric
             selection_metric_name = "validation_selection_metric"
@@ -2452,6 +2577,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "training_objective": self.training_objective,
             "elbo_num_samples": self.elbo_num_samples,
             "elbo_beta_start": self.elbo_beta_start,
+            "elbo_beta_end": self.elbo_beta_end,
             "elbo_anneal_fraction": self.elbo_anneal_fraction,
             "early_stopping_patience": self.early_stopping_patience,
             "early_stopping_min_delta": self.early_stopping_min_delta,
@@ -2517,6 +2643,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "training_objective": self.training_objective,
                 "elbo_num_samples": self.elbo_num_samples,
                 "elbo_beta_start": self.elbo_beta_start,
+                "elbo_beta_end": self.elbo_beta_end,
                 "elbo_anneal_fraction": self.elbo_anneal_fraction,
                 "early_stopping_patience": self.early_stopping_patience,
                 "early_stopping_min_delta": self.early_stopping_min_delta,
@@ -2604,6 +2731,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "training_objective": metadata.get("training_objective", "npe"),
             "elbo_num_samples": metadata.get("elbo_num_samples", 1),
             "elbo_beta_start": metadata.get("elbo_beta_start", 1e-3),
+            "elbo_beta_end": metadata.get("elbo_beta_end", 1.0),
             "elbo_anneal_fraction": metadata.get("elbo_anneal_fraction", 0.6),
             "early_stopping_patience": metadata.get("early_stopping_patience"),
             "early_stopping_min_delta": metadata.get("early_stopping_min_delta", 0.0),
@@ -2713,6 +2841,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             training_objective=str(estimator_config.get("training_objective", "npe")),
             elbo_num_samples=int(estimator_config.get("elbo_num_samples", 1)),
             elbo_beta_start=float(estimator_config.get("elbo_beta_start", 1e-3)),
+            elbo_beta_end=float(estimator_config.get("elbo_beta_end", 1.0)),
             elbo_anneal_fraction=float(estimator_config.get("elbo_anneal_fraction", 0.6)),
             early_stopping_patience=estimator_config.get("early_stopping_patience"),
             early_stopping_min_delta=float(
