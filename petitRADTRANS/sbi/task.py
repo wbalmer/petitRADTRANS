@@ -7,7 +7,9 @@ runtime-native simulation interfaces used by amortized inference.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 import importlib.metadata
+import inspect
 from typing import Any, Mapping
 
 from petitRADTRANS.sbi.compatibility import (
@@ -121,6 +123,39 @@ class SimulationConfig:
     )
 
 
+# Version of the fingerprint *scheme* itself. Bump this whenever the structure of
+# ``fingerprint_payload`` changes so old and new digests are guaranteed distinct.
+_FINGERPRINT_SCHEMA_VERSION = "1.0.0"
+
+# Fixed interior cube grid used to fingerprint each prior. Endpoints (0, 1) are
+# avoided so unbounded priors (e.g. Normal) stay finite while bounded priors
+# still resolve their edges closely (a Uniform(0.9, 2.0) vs Uniform(6.4e9,
+# 1.4e10) differ by ~1e10 at every grid point -> the digest changes).
+_PRIOR_FINGERPRINT_CUBE_GRID = (0.001, 0.25, 0.5, 0.75, 0.999)
+
+
+def _model_function_digest(function: Any) -> str:
+    """Return a stable digest of a model-generating function's implementation.
+
+    Prefers the source text (so editing the function body invalidates a cached
+    dataset), falling back to bytecode and then the qualified name for callables
+    whose source is unavailable. Never raises -- fingerprinting must not fail.
+    """
+    if function is None:
+        return "none"
+    try:
+        source = inspect.getsource(function)
+        return "src:" + hashlib.sha256(source.encode("utf-8")).hexdigest()
+    except (OSError, TypeError):
+        pass
+    code = getattr(function, "__code__", None)
+    if code is not None:
+        return "code:" + hashlib.sha256(bytes(code.co_code)).hexdigest()
+    module = getattr(function, "__module__", "?")
+    qualname = getattr(function, "__qualname__", repr(function))
+    return f"name:{module}.{qualname}"
+
+
 @dataclass(frozen=True)
 class SBITask:
     """Bundle the immutable ingredients required for an SBI problem.
@@ -228,10 +263,70 @@ class SBITask:
             for name, data in self.retrieval_config.data.items()
         }
 
+    def _forward_model_signature(self) -> dict[str, Any]:
+        """Signature of everything that determines the *simulated spectra*.
+
+        Captures prior bounds, declared parameter units, and the source of each
+        model-generating function. These must invalidate a cached dataset:
+        historically a prior bound (``0.9 * r_jup`` -> ``0.9``) and unit
+        (``None`` -> ``jupiterRad``) edit left the digest unchanged, so stale --
+        and in one case physically corrupt (~1e-20 flux) -- simulations were
+        silently reused across runs.
+        """
+        layout = self.parameter_layout
+        priors: dict[str, Any] = {}
+        units: dict[str, Any] = {}
+        for template in layout.parameter_templates:
+            name = str(template.name)
+            units[name] = (
+                None
+                if getattr(template, "units", None) is None
+                else str(template.units)
+            )
+            is_free = bool(getattr(template, "is_free_parameter", False))
+            has_prior = (
+                getattr(template, "distribution", None) is not None
+                or getattr(template, "transform_prior_cube_coordinate", None)
+                is not None
+            )
+            if is_free and has_prior:
+                try:
+                    quantiles: Any = [
+                        round(float(layout._transform_parameter(template, q)), 10)
+                        for q in _PRIOR_FINGERPRINT_CUBE_GRID
+                    ]
+                except Exception:  # pragma: no cover - defensive: never fail here
+                    quantiles = None
+                priors[name] = {
+                    "dist": (
+                        type(template.distribution).__name__
+                        if getattr(template, "distribution", None) is not None
+                        else "transform"
+                    ),
+                    "q": quantiles,
+                }
+            else:
+                fixed_value: Any = getattr(template, "value", None)
+                try:
+                    fixed_value = round(float(fixed_value), 10)
+                except (TypeError, ValueError):
+                    fixed_value = repr(fixed_value)
+                priors[name] = {"fixed": fixed_value}
+
+        model_sources = {
+            str(data_name): _model_function_digest(
+                getattr(data, "model_generating_function", None)
+            )
+            for data_name, data in self.retrieval_config.data.items()
+        }
+
+        return {"priors": priors, "units": units, "model_sources": model_sources}
+
     @property
     def fingerprint_payload(self) -> Mapping[str, Any]:
         """Return the deterministic payload used to fingerprint the task family."""
         return {
+            "fingerprint_schema_version": _FINGERPRINT_SCHEMA_VERSION,
             "name": self.name,
             "task_version": self.task_version,
             "preprocessing_version": self.preprocessing_version,
@@ -247,6 +342,9 @@ class SBITask:
                     self.simulation_config.observation_value_constraints.items()
                 )
             },
+            # Forward-model-determining config: prior bounds, parameter units,
+            # and model-function source. See _forward_model_signature.
+            "forward_model_signature": self._forward_model_signature(),
         }
 
     @property

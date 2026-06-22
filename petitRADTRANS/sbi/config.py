@@ -17,7 +17,8 @@ or, end to end, via :meth:`AmortizedRetrieval.from_retrieval_config`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Mapping
 
 from .flow_posterior import ConditionalFlowPosterior
@@ -91,6 +92,11 @@ class TrainingConfig:
     elbo_num_samples: int = 1
     elbo_beta_start: float = 1e-3
     elbo_anneal_fraction: float = 0.6
+    # Anneal beta log-linearly from elbo_beta_start to elbo_beta_end over the
+    # first elbo_anneal_fraction of epochs, then hold. Ending at beta_end < 1
+    # keeps the amortized phase out of the sigma-dominated (over-collapsed)
+    # regime; the test-time refinement then supplies the sharp final fit.
+    elbo_beta_end: float = 1.0
 
 
 @dataclass
@@ -100,6 +106,40 @@ class StabilityConfig:
     inverse_forward_max_abs_error: float | None = 0.03
     inverse_forward_logdet_closure_max_abs_error: float | None = 0.03
     cube_edge_hit_rate: float | None = 0.02
+
+
+@dataclass
+class RefinementConfig:
+    """Test-time, per-observation posterior refinement (ELBO runs only).
+
+    ``method="none"`` (default) uses the amortized posterior directly for the
+    target inference -- the behaviour of a plain NPE run. ``"map_laplace"`` or
+    ``"elbo"`` refine the posterior for the specific target spectrum with the
+    differentiable forward model, initialized from the amortized fit; only the
+    target inference uses the refined posterior (validation/SBC stay amortized).
+    Refinement is applied only when the training objective is ``"elbo"``.
+    """
+
+    method: str = "none"  # "none" | "map_laplace" | "elbo"
+    # MAP + Laplace controls.
+    map_num_steps: int = 600
+    map_learning_rate: float = 5e-2
+    map_beta_start: float = 1e-3
+    map_beta_anneal_fraction: float = 0.5
+    map_covariance_method: str = "laplace"  # "laplace" | "gaussian_vi"
+    map_vi_num_steps: int = 300
+    map_vi_learning_rate: float = 1e-2
+    map_vi_num_samples: int = 32
+    # Validate the actual test-time method (MAP+Laplace) on held-out cases.
+    test_time_validation: bool = False
+    test_time_validation_cases: int = 16
+    test_time_validation_samples: int = 1024
+    # Flow-ELBO refinement controls (used when method="elbo"); beta_start is
+    # taken from TrainingConfig.elbo_beta_start.
+    elbo_num_steps: int = 400
+    elbo_learning_rate: float = 1e-4
+    elbo_num_samples: int = 32
+    elbo_beta_anneal_fraction: float = 0.5
 
 
 def build_conditional_flow_posterior(
@@ -173,6 +213,7 @@ def build_conditional_flow_posterior(
         elbo_num_samples=int(training.elbo_num_samples),
         elbo_beta_start=float(training.elbo_beta_start),
         elbo_anneal_fraction=float(training.elbo_anneal_fraction),
+        elbo_beta_end=float(training.elbo_beta_end),
         aux_scale_loss_weight=float(training.aux_scale_loss_weight),
         invertibility_loss_weight=float(training.invertibility_loss_weight),
         invertibility_loss_n_samples=int(training.invertibility_loss_n_samples),
@@ -204,10 +245,84 @@ def build_conditional_flow_posterior(
     )
 
 
+@dataclass
+class SBIConfig:
+    """End-to-end configuration for :func:`run_validation_workflow`.
+
+    Bundles the experiment definition (a built ``RetrievalConfig`` carrying the
+    priors and model-generating function) with the grouped estimator configs and
+    the workflow knobs, so a benchmark script declares only what differs from the
+    library defaults and calls one function -- no module-global / monkeypatch
+    plumbing.
+    """
+
+    retrieval_config: Any
+    output_root: Path
+    flow: FlowConfig = field(default_factory=FlowConfig)
+    encoder: EncoderConfig = field(default_factory=EncoderConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
+    stability: StabilityConfig = field(default_factory=StabilityConfig)
+    refinement: RefinementConfig = field(default_factory=RefinementConfig)
+
+    # Simulation + workflow.
+    n_simulations: int = 1_000_000
+    simulation_batch_size: int = 256
+    seed: int = 12345
+    n_posterior_samples: int = 4096
+    n_predictive_forward_model_samples: int = 256
+    validation_max_cases: int = 128
+    run_label: str | None = None
+    load_completed_model: bool = False
+    resume_predictive_checkpoints: bool = False
+    generate_plots: bool = True
+    plot_dpi: int = 160
+    save_checkpoint_guardrails: bool = True
+    guardrail_posterior_samples: int = 512
+    guardrail_predictive_forward_model_samples: int = 96
+    startup_scale_check: str = "raise"
+    verbose_training_diagnostics: bool = True
+    training_diagnostics_plot_interval: int = 10
+    preprocessing_version: str = "0.6.0"
+    # Per-dataset value constraint for prior-predictive rejection sampling. When
+    # None the workflow applies "value > 0" (emission flux / transit depth).
+    observation_value_constraint: Any = None
+
+    # Presentation (predictive-spectrum plot axis labels) + optional known truths.
+    # spectrum_y_label=None auto-derives from the retrieval config: emission flux
+    # when scattering_in_emission is set, otherwise transit depth.
+    spectrum_x_label: str = r"Wavelength [$\mu$m]"
+    spectrum_y_label: str | None = None
+    truth_parameter_values: Mapping[str, float] = field(default_factory=dict)
+
+    def to_run_config(self) -> dict[str, Any]:
+        """Flat, JSON-serializable provenance dict (also drives the run hash)."""
+        return {
+            "n_simulations": self.n_simulations,
+            "simulation_batch_size": self.simulation_batch_size,
+            "seed": self.seed,
+            "n_posterior_samples": self.n_posterior_samples,
+            "n_predictive_forward_model_samples": (
+                self.n_predictive_forward_model_samples
+            ),
+            "validation_max_cases": self.validation_max_cases,
+            "load_completed_model": self.load_completed_model,
+            "resume_predictive_checkpoints": self.resume_predictive_checkpoints,
+            "save_checkpoint_guardrails": self.save_checkpoint_guardrails,
+            "generate_plots": self.generate_plots,
+            "flow": asdict(self.flow),
+            "encoder": asdict(self.encoder),
+            "training": asdict(self.training),
+            "stability": asdict(self.stability),
+            "refinement": asdict(self.refinement),
+        }
+
+
 __all__ = [
     "FlowConfig",
     "EncoderConfig",
     "TrainingConfig",
     "StabilityConfig",
+    "RefinementConfig",
+    "SBIConfig",
     "build_conditional_flow_posterior",
 ]

@@ -254,7 +254,57 @@ class NormalizedObservationDatasetReader:
 
     dataset: HDF5StoredSimulationDataset
     preprocessing_metadata: TaskPreprocessingMetadata
+    # Optional target observation(s) -- {dataset_name: raw observation values}.
+    # When supplied, the observation/training scale check runs automatically at
+    # construction (i.e. when the dataset is loaded for a run), so a units/scale
+    # mismatch or a stale/corrupt dataset aborts *before* training rather than
+    # only surfacing as the post-training OOD diagnostic.
+    target_observations: Mapping[str, Any] | None = None
+    scale_check: str = "raise"
+    scale_check_max_orders_outside: float = 2.0
+    scale_check_split: DatasetSplit = DatasetSplit.VALIDATION
     _split_cache: dict = field(default_factory=dict, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.target_observations and self.scale_check != "off":
+            self._validate_observation_scale()
+
+    def _validate_observation_scale(self) -> None:
+        """Run the pre-training observation/training flux-scale check.
+
+        Invoked automatically from ``__post_init__`` whenever
+        ``target_observations`` is supplied. Uses a (cheap) split's raw spectra
+        as the training reference and raises/warns per ``scale_check`` if the
+        observation lies many orders of magnitude outside the simulated band.
+        """
+        from .validation import check_observation_in_training_range
+
+        split = self.scale_check_split
+        if int(self.dataset.manifest.splits.get(split.value, 0)) <= 0:
+            split = DatasetSplit.TRAIN
+        try:
+            split_observations = self.dataset.read_split(split).get("observations", {})
+        except Exception as error:  # pragma: no cover - defensive I/O guard
+            print(f"Skipping startup scale check (could not read split): {error}")
+            return
+
+        for name, observation_values in self.target_observations.items():
+            payload = split_observations.get(name)
+            if payload is None or "values" not in payload:
+                continue
+            report = check_observation_in_training_range(
+                payload["values"],
+                observation_values,
+                max_orders_outside=self.scale_check_max_orders_outside,
+                on_fail=self.scale_check,
+            )
+            print(
+                f"Startup scale check [{name}]: observation ~1e"
+                f"{report.log10_observation_scale:.1f}, simulated band ~1e"
+                f"{report.log10_training_p1:.1f}..1e{report.log10_training_p99:.1f}, "
+                f"{report.orders_outside:.1f} decades outside "
+                f"(max {report.max_orders_outside:.1f}), passed={report.passed}"
+            )
 
     def iter_batches(
         self,
@@ -1141,6 +1191,40 @@ def generate_simulation_dataset(
     )
 
 
+def infer_split_counts(total_simulations: int) -> dict[str, int]:
+    """Split a simulation budget into train/validation/test counts."""
+    n_test = 131_072  # 2^17
+    n_val = 32_768  # 2^15
+    split_counts = {
+        DatasetSplit.TRAIN.value: total_simulations - n_test - n_val,
+        DatasetSplit.VALIDATION.value: n_val,
+        DatasetSplit.TEST.value: n_test,
+    }
+    requested = sum(split_counts.values())
+    if requested != total_simulations:
+        split_counts[DatasetSplit.TRAIN.value] += total_simulations - requested
+    return split_counts
+
+
+def estimate_preloaded_split_memory_gib(
+    n_samples: int,
+    n_wavelength_points: int,
+    n_parameters: int,
+) -> float:
+    """Estimate host RAM (GiB) to eagerly preload one split as float32 arrays."""
+    # The trainer preloads prestackable splits into RAM as float32 numpy arrays
+    # before batching. For one spectrum block that is approximately:
+    # values, uncertainties, coordinates, absolute_values -> 4 float32 arrays
+    # mask -> 1 bool array
+    # log_scale, global_scale, parameters -> float32 scalars / vectors
+    bytes_per_sample = (
+        (4 * n_wavelength_points * np.dtype(np.float32).itemsize)
+        + (n_wavelength_points * np.dtype(np.bool_).itemsize)
+        + ((n_parameters + 2) * np.dtype(np.float32).itemsize)
+    )
+    return float(n_samples * bytes_per_sample) / float(1024**3)
+
+
 __all__ = [
     "DatasetSplit",
     "GeneratedSimulationDataset",
@@ -1151,6 +1235,8 @@ __all__ = [
     "SimulationDatasetManifest",
     "SimulationDatasetStore",
     "SimulationDatasetWriter",
+    "estimate_preloaded_split_memory_gib",
+    "infer_split_counts",
     "SplitSamplingPolicy",
     "generate_simulation_dataset",
 ]

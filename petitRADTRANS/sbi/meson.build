@@ -19,6 +19,8 @@ py.install_sources([
     'simulator.py',
     'task.py',
     'training.py',
+    'validation.py',
+    'workflow.py',
     ],
     subdir: 'petitRADTRANS/sbi'
 )

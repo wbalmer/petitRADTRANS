@@ -2207,6 +2207,221 @@ def generate_posterior_predictive_report(
     )
 
 
+def _finite_quantile_payload(
+    values: Any,
+    quantiles: tuple[float, ...] = (0.5, 0.9, 0.99),
+) -> dict[str, float]:
+    value_array = np.asarray(values, dtype=float)
+    finite_values = value_array[np.isfinite(value_array)]
+    if finite_values.size == 0:
+        return {}
+    return {
+        f'p{int(round(level * 100.0)):02d}': float(np.quantile(finite_values, level))
+        for level in quantiles
+    }
+
+
+def summarize_training_diagnostics(posterior: Any) -> dict[str, Any]:
+    """Summarize per-epoch stability/inverse-error diagnostics of a trained flow."""
+    training_artifacts = getattr(posterior, 'training_artifacts', None)
+    if training_artifacts is None:
+        return {}
+
+    validation_metrics = dict(training_artifacts.validation_metrics)
+    stability_flags = np.asarray(
+        validation_metrics.get('checkpoint_is_stable', []),
+        dtype=float,
+    )
+    stable_mask = np.isfinite(stability_flags) & (stability_flags > 0.5)
+    validation_loss = np.asarray(
+        validation_metrics.get('validation_loss', []),
+        dtype=float,
+    )
+    inverse_forward_error = np.asarray(
+        validation_metrics.get('inverse_forward_max_abs_error', []),
+        dtype=float,
+    )
+
+    summary: dict[str, Any] = {
+        'training_metadata': dict(training_artifacts.metadata),
+        'stable_epoch_count': int(np.sum(stable_mask)),
+        'evaluated_validation_epochs': int(np.sum(np.isfinite(stability_flags))),
+    }
+    if stability_flags.size:
+        summary['stable_epoch_fraction'] = float(np.mean(stable_mask))
+
+    stable_validation_loss = validation_loss[stable_mask & np.isfinite(validation_loss)]
+    if stable_validation_loss.size:
+        summary['stable_validation_loss_quantiles'] = _finite_quantile_payload(
+            stable_validation_loss
+        )
+
+    stable_inverse_forward_error = inverse_forward_error[
+        stable_mask & np.isfinite(inverse_forward_error)
+    ]
+    if stable_inverse_forward_error.size:
+        summary['stable_inverse_forward_max_abs_error_quantiles'] = (
+            _finite_quantile_payload(stable_inverse_forward_error)
+        )
+
+    all_inverse_forward_error = inverse_forward_error[np.isfinite(inverse_forward_error)]
+    if all_inverse_forward_error.size:
+        summary['all_inverse_forward_max_abs_error_quantiles'] = (
+            _finite_quantile_payload(all_inverse_forward_error)
+        )
+
+    return summary
+
+
+def summarize_posterior_samples(
+    posterior_samples: np.ndarray,
+    parameter_names: list[str],
+    truth_parameter_values: Mapping[str, float] | None = None,
+) -> dict[str, dict[str, float | None]]:
+    """Per-parameter posterior p16/median/p84, with optional truth values."""
+    truths = truth_parameter_values or {}
+    summary: dict[str, dict[str, float | None]] = {}
+    for index, name in enumerate(parameter_names):
+        series = np.asarray(posterior_samples[:, index], dtype=float)
+        p16, p50, p84 = np.quantile(series, [0.159, 0.5, 0.841])
+        truth_value = truths.get(name)
+        summary[name] = {
+            'p16': float(p16),
+            'median': float(p50),
+            'p84': float(p84),
+            'truth': None if truth_value is None else float(truth_value),
+        }
+    return summary
+
+
+def _prior_central_interval(
+    retrieval_config: Any,
+    name: str,
+    lower: float = 0.159,
+    upper: float = 0.841,
+) -> tuple[float, float] | None:
+    parameter = retrieval_config.parameters.get(name)
+    if parameter is None:
+        return None
+    # The cube->physical map is the prior inverse-CDF, so transforming the cube
+    # quantiles returns the prior's physical-space central interval exactly,
+    # for any prior family (not just uniform).
+    transform = getattr(parameter, 'transform_prior_cube_coordinate', None)
+    if callable(transform):
+        try:
+            low_value = float(transform(lower))
+            high_value = float(transform(upper))
+            if (
+                np.isfinite(low_value)
+                and np.isfinite(high_value)
+                and high_value != low_value
+            ):
+                return (min(low_value, high_value), max(low_value, high_value))
+        except Exception:
+            pass
+    distribution = getattr(parameter, 'distribution', None)
+    if (
+        distribution is not None
+        and hasattr(distribution, 'low')
+        and hasattr(distribution, 'high')
+    ):
+        low_bound = float(distribution.low)
+        high_bound = float(distribution.high)
+        span = high_bound - low_bound
+        return (low_bound + lower * span, low_bound + upper * span)
+    return None
+
+
+def summarize_posterior_contraction(
+    posterior_samples: np.ndarray,
+    parameter_names: list[str],
+    retrieval_config: Any,
+) -> dict[str, dict[str, float | None]]:
+    """Per-parameter posterior contraction relative to the prior.
+
+    ``contraction`` is the ratio of the posterior central 68% width to the prior
+    central 68% width. Values near 1.0 mean the marginal is effectively the
+    prior (uninformative); values well below 1.0 mean the observation
+    constrains that parameter. This is the diagnostic that separates an
+    informative posterior from a calibrated-but-uninformative one -- something
+    SBC rank histograms alone cannot reveal, since a posterior that returns the
+    prior is trivially calibrated.
+    """
+    summary: dict[str, dict[str, float | None]] = {}
+    for index, name in enumerate(parameter_names):
+        series = np.asarray(posterior_samples[:, index], dtype=float)
+        post_p16, post_p84 = np.quantile(series, [0.159, 0.841])
+        posterior_width = float(post_p84 - post_p16)
+        prior_interval = _prior_central_interval(retrieval_config, name)
+        if prior_interval is None:
+            prior_width: float | None = None
+            contraction: float | None = None
+        else:
+            prior_width = float(prior_interval[1] - prior_interval[0])
+            contraction = (
+                float(posterior_width / prior_width) if prior_width > 0.0 else None
+            )
+        summary[name] = {
+            'posterior_width': posterior_width,
+            'prior_width': prior_width,
+            'contraction': contraction,
+        }
+    return summary
+
+
+def summarize_predictive_report(
+    predictive_report: PosteriorPredictiveReport,
+) -> dict[str, Any]:
+    """Serialize a posterior-predictive report's scalar metrics to JSON-safe dicts."""
+    return {
+        'mean_absolute_error': {
+            str(name): float(value)
+            for name, value in predictive_report.mean_absolute_error.items()
+        },
+        'mean_absolute_error_sigma': {
+            str(name): float(value)
+            for name, value in predictive_report.mean_absolute_error_sigma.items()
+        },
+        'median_interval_width_over_uncertainty': {
+            str(name): float(value)
+            for name, value in predictive_report.median_interval_width_over_uncertainty.items()
+        },
+        'crps': {
+            str(name): float(value)
+            for name, value in predictive_report.crps.items()
+        },
+        'interval_coverage': {
+            str(name): np.asarray(value, dtype=float).tolist()
+            for name, value in predictive_report.interval_coverage.items()
+        },
+        'metadata': {
+            str(key): (
+                float(value)
+                if isinstance(value, (int, float, np.integer, np.floating))
+                else value
+            )
+            for key, value in predictive_report.metadata.items()
+        },
+    }
+
+
+def serialize_ood_diagnostic(ood_diagnostic: Any) -> dict[str, Any] | None:
+    """Serialize an OOD diagnostic to a JSON-safe dict (or None)."""
+    if ood_diagnostic is None:
+        return None
+
+    return {
+        'score': float(ood_diagnostic.score),
+        'threshold': (
+            None
+            if ood_diagnostic.threshold is None
+            else float(ood_diagnostic.threshold)
+        ),
+        'passed': ood_diagnostic.passed,
+        'metadata': dict(ood_diagnostic.metadata),
+    }
+
+
 __all__ = [
     "CoverageLevelReport",
     "LocalSensitivityPointReport",
@@ -2220,5 +2435,10 @@ __all__ = [
     "generate_sbc_report",
     "local_sensitivity_report_to_payload",
     "posterior_predictive_report_from_samples",
+    "serialize_ood_diagnostic",
     "simulation_based_calibration_report",
+    "summarize_posterior_contraction",
+    "summarize_posterior_samples",
+    "summarize_predictive_report",
+    "summarize_training_diagnostics",
 ]

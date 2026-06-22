@@ -648,6 +648,62 @@ def plot_sbc_rank_histograms(
     return fig, axes
 
 
+def save_validation_plots(
+    run_root: Any,
+    posterior_samples: np.ndarray,
+    parameter_names: Sequence[str],
+    validation_sbc_report: SimulationBasedCalibrationReport,
+    validation_predictive_report: PosteriorPredictiveReport,
+    target_predictive_report: PosteriorPredictiveReport,
+    dataset_names: Sequence[str],
+    spectrum_wavelengths: np.ndarray | None = None,
+    x_label: str = r"Wavelength [$\mu$m]",
+    y_label: str = "Observation scale",
+    dpi: int = 160,
+) -> None:
+    """Render and save the standard validation plot set (marginals, corner, SBC
+    rank histograms, and validation/target posterior-predictive spectra) into
+    ``run_root``. A no-op if matplotlib is unavailable.
+    """
+    try:
+        marginals_figure, _ = plot_posterior_marginals(
+            posterior_samples, parameter_names=parameter_names
+        )
+        marginals_figure.savefig(
+            run_root / "target_posterior_marginals.png", dpi=dpi, bbox_inches="tight"
+        )
+
+        corner_figure, _ = plot_posterior_corner(
+            posterior_samples, parameter_names=parameter_names
+        )
+        corner_figure.savefig(
+            run_root / "target_posterior_corner.png", dpi=dpi, bbox_inches="tight"
+        )
+
+        sbc_figure, _ = plot_sbc_rank_histograms(
+            validation_sbc_report, parameter_names=parameter_names
+        )
+        sbc_figure.savefig(
+            run_root / "validation_sbc_rank_histograms.png", dpi=dpi, bbox_inches="tight"
+        )
+
+        for report, filename in (
+            (validation_predictive_report, "validation_posterior_predictive.png"),
+            (target_predictive_report, "target_posterior_predictive.png"),
+        ):
+            figure, _ = plot_posterior_predictive_report(
+                report,
+                dataset_names=list(dataset_names),
+                x_coordinates=spectrum_wavelengths,
+                x_label=x_label,
+                y_label=y_label,
+            )
+            figure.savefig(run_root / filename, dpi=dpi, bbox_inches="tight")
+        print("Saved diagnostic plots to:", run_root)
+    except ImportError as error:
+        print(f"Skipping plot generation because matplotlib is unavailable: {error}")
+
+
 __all__ = [
     "plot_local_sensitivity_fisher_correlations",
     "plot_local_sensitivity_jacobians",
@@ -656,4 +712,5 @@ __all__ = [
     "plot_posterior_marginals",
     "plot_posterior_predictive_report",
     "plot_sbc_rank_histograms",
+    "save_validation_plots",
 ]

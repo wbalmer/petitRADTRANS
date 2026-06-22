@@ -19,7 +19,15 @@ from .calibration import (
     generate_posterior_predictive_report,
     generate_sbc_report,
     local_sensitivity_report_to_payload,
+    serialize_ood_diagnostic,
+    summarize_posterior_contraction,
+    summarize_posterior_samples,
+    summarize_predictive_report,
+    summarize_training_diagnostics,
 )
+
+# Artifact saving
+from .artifacts import save_predictive_spectrum
 
 # Error types users may need to catch
 from .compatibility import TaskCompatibilityError
@@ -30,7 +38,9 @@ from .dataset import (
     SimulationDatasetStore,
     generate_simulation_dataset,
     DatasetSplit,
-    NormalizedObservationDatasetReader
+    NormalizedObservationDatasetReader,
+    estimate_preloaded_split_memory_gib,
+    infer_split_counts,
 )
 
 # Observation encoders
@@ -48,10 +58,15 @@ from .estimator_registry import load_posterior_estimator
 from .config import (
     EncoderConfig,
     FlowConfig,
+    RefinementConfig,
+    SBIConfig,
     StabilityConfig,
     TrainingConfig,
     build_conditional_flow_posterior,
 )
+
+# End-to-end validation workflow
+from .workflow import run_validation_workflow
 
 # High-level inference entry point
 from .inference import AmortizedRetrieval, AmortizedRetrievalResult, OODDiagnostic
@@ -64,6 +79,7 @@ from .observation import (
     build_observation_block,
     build_observation_block_batch,
     build_observation_blocks_from_sample,
+    build_raw_observation_blocks,
 )
 
 # Posterior estimators
@@ -88,6 +104,7 @@ from .plotting import (
     plot_posterior_marginals,
     plot_posterior_predictive_report,
     plot_sbc_rank_histograms,
+    save_validation_plots,
 )
 
 # Preprocessing
@@ -116,7 +133,12 @@ from .task import (
 # ``petitRADTRANS.sbi.training.TrainingConfig``.
 from .training import EarlyStoppingConfig, SBITrainer
 
+# Pre-training data-sanity guards.
+from .validation import ObservationScaleReport, check_observation_in_training_range
+
 __all__ = [
+    "ObservationScaleReport",
+    "check_observation_in_training_range",
     # Calibration / diagnostics
     "LocalSensitivityPointReport",
     "LocalSensitivityReport",
@@ -129,6 +151,12 @@ __all__ = [
     "generate_posterior_predictive_report",
     "generate_sbc_report",
     "local_sensitivity_report_to_payload",
+    "save_predictive_spectrum",
+    "serialize_ood_diagnostic",
+    "summarize_posterior_contraction",
+    "summarize_posterior_samples",
+    "summarize_predictive_report",
+    "summarize_training_diagnostics",
     # Errors
     "TaskCompatibilityError",
     # Datasets
@@ -137,6 +165,8 @@ __all__ = [
     "generate_simulation_dataset",
     "DatasetSplit",
     "NormalizedObservationDatasetReader",
+    "estimate_preloaded_split_memory_gib",
+    "infer_split_counts",
     # Encoders
     "HierarchicalObservationEncoder",
     "PhotometryPointEncoder",
@@ -149,9 +179,12 @@ __all__ = [
     "AmortizedRetrievalResult",
     "EncoderConfig",
     "FlowConfig",
+    "RefinementConfig",
     "StabilityConfig",
     "TrainingConfig",
+    "SBIConfig",
     "build_conditional_flow_posterior",
+    "run_validation_workflow",
     # Observations
     "ObservationBlock",
     "ObservationEncoder",
@@ -159,6 +192,7 @@ __all__ = [
     "build_observation_block",
     "build_observation_block_batch",
     "build_observation_blocks_from_sample",
+    "build_raw_observation_blocks",
     # Posteriors
     "ConditionalAutoregressiveFlowPosterior",
     "ConditionalFlowPosterior",
@@ -177,6 +211,7 @@ __all__ = [
     "plot_posterior_marginals",
     "plot_posterior_predictive_report",
     "plot_sbc_rank_histograms",
+    "save_validation_plots",
     # Preprocessing
     "TaskPreprocessingMetadata",
     "fit_task_preprocessing",

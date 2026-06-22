@@ -221,6 +221,28 @@ jax.tree_util.register_pytree_node(
 )
 
 
+def build_raw_observation_blocks(retrieval_config: Any) -> list:
+    """Build raw (un-normalized) spectrum ObservationBlocks for every dataset in
+    a retrieval configuration -- the target observation(s) for amortized
+    inference and the startup scale guard.
+    """
+    return [
+        build_observation_block(
+            name=name,
+            modality=ObservationModality.SPECTRUM,
+            values=data.spectrum,
+            uncertainties=data.uncertainties,
+            coordinates=data.wavelengths,
+            mask=data.mask,
+            metadata={
+                'line_opacity_mode': data.line_opacity_mode,
+                'source_name': data.name,
+            },
+        )
+        for name, data in retrieval_config.data.items()
+    ]
+
+
 __all__ = [
     "EncodedObservation",
     "ObservationBlock",
@@ -230,4 +252,5 @@ __all__ = [
     "build_observation_block",
     "build_observation_block_batch",
     "build_observation_blocks_from_sample",
+    "build_raw_observation_blocks",
 ]
