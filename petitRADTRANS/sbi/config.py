@@ -247,7 +247,7 @@ def build_conditional_flow_posterior(
 
 @dataclass
 class SBIConfig:
-    """End-to-end configuration for :func:`run_validation_workflow`.
+    """End-to-end configuration for :func:`run_sbi
 
     Bundles the experiment definition (a built ``RetrievalConfig`` carrying the
     priors and model-generating function) with the grouped estimator configs and

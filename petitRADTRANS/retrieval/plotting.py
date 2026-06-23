@@ -1367,9 +1367,10 @@ class RetrievalPlotter:
                 _best_fit_wavelengths,
                 _best_fit_spectrum * _y_axis_scaling,
                 label=rf"{_spectrum_type_label} model, $\chi^2/\nu$={_chi2:.2f}",
-                linewidth=3,
-                alpha=0.8,
+                linewidth=2,
+                alpha=0.75,
                 color="k",
+                zorder=20
             )
 
         if marker_cmap is None:
