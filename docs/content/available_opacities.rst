@@ -493,7 +493,7 @@ The available line-by-line opacities are listed below. When multiple source are 
     * - Fe+
       - 56Fe_p__Kurucz.
       - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
+      - `L. Finnerty <lfinnert@umich.edu>`_
     * - FeH
       - 56Fe-1H__MoLLIST
       - 10.1016/j.jqsrt.2019.106687
