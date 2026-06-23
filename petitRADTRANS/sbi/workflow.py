@@ -1,6 +1,6 @@
 """End-to-end SBI validation workflow.
 
-:func:`run_validation_workflow` drives the full amortized-SBI validation run --
+:func:`run_sbi` drives the full amortized-SBI validation run --
 build the task, generate or load the simulation dataset, train (or load) the
 conditional-flow posterior, save checkpoint guardrails, compute SBC and
 posterior-predictive reports on held-out simulations, run amortized inference on
@@ -454,7 +454,7 @@ def _save_checkpoint_guardrails(
     return guardrail_artifacts
 
 
-def run_validation_workflow(config: SBIConfig) -> Path:
+def run_sbi(config: SBIConfig) -> Path:
     """Run the full SBI validation workflow and return the run directory."""
     devices = jax.devices()
     print(f"JAX devices: {devices}")
@@ -1049,4 +1049,4 @@ def run_validation_workflow(config: SBIConfig) -> Path:
     return run_root
 
 
-__all__ = ["run_validation_workflow"]
+__all__ = ["run_sbi"]

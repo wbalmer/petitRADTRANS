@@ -66,7 +66,7 @@ from .config import (
 )
 
 # End-to-end validation workflow
-from .workflow import run_validation_workflow
+from .workflow import run_sbi
 
 # High-level inference entry point
 from .inference import AmortizedRetrieval, AmortizedRetrievalResult, OODDiagnostic
@@ -184,7 +184,7 @@ __all__ = [
     "TrainingConfig",
     "SBIConfig",
     "build_conditional_flow_posterior",
-    "run_validation_workflow",
+    "run_sbi",
     # Observations
     "ObservationBlock",
     "ObservationEncoder",
