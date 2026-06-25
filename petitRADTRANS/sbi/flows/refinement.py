@@ -16,10 +16,11 @@ from typing import Any, Callable
 import copy
 
 import jax
-from jax import Array, random, vmap
+from jax import Array, random, vmap, nn
 import jax.numpy as jnp
 import numpy as np
 import optax
+import equinox as eqx
 
 from .cube import _clip_cube_support
 from .objectives import batch_embeddings

@@ -70,7 +70,7 @@ from petitRADTRANS.sbi.flows import (
 from petitRADTRANS.sbi.preprocessing import (
     compute_block_normalization_stats,
 )  # noqa: E402
-from petitRADTRANS.sbi.training import SBITrainer, TrainingConfig  # noqa: E402
+from petitRADTRANS.sbi.training import SBITrainer, TrainingSchemeConfig  # noqa: E402
 
 
 def _dummy_model(*args, **kwargs):
@@ -1492,7 +1492,7 @@ def test_trainer_tracks_best_loss_and_best_stable_checkpoints(tmp_path):
             )
 
     trainer = SBITrainer(
-        TrainingConfig(
+        TrainingSchemeConfig(
             learning_rate=0.5,
             batch_size=1,
             num_epochs=3,
