@@ -310,6 +310,7 @@ def loss_from_observations(
     scale_loss = jnp.sum(jnp.square(scale_residual) * finite_scale_mask) / n_scale
     return total_loss + model.aux_scale_loss_weight * scale_loss
 
+
 def invertibility_penalty(
     model: _PosteriorModel,
     embeddings: jnp.ndarray,

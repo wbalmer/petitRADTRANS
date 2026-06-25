@@ -185,7 +185,7 @@ class SimulationRuntime(RetrievalRuntime):
             for observation_name in group.observation_names:
                 observation = self.observations[observation_name]
 
-                # Calculate the forward model
+                # Calculate the forward model
                 projected_values = self._project_dataset_observation(
                     observation_name,
                     physical_params,

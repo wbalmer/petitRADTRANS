@@ -11,7 +11,7 @@ from ``flows.posterior`` to keep the estimator focused on amortized inference.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import copy
 
@@ -24,6 +24,9 @@ import equinox as eqx
 
 from .cube import _clip_cube_support
 from .objectives import batch_embeddings
+
+if TYPE_CHECKING:
+    from .posterior import ConditionalFlowPosterior
 
 
 def _tile_prestacked_observation(observation: Any, n_tiles: int) -> Any:
@@ -41,6 +44,7 @@ def _tile_prestacked_observation(observation: Any, n_tiles: int) -> Any:
         ),
         modalities=observation.modalities,
     )
+
 
 def refine_posterior_on_observation(
     posterior,
@@ -198,6 +202,7 @@ def refine_posterior_on_observation(
     refined = copy.copy(posterior)
     refined.model = refined_model
     return refined
+
 
 def map_laplace_posterior_on_observation(
     posterior,

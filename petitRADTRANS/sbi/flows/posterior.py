@@ -1475,6 +1475,6 @@ __all__ = [
 # it after a bare ``import petitRADTRANS.sbi`` (the package __init__ imports this
 # module). The registry lives in ``flows.base`` (already imported above), so this
 # introduces no new import.
-from .base import register_posterior_estimator as _register
+from .base import register_posterior_estimator as _register  # noqa: E402
 
 _register(ConditionalFlowPosterior.estimator_family, ConditionalFlowPosterior)

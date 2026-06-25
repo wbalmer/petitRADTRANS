@@ -422,6 +422,6 @@ __all__ = [
 
 
 # Self-register this estimator family (see flows/posterior.py for rationale).
-from .base import register_posterior_estimator as _register
+from .base import register_posterior_estimator as _register  # noqa: E402
 
 _register(FlowMatchingPosterior.estimator_family, FlowMatchingPosterior)

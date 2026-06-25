@@ -24,9 +24,9 @@ from .observation import (
 
 _ABSOLUTE_PROFILE_BINS = 16
 
+
 # --- Helper functions for normalising and encoding observations ---------
 #
-
 def _as_vector(values: Any) -> jnp.ndarray:
     if values is None:
         return jnp.zeros((0,), dtype=jnp.float32)
@@ -853,7 +853,7 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
         spectrum_embedding_dim: int = 64,
         photometry_embedding_dim: int = 64,
         hidden_dim: int = 128,
-        spectrum_encoder_type: str = "conv1d",
+        spectrum_encoder_type: str = "convolution",
         n_wavelengths: int = 233,
         key: Array | None = None,
     ):
@@ -870,7 +870,6 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
             )
         else:
             raise ValueError(f"Unknown spectrum_encoder_type: {spectrum_encoder_type}")
-
 
         self.photometry_encoder = PhotometryPointEncoder(
             photometry_embedding_dim, hidden_dim, photometry_key

@@ -1039,7 +1039,7 @@ class SBITrainer:
                     restored_metadata.get('best_validation_loss', best_validation_loss)
                 )
 
-        from .posterior_base import PosteriorBatch
+        from .flows.base import PosteriorBatch
 
         # Multi-device setup: detect available devices and create a mesh
         # when data-parallel training is enabled.
