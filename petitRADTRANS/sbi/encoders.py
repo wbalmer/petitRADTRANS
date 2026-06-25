@@ -1,4 +1,9 @@
-"""Learned observation encoders for SBI conditioning."""
+"""
+The encoder is a learned function whose architecture directly controls what
+information the flow can condition on. The default deliberately separates spectral
+**amplitude** from **shape** so the posterior cannot collapse to the prior on
+shape-determined parameters (composition, temperature, clouds).
+"""
 
 from __future__ import annotations
 
@@ -12,14 +17,15 @@ import jax.numpy as jnp
 from .observation import (
     EncodedObservation,
     ObservationBlock,
-    ObservationEncoder,
+    AbstractObservationEncoder,
     ObservationModality,
 )
 
 
 _ABSOLUTE_PROFILE_BINS = 16
-_AMPLITUDE_FEATURE_DIM = 6 + _ABSOLUTE_PROFILE_BINS + 1
 
+# --- Helper functions for normalising and encoding observations ---------
+#
 
 def _as_vector(values: Any) -> jnp.ndarray:
     if values is None:
@@ -45,6 +51,10 @@ def _safe_mask(mask: Any, size: int) -> jnp.ndarray:
 
 
 def _summaries(values: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
+    """
+    Compute summary statistics of a masked 1D array of values. Returns a 6-element vector containing:
+    [mean, std, min, max, valid_fraction, invalid_fraction].
+    """
     if values.shape[0] == 0:
         return jnp.zeros((6,), dtype=jnp.float32)
 
@@ -79,6 +89,10 @@ def _summaries(values: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
 
 
 def _normalize_embedding(features: jnp.ndarray) -> jnp.ndarray:
+    """
+    Normalize a feature vector to have unit variance, which can
+    help with training stability and convergence in neural networks.
+    """
     features = jnp.asarray(features, dtype=jnp.float32)
     return features / jnp.sqrt(jnp.mean(jnp.square(features)) + 1e-6)
 
@@ -326,549 +340,11 @@ def _generic_amplitude_features(
     ).astype(jnp.float32)
 
 
-class SpectralPatchEncoder(eqx.Module):
-    """Learned spectral encoder based on patch summaries and MLP pooling.
-
-    Parameters
-    ----------
-    embedding_dim:
-        Size of the spectral embedding returned for one observation block.
-    patch_size:
-        Number of spectral points summarized together before MLP encoding.
-    hidden_dim:
-        Hidden width of the internal summary MLP.
-    key:
-        Optional JAX random key used for weight initialization.
-
-    Notes
-    -----
-    The encoder summarizes values, uncertainties, and coordinates patch by
-    patch instead of operating on a fully convolutional representation. This
-    keeps the implementation lightweight and shape-agnostic.
-    """
-
-    patch_mlp: eqx.nn.MLP
-    amplitude_projection: eqx.nn.MLP
-    branch_projection: eqx.nn.Linear
-    output_projection: eqx.nn.Linear
-    scale_projection: eqx.nn.Linear
-    embedding_dim: int = eqx.field(static=True)
-    patch_size: int = eqx.field(static=True)
-
-    def __init__(
-        self,
-        embedding_dim: int = 64,
-        patch_size: int = 32,
-        hidden_dim: int = 96,
-        key: Array | None = None,
-    ):
-        if key is None:
-            key = random.PRNGKey(0)
-
-        mlp_key, amplitude_key, branch_key, projection_key, scale_key = random.split(key, 5)
-        self.embedding_dim = int(embedding_dim)
-        self.patch_size = int(patch_size)
-        self.patch_mlp = eqx.nn.MLP(18, self.embedding_dim, hidden_dim, 2, key=mlp_key, dtype=jnp.float32)
-        self.amplitude_projection = eqx.nn.MLP(
-            _AMPLITUDE_FEATURE_DIM, self.embedding_dim, hidden_dim, 1,
-            key=amplitude_key, dtype=jnp.float32,
-        )
-        self.branch_projection = eqx.nn.Linear(
-            self.embedding_dim * 3,
-            self.embedding_dim,
-            key=branch_key,
-            dtype=jnp.float32,
-        )
-        self.output_projection = eqx.nn.Linear(
-            self.embedding_dim, self.embedding_dim, key=projection_key, dtype=jnp.float32
-        )
-        self.scale_projection = eqx.nn.Linear(1, self.embedding_dim, key=scale_key, dtype=jnp.float32)
-
-    def encode_block(self, block: ObservationBlock) -> jnp.ndarray:
-        """Encode one spectral observation block.
-
-        Parameters
-        ----------
-        block:
-            Spectrum-like observation block containing values and optional
-            uncertainties, coordinates, and masks.
-
-        Returns
-        -------
-        jnp.ndarray
-            Dense fixed-width embedding for the supplied spectral block.
-        """
-        values = _as_vector(block.values)
-        uncertainties = _as_vector(block.uncertainties)
-        coordinates = _as_vector(block.coordinates)
-        mask = _safe_mask(block.mask, values.shape[0])
-        if values.shape[0] == 0:
-            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
-
-        n = values.shape[0]
-        ps = self.patch_size
-        n_patches = -(-n // ps)
-        padded_length = n_patches * ps
-        pad_size = padded_length - n
-
-        padding_indicator = jnp.arange(padded_length) >= n
-
-        values_padded = jnp.concatenate(
-            [values, jnp.zeros(pad_size, dtype=jnp.float32)]
-        )
-        mask_padded = jnp.concatenate([mask, jnp.ones(pad_size, dtype=bool)])
-        values_2d = values_padded.reshape(n_patches, ps)
-        mask_2d = mask_padded.reshape(n_patches, ps)
-
-        if uncertainties.shape[0] > 0:
-            unc_pad = max(0, padded_length - uncertainties.shape[0])
-            unc_padded = jnp.concatenate(
-                [uncertainties, jnp.zeros(unc_pad, dtype=jnp.float32)]
-            )[:padded_length]
-            unc_mask_2d = padding_indicator.reshape(n_patches, ps)
-        else:
-            unc_padded = jnp.zeros(padded_length, dtype=jnp.float32)
-            unc_mask_2d = jnp.ones((n_patches, ps), dtype=bool)
-        unc_2d = unc_padded.reshape(n_patches, ps)
-
-        if coordinates.shape[0] > 0:
-            coord_pad = max(0, padded_length - coordinates.shape[0])
-            coord_padded = jnp.concatenate(
-                [coordinates, jnp.zeros(coord_pad, dtype=jnp.float32)]
-            )[:padded_length]
-            coord_mask_2d = padding_indicator.reshape(n_patches, ps)
-        else:
-            coord_padded = jnp.zeros(padded_length, dtype=jnp.float32)
-            coord_mask_2d = jnp.ones((n_patches, ps), dtype=bool)
-        coord_2d = coord_padded.reshape(n_patches, ps)
-
-        def _patch_summary(v, vm, u, um, c, cm):
-            return jnp.concatenate(
-                (_summaries(v, vm), _summaries(u, um), _summaries(c, cm))
-            )
-
-        summaries = vmap(_patch_summary)(
-            values_2d,
-            mask_2d,
-            unc_2d,
-            unc_mask_2d,
-            coord_2d,
-            coord_mask_2d,
-        )
-        patch_embeddings = vmap(self.patch_mlp)(summaries)
-        pooled = jnp.mean(patch_embeddings, axis=0)
-        amplitude_embedding = jax.nn.gelu(
-            self.amplitude_projection(
-                _amplitude_features(
-                    values,
-                    mask,
-                    _log_scale_from_metadata(block.metadata),
-                )
-            )
-        )
-        scale_embedding = jax.nn.gelu(
-            self.scale_projection(
-                _scalar_feature(_log_scale_from_metadata(block.metadata))
-            )
-        )
-        merged = _merge_embedding_branches(
-            pooled,
-            amplitude_embedding,
-            scale_embedding,
-        )
-        merged = jax.nn.gelu(self.branch_projection(merged))
-        return self.output_projection(merged)
-
-    def _encode_block_raw(
-        self,
-        values: jnp.ndarray,
-        uncertainties: jnp.ndarray,
-        coordinates: jnp.ndarray,
-        mask: jnp.ndarray,
-        log_median_flux: jnp.ndarray | None = None,
-        absolute_values: jnp.ndarray | None = None,
-    ) -> jnp.ndarray:
-        """Encode pre-processed block arrays (vmappable — no ObservationBlock input).
-
-        Parameters
-        ----------
-        values, uncertainties, coordinates:
-            Float32 1-D arrays already produced by ``_as_vector``.
-            ``uncertainties`` and ``coordinates`` may have length 0 to indicate
-            absence.
-        mask:
-            Boolean 1-D array already produced by ``_safe_mask``.
-
-        Returns
-        -------
-        jnp.ndarray
-            Dense spectral embedding of shape ``(embedding_dim,)``.
-        """
-        if values.shape[0] == 0:
-            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
-
-        n = values.shape[0]
-        ps = self.patch_size
-        n_patches = -(-n // ps)
-        padded_length = n_patches * ps
-        pad_size = padded_length - n
-
-        padding_indicator = jnp.arange(padded_length) >= n
-
-        values_padded = jnp.concatenate(
-            [values, jnp.zeros(pad_size, dtype=jnp.float32)]
-        )
-        mask_padded = jnp.concatenate([mask, jnp.ones(pad_size, dtype=bool)])
-        values_2d = values_padded.reshape(n_patches, ps)
-        mask_2d = mask_padded.reshape(n_patches, ps)
-
-        if uncertainties.shape[0] > 0:
-            unc_pad = max(0, padded_length - uncertainties.shape[0])
-            unc_padded = jnp.concatenate(
-                [uncertainties, jnp.zeros(unc_pad, dtype=jnp.float32)]
-            )[:padded_length]
-            unc_mask_2d = padding_indicator.reshape(n_patches, ps)
-        else:
-            unc_padded = jnp.zeros(padded_length, dtype=jnp.float32)
-            unc_mask_2d = jnp.ones((n_patches, ps), dtype=bool)
-        unc_2d = unc_padded.reshape(n_patches, ps)
-
-        if coordinates.shape[0] > 0:
-            coord_pad = max(0, padded_length - coordinates.shape[0])
-            coord_padded = jnp.concatenate(
-                [coordinates, jnp.zeros(coord_pad, dtype=jnp.float32)]
-            )[:padded_length]
-            coord_mask_2d = padding_indicator.reshape(n_patches, ps)
-        else:
-            coord_padded = jnp.zeros(padded_length, dtype=jnp.float32)
-            coord_mask_2d = jnp.ones((n_patches, ps), dtype=bool)
-        coord_2d = coord_padded.reshape(n_patches, ps)
-
-        if absolute_values is None or absolute_values.shape[0] == 0:
-            absolute_values = jnp.zeros_like(values)
-        elif absolute_values.shape[0] > values.shape[0]:
-            absolute_values = absolute_values[: values.shape[0]]
-        elif absolute_values.shape[0] < values.shape[0]:
-            absolute_values = jnp.concatenate(
-                (
-                    absolute_values,
-                    jnp.zeros((values.shape[0] - absolute_values.shape[0],), dtype=jnp.float32),
-                ),
-                axis=0,
-            )
-
-        def _patch_summary(v, vm, u, um, c, cm):
-            return jnp.concatenate(
-                (_summaries(v, vm), _summaries(u, um), _summaries(c, cm))
-            )
-
-        summaries = vmap(_patch_summary)(
-            values_2d,
-            mask_2d,
-            unc_2d,
-            unc_mask_2d,
-            coord_2d,
-            coord_mask_2d,
-        )
-        patch_embeddings = vmap(self.patch_mlp)(summaries)
-        pooled = jnp.mean(patch_embeddings, axis=0)
-        amplitude_embedding = jax.nn.gelu(
-            self.amplitude_projection(
-                _amplitude_features(values, mask, log_median_flux)
-            )
-        )
-        scale_embedding = jax.nn.gelu(
-            self.scale_projection(
-                _scalar_feature(log_median_flux)
-            )
-        )
-        merged = _merge_embedding_branches(
-            pooled,
-            amplitude_embedding,
-            scale_embedding,
-        )
-        merged = jax.nn.gelu(self.branch_projection(merged))
-        return self.output_projection(merged)
-
-
-class SpectralConv1DEncoder(eqx.Module):
-    """Learned spectral encoder using 1D convolutions to retain positional information.
-
-    Parameters
-    ----------
-    embedding_dim:
-        Size of the spectral embedding returned for one observation block.
-    n_wavelengths:
-        Fixed number of spectral points per observation block. Must match the
-        observation schema of the SBI task.
-    hidden_channels:
-        Tuple of intermediate channel widths for conv layers.
-    key:
-        Optional JAX random key used for weight initialization.
-    """
-
-    conv1: eqx.nn.Conv1d
-    conv2: eqx.nn.Conv1d
-    conv3: eqx.nn.Conv1d
-    amplitude_projection: eqx.nn.MLP
-    pool_projection: eqx.nn.Linear
-    branch_projection: eqx.nn.Linear
-    output_projection: eqx.nn.Linear
-    scale_projection: eqx.nn.Linear
-    embedding_dim: int = eqx.field(static=True)
-    n_wavelengths: int = eqx.field(static=True)
-
-    def __init__(
-        self,
-        embedding_dim: int = 64,
-        n_wavelengths: int = 233,
-        hidden_channels: tuple[int, int] = (32, 64),
-        key: Array | None = None,
-    ):
-        if key is None:
-            key = random.PRNGKey(0)
-
-        k1, k2, k3, k_amp, k_pool, k_branch, k_proj, k_scale = random.split(key, 8)
-        self.embedding_dim = int(embedding_dim)
-        self.n_wavelengths = int(n_wavelengths)
-        ch1, ch2 = hidden_channels
-
-        # 7 input channels: globally normalized values, uncertainties,
-        # coordinates, a sample-scale contrast profile, a local-structure
-        # gradient channel derived from the within-spectrum shape profile, a
-        # broadcast log-scale channel, and the within-spectrum standardized
-        # shape profile itself (amplitude removed, features rescaled to O(1)).
-        # Explicitly use float32 so weights are not promoted to float64
-        # when jax_enable_x64 is active.
-        self.conv1 = eqx.nn.Conv1d(7, ch1, kernel_size=7, padding=3, key=k1, dtype=jnp.float32)
-        self.conv2 = eqx.nn.Conv1d(ch1, ch2, kernel_size=5, padding=2, key=k2, dtype=jnp.float32)
-        self.conv3 = eqx.nn.Conv1d(ch2, self.embedding_dim, kernel_size=3, padding=1, key=k3, dtype=jnp.float32)
-        self.amplitude_projection = eqx.nn.MLP(
-            _AMPLITUDE_FEATURE_DIM, self.embedding_dim, max(self.embedding_dim, ch2), 1,
-            key=k_amp, dtype=jnp.float32,
-        )
-        self.pool_projection = eqx.nn.Linear(
-            self.embedding_dim * 2,
-            self.embedding_dim,
-            key=k_pool,
-            dtype=jnp.float32,
-        )
-        self.branch_projection = eqx.nn.Linear(
-            self.embedding_dim * 3,
-            self.embedding_dim,
-            key=k_branch,
-            dtype=jnp.float32,
-        )
-        self.output_projection = eqx.nn.Linear(self.embedding_dim, self.embedding_dim, key=k_proj, dtype=jnp.float32)
-        self.scale_projection = eqx.nn.Linear(1, self.embedding_dim, key=k_scale, dtype=jnp.float32)
-
-    def _forward_conv(
-        self,
-        values: jnp.ndarray,
-        uncertainties: jnp.ndarray,
-        coordinates: jnp.ndarray,
-        mask: jnp.ndarray,
-        log_median_flux: jnp.ndarray | None = None,
-        absolute_values: jnp.ndarray | None = None,
-    ) -> jnp.ndarray:
-        """Run 1D conv stack on pre-processed arrays.
-
-        Parameters
-        ----------
-        values, uncertainties, coordinates:
-            Float32 1-D arrays of length ``n_wavelengths``.
-        mask:
-            Boolean 1-D mask (True = invalid).
-
-        Returns
-        -------
-        jnp.ndarray
-            Embedding of shape ``(embedding_dim,)``.
-        """
-        # Zero out masked wavelength bins
-        valid = (~mask).astype(jnp.float32)
-        values = values * valid
-        uncertainties = uncertainties * valid
-        coordinates = coordinates * valid
-        if absolute_values is None or absolute_values.shape[0] == 0:
-            absolute_values = jnp.zeros_like(values)
-        absolute_values = absolute_values * valid
-        # Within-spectrum standardized shape profile: amplitude removed, the
-        # molecular features rescaled to order unity. This is the channel that
-        # actually carries the wavelength-dependent information distinguishing
-        # composition/temperature/cloud parameters, which is otherwise buried
-        # as a sub-percent ripple under the dominant transit-depth amplitude.
-        shape_profile = _within_spectrum_standardized(values, valid)
-        local_structure = _spectral_local_structure(shape_profile, mask) * valid
-        scale_channel = _broadcast_scalar_feature(log_median_flux, values.shape[0]) * valid
-
-        # The main spectral branch sees the global absolute spectrum, a
-        # sample-scale contrast profile, the within-spectrum shape profile, and
-        # the shape profile's local gradient, so it can learn amplitude and
-        # wavelength-local structure jointly without the amplitude swamping the
-        # shape.
-        x = jnp.stack(
-            [
-                values,
-                uncertainties,
-                coordinates,
-                absolute_values,
-                local_structure,
-                scale_channel,
-                shape_profile,
-            ],
-            axis=0,
-        )
-
-        x = jax.nn.gelu(self.conv1(x))   # (ch1, n_wavelengths)
-        x = jax.nn.gelu(self.conv2(x))   # (ch2, n_wavelengths)
-        x = jax.nn.gelu(self.conv3(x))   # (embedding_dim, n_wavelengths)
-
-        # Combine mean and max pooling so narrow spectral features survive the
-        # global reduction stage instead of being averaged away.
-        valid_expanded = valid[None, :]  # (1, n_wavelengths)
-        x = x * valid_expanded
-        pooled_mean = jnp.sum(x, axis=-1) / jnp.maximum(jnp.sum(valid), 1.0)
-        masked_for_max = jnp.where(
-            valid_expanded > 0.0,
-            x,
-            jnp.asarray(-jnp.inf, dtype=x.dtype),
-        )
-        pooled_max = jnp.max(masked_for_max, axis=-1)
-        pooled_max = jnp.where(jnp.any(valid), pooled_max, jnp.zeros_like(pooled_max))
-        pooled = jax.nn.gelu(
-            self.pool_projection(
-                _merge_embedding_branches(pooled_mean, pooled_max)
-            )
-        )
-        amplitude_embedding = jax.nn.gelu(
-            self.amplitude_projection(
-                _amplitude_features(values, mask, log_median_flux)
-            )
-        )
-        scale_embedding = jax.nn.gelu(
-            self.scale_projection(_scalar_feature(log_median_flux))
-        )
-        merged = _merge_embedding_branches(
-            pooled,
-            amplitude_embedding,
-            scale_embedding,
-        )
-        merged = jax.nn.gelu(self.branch_projection(merged))
-        return self.output_projection(merged)
-
-    def _pad_to_fixed(self, arr: jnp.ndarray) -> jnp.ndarray:
-        """Pad or truncate a 1-D array to ``n_wavelengths``."""
-        n = arr.shape[0]
-        if n == self.n_wavelengths:
-            return arr
-        if n > self.n_wavelengths:
-            return arr[: self.n_wavelengths]
-        return jnp.concatenate(
-            [arr, jnp.zeros(self.n_wavelengths - n, dtype=arr.dtype)]
-        )
-
-    def encode_block(self, block: ObservationBlock) -> jnp.ndarray:
-        """Encode one spectral observation block.
-
-        Parameters
-        ----------
-        block:
-            Spectrum-like observation block.
-
-        Returns
-        -------
-        jnp.ndarray
-            Dense embedding of shape ``(embedding_dim,)``.
-        """
-        values = _as_vector(block.values)
-        uncertainties = _as_vector(block.uncertainties)
-        coordinates = _as_vector(block.coordinates)
-        absolute_values = _spectral_auxiliary_vector(block.metadata, values.shape[0])
-        n = values.shape[0]
-        mask = _safe_mask(block.mask, n)
-
-        if n == 0:
-            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
-
-        values = self._pad_to_fixed(values)
-        if uncertainties.shape[0] == 0:
-            uncertainties = jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
-        else:
-            uncertainties = self._pad_to_fixed(uncertainties)
-        if coordinates.shape[0] == 0:
-            coordinates = jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
-        else:
-            coordinates = self._pad_to_fixed(coordinates)
-        absolute_values = self._pad_to_fixed(absolute_values)
-
-        pad_mask = jnp.arange(self.n_wavelengths) >= n
-        mask = self._pad_to_fixed(mask.astype(jnp.float32)).astype(bool) | pad_mask
-
-        return self._forward_conv(
-            values,
-            uncertainties,
-            coordinates,
-            mask,
-            _log_scale_from_metadata(block.metadata),
-            absolute_values,
-        )
-
-    def _encode_block_raw(
-        self,
-        values: jnp.ndarray,
-        uncertainties: jnp.ndarray,
-        coordinates: jnp.ndarray,
-        mask: jnp.ndarray,
-        log_median_flux: jnp.ndarray | None = None,
-        absolute_values: jnp.ndarray | None = None,
-    ) -> jnp.ndarray:
-        """Encode pre-processed block arrays (vmappable — no ObservationBlock input).
-
-        Parameters
-        ----------
-        values, uncertainties, coordinates:
-            Float32 1-D arrays already produced by ``_as_vector``.
-        mask:
-            Boolean 1-D array already produced by ``_safe_mask``.
-        log_median_flux:
-            Scalar absolute-flux feature derived from the raw spectrum median.
-
-        Returns
-        -------
-        jnp.ndarray
-            Dense spectral embedding of shape ``(embedding_dim,)``.
-        """
-        if values.shape[0] == 0:
-            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
-
-        values = self._pad_to_fixed(values)
-        if uncertainties.shape[0] == 0:
-            uncertainties = jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
-        else:
-            uncertainties = self._pad_to_fixed(uncertainties)
-        if coordinates.shape[0] == 0:
-            coordinates = jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
-        else:
-            coordinates = self._pad_to_fixed(coordinates)
-        if absolute_values is None or absolute_values.shape[0] == 0:
-            absolute_values = jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
-        else:
-            absolute_values = self._pad_to_fixed(absolute_values)
-
-        mask = self._pad_to_fixed(mask.astype(jnp.float32)).astype(bool)
-        return self._forward_conv(
-            values,
-            uncertainties,
-            coordinates,
-            mask,
-            log_median_flux,
-            absolute_values,
-        )
-
+# --- Spectral encoders implementations --------------------------------------
 
 class SpectralConvolutionEncoder(eqx.Module):
-    """Observable-agnostic spectral encoder that explicitly factors a spectrum
+    """ The default and recommended encoder.
+    Observable-agnostic spectral encoder that explicitly factors a spectrum
     into *amplitude* and *shape*, so the network can never collapse to an
     amplitude-only summary (the failure mode that left composition / temperature
     / cloud marginals at the prior).
@@ -883,16 +359,76 @@ class SpectralConvolutionEncoder(eqx.Module):
       mask]`` with the amplitude divided out.
 
     The shape tensor is encoded by a *dilated* 1-D convolution stack
-    (dilations 1, 2, 4, ...), giving a receptive field that spans the whole band
-    -- unlike the shallow kernel-7/5/3 stack whose ~13-bin field forced the old
-    encoder to fall back on amplitude. A learned-query attention pools the
-    per-wavelength features into a global shape embedding. Amplitude enters
-    through a separate, un-bottlenecked MLP, so the shape network never spends
-    capacity re-encoding amplitude. The two are concatenated, fused by an MLP,
-    and LayerNorm-normalised.
+    (dilations 1, 2, 4, ...), giving a receptive field that spans the whole band.
+    A learned-query attention pools the per-wavelength features into a global
+    shape embedding. Amplitude enters through a separate, un-bottlenecked MLP,
+    so the shape network never spends capacity re-encoding amplitude.
+    The two are concatenated, fused by an MLP, and LayerNorm-normalised.
 
-    The constructor signature mirrors :class:`SpectralConv1DEncoder` so it is a
-    drop-in alternative selected by ``spectrum_encoder_type='convolution'``.
+    Parameters
+    ----------
+    embedding_dim:
+        Size of the spectral embedding returned for one observation block.
+         This is the length of the summary vector handed to the flow.
+         Bigger = more capacity to describe the spectrum, but more parameters
+         to train. Defaults to 64.
+    n_wavelengths:
+        Fixed number of spectral points per observation block. Inputs are
+        padded or truncated to this length (see :meth:`_pad_to_fixed`), so it
+        must match the observation schema of the SBI task.
+    channels:
+        Width of the convolution stack and attention projections, i.e. the
+        number of feature channels carried through the shape branch.
+    dilations:
+        Dilation factor of each residual dilated convolution, applied in order.
+        The successive doubling ``(1, 2, 4, ...)`` grows the receptive field
+        geometrically so the stack spans the whole band with few layers.
+        Controls how far along the spectrum the network can "see" at each layer.
+        A convolution normally only looks at immediate neighbors. "Dilation" spreads
+        its view out with gaps: dilation 1 looks at adjacent points, dilation 2 skips
+        every other point, and so on.
+    key:
+        Optional JAX random key used for weight initialization. Defaults to
+        ``random.PRNGKey(0)`` when omitted.
+
+    Attributes
+    ----------
+    input_projection:
+        ``1x1`` :class:`equinox.nn.Conv1d` lifting the 4 shape channels
+        ``[(v-center)/scale, sigma/scale, normalized_lambda, mask]`` to
+        ``channels`` feature channels.
+    --- Shape branch ---
+    dilated_convs:
+        Tuple of :class:`equinox.nn.Conv1d` layers (one per entry in
+        ``dilations``) applied as GELU residual blocks to build the
+        wide-receptive-field shape representation.
+    attention_key:
+        :class:`equinox.nn.Linear` producing the per-wavelength attention keys
+        used by the learned-query pooling.
+    attention_value:
+        :class:`equinox.nn.Linear` producing the per-wavelength attention
+        values that are weighted and summed into the shape embedding.
+    attention_query:
+        Learned query vector of shape ``(channels,)`` scored against every
+        wavelength's key to focus pooling on informative band-heads.
+    --- Amplitude branch ---
+    amplitude_projection:
+        :class:`equinox.nn.MLP` mapping the low-dimensional amplitude features
+        (global ``log(scale)`` plus per-spectrum center/scale/sign statistics)
+        into a ``channels``-wide amplitude embedding, kept separate so the
+        shape branch never re-encodes amplitude.
+    fusion:
+        :class:`equinox.nn.MLP` fusing the concatenated shape and amplitude
+        embeddings (``2 * channels`` wide) down to ``embedding_dim``.
+    norm:
+        :class:`equinox.nn.LayerNorm` applied to the fused embedding so the
+        flow conditioner receives a consistently scaled vector.
+    embedding_dim:
+        Static output embedding size (mirrors the constructor argument).
+    n_wavelengths:
+        Static fixed spectral length inputs are padded/truncated to.
+    channels:
+        Static convolution / attention channel width.
     """
 
     input_projection: eqx.nn.Conv1d
@@ -915,6 +451,11 @@ class SpectralConvolutionEncoder(eqx.Module):
         dilations: tuple[int, ...] = (1, 2, 4, 8, 16, 32),
         key: Array | None = None,
     ):
+        """Initialize the encoder's convolution, attention, and fusion modules.
+
+        See the class docstring for a description of each parameter and the
+        attributes it initializes.
+        """
         if key is None:
             key = random.PRNGKey(0)
 
@@ -985,6 +526,8 @@ class SpectralConvolutionEncoder(eqx.Module):
             values, uncertainties, coordinates, valid, center, scale
         )  # (4, n_wl)
         features = self.input_projection(shape)  # (channels, n_wl)
+
+        # Gaussian Error Linear Unit activation function
         for conv in self.dilated_convs:
             features = features + jax.nn.gelu(conv(features))  # residual dilated conv
         features = features * valid[None, :]
@@ -1080,9 +623,7 @@ class SpectralConvolutionEncoder(eqx.Module):
     ) -> jnp.ndarray:
         """Encode pre-processed block arrays (vmappable — no ObservationBlock).
 
-        ``absolute_values`` is accepted for interface parity with
-        :class:`SpectralConv1DEncoder` but is unused: the robust decomposition is
-        computed directly from ``values``.
+        The robust decomposition is computed directly from ``values``.
         """
         del absolute_values
         n = values.shape[0]
@@ -1278,7 +819,7 @@ class DatasetSetAggregator(eqx.Module):
         return self.output_projection(pooled)
 
 
-class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
+class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
     """Learned hierarchical encoder dispatching over modalities.
 
     Parameters
@@ -1289,8 +830,6 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
         Intermediate embedding size used by the spectral sub-encoder.
     photometry_embedding_dim:
         Intermediate embedding size used by the photometry sub-encoder.
-    patch_size:
-        Patch size used by the spectral encoder.
     hidden_dim:
         Hidden width shared across the component encoders and aggregator.
     key:
@@ -1303,7 +842,7 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
     currently fall back to resized raw-value vectors.
     """
 
-    spectrum_encoder: SpectralPatchEncoder | SpectralConv1DEncoder | SpectralConvolutionEncoder
+    spectrum_encoder: SpectralConvolutionEncoder
     photometry_encoder: PhotometryPointEncoder
     aggregator: DatasetSetAggregator
     embedding_dim: int = eqx.field(static=True)
@@ -1313,7 +852,6 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
         embedding_dim: int = 128,
         spectrum_embedding_dim: int = 64,
         photometry_embedding_dim: int = 64,
-        patch_size: int = 32,
         hidden_dim: int = 128,
         spectrum_encoder_type: str = "conv1d",
         n_wavelengths: int = 233,
@@ -1324,18 +862,16 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
 
         spectrum_key, photometry_key, aggregator_key = random.split(key, 3)
         self.embedding_dim = int(embedding_dim)
+
+        # In case we add more spectrum encoder types in the future, we dispatch on a string.
         if spectrum_encoder_type == "convolution":
             self.spectrum_encoder = SpectralConvolutionEncoder(
                 spectrum_embedding_dim, n_wavelengths, key=spectrum_key
             )
-        elif spectrum_encoder_type == "conv1d":
-            self.spectrum_encoder = SpectralConv1DEncoder(
-                spectrum_embedding_dim, n_wavelengths, key=spectrum_key
-            )
         else:
-            self.spectrum_encoder = SpectralPatchEncoder(
-                spectrum_embedding_dim, patch_size, hidden_dim, spectrum_key
-            )
+            raise ValueError(f"Unknown spectrum_encoder_type: {spectrum_encoder_type}")
+
+
         self.photometry_encoder = PhotometryPointEncoder(
             photometry_embedding_dim, hidden_dim, photometry_key
         )
@@ -1538,9 +1074,7 @@ class HierarchicalObservationEncoder(eqx.Module, ObservationEncoder):
 
 __all__ = [
     "DatasetSetAggregator",
-    "HierarchicalObservationEncoder",
+    "ObservationEncoder",
     "PhotometryPointEncoder",
-    "SpectralConv1DEncoder",
     "SpectralConvolutionEncoder",
-    "SpectralPatchEncoder",
 ]

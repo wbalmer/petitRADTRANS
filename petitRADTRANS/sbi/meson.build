@@ -5,17 +5,11 @@ py.install_sources([
     'compatibility.py',
     'config.py',
     'dataset.py',
-    'estimator_registry.py',
     'encoders.py',
-    'flow_matching_posterior.py',
-    'flow_posterior.py',
-    'flows.py',
     'inference.py',
     'observation.py',
     'plotting.py',
     'preprocessing.py',
-    'posterior.py',
-    'posterior_base.py',
     'simulator.py',
     'task.py',
     'training.py',
@@ -24,3 +18,5 @@ py.install_sources([
     ],
     subdir: 'petitRADTRANS/sbi'
 )
+
+subdir('flows')

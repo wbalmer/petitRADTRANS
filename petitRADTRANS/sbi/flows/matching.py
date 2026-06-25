@@ -12,15 +12,15 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .encoders import HierarchicalObservationEncoder
-from .observation import EncodedObservation, ObservationBlock
-from .posterior_base import (
+from ..encoders import ObservationEncoder
+from ..observation import EncodedObservation, ObservationBlock
+from .base import (
     PersistentPosteriorEstimator,
     PosteriorBatch,
     PosteriorSamples,
     TrainingArtifacts,
 )
-from .training import EarlyStoppingConfig, SBITrainer, TrainingConfig
+from ..training import EarlyStoppingConfig, SBITrainer, TrainingSchemeConfig
 
 
 class _FlowMatchingVelocityField(eqx.Module):
@@ -61,7 +61,7 @@ class _FlowMatchingVelocityField(eqx.Module):
 
 
 class _FlowMatchingModel(eqx.Module):
-    encoder: HierarchicalObservationEncoder
+    encoder: ObservationEncoder
     velocity_field: _FlowMatchingVelocityField
 
 
@@ -129,7 +129,7 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
 
         encoder_key, vector_field_key = random.split(random.PRNGKey(self.seed))
         self.model = _FlowMatchingModel(
-            encoder=HierarchicalObservationEncoder(
+            encoder=ObservationEncoder(
                 embedding_dim=self.embedding_dim,
                 key=encoder_key,
             ),
@@ -144,7 +144,7 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
 
     @staticmethod
     def _batch_embeddings(model: _FlowMatchingModel, observations: Any) -> jnp.ndarray:
-        from .observation import PreStackedObservations
+        from ..observation import PreStackedObservations
 
         # Pre-stacked arrays produced by the JIT-compiled training step.
         if isinstance(observations, PreStackedObservations):
@@ -228,7 +228,7 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
             )
 
         trainer = SBITrainer(
-            TrainingConfig(
+            TrainingSchemeConfig(
                 learning_rate=self.learning_rate,
                 batch_size=self.batch_size,
                 num_epochs=self.num_epochs,
@@ -419,3 +419,9 @@ class FlowMatchingPosterior(PersistentPosteriorEstimator):
 __all__ = [
     "FlowMatchingPosterior",
 ]
+
+
+# Self-register this estimator family (see flows/posterior.py for rationale).
+from .base import register_posterior_estimator as _register
+
+_register(FlowMatchingPosterior.estimator_family, FlowMatchingPosterior)

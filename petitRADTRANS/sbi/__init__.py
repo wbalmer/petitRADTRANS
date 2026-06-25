@@ -45,14 +45,12 @@ from .dataset import (
 
 # Observation encoders
 from .encoders import (
-    HierarchicalObservationEncoder,
+    ObservationEncoder,
     PhotometryPointEncoder,
-    SpectralConv1DEncoder,
-    SpectralPatchEncoder,
 )
 
 # Posterior loading
-from .estimator_registry import load_posterior_estimator
+from .flows import load_posterior_estimator
 
 # Grouped configuration dataclasses + flow-posterior factory
 from .config import (
@@ -74,7 +72,7 @@ from .inference import AmortizedRetrieval, AmortizedRetrievalResult, OODDiagnost
 # Observation types and utilities
 from .observation import (
     ObservationBlock,
-    ObservationEncoder,
+    AbstractObservationEncoder,
     ObservationModality,
     build_observation_block,
     build_observation_block_batch,
@@ -83,7 +81,7 @@ from .observation import (
 )
 
 # Posterior estimators
-from .posterior import (
+from .flows import (
     ConditionalAutoregressiveFlowPosterior,
     ConditionalFlowPosterior,
     ConditionalNeuralAutoregressiveFlowPosterior,
@@ -127,10 +125,6 @@ from .task import (
     SimulationConfig,
 )
 
-# Training. NOTE: the trainer's internal ``TrainingConfig`` is intentionally not
-# re-exported here -- the public ``TrainingConfig`` is the grouped config
-# dataclass from ``.config``. The trainer one remains at
-# ``petitRADTRANS.sbi.training.TrainingConfig``.
 from .training import EarlyStoppingConfig, SBITrainer
 
 # Pre-training data-sanity guards.
@@ -168,10 +162,8 @@ __all__ = [
     "estimate_preloaded_split_memory_gib",
     "infer_split_counts",
     # Encoders
-    "HierarchicalObservationEncoder",
+    "ObservationEncoder",
     "PhotometryPointEncoder",
-    "SpectralConv1DEncoder",
-    "SpectralPatchEncoder",
     # Posterior loading
     "load_posterior_estimator",
     # Inference
@@ -187,7 +179,7 @@ __all__ = [
     "run_sbi",
     # Observations
     "ObservationBlock",
-    "ObservationEncoder",
+    "AbstractObservationEncoder",
     "ObservationModality",
     "build_observation_block",
     "build_observation_block_batch",

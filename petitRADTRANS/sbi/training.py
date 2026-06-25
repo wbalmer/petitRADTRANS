@@ -238,7 +238,7 @@ class EarlyStoppingConfig:
 
 
 @dataclass(frozen=True)
-class TrainingConfig:
+class TrainingSchemeConfig:
     """Configuration for posterior optimization."""
 
     learning_rate: float = 1e-3
@@ -265,7 +265,7 @@ class TrainingConfig:
     n_validation_diagnostic_batches: int = _DEFAULT_VALIDATION_DIAGNOSTIC_BATCHES
 
 
-def _resolve_diagnostics_output_directory(config: TrainingConfig) -> Path | None:
+def _resolve_diagnostics_output_directory(config: TrainingSchemeConfig) -> Path | None:
     if config.diagnostics_output_directory:
         return Path(config.diagnostics_output_directory)
     if config.checkpoint_directory:
@@ -636,7 +636,7 @@ def load_trainer_checkpoint_state(
 class SBITrainer:
     """Reusable optimization loop for amortized SBI posteriors."""
 
-    def __init__(self, config: TrainingConfig):
+    def __init__(self, config: TrainingSchemeConfig):
         """Create one trainer for repeated posterior-fitting runs.
 
         Parameters
@@ -1839,6 +1839,6 @@ __all__ = [
     'load_trainer_checkpoint_state',
     'OrbaxCheckpointBackend',
     'SBITrainer',
-    'TrainingConfig',
+    'TrainingSchemeConfig',
     'resolve_checkpoint_backend',
 ]

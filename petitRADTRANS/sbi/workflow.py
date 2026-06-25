@@ -50,7 +50,7 @@ from .dataset import (
     generate_simulation_dataset,
     infer_split_counts,
 )
-from .estimator_registry import load_posterior_estimator
+from .flows import load_posterior_estimator
 from .inference import AmortizedRetrieval
 from .observation import build_observation_block_batch, build_raw_observation_blocks
 from .plotting import plot_posterior_predictive_report, save_validation_plots
@@ -455,7 +455,114 @@ def _save_checkpoint_guardrails(
 
 
 def run_sbi(config: SBIConfig) -> Path:
-    """Run the full SBI validation workflow and return the run directory."""
+    """Run the full amortized-SBI validation workflow and return the run directory.
+
+    This is the single end-to-end entry point: given one :class:`SBIConfig` (the
+    built ``RetrievalConfig`` plus the grouped estimator/workflow knobs), it
+    builds the task, obtains a simulation dataset, trains or loads the conditional
+    flow posterior, validates it, runs inference on the real target observation,
+    and writes every artifact to a self-contained run directory. It is designed to
+    be deterministic (seeded) and resumable, and to fail loudly on stale or
+    mismatched inputs via the task fingerprint.
+
+    Workflow stages
+    ---------------
+    1. **Task construction.** Build an :class:`SBITask` from
+       ``config.retrieval_config``, attaching the noise model and the
+       per-dataset prior-predictive value constraint (default: strictly positive
+       flux / transit depth). The task's fingerprint is derived from the priors,
+       units, and forward-model source code.
+    2. **Run/dataset resolution.** Resolve the output layout under
+       ``config.output_root``: a fingerprint-keyed dataset path under
+       ``datasets/`` and a per-run directory under ``runs/<run_label>``. When
+       ``config.load_completed_model`` is set, locate the source run (explicit
+       ``run_label`` or the latest completed run) and, if
+       ``config.resume_predictive_checkpoints`` is set, reuse its directory.
+    3. **Dataset generation or reuse.** Reuse an existing ``.h5`` dataset when its
+       fingerprint matches (rebuilding the preprocessing sidecar if missing);
+       otherwise generate ``config.n_simulations`` simulations split into
+       train/validation/test, fitting preprocessing on the train split. Dataset
+       *resume* is disabled when value-constraint rejection sampling is active
+       (rejection changes RNG consumption).
+    4. **Reader construction.** Wrap the dataset in a
+       :class:`NormalizedObservationDatasetReader`, which on construction runs the
+       observation/training flux-scale guard and aborts before training on a
+       units/scale mismatch or a stale/corrupt dataset.
+    5. **Train or load the posterior.** Either load a previously trained,
+       fingerprint-compatible posterior, or build and ``fit`` a
+       :class:`ConditionalFlowPosterior` (the ``npe`` objective, or ``elbo`` with
+       a lazily-built differentiable forward-model likelihood), then save it.
+    6. **Checkpoint guardrails.** For each saved checkpoint kind
+       (best-selection / best-loss / best-stable), run inference on the target and
+       persist a predictive spectrum, plot, and summary so a checkpoint-selection
+       regression is visible without retraining.
+    7. **Held-out validation.** Compute a simulation-based calibration (SBC)
+       report and a posterior-predictive report on the held-out *test* split.
+    8. **Optional test-time refinement** (ELBO runs only). When
+       ``config.refinement.method`` is set, sharpen the posterior for the specific
+       target spectrum with the differentiable forward model -- ``map_laplace``
+       (MAP + Laplace / Gaussian-VI, optionally validated on held-out cases) or
+       ``elbo`` (flow-ELBO). Validation/SBC stay amortized; only the delivered
+       target inference uses the refined posterior.
+    9. **Target inference.** Run :class:`AmortizedRetrieval` on the real
+       observation to produce posterior samples (mapped to physical parameter
+       space), a posterior-predictive summary, and an OOD diagnostic.
+    10. **Reporting & persistence.** Classify per-parameter informativeness
+        (contraction cross-checked against SBC calibration), optionally render the
+        validation plot set, and write the samples, predictive spectrum, summary
+        JSON, and run manifest; finally mark the run completed and update the
+        ``latest`` pointer.
+
+    Parameters
+    ----------
+    config:
+        Fully-populated :class:`SBIConfig`. It carries the experiment definition
+        (the built ``RetrievalConfig`` with priors and model-generating function),
+        the grouped estimator configs (``flow``, ``encoder``, ``training``,
+        ``stability``, ``refinement``), and the workflow knobs (simulation count,
+        sample counts, plotting, guardrails, resume/load flags, labels, and
+        optional known truths).
+
+    Returns
+    -------
+    pathlib.Path
+        The run directory (``output_root/runs/<run_label>``) containing all
+        artifacts produced by the run.
+
+    Side effects
+    ------------
+    Writes to disk under ``config.output_root``:
+
+    * ``datasets/<task>_<n>_<fingerprint>.h5`` and a ``.preprocessing.json``
+      sidecar (shared across runs of the same task family).
+    * ``runs/<run_label>/`` containing ``posterior_model/`` (weights +
+      ``metadata.json``), ``checkpoints/`` and ``predictive_checkpoints/``, the
+      target ``*.npy`` samples/log-probabilities, the target predictive spectrum,
+      ``amortized_summary.json``, the checkpoint-guardrail artifacts, the optional
+      ``test_time_validation_report.json`` and validation plots, and a run
+      manifest. The ``latest`` run pointer under ``output_root`` is updated on
+      completion.
+
+    Raises
+    ------
+    FileExistsError
+        If the target run directory already exists and is not being reused for a
+        predictive-checkpoint resume.
+    RuntimeError
+        If a cached dataset or a loaded posterior fingerprint does not match the
+        current task, or if inference unexpectedly returns non-physical samples.
+    ValueError
+        If the ELBO objective is requested for a task whose runtime has more than
+        one model group or observation (not yet supported by the ELBO likelihood).
+
+    Notes
+    -----
+    Progress is reported to stdout throughout (device list, split counts, memory
+    estimates, per-stage status, validation metrics, and the per-parameter
+    informativeness verdict). The function is the orchestration layer only: the
+    science lives in the simulator, encoder, flow, objective, and calibration
+    modules it calls.
+    """
     devices = jax.devices()
     print(f"JAX devices: {devices}")
 

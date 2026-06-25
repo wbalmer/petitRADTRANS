@@ -20,7 +20,7 @@ from .config import (
     build_conditional_flow_posterior,
 )
 from .observation import ObservationBlock
-from .posterior import PosteriorEstimator, PosteriorSamples
+from .flows import PosteriorEstimator, PosteriorSamples
 from .preprocessing import TaskPreprocessingMetadata, normalize_observation_blocks
 from .simulator import RuntimeSimulator
 from .task import SBITask, SimulationConfig

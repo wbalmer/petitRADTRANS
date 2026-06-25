@@ -1,7 +1,8 @@
 """Task definitions for simulation-based inference workflows.
 
 These classes bridge the user-facing retrieval configuration objects and the
-runtime-native simulation interfaces used by amortized inference.
+runtime-native simulation interfaces used by amortized inference. SBITask
+is the primary object that allows the user to interface with the SBI module.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ class NoiseModelConfig:
     Attributes:
         mode:
             Short identifier of the noise model implementation.
+            Can be 'observational', 'gaussian' or 'none'.
         parameters:
             Backend-specific parameters used to instantiate the noise model.
         seed:
@@ -47,6 +49,10 @@ class NoiseModelConfig:
 @dataclass(frozen=True)
 class ObservationValueConstraint:
     """Admissible range for simulated observation values.
+    This is used to reject forward models that produce invalid results
+    and introduce numerical instability. For example, transit depths
+    and photometric fluxes must be non-negative.
+
 
     Attributes:
         min_value:
@@ -75,7 +81,10 @@ class ObservationValueConstraint:
 
 @dataclass(frozen=True)
 class ObservationSchema:
-    """Capture the supported observation family for an amortized task.
+    """Describes the type of observation being used. For SBI
+    we're primarily concerned with spectra, but we include the other options
+    for compatibility with the retrieval module and potential future
+    extensions of the SBI module.
 
     Attributes:
         dataset_names:
@@ -95,7 +104,7 @@ class ObservationSchema:
 
 @dataclass(frozen=True)
 class SimulationConfig:
-    """Control how a task generates prior-predictive simulations.
+    """Control how an SBITask generates prior-predictive forward models.
 
     Attributes:
         batch_size:
@@ -135,7 +144,7 @@ _PRIOR_FINGERPRINT_CUBE_GRID = (0.001, 0.25, 0.5, 0.75, 0.999)
 
 
 def _model_function_digest(function: Any) -> str:
-    """Return a stable digest of a model-generating function's implementation.
+    """Return a string description of a model-generating function's implementation.
 
     Prefers the source text (so editing the function body invalidates a cached
     dataset), falling back to bytecode and then the qualified name for callables
@@ -158,11 +167,14 @@ def _model_function_digest(function: Any) -> str:
 
 @dataclass(frozen=True)
 class SBITask:
-    """Bundle the immutable ingredients required for an SBI problem.
-
-    The task owns the retrieval configuration, canonical parameter layout,
+    """
+    An SBITask is the core unit of the SBI workflow. It is an immutable datastructure
+    that stores the retrieval configuration, canonical parameter layout,
     observation schema, and simulation policy needed to generate training data
     and evaluate amortized posteriors.
+
+   `SBITask.from_retrieval_config(...)` is the standard constructor: it infers
+    dataset type, the forward-model family, and version strings.
     """
 
     name: str
@@ -257,7 +269,8 @@ class SBITask:
 
     @property
     def line_opacity_modes(self) -> Mapping[str, str]:
-        """Return the line-opacity mode for each configured dataset."""
+        """Return the line-opacity mode for each configured dataset.
+        Can be c-k or lbl."""
         return {
             name: data.line_opacity_mode
             for name, data in self.retrieval_config.data.items()
@@ -265,13 +278,13 @@ class SBITask:
 
     def _forward_model_signature(self) -> dict[str, Any]:
         """Signature of everything that determines the *simulated spectra*.
+        This provides a sanity check to make sure that the forward model you're
+        using is consistent with the one used to generate the training data.
+        If you change the forward model, you'll also need to regenerate the training
+        dataset.
 
         Captures prior bounds, declared parameter units, and the source of each
-        model-generating function. These must invalidate a cached dataset:
-        historically a prior bound (``0.9 * r_jup`` -> ``0.9``) and unit
-        (``None`` -> ``jupiterRad``) edit left the digest unchanged, so stale --
-        and in one case physically corrupt (~1e-20 flux) -- simulations were
-        silently reused across runs.
+        model-generating function.
         """
         layout = self.parameter_layout
         priors: dict[str, Any] = {}
@@ -289,6 +302,7 @@ class SBITask:
                 or getattr(template, "transform_prior_cube_coordinate", None)
                 is not None
             )
+            # Check that values drawn from the priors haven't changed.
             if is_free and has_prior:
                 try:
                     quantiles: Any = [
@@ -313,6 +327,7 @@ class SBITask:
                     fixed_value = repr(fixed_value)
                 priors[name] = {"fixed": fixed_value}
 
+        # Check that the model generating function hasn't changed.
         model_sources = {
             str(data_name): _model_function_digest(
                 getattr(data, "model_generating_function", None)
@@ -349,7 +364,10 @@ class SBITask:
 
     @property
     def task_fingerprint(self) -> TaskFingerprint:
-        """Return the deterministic fingerprint of the task family."""
+        """Return the deterministic fingerprint of the task family.
+        This just saves the metadata in a static class so that it
+        can be used for compatibility checks later on.
+        """
         return TaskFingerprint.from_payload(self.fingerprint_payload)
 
     def validate_observation_schema(
@@ -453,6 +471,9 @@ class SBITask:
 
     def build_runtime(self) -> RetrievalRuntime:
         """Construct a retrieval runtime matching the task definition.
+        The retrieval runtime organises the forward model and parameters,
+        in an immutable structure so that the retrieval can be
+        vectorised and differentiable.
 
         Returns
         -------

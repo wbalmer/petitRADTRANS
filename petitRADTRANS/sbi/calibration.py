@@ -1,4 +1,9 @@
-"""Calibration and posterior-predictive reporting for amortized SBI."""
+"""Calibration and posterior-predictive reporting for amortized SBI.
+
+This module provides the functionality of Simulation Based Calibration (SBC)
+and posterior-predictive checks. SBC performs inference on held-out
+simulation data to evaluate model performance.
+"""
 
 from __future__ import annotations
 
@@ -39,6 +44,8 @@ class CoverageLevelReport:
 @dataclass(frozen=True)
 class SimulationBasedCalibrationReport:
     """Rank-based SBC summary over a held-out set of observations.
+    The rank is essentially the number of posterior samples that are less than the true α,
+    and should be uniformly distributed if the posterior is calibrated.
 
     Attributes
     ----------

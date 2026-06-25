@@ -1,4 +1,10 @@
-"""Simulation interfaces for prior-predictive and proposal-driven generation."""
+"""Simulation interfaces for prior-predictive and proposal-driven generation.
+
+This module is similar in spirit to petitRADTRANS.retrieval.runtime and the
+log likelihood calculations of the retrieval module. It takes arrays of parameters,
+computes forward models, and projects them into observation space via binning, scaling,
+convolutions and other transformations.
+"""
 
 from __future__ import annotations
 
@@ -29,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SimulationBatch:
-    """Container for one simulated batch.
+    """Container for one batch of simulations.
 
     Attributes:
         parameters:
@@ -91,6 +97,52 @@ def _stack_simulation_output_payloads(payloads: list[dict]) -> dict:
     return stacked
 
 
+def _concatenate_batched_observation_outputs(
+    chunks: list[dict[str, dict[str, Any]]],
+) -> dict[str, dict[str, Any]]:
+    """Concatenate the per-chunk outputs of ``simulate_observations_batched``.
+
+    Each chunk maps observation name -> payload dict; the array fields carry a
+    leading ``(chunk_n_samples, ...)`` axis and ``"metadata"`` is a per-sample
+    list. The merged result is bit-identical to running the whole batch in a
+    single call, so splitting a large batch into chunks purely to bound peak
+    device memory is transparent to every caller.
+    """
+    if not chunks:
+        return {}
+    if len(chunks) == 1:
+        return chunks[0]
+
+    merged: dict[str, dict[str, Any]] = {}
+    for obs_name, first_payload in chunks[0].items():
+        merged_payload: dict[str, Any] = {}
+        for key in first_payload:
+            values = [chunk[obs_name][key] for chunk in chunks]
+            if key == "metadata":
+                merged_list: list[Any] = []
+                for sub_list in values:
+                    merged_list.extend(sub_list)
+                merged_payload[key] = merged_list
+            elif all(v is None for v in values):
+                merged_payload[key] = None
+            elif any(isinstance(v, np.ndarray) for v in values):
+                # ``mask`` is a host (numpy) array; keep it on the host.
+                merged_payload[key] = np.concatenate(
+                    [np.asarray(v) for v in values if v is not None], axis=0
+                )
+            else:
+                merged_payload[key] = jnp.concatenate(
+                    [
+                        jnp.asarray(v, dtype=JAX_DTYPE)
+                        for v in values
+                        if v is not None
+                    ],
+                    axis=0,
+                )
+        merged[obs_name] = merged_payload
+    return merged
+
+
 class SimulationRuntime(RetrievalRuntime):
     """Extension of :class:`~petitRADTRANS.retrieval.runtime.RetrievalRuntime`
     that adds deterministic forward-model simulation methods.
@@ -107,6 +159,8 @@ class SimulationRuntime(RetrievalRuntime):
     ) -> dict[str, dict[str, Any]]:
         """Return deterministic observation-space model outputs for one parameter point."""
         simulated_observations: dict[str, dict[str, Any]] = {}
+
+        # Build parameters
         parameter_payload = {
             name: float(value)
             for name, value in zip(
@@ -119,6 +173,7 @@ class SimulationRuntime(RetrievalRuntime):
             )
         }
 
+        # Groups in case a Data object uses an external prt reference
         for group in self.model_groups:
             model_result = self._evaluate_model_group(group, physical_params)
 
@@ -129,6 +184,8 @@ class SimulationRuntime(RetrievalRuntime):
 
             for observation_name in group.observation_names:
                 observation = self.observations[observation_name]
+
+                # Calculate the forward model
                 projected_values = self._project_dataset_observation(
                     observation_name,
                     physical_params,
@@ -403,6 +460,7 @@ class SimulationRuntime(RetrievalRuntime):
         self,
         parameter_matrix: Any,
         multi_device: bool = False,
+        max_chunk_size: int | None = None,
     ) -> dict[str, dict[str, Any]]:
         """Return deterministic batched observation outputs for a parameter matrix.
 
@@ -416,7 +474,13 @@ class SimulationRuntime(RetrievalRuntime):
             parameter_matrix: Shape ``(n_samples, n_free_params)``.
             multi_device: When ``True`` and more than one JAX device is
                 available, distribute the vmapped RT kernel across devices
-                using ``jax.pmap``.
+                using ``jax.device_put`` and ``jax.tree_util.tree_map``.
+            max_chunk_size: When set, the native batched path is evaluated in
+                sub-batches of at most this many samples and the (binned)
+                outputs are concatenated. The multi-device kernel gathers the
+                raw, high-resolution forward-model spectra onto a single device
+                before projection, so a large batch can exceed device memory;
+                chunking bounds that peak while leaving the result identical.
 
         Returns:
             Mapping from observation name to a payload dict where ``"values"``
@@ -453,6 +517,32 @@ class SimulationRuntime(RetrievalRuntime):
                 for name in obs_names
             }
 
+        if max_chunk_size is not None and max_chunk_size > 0 and n_samples > max_chunk_size:
+            # Round the chunk up to a multiple of the device count: the
+            # multi-device kernel processes only ``(n // n_devices) * n_devices``
+            # rows and silently drops the remainder, so every chunk handed to it
+            # must be a clean multiple to avoid losing samples.
+            chunk = int(max_chunk_size)
+            n_devices = len(jax.devices())
+            if multi_device and n_devices > 1:
+                chunk = max(n_devices, ((chunk + n_devices - 1) // n_devices) * n_devices)
+            chunk_outputs = [
+                self._simulate_observations_batched_native(
+                    parameter_matrix[start : start + chunk], multi_device
+                )
+                for start in range(0, n_samples, chunk)
+            ]
+            return _concatenate_batched_observation_outputs(chunk_outputs)
+
+        return self._simulate_observations_batched_native(parameter_matrix, multi_device)
+
+    def _simulate_observations_batched_native(
+        self,
+        parameter_matrix: Any,
+        multi_device: bool,
+    ) -> dict[str, dict[str, Any]]:
+        """Run the native (vmapped) RT kernel + projection for one (sub-)batch."""
+        n_samples = int(parameter_matrix.shape[0])
         use_multi_device = (
             multi_device and len(jax.devices()) > 1 and n_samples >= len(jax.devices())
         )
@@ -586,6 +676,12 @@ class RuntimeSimulator(BatchedSimulator):
         mask: Any,
         constraint: Any,
     ) -> np.ndarray:
+        """
+        Sanity checking simulated observations.
+        Uses the ObservationValueConstraints to check if the values are within the specified bounds.
+        Failing simulations will be rejected and resampled. This function returns a boolean mask
+        indicating which rows are invalid.
+        """
         values_array = np.asarray(values, dtype=float)
         if values_array.ndim == 0:
             values_array = values_array.reshape(1, 1)
@@ -964,7 +1060,7 @@ class RuntimeSimulator(BatchedSimulator):
         n_samples = int(parameter_matrix.shape[0])
 
         # When data_parallel is requested we pad the batch to a multiple of
-        # the device count so that pmap can split it evenly.  The extra
+        # the device count so that jax can split it evenly.  The extra
         # samples are trimmed from the results after simulation.
         multi_device = (
             data_parallel
@@ -1015,8 +1111,15 @@ class RuntimeSimulator(BatchedSimulator):
 
         # --- Batched path (vmap the RT kernel) ---
         if self.task.simulation_config.use_vectorized_runtime:
+            # Bound the forward-model sub-batch to the configured simulation
+            # batch size so a single device never holds the whole batch's
+            # high-resolution spectra at once (the multi-device kernel gathers
+            # raw outputs onto device 0 before projection). This is the footprint
+            # proven safe during dataset generation; the result is identical.
             det_obs = self.runtime.simulate_observations_batched(
-                parameter_matrix, multi_device=multi_device
+                parameter_matrix,
+                multi_device=multi_device,
+                max_chunk_size=int(self.task.simulation_config.batch_size),
             )
 
             # Trim padding introduced for even device splitting.

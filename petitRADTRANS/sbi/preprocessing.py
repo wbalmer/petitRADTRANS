@@ -212,7 +212,10 @@ def _finite_median_iqr(values: Any) -> tuple[float | None, float | None, int]:
 def compute_block_normalization_stats(
     blocks: list[ObservationBlock],
 ) -> dict[str, BlockNormalizationStats]:
-    """Compute per-block normalization statistics from training observations."""
+    """Compute per-block normalization statistics from training observations.
+    Calculates the robust per-wavelength median/IQR, global scale, and `log_median_flux`
+    from the simulated training set.
+    """
     grouped_blocks: dict[str, list[ObservationBlock]] = {}
 
     for block in blocks:

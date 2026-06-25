@@ -1,4 +1,98 @@
-"""Conditional flow components for amortized SBI posteriors."""
+"""Conditional normalizing-flow transforms for amortized SBI posteriors.
+
+A normalizing flow models the posterior ``q(theta | x)`` as a chain of invertible
+maps (bijections) between the parameter vector ``theta`` and a latent ``z`` drawn
+from a simple base density, with every map *conditioned* on the observation
+embedding ``x`` (the ``context``). Because each map is invertible and its Jacobian
+determinant is tractable, the change-of-variables formula gives an exact density,
+``log q(theta | x) = log p_base(z) + log|det d z / d theta|``, and sampling is just
+``z ~ base`` followed by the inverse map. Training maximises that log-density (NPE);
+sampling and test-time refinement use the inverse direction.
+
+This module provides the building blocks and four interchangeable flow *families*,
+all selectable from :class:`~petitRADTRANS.sbi.flows.posterior.ConditionalFlowPosterior`
+via ``flow_family``. Each family trades expressiveness against cost and against how
+cleanly it can be inverted (which matters because sampling and the posterior's own
+sharpness diagnostics rely on an accurate inverse).
+
+Flow families (least to most expressive)
+-----------------------------------------
+* **Affine coupling** -- :class:`ConditionalAffineCoupling`, stacked by
+  :class:`ConditionalAffineFlow`. A binary mask splits ``theta``; the conditioner
+  reads the masked half plus context and predicts a shift and (soft-bounded)
+  log-scale that affinely transform the other half. Exactly and cheaply invertible
+  in closed form, but each layer is only an affine warp of half the coordinates, so
+  many layers (with alternating masks) are needed for non-Gaussian structure.
+  *Use when:* a fast, robust baseline is wanted, or the posterior is smooth and
+  close to Gaussian; also useful for debugging.
+
+* **Rational-quadratic spline (RQS) coupling** --
+  :class:`ConditionalRationalQuadraticSplineCoupling` (and the 1-D-only
+  :class:`ConditionalScalarSplineTransform`), stacked by
+  :class:`ConditionalSplineFlow`. Like affine coupling, but the per-dimension map is
+  a monotonic rational-quadratic spline with ``num_bins`` bins on a finite support
+  ``[-bound, bound]`` (identity outside). Splines capture multimodal, skewed, and
+  sharp conditionals while keeping an **analytic** inverse. ``max_derivative`` caps
+  the spline slope (and hence the implied density) to prevent the unbounded-density
+  collapse -- derivative explosion and cube-edge pile-up -- that an uncapped spline
+  can fall into on low-noise targets. This is the default and the most expressive
+  *analytically invertible* family for the low-dimensional posteriors typical of
+  retrievals. *Use when:* the posterior is non-Gaussian (multimodal/skewed/sharp)
+  and exact, cheap sampling is required -- the recommended default.
+
+* **Affine autoregressive** -- :class:`ConditionalAutoregressiveAffineTransform`,
+  stacked by :class:`ConditionalAutoregressiveFlow`. Dimension ``i`` is affinely
+  transformed using all previous dimensions ``theta_{<i}`` and the context, giving a
+  full triangular dependency structure that is more expressive than a single
+  coupling layer for the same parameter budget. Both directions are exact but
+  evaluated dimension-by-dimension (``O(parameter_dim)`` sequential passes). *Use
+  when:* a lighter-weight autoregressive model suffices and parameter dependencies
+  matter more than per-dimension shape flexibility.
+
+* **Neural autoregressive (NAF)** --
+  :class:`ConditionalNeuralAutoregressiveTransform`, stacked by
+  :class:`ConditionalNeuralAutoregressiveFlow`. Each scalar map is a monotonic
+  deep-sigmoidal mixture (a small neural bijector) conditioned on ``theta_{<i}`` and
+  context -- the most expressive family, able to model very sharp or heavy-tailed
+  conditionals. The forward map and its log-derivative are analytic, but the inverse
+  has no closed form and is solved per scalar by bracket-expanding **bisection**
+  followed by a few **Newton** polish steps (the ``inverse_*`` /
+  ``neural_autoregressive_*`` knobs control accuracy). A ``min_residual`` floor keeps
+  the map from becoming non-invertible as it sharpens. The inverse accuracy is
+  surfaced via :class:`NeuralInverseDiagnostics` and gates checkpoint selection.
+  *Use when:* maximum flexibility is needed and the extra inverse cost / accuracy
+  monitoring is acceptable.
+
+Auxiliary transform
+-------------------
+* :class:`ConditionalDiagonalAffine` -- a per-dimension (diagonal) affine of *all*
+  coordinates at once, predicted from the context. Optionally prepended to a spline
+  flow (``use_base_affine``) so the flow can set each parameter's posterior location
+  and width directly, rather than forcing a tightly-constrained direction (e.g. the
+  transit-depth amplitude at fixed stellar radius) through pathologically narrow
+  spline bins.
+
+Base distribution
+-----------------
+:class:`_ConditionalFlowStack` supports a ``gaussian`` (default) or ``logistic``
+base. The logistic base is the natural choice when the flow works in logit-of-cube
+coordinates for a uniform prior: the prior then maps to the base under the identity,
+so an *untrained* flow already equals the prior and only has to learn the (moderate)
+posterior deviation, instead of fighting a tail mismatch that pushes samples to the
+cube edges.
+
+Shared mechanics
+----------------
+:class:`_ConditionalFlowStack` composes a tuple of layers, reversing the coordinate
+order between layers so every dimension is eventually transformed, and exposes the
+common ``forward`` / ``inverse`` / ``log_prob`` / ``sample`` surface used by the
+posterior estimator. The module-level helpers
+(:func:`_rational_quadratic_spline_forward` / ``_inverse``,
+:func:`_neural_autoregressive_scalar_forward`, :func:`_spline_boundary_derivatives`,
+:func:`_normalize_bin_sizes`) implement the underlying scalar transforms and must be
+called identically by the forward and inverse paths, or the analytic inverse stops
+matching the forward map.
+"""
 
 from __future__ import annotations
 

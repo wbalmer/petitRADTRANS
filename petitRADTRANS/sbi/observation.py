@@ -1,4 +1,12 @@
-"""Observation containers and block builders for amortized inference."""
+"""
+Observation containers and block builders for amortized inference.
+
+This module implements classes to store real or simulated observations
+in structured, frozen data classes, enabling them to be passed through
+JAX transformations and JIT compilation. It also includes functions
+to build batches of observations, enabling parallelised processing of
+multiple samples, while also limiting peak memory usage.
+"""
 
 from __future__ import annotations
 
@@ -22,15 +30,20 @@ class ObservationModality(str, Enum):
 
 @dataclass(frozen=True)
 class ObservationBlock:
-    """Represent one modality-specific observation block.
+    """Representation of one (simulated or real) observation.
+
+    The modality can be 'spectrum', 'photometry', 'time_series', or 'auxiliary'.
+    However, for SBI usage we're generally only concerned with spectrum.
 
     Attributes:
         name:
             Stable identifier of the block within a task.
         modality:
-            Semantic block type used to dispatch encoding logic.
+            Description of the type of observation, can be one of
+            'spectrum', 'photometry', 'time_series', or 'auxiliary'.
         values:
-            Observed values after any task-level preprocessing.
+            Observed values after any task-level preprocessing. This
+            stores either transit depths or fluxes, modulo some processing.
         uncertainties:
             Optional per-element uncertainty representation.
         coordinates:
@@ -59,8 +72,11 @@ class EncodedObservation:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
-class ObservationEncoder(abc.ABC):
-    """Transform structured observation blocks into model-ready embeddings."""
+class AbstractObservationEncoder(abc.ABC):
+    """Transform structured observation blocks into model-ready embeddings.
+    This allows an observation to be represented in a shared latent space,
+    with the encoders implemented in encorders.py.
+    """
 
     @abc.abstractmethod
     def encode(self, blocks: list[ObservationBlock]) -> EncodedObservation:
@@ -173,7 +189,8 @@ class PreStackedObservations:
 
     All per-sample ObservationBlock data has been extracted into dense numpy
     arrays before this object is constructed, so JAX can trace through the
-    encoder without re-compiling per batch.
+    encoder without re-compiling per batch. Registered as a pytree node
+    to enable JIT compilation.
 
     Attributes
     ----------
@@ -246,7 +263,7 @@ def build_raw_observation_blocks(retrieval_config: Any) -> list:
 __all__ = [
     "EncodedObservation",
     "ObservationBlock",
-    "ObservationEncoder",
+    "AbstractObservationEncoder",
     "ObservationModality",
     "PreStackedObservations",
     "build_observation_block",

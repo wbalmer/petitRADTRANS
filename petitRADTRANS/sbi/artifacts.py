@@ -28,7 +28,11 @@ class ArtifactRole(str, Enum):
 
 @dataclass(frozen=True)
 class ArtifactMetadata:
-    """Traceability metadata shared by all persisted SBI artifacts."""
+    """Traceability metadata shared by all persisted SBI artifacts.
+
+    This is used to ensure that the current SBI Task and the generated dataset
+    are compatible.
+    """
 
     role: ArtifactRole
     task_name: str

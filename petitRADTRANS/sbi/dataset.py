@@ -14,7 +14,7 @@ import numpy as np
 
 from .artifacts import ArtifactMetadata, ArtifactRole
 from .observation import build_observation_block_batch
-from .posterior import PosteriorBatch
+from .flows.base import PosteriorBatch
 from .preprocessing import (
     TaskPreprocessingMetadata,
     fit_task_preprocessing,
@@ -48,7 +48,7 @@ class SplitSamplingPolicy(str, Enum):
 
 @dataclass(frozen=True)
 class SimulationDatasetManifest:
-    """Describe a stored SBI simulation corpus."""
+    """Describes a stored SBI simulation dataset."""
 
     task_name: str
     parameter_names: tuple[str, ...]
@@ -256,9 +256,8 @@ class NormalizedObservationDatasetReader:
     preprocessing_metadata: TaskPreprocessingMetadata
     # Optional target observation(s) -- {dataset_name: raw observation values}.
     # When supplied, the observation/training scale check runs automatically at
-    # construction (i.e. when the dataset is loaded for a run), so a units/scale
-    # mismatch or a stale/corrupt dataset aborts *before* training rather than
-    # only surfacing as the post-training OOD diagnostic.
+    # construction. This prevents training on a dataset that doesn't match
+    # the target observation, e.g. due to differing units.
     target_observations: Mapping[str, Any] | None = None
     scale_check: str = "raise"
     scale_check_max_orders_outside: float = 2.0
@@ -472,7 +471,7 @@ class NormalizedObservationDatasetReader:
 
 
 # ---------------------------------------------------------------------------
-# HDF5-backed implementation (single file, no file-count explosion)
+# HDF5-backed implementation
 # ---------------------------------------------------------------------------
 
 
@@ -628,7 +627,8 @@ class HDF5SimulationDatasetWriter(SimulationDatasetWriter):
 
 @dataclass(frozen=True)
 class HDF5StoredSimulationDataset:
-    """Read-only handle for an HDF5-backed simulation dataset."""
+    """Read-only handle for an HDF5-backed simulation dataset,
+    created by HDF5SimulationDatasetStore."""
 
     manifest: SimulationDatasetManifest
     storage_uri: str

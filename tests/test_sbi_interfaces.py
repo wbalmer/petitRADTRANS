@@ -29,7 +29,7 @@ from petitRADTRANS.sbi import (  # noqa: E402
     generate_posterior_predictive_report,
     generate_sbc_report,
     generate_simulation_dataset,
-    HierarchicalObservationEncoder,
+    ObservationEncoder,
     load_posterior_estimator,
     NoiseModelConfig,
     NormalizedObservationDatasetReader,
@@ -1132,7 +1132,7 @@ def test_hierarchical_observation_encoder_produces_fixed_width_embeddings():
         observations,
         {"synthetic_spectrum": "spectrum", "synthetic_photometry": "photometry"},
     )[0]
-    encoder = HierarchicalObservationEncoder(embedding_dim=96)
+    encoder = ObservationEncoder(embedding_dim=96)
 
     encoded = encoder.encode(blocks)
 
@@ -1190,7 +1190,7 @@ def test_normalized_dataset_reader_supports_encoded_mode(tmp_path):
         dataset=dataset,
         preprocessing_metadata=generated.preprocessing_metadata,
     )
-    encoder = HierarchicalObservationEncoder(embedding_dim=48)
+    encoder = ObservationEncoder(embedding_dim=48)
 
     batches = list(
         reader.iter_batches(
