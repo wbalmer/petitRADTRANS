@@ -254,12 +254,17 @@ def loss_from_observations(
         embeddings,
         parameter_space,
     )
+    # Hard clip on the log probabilities to avoid NaN gradients.
     log_probabilities = jnp.clip(log_probabilities, -50000.0, 15000.0)
     finite_mask = jnp.isfinite(log_probabilities)
     safe_log_probs = jnp.where(finite_mask, log_probabilities, 0.0)
     n_valid = jnp.maximum(finite_mask.sum(), 1)
     total_loss = -jnp.sum(safe_log_probs) / n_valid
 
+    # Regularization terms to help optimisation
+    # If the bins are collapsing or the spline derivative is too large, the flow is ill-conditioned and
+    # the iterative inverse can fail to converge. The spline regularization terms keep the spline
+    # well-conditioned, and the invertibility penalty keeps the iterative inverse consistent with the forward map.
     if include_spline_regularization and (
         model.spline_small_bin_regularization_weight > 0.0
         or model.spline_derivative_regularization_weight > 0.0
@@ -288,6 +293,10 @@ def loss_from_observations(
             + model.spline_derivative_regularization_weight * derivative_penalty
         )
 
+    # Invertibility penalty: penalises the forward/inverse round-trip error and the
+    # log-det closure of the forward/inverse pair. This keeps an iterative-inverse
+    # flow invertible as it sharpens, which is the dominant way a low-noise
+    # posterior silently degrades.
     if include_spline_regularization and model.invertibility_loss_weight > 0.0:
         total_loss = total_loss + model.invertibility_loss_weight * (
             invertibility_penalty(
@@ -298,6 +307,10 @@ def loss_from_observations(
     if model.aux_scale_loss_weight <= 0.0:
         return total_loss
 
+    # Auxiliary scale loss: penalises the mean-squared error between the
+    # scale_head prediction and the per-observation log-amplitude target. This
+    # keeps an explicit amplitude signal in the embedding, which is otherwise
+    # lost to the flow's invariance to global scale.
     scale_targets = _scale_targets_from_observations(observations)
     if scale_targets is None:
         return total_loss

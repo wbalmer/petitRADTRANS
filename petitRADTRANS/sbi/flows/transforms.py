@@ -1,10 +1,15 @@
-"""Conditional normalizing-flow transforms for amortized SBI posteriors.
+"""Conditional normalising-flow transforms for amortized SBI posteriors.
 
-A normalizing flow models the posterior ``q(theta | x)`` as a chain of invertible
+This is the module that implements the core normalising flow transformations used
+to estimate the posterior probability distributions.
+
+A normalising flow models the posterior ``q(theta | x)`` as a chain of invertible
 maps (bijections) between the parameter vector ``theta`` and a latent ``z`` drawn
 from a simple base density, with every map *conditioned* on the observation
-embedding ``x`` (the ``context``). Because each map is invertible and its Jacobian
-determinant is tractable, the change-of-variables formula gives an exact density,
+embedding ``x`` (the ``context``). You can think of the latent space as a simplified
+version of the parameter space, which makes training a model numerically easier.
+Because each map is invertible and its Jacobian determinant is tractable, the
+change-of-variables formula gives an exact density,
 ``log q(theta | x) = log p_base(z) + log|det d z / d theta|``, and sampling is just
 ``z ~ base`` followed by the inverse map. Training maximises that log-density (NPE);
 sampling and test-time refinement use the inverse direction.
@@ -13,7 +18,12 @@ This module provides the building blocks and four interchangeable flow *families
 all selectable from :class:`~petitRADTRANS.sbi.flows.posterior.ConditionalFlowPosterior`
 via ``flow_family``. Each family trades expressiveness against cost and against how
 cleanly it can be inverted (which matters because sampling and the posterior's own
-sharpness diagnostics rely on an accurate inverse).
+sharpness diagnostics rely on an accurate inverse). In practice, we have found that
+the rational-quadratic spline (RQS) coupling family is the best default for the low-dimensional
+posteriors, e.g. for relatively simple transit spectra, while the neural autoregressive flow (NAF)
+family is the most expressive and can be used for more complex posteriors, e.g. for
+high-dimensional spectra with many correlated parameters, typical of directly imaged planets
+and brown dwarfs. This is what was used in Vasist+ 2023.
 
 Flow families (least to most expressive)
 -----------------------------------------

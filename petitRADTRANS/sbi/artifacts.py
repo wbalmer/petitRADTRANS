@@ -1,4 +1,10 @@
-"""Artifact metadata and registry interfaces for SBI assets."""
+"""Artifact metadata and registry interfaces for SBI assets.
+
+This module defines the metadata and interfaces for saving and loading
+the datasets, trained posterior models, and validation reports produced by the
+SBI workflow. The metadata is used to ensure that the current SBI Task and the
+generated dataset are compatible.
+"""
 
 from __future__ import annotations
 

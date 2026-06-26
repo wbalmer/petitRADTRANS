@@ -1,4 +1,65 @@
-"""Training and checkpoint orchestration for SBI posterior models."""
+"""Training and checkpoint orchestration for SBI posterior models.
+
+This module holds the optimisation engine that
+:meth:`~petitRADTRANS.sbi.flows.posterior.ConditionalFlowPosterior.fit` (and the
+flow-matching estimator) delegate to. It is deliberately backend-agnostic: the
+estimator supplies the model, a dataset reader, and a handful of callbacks (loss,
+validation loss, per-checkpoint diagnostics, and the selection/stability metrics),
+and :class:`SBITrainer` runs the epoch loop, selects checkpoints, and persists
+resumable state.
+
+Key pieces
+----------
+* :class:`TrainingSchemeConfig` -- the trainer's own (internal) optimisation
+  configuration: schedule, batch size, multi-device flag, checkpointing, early
+  stopping, and verbose-diagnostics knobs. Distinct from the public, grouped
+  :class:`petitRADTRANS.sbi.config.TrainingConfig`, which is translated into this
+  at fit time.
+* :class:`SBITrainer` -- the reusable loop: AdamW with an optional
+  warmup+cosine schedule and gradient clipping, JIT-compiled train/eval steps,
+  optional data-parallel sharding across devices, pluggable validation
+  diagnostics, checkpoint selection, and early stopping.
+* Checkpoint backends -- :class:`CheckpointBackend` (ABC) with
+  :class:`EquinoxCheckpointBackend` (dill-pickled trees) and
+  :class:`OrbaxCheckpointBackend`; :func:`resolve_checkpoint_backend` picks one
+  (``'auto'`` prefers Orbax, falling back to Equinox), and
+  :func:`load_trainer_checkpoint_state` restores a single checkpoint outside the
+  trainer (used by the workflow's checkpoint guardrails).
+
+Checkpoint kinds
+----------------
+Each epoch the trainer may write up to five checkpoint subdirectories, all carrying
+their epoch's full validation-metric block so a later run can audit *why* a
+checkpoint was chosen:
+
+* ``best_selection`` -- minimum of the **selection metric**. For a flow this metric
+  is the validation loss for a stable checkpoint, the loss plus a small bounded
+  penalty for a marginally-unstable-but-usable one, and a large sentinel for a
+  pathological (collapsed / non-invertible) one. Minimising it therefore picks the
+  best-loss *usable* checkpoint and never a pathological one. This is the deployed
+  model by default.
+* ``best_loss`` -- minimum raw validation loss (ignores stability). Drives early
+  stopping so a sharpening posterior whose inverse transiently trips the strict
+  invertibility gate is not halted prematurely.
+* ``best_stable`` -- minimum validation loss *among epochs that pass the strict
+  stability gate*; the safe fallback when the selection model is only marginally
+  invertible.
+* ``best`` -- a copy of whichever of the above is currently the deployed model.
+* ``latest`` -- the most recent epoch's full state, used to resume training.
+
+Data path & performance
+------------------------
+Reading scattered (shuffled) rows from HDF5 every epoch is slow, so each split is
+loaded once, normalised, and pre-stacked into dense in-RAM arrays
+(:func:`_prestack_observation_blocks` →
+:class:`~petitRADTRANS.sbi.observation.PreStackedObservations`); per-epoch shuffling
+is then just a NumPy index permutation. The train/eval steps are JIT-compiled once
+and reused; when ``data_parallel`` is set and multiple devices are present, batches
+are padded to a fixed size and sharded across a device mesh (GSPMD inserts the
+collectives). Everything here is result-invariant infrastructure: it changes speed
+and memory, not the optimisation outcome, except for the genuinely scientific parts
+(the gradient step, LR schedule, checkpoint selection, and early-stopping decision).
+"""
 
 from __future__ import annotations
 
@@ -50,6 +111,11 @@ def _write_epoch_metrics(
     epoch: int,
     epoch_metrics: Mapping[str, Any],
 ) -> None:
+    """Record one epoch's metrics into per-key history lists.
+
+    Pads each key's list with ``nan`` up to ``epoch`` so a metric that only starts
+    appearing partway through training stays index-aligned with the epoch axis.
+    """
     keys = set(metric_history) | set(epoch_metrics)
     for key in keys:
         values = metric_history.setdefault(key, [])
@@ -65,6 +131,13 @@ def _write_epoch_metrics(
 def _aggregate_diagnostic_metrics(
     diagnostic_metrics_by_batch: list[Mapping[str, float]],
 ) -> dict[str, float]:
+    """Combine per-batch diagnostic dicts into one dict via metric-aware reduction.
+
+    Each metric is reduced across the diagnostic batches by an operator chosen from
+    its name: ``max`` for worst-case error/residual metrics (``*_max_abs_error``,
+    ``max_*`` …), ``min`` for floor metrics (``min_*``, ``spline_global_min_*`` …),
+    and ``mean`` otherwise. Non-finite values are dropped before reducing.
+    """
     if not diagnostic_metrics_by_batch:
         return {}
 
@@ -102,6 +175,8 @@ def _aggregate_diagnostic_metrics(
 
 
 def _log_scale_from_metadata(metadata: object) -> float:
+    """Read a block's scalar log-amplitude (``log_spectrum_scale`` or
+    ``log_median_flux``) from its metadata, defaulting to ``0.0``."""
     if not isinstance(metadata, dict):
         return 0.0
     if "log_spectrum_scale" in metadata:
@@ -112,6 +187,12 @@ def _log_scale_from_metadata(metadata: object) -> float:
 def _spectral_auxiliary_values_from_metadata(
     metadata: object, target: int
 ) -> np.ndarray:
+    """Extract the per-wavelength auxiliary channel (``relative_values`` or
+    ``absolute_values``) from metadata, resized to exactly ``target`` elements.
+
+    Returns zeros when absent. Mirrors the encoder's auxiliary-channel handling so
+    the pre-stacked training arrays match what the encoder expects.
+    """
     if not isinstance(metadata, dict):
         return np.zeros(target, dtype=np.float32)
 
@@ -130,6 +211,8 @@ def _spectral_auxiliary_values_from_metadata(
 
 
 def _global_scale_from_metadata(metadata: object) -> float:
+    """Read a block's positive global flux scale (``global_spectrum_scale`` or
+    ``spectrum_scale``) from metadata, defaulting to ``1.0``."""
     if not isinstance(metadata, dict):
         return 1.0
 
@@ -231,7 +314,15 @@ def _prestack_observation_blocks(blocks_batch: Any) -> Any:
 
 @dataclass(frozen=True)
 class EarlyStoppingConfig:
-    """Early stopping policy for SBI training."""
+    """Early-stopping policy for SBI training.
+
+    Attributes
+    ----------
+    patience:
+        Number of consecutive non-improving epochs tolerated before stopping.
+    min_delta:
+        Minimum decrease in the monitored metric that counts as an improvement.
+    """
 
     patience: int
     min_delta: float = 0.0
@@ -239,7 +330,66 @@ class EarlyStoppingConfig:
 
 @dataclass(frozen=True)
 class TrainingSchemeConfig:
-    """Configuration for posterior optimization."""
+    """Internal optimisation configuration consumed by :class:`SBITrainer`.
+
+    The public, grouped :class:`petitRADTRANS.sbi.config.TrainingConfig` is
+    translated into this dataclass at fit time; end users normally configure the
+    former.
+
+    Attributes
+    ----------
+    learning_rate:
+        Peak AdamW learning rate.
+    batch_size:
+        Number of samples per optimisation step.
+    num_epochs:
+        Maximum number of passes over the training split.
+    parameter_space:
+        Coordinate space the parameters are presented in (``'unconstrained'``,
+        ``'cube'``, …); passed through to the loss via the batch metadata.
+    seed:
+        Base RNG seed; per-epoch shuffles and diagnostic sampling derive from it.
+    shuffle_train:
+        Whether to permute the training split each epoch.
+    early_stopping:
+        Optional :class:`EarlyStoppingConfig`; ``None`` disables early stopping.
+    checkpoint_directory:
+        Directory for the trainer's checkpoint subdirectories; ``None`` disables
+        checkpointing.
+    checkpoint_backend:
+        Backend name (``'auto'`` / ``'equinox'`` / ``'orbax'``).
+    resume_from_checkpoint:
+        Whether to resume from the ``latest`` checkpoint (restoring model,
+        optimiser state, history, and best-checkpoint bookkeeping).
+    data_parallel:
+        Whether to shard batches across all available devices.
+    gradient_clip_norm:
+        Global gradient-norm clip value; ``None`` disables clipping.
+    weight_decay:
+        AdamW weight decay; ``0`` uses plain Adam.
+    use_cosine_schedule:
+        Enable a warmup + cosine-decay learning-rate schedule.
+    warmup_fraction:
+        Fraction of the schedule spent warming up (used when ``warmup_epochs`` is
+        ``None``).
+    warmup_epochs:
+        Absolute warmup length in epochs; overrides ``warmup_fraction`` when set.
+    min_learning_rate:
+        Final learning rate of the cosine decay.
+    lr_schedule_total_epochs:
+        Horizon (in epochs) over which the schedule decays; defaults to
+        ``num_epochs``.
+    verbose_diagnostics:
+        Whether to write the per-epoch diagnostic metrics JSON and plots.
+    diagnostics_output_directory:
+        Destination for verbose diagnostic artifacts; defaults to the checkpoint
+        directory's parent.
+    diagnostics_plot_interval:
+        Epoch interval between verbose diagnostic plots.
+    n_validation_diagnostic_batches:
+        Number of validation batches sampled per epoch for the (expensive)
+        per-checkpoint diagnostics.
+    """
 
     learning_rate: float = 1e-3
     batch_size: int = 32
@@ -266,6 +416,8 @@ class TrainingSchemeConfig:
 
 
 def _resolve_diagnostics_output_directory(config: TrainingSchemeConfig) -> Path | None:
+    """Choose where verbose diagnostic artifacts go: the explicit directory if set,
+    else the checkpoint directory's parent, else ``None`` (disabled)."""
     if config.diagnostics_output_directory:
         return Path(config.diagnostics_output_directory)
     if config.checkpoint_directory:
@@ -277,6 +429,12 @@ def _top_edge_hit_dimensions(
     epoch_metrics: Mapping[str, Any],
     limit: int = 3,
 ) -> list[tuple[int, float]]:
+    """Return the ``limit`` parameter dimensions with the highest cube-edge-hit rate.
+
+    Scans the ``cube_edge_hit_rate_dim_<i>`` entries and returns ``(dimension,
+    rate)`` pairs sorted by rate descending (used for the per-epoch log line that
+    flags which parameters are piling at the prior edges).
+    """
     ranked_dimensions: list[tuple[int, float]] = []
     for key, value in epoch_metrics.items():
         if not key.startswith('cube_edge_hit_rate_dim_'):
@@ -300,6 +458,11 @@ def _plot_metric_series(
     *,
     log_scale: bool = False,
 ) -> None:
+    """Plot the selected metric series on one Matplotlib axis.
+
+    Each present, finite ``key`` in ``metric_history`` is drawn against ``epochs``;
+    the axis is hidden if none of the keys have plottable data.
+    """
     plotted = False
     for key in keys:
         values = np.asarray(metric_history.get(key, []), dtype=float)
@@ -326,6 +489,16 @@ def _write_verbose_diagnostic_artifacts(
     output_directory: Path,
     completed_epochs: int,
 ) -> None:
+    """Write the verbose training diagnostics: a metrics JSON plus two PNG figures.
+
+    Always writes ``training_verbose_metrics.json`` (the full validation-metric
+    history). When Matplotlib is importable it also renders
+    ``training_verbose_diagnostics.png`` (loss/selection, round-trip errors, neural
+    inverse or spline extremes, and edge-hit/bin-ratio/penalty panels) and, if
+    per-dimension edge-hit rates are present,
+    ``training_verbose_edge_hits.png``. Silently skips the figures if Matplotlib is
+    unavailable.
+    """
     output_directory.mkdir(parents=True, exist_ok=True)
     metrics_payload = {
         key: [float(value) for value in values]
@@ -532,6 +705,7 @@ class OrbaxCheckpointBackend(CheckpointBackend):
     name = 'orbax'
 
     def __init__(self):
+        """Create the backend, raising ``RuntimeError`` if Orbax is not installed."""
         try:
             import orbax.checkpoint as ocp  # pyright: ignore[reportMissingImports]
         except ImportError as error:  # pragma: no cover - exercised when Orbax is installed
@@ -565,6 +739,8 @@ def instantiate_checkpoint_backend(name: str) -> CheckpointBackend:
 
 
 def _is_orbax_unsupported_type_error(error: Exception) -> bool:
+    """Return ``True`` if ``error`` is Orbax complaining about an unregistered leaf
+    type, i.e. a signal to fall back to the Equinox backend mid-run."""
     message = str(error)
     return 'TypeHandler lookup failed' in message or 'Must register a TypeHandler' in message
 
@@ -634,7 +810,16 @@ def load_trainer_checkpoint_state(
 
 
 class SBITrainer:
-    """Reusable optimization loop for amortized SBI posteriors."""
+    """Reusable optimisation loop for amortized SBI posteriors.
+
+    Configured once with a :class:`TrainingSchemeConfig` and reused via
+    :meth:`fit`, which is given the model, a dataset reader, and the estimator's
+    loss/diagnostic/selection callbacks. The trainer owns the AdamW optimiser and
+    schedule, the JIT-compiled train/eval steps, optional multi-device sharding, the
+    per-epoch validation + diagnostics pass, the five checkpoint kinds (see the
+    module docstring), and early stopping. Checkpointing is enabled only when the
+    config provides a ``checkpoint_directory``.
+    """
 
     def __init__(self, config: TrainingSchemeConfig):
         """Create one trainer for repeated posterior-fitting runs.
@@ -659,18 +844,29 @@ class SBITrainer:
 
     @property
     def _latest_checkpoint_directory(self) -> Path | None:
+        """Path of the ``latest`` (resume) checkpoint, or ``None`` if disabled."""
         return self._checkpoint_directory_for_kind('latest')
 
     @property
     def _best_checkpoint_directory(self) -> Path | None:
+        """Path of the ``best`` (deployed-model) checkpoint, or ``None`` if disabled."""
         return self._checkpoint_directory_for_kind('best')
 
     def _checkpoint_directory_for_kind(self, checkpoint_kind: str) -> Path | None:
+        """Resolve the subdirectory for one checkpoint kind, or ``None`` when no
+        checkpoint directory is configured."""
         if self.checkpoint_directory is None:
             return None
         return self.checkpoint_directory / checkpoint_kind
 
     def _save_checkpoint(self, checkpoint_kind: str, state: dict[str, Any], metadata: dict[str, Any]) -> None:
+        """Persist one checkpoint kind, transparently downgrading Orbax→Equinox.
+
+        No-op when checkpointing is disabled. If the Orbax backend rejects a leaf
+        type mid-run (:func:`_is_orbax_unsupported_type_error`), the trainer
+        permanently switches to the Equinox backend, records the fallback reason in
+        the metadata, and retries the save.
+        """
         if self.checkpoint_backend is None or self.checkpoint_directory is None:
             return
 
@@ -701,6 +897,12 @@ class SBITrainer:
         template_state: dict[str, Any],
         checkpoint_kind: str,
     ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """Restore one checkpoint kind, or ``None`` if it is missing/disabled.
+
+        Honours the backend name recorded in the checkpoint's metadata (so a
+        checkpoint written by Equinox after an Orbax fallback restores correctly),
+        and returns the ``(state, metadata)`` pair from that backend.
+        """
         if self.checkpoint_backend is None:
             return None
 
@@ -731,33 +933,73 @@ class SBITrainer:
         stability_flag_key: str = 'checkpoint_is_stable',
         loss_conditioning_schedule: Callable[[int, int], float] | None = None,
     ) -> tuple[Any, dict[str, list[float]], dict[str, list[float]], dict[str, Any]]:
-        """Optimize one posterior model against a dataset reader.
+        """Optimise one posterior model against a dataset reader.
+
+        Runs the full epoch loop: (optionally resume from ``latest``) → per-epoch
+        train pass → validation loss + diagnostics → selection/stability scoring →
+        checkpoint writes → early-stopping check, returning the selected ("best")
+        model and the histories/metadata.
 
         Parameters
         ----------
         model:
-            Trainable Equinox-style model to optimize.
+            Trainable Equinox-style model to optimise (e.g. the encoder+flow
+            container).
         dataset:
-            Reader object exposing ``iter_batches`` for train and optional
-            validation splits.
+            Reader exposing ``iter_batches(split=..., batch_size=..., ...)`` and a
+            ``dataset.manifest.splits`` mapping with ``'train'`` / ``'validation'``
+            counts.
         loss_fn:
-            Callable receiving ``(model, batch)`` and returning the scalar loss
-            to minimize.
+            Training loss. Called as ``(model, batch)`` by default, or
+            ``(model, batch, cond)`` when ``loss_conditioning_schedule`` is given.
         eval_loss_fn:
-            Optional loss used for validation. Defaults to ``loss_fn`` when not
-            provided.
+            Validation loss; defaults to ``loss_fn``. Always evaluated at
+            conditioning ``1.0`` so checkpoint selection tracks the untempered
+            objective.
+        eval_diagnostic_fn:
+            Optional ``(model, batch) -> {metric: value}`` evaluated on a few
+            validation batches per epoch; results are aggregated
+            (:func:`_aggregate_diagnostic_metrics`) into the epoch metrics (e.g. the
+            flow invertibility / collapse diagnostics).
+        selection_metric_fn:
+            Optional ``(validation_loss, epoch_metrics) -> float`` producing the
+            scalar minimised to pick ``best_selection``. When ``None`` the raw
+            validation loss is used.
+        selection_metric_name:
+            Name under which the selection metric is logged/stored; defaults to
+            ``'validation_selection_metric'`` (or ``'train_loss'`` with no
+            validation split).
+        stability_metric_fn:
+            Optional ``(validation_loss, epoch_metrics) -> {metric: value}`` adding
+            stability flags (notably ``checkpoint_is_stable``) to the epoch metrics;
+            drives the ``best_stable`` checkpoint and the per-epoch stable flag.
+        stability_flag_key:
+            Key in the epoch metrics whose value (``>= 0.5``) marks an epoch stable.
+        loss_conditioning_schedule:
+            Optional ``(epoch, num_epochs) -> float`` feeding a per-epoch scalar to
+            the training loss (e.g. likelihood-temperature ``beta`` for VI
+            annealing); evaluation always uses ``1.0``.
 
         Returns
         -------
         tuple[Any, dict[str, list[float]], dict[str, list[float]], dict[str, Any]]
-            Best model, train-loss history, validation-loss history, and a
-            metadata dictionary describing checkpointing and stopping behavior.
+            ``(best_model, train_history, validation_metrics_history, metadata)``:
+
+            * ``best_model`` -- the deployed (``best``) model.
+            * ``train_history`` -- ``{'train_loss': [...]}`` per epoch.
+            * ``validation_metrics_history`` -- per-key lists for every validation
+              metric (loss, selection metric, diagnostics, stability flags).
+            * ``metadata`` -- the best/selection/loss/stable epochs and metrics, the
+              selected ``best_checkpoint_kind``, early-stopping/resume flags, step
+              counts, and the checkpoint backend used.
 
         Notes
         -----
-        The trainer monitors validation loss when a validation split exists and
-        otherwise falls back to training loss for best-model selection.
-        Checkpoints may be written after each epoch when enabled.
+        With no validation split the trainer selects on training loss. The five
+        checkpoint kinds and the selection-metric semantics are described in the
+        module docstring. Training/validation data are pre-loaded and pre-stacked
+        into RAM where possible (falling back to streaming from disk otherwise), and
+        batches are sharded across devices when ``data_parallel`` is set.
         """
 
         from .dataset import DatasetSplit
@@ -1591,11 +1833,7 @@ class SBITrainer:
             # penalty for a marginally-unstable-but-usable one, and a huge
             # constant for a pathological (collapsed/non-invertible) one. Picking
             # the minimum therefore selects the best-loss *usable* checkpoint and
-            # never a pathological one. This replaces the previous hard
-            # "stable beats unstable" rule, which locked selection onto the last
-            # strictly-stable epoch and discarded better-trained, still-usable
-            # checkpoints whose inverse was only marginally over the (strict)
-            # stability threshold.
+            # never a pathological one.
             selection_monitor_metric = (
                 selection_metric if has_validation else train_metric
             )
@@ -1822,11 +2060,15 @@ class SBITrainer:
 
     @property
     def _min_delta(self) -> float:
+        """Minimum-improvement threshold for best-checkpoint comparisons (0 when
+        early stopping is not configured)."""
         if self.config.early_stopping is None:
             return 0.0
         return float(self.config.early_stopping.min_delta)
 
     def _should_stop(self, patience_counter: int) -> bool:
+        """Whether training should stop: ``True`` once the non-improving-epoch count
+        reaches the configured early-stopping patience."""
         if self.config.early_stopping is None:
             return False
         return patience_counter >= self.config.early_stopping.patience

@@ -1,4 +1,19 @@
-"""User-facing amortized inference services."""
+"""User-facing amortized inference services.
+
+This module implements the actual inference on an observation.
+You can obtain the posterior probability distributions for a given observation
+by calling the `infer` method of the `AmortizedRetrieval` class:
+```
+result = AmortizedRetrieval(task=SBITask, posterior_estimator=posterior_estimator).infer(
+        observation_blocks: list[ObservationBlock],
+        n_posterior_samples: int = 1000,
+        include_posterior_predictive: bool = False,
+        posterior_predictive_interval_level: float = 0.9,
+        n_predictive_forward_model_samples: int | None = None,
+        seed: int | None = None
+    )
+```
+"""
 
 from __future__ import annotations
 
@@ -261,7 +276,9 @@ class AmortizedRetrieval:
         Parameters
         ----------
         observation_blocks:
-            Raw observation blocks for one target system.
+            Raw observation blocks for one target system. These contain the
+            observed fluxes, wavelengths, and uncertainties, and are
+            normalized internally when preprocessing metadata is available.
         n_posterior_samples:
             Number of posterior draws to generate.
         include_posterior_predictive:
