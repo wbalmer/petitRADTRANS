@@ -1882,11 +1882,7 @@ class SBITrainer:
                     # decoupled from the stability/selection metrics. A sharpening
                     # posterior keeps lowering the held-out loss while its
                     # iterative-inverse round-trip diagnostic transiently trips the
-                    # (strict) invertibility gate; previously the patience reset was
-                    # suppressed for any such "pathological" epoch, which halted
-                    # NAF runs ~halfway through the budget with the loss still
-                    # descending and locked deployment onto an undertrained
-                    # checkpoint. This block only runs for a finite new-best
+                    # (strict) invertibility gate. This block only runs for a finite new-best
                     # validation loss, so any genuine improvement resets patience.
                     # This governs *when training stops* only: a collapsed /
                     # non-invertible checkpoint is still barred from being the
