@@ -237,6 +237,7 @@ def _generate_test_time_validation_report(
     MAP) and calibration (90% coverage and mean SBC rank per parameter).
     """
     from petitRADTRANS.sbi.observation import PreStackedObservations
+    from .training import _prestack_observation_blocks
 
     batch = next(
         iter(
@@ -250,7 +251,18 @@ def _generate_test_time_validation_report(
         )
     )
     true_cube = np.asarray(batch.parameters, dtype=float)  # (cases, P)
+    # The reader yields observations as a list of normalized ObservationBlock lists
+    # (encoder=None). Pre-stack them into a PreStackedObservations so they match the
+    # dense form make_residual / map_laplace_posterior_on_observation expect (the
+    # same one the target inference uses) and can be sliced per case below.
     observations = batch.observations
+    if not hasattr(observations, "stacked_blocks"):
+        observations = _prestack_observation_blocks(observations)
+    if observations is None or not hasattr(observations, "stacked_blocks"):
+        raise RuntimeError(
+            "Test-time (MAP+Laplace) validation requires pre-stackable observation "
+            "blocks, but the reader returned a batch that could not be pre-stacked."
+        )
     n_cases = min(int(max_cases), true_cube.shape[0])
 
     def _slice_case(index):
