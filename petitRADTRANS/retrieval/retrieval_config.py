@@ -1279,6 +1279,7 @@ class RetrievalConfig:
         fit_flux_offset: bool = False,
         radtrans_object: object = None,
         covariance: ArrayLike | None = None,
+        mean_divide: bool = False,
     ):
         """Create a :class:`TimeSeriesData` object for time-variable retrievals.
 
@@ -1330,6 +1331,17 @@ class RetrievalConfig:
             line_opacity_mode, scale_flux, scale_uncertainties,
             fit_flux_offset, radtrans_object, covariance
                 Same semantics as :meth:`add_data`.
+            mean_divide : bool
+                Fit in mean-divided (relative-variability) space: the stored data
+                become ``F(lambda, t) / <F(lambda)>_t`` with uncertainties
+                ``sigma(lambda, t) / <F(lambda)>_t`` (the time mean is taken over
+                valid epochs per wavelength), and at scoring time the projected
+                model is likewise divided by its own time mean
+                (``M(lambda, t) / <M(lambda)>_t``). Static (time-constant)
+                model/calibration deficiencies cancel in this ratio while the
+                time-variability signal is preserved against the *measured*
+                uncertainties -- no error inflation is involved. Requires inline
+                ``spectrum`` and ``uncertainties`` arrays.
         """
         if time_varying_parameters is None:
             time_varying_parameters = []
@@ -1341,6 +1353,34 @@ class RetrievalConfig:
             raise ValueError(
                 f"Parameters cannot be both time-varying and sinusoidal: {overlap}"
             )
+
+        if mean_divide:
+            if spectrum is None or uncertainties is None:
+                raise ValueError(
+                    "mean_divide=True requires inline 'spectrum' and "
+                    "'uncertainties' arrays (filename_list loading is not "
+                    "supported for mean-divided time series)."
+                )
+            spectrum = np.asarray(spectrum, dtype=float)
+            uncertainties = np.asarray(uncertainties, dtype=float)
+            if spectrum.ndim != 2:
+                raise ValueError(
+                    "mean_divide=True expects a 2-D (N_obs, N_wavelength) "
+                    f"spectrum, got ndim={spectrum.ndim}."
+                )
+            if mask is not None:
+                valid = ~np.asarray(mask, dtype=bool)
+                n_valid = np.maximum(valid.sum(axis=0), 1)
+                mean_spectrum = (spectrum * valid).sum(axis=0) / n_valid
+            else:
+                mean_spectrum = spectrum.mean(axis=0)
+            if np.any(mean_spectrum == 0.0):
+                raise ValueError(
+                    "mean_divide=True: the per-wavelength time-mean spectrum "
+                    "contains zeros; cannot normalise."
+                )
+            spectrum = spectrum / mean_spectrum[None, :]
+            uncertainties = uncertainties / np.abs(mean_spectrum)[None, :]
 
         data_object = TimeSeriesData(
             name=name,
@@ -1371,6 +1411,7 @@ class RetrievalConfig:
             "n_model_timesteps": n_model_timesteps,
             "time_varying_parameters": list(time_varying_parameters),
             "sinusoidal_parameters": list(sinusoidal_parameters),
+            "mean_divide": bool(mean_divide),
         }
 
         self.data[name] = data_object

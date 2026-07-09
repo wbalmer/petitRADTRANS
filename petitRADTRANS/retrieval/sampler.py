@@ -787,6 +787,10 @@ class BlackJAXSampler(Sampler):
                 jitter=walker_jitter,
                 seed=warmup_seed,
             )
+            del optimize_result
+            # Free the warm-up executables before the sampler compiles (see the
+            # NumPyro prepare path for the OOM rationale).
+            clear_caches()
 
         run_kwargs = {
             "initial_position": sampler_kwargs.pop(
@@ -1423,6 +1427,12 @@ class NumPyroSampler(Sampler):
                 jitter=walker_jitter,
                 seed=warmup_seed,
             )
+            del optimize_result
+            # Drop the warm-up executables (Adam/L-BFGS/Hessian jits and their
+            # device constants/workspaces) before the NUTS step function
+            # compiles: leaving them cached filled the 36 GB arena on job
+            # 1869202 and OOMed the first sampling step (2.61 GiB request).
+            clear_caches()
 
         num_chains = sampler_kwargs.pop("num_chains", 1)
         # Default chain execution depends on the chain count. "vectorized" vmaps

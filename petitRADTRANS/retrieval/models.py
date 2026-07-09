@@ -88,8 +88,22 @@ _WRAPPED_LEGACY_MODEL_ATTRIBUTE = "_prt_wrapped_legacy_model"
 
 # Naming-convention patterns for automatic time-series parameter detection
 _TIME_INDEXED_PATTERN = re.compile(r"^(.+)_t_(\d+)$")
-_SINUSOIDAL_SUFFIXES = ("_amplitude", "_period", "_phase", "_offset")
+_SINUSOIDAL_SUFFIXES = (
+    "_amplitude",
+    "_period",
+    "_phase",
+    "_offset",
+    "_cos_amplitude",
+    "_sin_amplitude",
+)
 _SINUSOIDAL_REQUIRED_SUFFIXES = ("_amplitude", "_phase", "_offset")
+# Cartesian (phase-free) sinusoid alternative:
+#   P(t) = offset + a*cos(2*pi*t/period) + b*sin(2*pi*t/period)
+# with a = {base}_cos_amplitude and b = {base}_sin_amplitude. Equivalent to the
+# polar form via (a, b) = (A*sin(phi), A*cos(phi)), but without the A >= 0
+# boundary and the phase wrap, so gradient samplers see a nearly Gaussian
+# geometry.
+_CARTESIAN_REQUIRED_SUFFIXES = ("_cos_amplitude", "_sin_amplitude", "_offset")
 _SHARED_PERIOD_KEY = "period"
 
 
@@ -198,6 +212,15 @@ def _compute_gravity(physical_params, parameter_units=None):
         )
     else:
         raise KeyError("Pick two of log_g, planet_radius and planet_mass priors!")
+
+    # NaN-poison unphysical values instead of letting them reach the Radtrans
+    # gravity validation callback, which RAISES inside jitted code and kills the
+    # whole process (job 1869154/1869202: an L-BFGS line-search excursion to
+    # planet_mass < 0 aborted the optimisation). NaN <= 0 is False, so the core
+    # check stays silent; the NaN spectrum is then rejected cleanly through the
+    # scorer's INVALID_LOG_LIKELIHOOD sentinel (a rejected sample, not a crash).
+    gravity = jnp.where(gravity > 0.0, gravity, jnp.nan)
+    planet_radius = jnp.where(planet_radius > 0.0, planet_radius, jnp.nan)
 
     return gravity, planet_radius
 
@@ -911,13 +934,16 @@ def _build_timestep_params(physical_params, t_idx, t_value):
             tv_keys.add(key)
 
     # --- Detect sinusoidal parameters ---
-    # A base P is sinusoidal when {P}_amplitude, {P}_phase and {P}_offset are all
-    # present. The period is taken from {P}_period when present, otherwise from a
+    # A base P is sinusoidal in one of two equivalent forms:
+    #   * polar:     {P}_amplitude, {P}_phase and {P}_offset all present;
+    #   * Cartesian: {P}_cos_amplitude, {P}_sin_amplitude and {P}_offset all
+    #     present (phase-free; preferred for gradient samplers).
+    # The period is taken from {P}_period when present, otherwise from a
     # single shared "period" key (see _SHARED_PERIOD_KEY); the per-base period
     # takes precedence when both exist.
     all_keys = set(physical_params.keys())
     shared_period_available = _SHARED_PERIOD_KEY in all_keys
-    sinusoidal_bases = set()
+    sinusoidal_bases = {}  # base -> "polar" | "cartesian"
     sin_keys = set()
     candidate_bases = set()
     for key in all_keys:
@@ -927,16 +953,32 @@ def _build_timestep_params(physical_params, t_idx, t_value):
     for base in candidate_bases:
         if not base or base in time_varying_bases:
             continue  # per-timestep keys take precedence
-        has_required = all(
+        has_polar = all(
             f"{base}{suf}" in all_keys for suf in _SINUSOIDAL_REQUIRED_SUFFIXES
         )
+        has_cartesian = all(
+            f"{base}{suf}" in all_keys for suf in _CARTESIAN_REQUIRED_SUFFIXES
+        )
+        if has_polar and has_cartesian:
+            raise ValueError(
+                f"Time-series parameter '{base}' declares both the polar "
+                f"({base}_amplitude/{base}_phase) and Cartesian "
+                f"({base}_cos_amplitude/{base}_sin_amplitude) sinusoid forms; "
+                "use exactly one."
+            )
+        if not (has_polar or has_cartesian):
+            continue
         has_period = (f"{base}_period" in all_keys) or shared_period_available
-        if has_required and has_period:
-            sinusoidal_bases.add(base)
-            for suf in _SINUSOIDAL_REQUIRED_SUFFIXES:
-                sin_keys.add(f"{base}{suf}")
-            if f"{base}_period" in all_keys:
-                sin_keys.add(f"{base}_period")
+        if not has_period:
+            continue
+        required_suffixes = (
+            _SINUSOIDAL_REQUIRED_SUFFIXES if has_polar else _CARTESIAN_REQUIRED_SUFFIXES
+        )
+        sinusoidal_bases[base] = "polar" if has_polar else "cartesian"
+        for suf in required_suffixes:
+            sin_keys.add(f"{base}{suf}")
+        if f"{base}_period" in all_keys:
+            sin_keys.add(f"{base}_period")
 
     skip_keys = tv_keys | sin_keys
     # The shared period is a meta-parameter, not a physical model input; strip it
@@ -956,17 +998,23 @@ def _build_timestep_params(physical_params, t_idx, t_value):
         base_dict[base] = physical_params[f"{base}_t_{t_idx}"]
 
     # Evaluate sinusoidal values
-    for base in sinusoidal_bases:
-        amp = physical_params[f"{base}_amplitude"]
+    for base, form in sinusoidal_bases.items():
         if f"{base}_period" in all_keys:
             period = physical_params[f"{base}_period"]
         else:
             period = physical_params[_SHARED_PERIOD_KEY]
-        phase = physical_params[f"{base}_phase"]
         offset = physical_params[f"{base}_offset"]
-        base_dict[base] = offset + amp * jnp.sin(
-            2.0 * jnp.pi * t_value / period + phase
-        )
+        angle = 2.0 * jnp.pi * t_value / period
+        if form == "polar":
+            amp = physical_params[f"{base}_amplitude"]
+            phase = physical_params[f"{base}_phase"]
+            base_dict[base] = offset + amp * jnp.sin(angle + phase)
+        else:
+            cos_amp = physical_params[f"{base}_cos_amplitude"]
+            sin_amp = physical_params[f"{base}_sin_amplitude"]
+            base_dict[base] = (
+                offset + cos_amp * jnp.cos(angle) + sin_amp * jnp.sin(angle)
+            )
 
     return PhysicalParams.from_mapping(base_dict)
 
@@ -1001,6 +1049,18 @@ def time_series_gradient_emission(
     .. math::
 
         P(t) = \\text{offset} + A \\sin\\!\\left(\\frac{2\\pi t}{\\text{period}} + \\phi\\right)
+
+    Alternatively, supply the Cartesian (phase-free) form
+    ``{P}_cos_amplitude``, ``{P}_sin_amplitude`` and ``{P}_offset``:
+
+    .. math::
+
+        P(t) = \\text{offset} + a \\cos\\!\\left(\\frac{2\\pi t}{\\text{period}}\\right)
+             + b \\sin\\!\\left(\\frac{2\\pi t}{\\text{period}}\\right)
+
+    with :math:`(a, b) = (A \\sin\\phi, A \\cos\\phi)`.  In both forms the
+    period is per-base ``{P}_period`` when present, otherwise the single
+    shared free parameter ``period``.
 
     Parameters that do not match either pattern are treated as constant
     across all timesteps (e.g. ``distance_to_system``, ``mass``,
