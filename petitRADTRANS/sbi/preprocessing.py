@@ -95,6 +95,68 @@ def _apply_spectral_value_transform(values: Any, scale_value: float) -> np.ndarr
     return np.arcsinh(raw_values / scale)
 
 
+def _per_wavelength_stats_arrays(
+    stats: "BlockNormalizationStats",
+    n_wavelengths: int,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Per-wavelength robust center/scale vectors, or ``None`` if unavailable.
+
+    Returns the fitted per-wavelength median and (floored) IQR when both are
+    present and match the block length; the caller then normalizes each
+    wavelength as ``arcsinh((x - median_wl) / iqr_wl)``. Per-wavelength
+    standardization removes the prior-median continuum and rescales the
+    prior-induced spread to order unity at EVERY wavelength, so the overall
+    amplitude is carried by all channels at O(1) instead of by one or two
+    scalar summary features — the failure mode where the flow could not pin
+    the observation's overall scale despite the data constraining it to
+    ~0.02%. The arcsinh keeps the transform near-linear over the bulk while
+    compressing heavy tails (emission fluxes span decades).
+    """
+    per_wl_median = stats.value_median_per_wl
+    per_wl_iqr = stats.value_iqr_per_wl
+    if (
+        per_wl_median is None
+        or per_wl_iqr is None
+        or len(per_wl_median) != n_wavelengths
+        or len(per_wl_iqr) != n_wavelengths
+    ):
+        return None
+    center = np.asarray(per_wl_median, dtype=float)
+    scale = _positive_scale_vector(
+        per_wl_iqr,
+        fallback=_positive_scale(
+            stats.value_iqr,
+            stats.value_std,
+            stats.value_median,
+            default=1.0,
+        ),
+    )
+    return center, scale
+
+
+def _apply_per_wavelength_value_transform(
+    values: np.ndarray,
+    uncertainties: np.ndarray | None,
+    center_wl: np.ndarray,
+    scale_wl: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """``arcsinh`` of the per-wavelength robust z-score, with matched errors.
+
+    Uncertainties are mapped through the local slope of the transform so error
+    bars stay consistent with the transformed values.
+    """
+    z_raw = (values - center_wl) / scale_wl
+    normalized_values = np.arcsinh(z_raw)
+    if uncertainties is None:
+        return normalized_values, None
+    safe_z = np.where(np.isfinite(z_raw), z_raw, 0.0)
+    local_scale = scale_wl * np.sqrt(1.0 + safe_z**2)
+    normalized_uncertainties = np.asarray(uncertainties, dtype=float) / np.maximum(
+        local_scale, _NORMALIZATION_SCALE_FLOOR
+    )
+    return normalized_values, normalized_uncertainties
+
+
 def _apply_relative_spectral_value_transform(
     values: Any,
     sample_scale: float,
@@ -392,6 +454,8 @@ def normalize_observation_block(
     sample_robust_scale = None
     global_spectral_scale = None
     spectral_value_scale = None
+    per_wavelength_stats = None
+    per_wavelength_uncertainties: np.ndarray | None = None
 
     if is_spectral_block:
         sample_robust_scale = _sample_robust_scale(raw_values, block.mask)
@@ -409,10 +473,31 @@ def normalize_observation_block(
             if global_spectral_scale is not None
             else sample_robust_scale
         )
-        normalized_values = _apply_spectral_value_transform(
-            raw_values,
-            spectral_value_scale,
+        per_wavelength_stats = _per_wavelength_stats_arrays(
+            stats, raw_values.reshape(-1).shape[0]
         )
+        if per_wavelength_stats is not None:
+            center_wl, scale_wl = per_wavelength_stats
+            normalized_values, per_wavelength_uncertainties = (
+                _apply_per_wavelength_value_transform(
+                    raw_values.reshape(-1),
+                    None
+                    if block.uncertainties is None
+                    else np.asarray(block.uncertainties, dtype=float).reshape(-1),
+                    center_wl,
+                    scale_wl,
+                )
+            )
+            normalized_values = normalized_values.reshape(raw_values.shape)
+            if per_wavelength_uncertainties is not None:
+                per_wavelength_uncertainties = per_wavelength_uncertainties.reshape(
+                    np.asarray(block.uncertainties, dtype=float).shape
+                )
+        else:
+            normalized_values = _apply_spectral_value_transform(
+                raw_values,
+                spectral_value_scale,
+            )
     else:
         if stats.value_median is not None and stats.value_iqr is not None and stats.value_iqr > 0:
             normalized_values = (raw_values - stats.value_median) / _positive_scale(
@@ -429,7 +514,9 @@ def normalize_observation_block(
     normalized_uncertainties = block.uncertainties
     if block.uncertainties is not None:
         raw_unc = np.asarray(block.uncertainties, dtype=float)
-        if is_spectral_block and spectral_value_scale is not None:
+        if is_spectral_block and per_wavelength_uncertainties is not None:
+            normalized_uncertainties = per_wavelength_uncertainties
+        elif is_spectral_block and spectral_value_scale is not None:
             normalized_uncertainties = _transform_spectral_uncertainties(
                 raw_unc,
                 raw_values,
@@ -496,7 +583,11 @@ def normalize_observation_block(
         metadata["spectrum_scale"] = float(sample_robust_scale)
         metadata["log_spectrum_scale"] = sample_log_scale
         metadata["log_median_flux"] = sample_log_scale
-        metadata["value_transform"] = "asinh_global_scale"
+        metadata["value_transform"] = (
+            "asinh_per_wavelength_robust_z"
+            if per_wavelength_stats is not None
+            else "asinh_global_scale"
+        )
         metadata["relative_value_transform"] = "asinh_centered_sample_scale"
         metadata["absolute_value_transform"] = "asinh_global_scale"
     elif sample_log_median_flux is not None:
@@ -530,6 +621,108 @@ def normalize_observation_blocks(
     ]
 
 
+def normalize_spectral_block_matrix(
+    values: Any,
+    uncertainties: Any,
+    mask: Any,
+    stats: BlockNormalizationStats,
+) -> dict[str, np.ndarray]:
+    """Vectorized spectral normalization for a ``(batch, n_wl)`` value matrix.
+
+    Mirrors the spectral branch of :func:`normalize_observation_block` (same
+    per-wavelength robust ``arcsinh`` z-transform — falling back to the
+    global-scale ``arcsinh`` when per-wavelength statistics are absent —
+    uncertainty rescaling, per-sample relative shape channel, and
+    log-amplitude scalar) but operates on a dense batch at once. Used by the training-time noise-resampling path, which
+    redraws observational noise per batch and therefore must re-normalize on
+    the fly; a batch normalized here is numerically identical to normalizing
+    each sample individually.
+
+    Parameters
+    ----------
+    values:
+        ``(batch, n_wl)`` raw (physical-units) spectral values.
+    uncertainties:
+        ``(batch, n_wl)`` raw uncertainties, or ``None``.
+    mask:
+        ``(batch, n_wl)`` boolean invalid-point mask (``True`` = masked), or
+        ``None``.
+    stats:
+        Fitted :class:`BlockNormalizationStats` for this block family.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        ``values`` / ``uncertainties`` / ``relative_values`` of shape
+        ``(batch, n_wl)`` and ``log_spectrum_scale`` / ``global_spectrum_scale``
+        of shape ``(batch,)`` — the fields consumed by the pre-stacked
+        training representation.
+    """
+    raw_values = np.asarray(values, dtype=float)
+    n_batch, n_wavelengths = raw_values.shape
+
+    global_scale = max(float(_global_spectral_scale(stats)), _NORMALIZATION_SCALE_FLOOR)
+    per_wavelength_stats = _per_wavelength_stats_arrays(stats, n_wavelengths)
+
+    if mask is None:
+        invalid = np.zeros(raw_values.shape, dtype=bool)
+    else:
+        invalid = np.broadcast_to(np.asarray(mask, dtype=bool), raw_values.shape)
+    valid = np.isfinite(raw_values) & ~invalid
+    masked_values = np.where(valid, raw_values, np.nan)
+    with np.errstate(all="ignore"):
+        sample_scale = np.nanmedian(np.abs(masked_values), axis=1)
+        sample_center = np.nanmedian(masked_values, axis=1)
+
+    # Row fallbacks, matching the per-sample path: rows with valid values but a
+    # degenerate median fall back to 1.0 (_positive_scale default); rows with
+    # no valid values at all fall back to the fitted global amplitude.
+    has_valid = np.any(valid, axis=1)
+    degenerate = ~np.isfinite(sample_scale) | (np.abs(sample_scale) <= _NORMALIZATION_SCALE_FLOOR)
+    if stats.log_median_flux is not None:
+        no_valid_fallback = float(10.0 ** stats.log_median_flux)
+    else:
+        no_valid_fallback = _positive_scale(stats.value_median, stats.value_mean, default=1.0)
+    sample_scale = np.where(degenerate, 1.0, np.abs(sample_scale))
+    sample_scale = np.where(has_valid, sample_scale, no_valid_fallback)
+    sample_scale = np.maximum(sample_scale, _NORMALIZATION_SCALE_FLOOR)
+    sample_center = np.where(np.isfinite(sample_center), sample_center, 0.0)
+
+    if per_wavelength_stats is not None:
+        center_wl, scale_wl = per_wavelength_stats
+        normalized_values, normalized_uncertainties = (
+            _apply_per_wavelength_value_transform(
+                raw_values,
+                None if uncertainties is None else np.asarray(uncertainties, dtype=float),
+                center_wl,
+                scale_wl,
+            )
+        )
+        if normalized_uncertainties is None:
+            normalized_uncertainties = np.zeros_like(raw_values)
+    else:
+        normalized_values = np.arcsinh(raw_values / global_scale)
+        if uncertainties is not None:
+            raw_unc = np.asarray(uncertainties, dtype=float)
+            safe_ratio = np.where(np.isfinite(raw_values), raw_values / global_scale, 0.0)
+            local_scale = global_scale * np.sqrt(1.0 + safe_ratio**2)
+            normalized_uncertainties = raw_unc / np.maximum(local_scale, _NORMALIZATION_SCALE_FLOOR)
+        else:
+            normalized_uncertainties = np.zeros_like(raw_values)
+
+    relative_values = np.arcsinh(
+        (raw_values - sample_center[:, None]) / sample_scale[:, None]
+    )
+
+    return {
+        "values": normalized_values,
+        "uncertainties": normalized_uncertainties,
+        "relative_values": relative_values,
+        "log_spectrum_scale": np.log10(sample_scale),
+        "global_spectrum_scale": np.full(n_batch, global_scale, dtype=float),
+    }
+
+
 __all__ = [
     "BlockNormalizationStats",
     "TaskPreprocessingMetadata",
@@ -537,4 +730,5 @@ __all__ = [
     "fit_task_preprocessing",
     "normalize_observation_block",
     "normalize_observation_blocks",
+    "normalize_spectral_block_matrix",
 ]

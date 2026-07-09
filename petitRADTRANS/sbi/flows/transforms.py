@@ -112,6 +112,7 @@ from typing import Any, NamedTuple, cast
 import equinox as eqx
 from jax import Array, lax, vmap, random, nn
 import jax.numpy as jnp
+import numpy as np
 
 
 _NAF_PROBABILITY_EPS = 1e-6
@@ -239,17 +240,24 @@ def _neural_autoregressive_scalar_forward(
     dtype = jnp.asarray(value).dtype
     hidden_values = nn.sigmoid(positive_slopes * value + offsets)
     weights = nn.softmax(weight_logits)
-    mixture = jnp.sum(weights * hidden_values)
-    mixture = jnp.clip(
-        mixture,
-        jnp.asarray(_NAF_PROBABILITY_EPS, dtype=dtype),
-        jnp.asarray(1.0 - _NAF_PROBABILITY_EPS, dtype=dtype),
-    )
+    raw_mixture = jnp.sum(weights * hidden_values)
+    eps = jnp.asarray(_NAF_PROBABILITY_EPS, dtype=dtype)
+    mixture = jnp.clip(raw_mixture, eps, 1.0 - eps)
     neural_output = _safe_logit(mixture)
     mixture_derivative = jnp.sum(
         weights * positive_slopes * hidden_values * (1.0 - hidden_values)
     )
-    neural_derivative = mixture_derivative / (mixture * (1.0 - mixture))
+    # Where the mixture clip binds, the computed neural output is constant, so
+    # the true derivative of the neural branch is zero. Claiming the unclipped
+    # derivative there decouples the reported log-det from the actual map,
+    # handing the NLL objective free (phantom) density in the saturated tails
+    # -- the same inconsistency class that collapsed the spline flow.
+    clip_active = jnp.logical_or(raw_mixture <= eps, raw_mixture >= 1.0 - eps)
+    neural_derivative = jnp.where(
+        clip_active,
+        jnp.asarray(0.0, dtype=dtype),
+        mixture_derivative / (mixture * (1.0 - mixture)),
+    )
     derivative = residual_fraction + (1.0 - residual_fraction) * neural_derivative
     derivative = jnp.maximum(derivative, jnp.asarray(1e-8, dtype=dtype))
     transformed = residual_fraction * value + (1.0 - residual_fraction) * neural_output
@@ -323,13 +331,30 @@ def _rational_quadratic_spline_forward(
     input_derivative = derivatives[bin_index]
     input_derivative_plus_one = derivatives[bin_index + 1]
 
-    theta = (value - input_cumwidth) / input_bin_width
+    # theta lies in [0, 1] in exact arithmetic (searchsorted places value inside
+    # the bin), but float rounding of the knot cumsum can put it epsilon outside
+    # -- where the rational-quadratic formula is invalid and explodes (outputs
+    # far beyond the spline bound for near-degenerate softmax bins). Clip like
+    # the inverse does; at a clipped endpoint the formula evaluates to the knot
+    # derivative, which is the correct one-sided derivative of the clipped map.
+    theta = jnp.clip((value - input_cumwidth) / input_bin_width, 0.0, 1.0)
     theta_one_minus_theta = theta * (1.0 - theta)
     denominator = input_delta + (
         (input_derivative + input_derivative_plus_one - 2.0 * input_delta)
         * theta_one_minus_theta
     )
-    denominator = jnp.maximum(denominator, jnp.asarray(1e-8, dtype=dtype))
+    # The RQS denominator and derivative numerator are strictly positive for
+    # positive bin sizes and knot derivatives, so these floors exist only to
+    # stop float underflow from producing inf/nan. They MUST be far below any
+    # reachable value: an aggressive floor (1e-8 historically) silently
+    # decouples the reported log-determinant from the actual transform
+    # derivative wherever it binds, and gradient descent then maximises that
+    # gap -- claiming hundreds of nats of phantom density (observed as
+    # validation NLL diverging to -3600 with autodiff log|det J| ~ 4 vs
+    # analytic ~ 132). Keep the floors at the dtype's tiny so the analytic
+    # log-det stays exactly the derivative of the computed map.
+    positive_floor = jnp.asarray(jnp.finfo(dtype).tiny, dtype=dtype)
+    denominator = jnp.maximum(denominator, positive_floor)
     numerator = input_bin_height * (
         input_delta * theta**2 + input_derivative * theta_one_minus_theta
     )
@@ -340,9 +365,7 @@ def _rational_quadratic_spline_forward(
         + 2.0 * input_delta * theta_one_minus_theta
         + input_derivative * (1.0 - theta) ** 2
     )
-    derivative_numerator = jnp.maximum(
-        derivative_numerator, jnp.asarray(1e-8, dtype=dtype)
-    )
+    derivative_numerator = jnp.maximum(derivative_numerator, positive_floor)
     log_det = jnp.log(derivative_numerator) - 2.0 * jnp.log(denominator)
 
     return (
@@ -403,7 +426,8 @@ def _rational_quadratic_spline_inverse(
     )
     linear = input_bin_height * input_derivative - shifted_value * slope_term
     constant = -input_delta * shifted_value
-    discriminant = jnp.maximum(linear**2 - 4.0 * quadratic * constant, 1e-12)
+    # The discriminant is mathematically non-negative; floor at zero only.
+    discriminant = jnp.maximum(linear**2 - 4.0 * quadratic * constant, 0.0)
     quadratic_root = (2.0 * constant) / (-linear - jnp.sqrt(discriminant))
     linear_root = -constant / jnp.where(
         jnp.abs(linear) < 1e-12, jnp.asarray(-1.0, dtype=dtype), linear
@@ -416,15 +440,16 @@ def _rational_quadratic_spline_inverse(
     theta_one_minus_theta = theta * (1.0 - theta)
 
     denominator = input_delta + slope_term * theta_one_minus_theta
-    denominator = jnp.maximum(denominator, jnp.asarray(1e-8, dtype=dtype))
+    # Tiny (never-binding) floors only -- see the forward transform: aggressive
+    # floors here made the reported log-det disagree with the actual map.
+    positive_floor = jnp.asarray(jnp.finfo(dtype).tiny, dtype=dtype)
+    denominator = jnp.maximum(denominator, positive_floor)
     derivative_numerator = input_delta**2 * (
         input_derivative_plus_one * theta**2
         + 2.0 * input_delta * theta_one_minus_theta
         + input_derivative * (1.0 - theta) ** 2
     )
-    derivative_numerator = jnp.maximum(
-        derivative_numerator, jnp.asarray(1e-8, dtype=dtype)
-    )
+    derivative_numerator = jnp.maximum(derivative_numerator, positive_floor)
 
     transformed = input_cumwidth + theta * input_bin_width
     log_det = 2.0 * jnp.log(denominator) - jnp.log(derivative_numerator)
@@ -435,6 +460,22 @@ def _rational_quadratic_spline_inverse(
     )
 
 
+def _as_mask_tuple(mask: Any) -> tuple[float, ...]:
+    """Convert a coupling mask to a hashable (static) tuple of floats.
+
+    Coupling masks are ARCHITECTURE, not parameters: the forward/inverse pair
+    and the log-determinant formula are only each other's inverses when the
+    mask is exactly binary. Stored as a plain array leaf the mask is visible to
+    the optimizer, which drifts it off {0, 1} — turning each layer into an
+    unnormalized blend whose claimed log-det no longer matches the actual map.
+    Gradient descent then mines that gap for phantom density (~+1 nat per
+    transformed dim per layer observed in production), which presents as an
+    impossibly diverging NLL with a broken inverse. Static tuples make the
+    mask untouchable by Optax and exclude it from serialized leaves.
+    """
+    return tuple(float(v) for v in np.asarray(mask).ravel())
+
+
 class ConditionalAffineCoupling(eqx.Module):
     """Affine coupling layer conditioned on an observation embedding.
 
@@ -442,11 +483,16 @@ class ConditionalAffineCoupling(eqx.Module):
     -----
     The mask selects which parameter dimensions remain fixed and which are
     transformed. The conditioner predicts shift and log-scale terms only from
-    the masked input and context embedding.
+    the masked input and context embedding. The mask is static (see
+    :func:`_as_mask_tuple`) — it must never be trainable.
     """
 
-    mask: jnp.ndarray
+    mask_values: tuple[float, ...] = eqx.field(static=True, converter=_as_mask_tuple)
     conditioner: CouplingConditioner
+
+    @property
+    def mask(self) -> jnp.ndarray:
+        return jnp.asarray(self.mask_values, dtype=jnp.float32)
 
     def _parameters(
         self, masked_x: jnp.ndarray, context: jnp.ndarray
@@ -513,10 +559,11 @@ class ConditionalRationalQuadraticSplineCoupling(eqx.Module):
     -----
     This is the main expressive transform used by spline-based SBI posteriors.
     The conditioner predicts per-dimension spline widths, heights, and
-    derivatives for the unmasked subset of the parameter vector.
+    derivatives for the unmasked subset of the parameter vector. The mask is
+    static (see :func:`_as_mask_tuple`) — it must never be trainable.
     """
 
-    mask: jnp.ndarray
+    mask_values: tuple[float, ...] = eqx.field(static=True, converter=_as_mask_tuple)
     conditioner: CouplingConditioner
     parameter_dim: int = eqx.field(static=True)
     num_bins: int = eqx.field(static=True)
@@ -525,6 +572,10 @@ class ConditionalRationalQuadraticSplineCoupling(eqx.Module):
     min_bin_height: float = eqx.field(static=True)
     min_derivative: float = eqx.field(static=True)
     max_derivative: float | None = eqx.field(static=True, default=None)
+
+    @property
+    def mask(self) -> jnp.ndarray:
+        return jnp.asarray(self.mask_values, dtype=jnp.float32)
 
     def _parameters(
         self,
@@ -1348,7 +1399,7 @@ class ConditionalAffineFlow(_ConditionalFlowStack):
                 )
             layers.append(
                 ConditionalAffineCoupling(
-                    mask=mask,
+                    mask_values=mask,
                     conditioner=CouplingConditioner(
                         input_dim=self.parameter_dim,
                         context_dim=self.context_dim,
@@ -1691,7 +1742,7 @@ class ConditionalSplineFlow(_ConditionalFlowStack):
             )
             layers.append(
                 ConditionalRationalQuadraticSplineCoupling(
-                    mask=mask,
+                    mask_values=mask,
                     conditioner=CouplingConditioner(
                         input_dim=self.parameter_dim,
                         context_dim=self.context_dim,

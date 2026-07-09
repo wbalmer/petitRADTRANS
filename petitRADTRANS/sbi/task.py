@@ -39,11 +39,19 @@ class NoiseModelConfig:
             Backend-specific parameters used to instantiate the noise model.
         seed:
             Optional deterministic seed for repeatable simulation pipelines.
+        resample_during_training:
+            When ``True`` (default) the trainer redraws observational noise per
+            training batch from the stored noise-free spectra instead of
+            replaying the single realization frozen into the dataset — the
+            network then never sees the same noise twice, which prevents
+            overconfident (collapsed) posteriors. Set ``False`` to reproduce
+            legacy frozen-noise runs.
     """
 
     mode: str = "observational"
     parameters: Mapping[str, Any] = field(default_factory=dict)
     seed: int | None = None
+    resample_during_training: bool = True
 
 
 @dataclass(frozen=True)

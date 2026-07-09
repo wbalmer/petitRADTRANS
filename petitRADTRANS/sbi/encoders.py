@@ -306,11 +306,25 @@ def _generic_shape_tensor(
     center: jnp.ndarray,
     scale: jnp.ndarray,
 ) -> jnp.ndarray:
-    """Amplitude-removed shape channels ``[(v-center)/scale, sigma/scale, lambda, mask]``."""
+    """Spectral channels ``[v, (v-center)/scale, sigma/scale, lambda, mask]``.
+
+    The per-spectrum standardized channel exposes scale-invariant shape; the
+    raw (preprocessing-normalized) value channel keeps the absolute continuum
+    level and absolute feature amplitude visible to the convolution stack at
+    per-wavelength resolution. Without it, both quantities reach the flow only
+    as two scalars of the low-dimensional amplitude branch — which is exactly
+    the information that breaks the transmission radius/atmosphere-height
+    degeneracy, and squeezing it through scalars left the radius posterior
+    biased toward the prior edge for low-depth spectra. With per-wavelength
+    robust preprocessing the raw channel is O(1), so it is safe conv input.
+    """
     shape_v = ((values - center) / scale) * valid
     shape_u = (jnp.abs(uncertainties) / scale) * valid
     coordinate = _normalized_coordinate_channel(coordinates, valid)
-    return jnp.stack([shape_v, shape_u, coordinate, valid], axis=0).astype(jnp.float32)
+    raw_v = values * valid
+    return jnp.stack(
+        [raw_v, shape_v, shape_u, coordinate, valid], axis=0
+    ).astype(jnp.float32)
 
 
 def _generic_amplitude_features(
@@ -394,7 +408,7 @@ class SpectralConvolutionEncoder(eqx.Module):
     Attributes
     ----------
     input_projection:
-        ``1x1`` :class:`equinox.nn.Conv1d` lifting the 4 shape channels
+        ``1x1`` :class:`equinox.nn.Conv1d` lifting the 5 spectral channels
         ``[(v-center)/scale, sigma/scale, normalized_lambda, mask]`` to
         ``channels`` feature channels.
     --- Shape branch ---
@@ -464,9 +478,10 @@ class SpectralConvolutionEncoder(eqx.Module):
         self.channels = int(channels)
 
         keys = random.split(key, 5 + len(dilations))
-        # 4 shape channels -> channels.
+        # 5 spectral channels (raw normalized values + standardized shape +
+        # scaled uncertainty + coordinate + validity) -> channels.
         self.input_projection = eqx.nn.Conv1d(
-            4, self.channels, kernel_size=1, key=keys[0], dtype=jnp.float32
+            5, self.channels, kernel_size=1, key=keys[0], dtype=jnp.float32
         )
         self.dilated_convs = tuple(
             eqx.nn.Conv1d(
@@ -524,7 +539,7 @@ class SpectralConvolutionEncoder(eqx.Module):
 
         shape = _generic_shape_tensor(
             values, uncertainties, coordinates, valid, center, scale
-        )  # (4, n_wl)
+        )  # (5, n_wl)
         features = self.input_projection(shape)  # (channels, n_wl)
 
         # Gaussian Error Linear Unit activation function
@@ -633,6 +648,162 @@ class SpectralConvolutionEncoder(eqx.Module):
             values, uncertainties, coordinates, mask, n
         )
         return self._forward(values, uncertainties, coordinates, mask, log_median_flux)
+
+
+class _ResidualDenseBlock(eqx.Module):
+    """One pre-activation residual MLP block: ``x + W2 elu(W1 elu(x))``."""
+
+    first: eqx.nn.Linear
+    second: eqx.nn.Linear
+
+    def __init__(self, width: int, key: Array):
+        k1, k2 = random.split(key)
+        self.first = eqx.nn.Linear(width, width, key=k1, dtype=jnp.float32)
+        self.second = eqx.nn.Linear(width, width, key=k2, dtype=jnp.float32)
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        return x + self.second(jax.nn.elu(self.first(jax.nn.elu(x))))
+
+
+class SpectralResMLPEncoder(eqx.Module):
+    """Plain residual-MLP spectral encoder (the published-recipe architecture).
+
+    A deliberately simple alternative to :class:`SpectralConvolutionEncoder`,
+    following the embedding networks of the working pRT NPE setups (Vasist et
+    al. 2023: a ResMLP of decreasing widths compressing the spectrum to a small
+    feature vector; Gebhard et al. 2025: a deep dense ResNet). The whole
+    (preprocessing-normalized) spectrum, its scaled uncertainties, and the
+    per-spectrum log-amplitude scalar enter one dense stack together, so the
+    first layer can represent arbitrary global linear functionals of the
+    spectrum -- matched filters for molecular band contrasts -- natively,
+    rather than assembling them from local convolution kernels through an
+    attention bottleneck.
+
+    The block ladder follows Vasist et al. (two blocks at full width, three at
+    half, five at quarter), scaled by ``hidden_dim`` (=512 reproduces their
+    2x512, 3x256, 5x128).
+    """
+
+    input_projection: eqx.nn.Linear
+    blocks: tuple[_ResidualDenseBlock, ...]
+    width_projections: tuple[eqx.nn.Linear | None, ...]
+    output_projection: eqx.nn.Linear
+    embedding_dim: int = eqx.field(static=True)
+    n_wavelengths: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        embedding_dim: int = 64,
+        n_wavelengths: int = 233,
+        hidden_dim: int = 512,
+        key: Array | None = None,
+    ):
+        if key is None:
+            key = random.PRNGKey(0)
+
+        self.embedding_dim = int(embedding_dim)
+        self.n_wavelengths = int(n_wavelengths)
+
+        widths = (
+            [int(hidden_dim)] * 2
+            + [max(int(hidden_dim) // 2, 16)] * 3
+            + [max(int(hidden_dim) // 4, 16)] * 5
+        )
+        keys = random.split(key, 2 + 2 * len(widths))
+        # values + uncertainties + log-amplitude scalar.
+        input_dim = 2 * self.n_wavelengths + 1
+        self.input_projection = eqx.nn.Linear(
+            input_dim, widths[0], key=keys[0], dtype=jnp.float32
+        )
+        blocks = []
+        width_projections: list[eqx.nn.Linear | None] = []
+        current = widths[0]
+        for i, width in enumerate(widths):
+            if width != current:
+                width_projections.append(
+                    eqx.nn.Linear(current, width, key=keys[1 + 2 * i], dtype=jnp.float32)
+                )
+                current = width
+            else:
+                width_projections.append(None)
+            blocks.append(_ResidualDenseBlock(width, keys[2 + 2 * i]))
+        self.blocks = tuple(blocks)
+        self.width_projections = tuple(width_projections)
+        self.output_projection = eqx.nn.Linear(
+            current, self.embedding_dim, key=keys[-1], dtype=jnp.float32
+        )
+
+    def _pad_to_fixed(self, arr: jnp.ndarray) -> jnp.ndarray:
+        n = arr.shape[0]
+        if n == self.n_wavelengths:
+            return arr
+        if n > self.n_wavelengths:
+            return arr[: self.n_wavelengths]
+        return jnp.concatenate(
+            [arr, jnp.zeros(self.n_wavelengths - n, dtype=arr.dtype)]
+        )
+
+    def _forward(
+        self,
+        values: jnp.ndarray,
+        uncertainties: jnp.ndarray,
+        mask: jnp.ndarray,
+        log_median_flux: Any,
+    ) -> jnp.ndarray:
+        valid = (~mask).astype(jnp.float32)
+        features = jnp.concatenate(
+            [
+                values.astype(jnp.float32) * valid,
+                uncertainties.astype(jnp.float32) * valid,
+                _scalar_feature(log_median_flux),
+            ]
+        )
+        x = self.input_projection(features)
+        for projection, block in zip(self.width_projections, self.blocks):
+            if projection is not None:
+                x = projection(x)
+            x = block(x)
+        return self.output_projection(jax.nn.elu(x))
+
+    def encode_block(self, block: ObservationBlock) -> jnp.ndarray:
+        """Encode one spectral observation block."""
+        values = _as_vector(block.values)
+        n = values.shape[0]
+        if n == 0:
+            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
+        uncertainties = _as_vector(block.uncertainties)
+        mask = _safe_mask(block.mask, n)
+        values = self._pad_to_fixed(values)
+        uncertainties = (
+            jnp.zeros(self.n_wavelengths, dtype=jnp.float32)
+            if uncertainties.shape[0] == 0
+            else self._pad_to_fixed(uncertainties)
+        )
+        pad_mask = jnp.arange(self.n_wavelengths) >= n
+        mask = self._pad_to_fixed(mask.astype(jnp.float32)).astype(bool) | pad_mask
+        return self._forward(
+            values, uncertainties, mask, _log_scale_from_metadata(block.metadata)
+        )
+
+    def _encode_block_raw(
+        self,
+        values: jnp.ndarray,
+        uncertainties: jnp.ndarray,
+        coordinates: jnp.ndarray,
+        mask: jnp.ndarray,
+        log_median_flux: jnp.ndarray | None = None,
+        absolute_values: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        """Encode pre-processed block arrays (vmappable — no ObservationBlock)."""
+        del coordinates, absolute_values
+        n = values.shape[0]
+        if n == 0:
+            return jnp.zeros((self.embedding_dim,), dtype=jnp.float32)
+        values = self._pad_to_fixed(values)
+        uncertainties = self._pad_to_fixed(uncertainties)
+        pad_mask = jnp.arange(self.n_wavelengths) >= n
+        mask = self._pad_to_fixed(mask.astype(jnp.float32)).astype(bool) | pad_mask
+        return self._forward(values, uncertainties, mask, log_median_flux)
 
 
 class PhotometryPointEncoder(eqx.Module):
@@ -842,7 +1013,7 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
     currently fall back to resized raw-value vectors.
     """
 
-    spectrum_encoder: SpectralConvolutionEncoder
+    spectrum_encoder: eqx.Module
     photometry_encoder: PhotometryPointEncoder
     aggregator: DatasetSetAggregator
     embedding_dim: int = eqx.field(static=True)
@@ -866,7 +1037,21 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
         # In case we add more spectrum encoder types in the future, we dispatch on a string.
         if spectrum_encoder_type == "convolution":
             self.spectrum_encoder = SpectralConvolutionEncoder(
-                spectrum_embedding_dim, n_wavelengths, key=spectrum_key
+                spectrum_embedding_dim,
+                n_wavelengths,
+                # The conv-stack width follows the encoder hidden width so
+                # EncoderConfig.hidden_dim actually controls shape-branch
+                # capacity (it was previously pinned at the 64-channel
+                # default regardless of config).
+                channels=hidden_dim,
+                key=spectrum_key,
+            )
+        elif spectrum_encoder_type == "resmlp":
+            self.spectrum_encoder = SpectralResMLPEncoder(
+                spectrum_embedding_dim,
+                n_wavelengths,
+                hidden_dim=hidden_dim,
+                key=spectrum_key,
             )
         else:
             raise ValueError(f"Unknown spectrum_encoder_type: {spectrum_encoder_type}")

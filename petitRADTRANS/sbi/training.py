@@ -312,6 +312,54 @@ def _prestack_observation_blocks(blocks_batch: Any) -> Any:
     return PreStackedObservations(stacked_blocks=tuple(stacked), modalities=modalities)
 
 
+def _noisy_prestacked_observations(
+    raw_blocks: list[dict],
+    indices: np.ndarray,
+    rng: np.random.Generator,
+    preprocessing_metadata: Any,
+) -> Any:
+    """Build a PreStackedObservations batch with a freshly drawn noise realization.
+
+    Slices the raw (noise-free) per-block arrays produced by
+    ``NormalizedObservationDatasetReader.read_raw_spectral_split``, draws
+    ``values = deterministic + eps * uncertainties`` with ``eps ~ N(0, 1)``, and
+    normalizes the batch with ``normalize_spectral_block_matrix`` — yielding the
+    same pre-stacked field layout as the frozen-noise path.
+    """
+    from .observation import PreStackedObservations
+    from .preprocessing import normalize_spectral_block_matrix
+
+    stacked = []
+    modalities = []
+    for raw_block in raw_blocks:
+        deterministic = raw_block["deterministic"][indices]
+        uncertainties = raw_block["uncertainties"][indices]
+        noisy_values = deterministic + (
+            rng.standard_normal(deterministic.shape, dtype=np.float32) * uncertainties
+        )
+        stats = preprocessing_metadata.blocks[raw_block["name"]]
+        normalized = normalize_spectral_block_matrix(
+            noisy_values,
+            uncertainties,
+            raw_block["mask"][indices],
+            stats,
+        )
+        stacked.append((
+            normalized["values"].astype(np.float32),
+            normalized["uncertainties"].astype(np.float32),
+            raw_block["coordinates"][indices],
+            raw_block["mask"][indices],
+            normalized["log_spectrum_scale"].astype(np.float32),
+            normalized["relative_values"].astype(np.float32),
+            normalized["global_spectrum_scale"].astype(np.float32),
+        ))
+        modalities.append(raw_block["modality"])
+
+    return PreStackedObservations(
+        stacked_blocks=tuple(stacked), modalities=tuple(modalities)
+    )
+
+
 @dataclass(frozen=True)
 class EarlyStoppingConfig:
     """Early-stopping policy for SBI training.
@@ -1510,7 +1558,35 @@ class SBITrainer:
             )
             return params, obs
 
-        preloaded_train = _preload_split(DatasetSplit.TRAIN)
+        # Noise-resampling fast path: keep the raw (noise-free) spectra in RAM
+        # and redraw observational noise per batch, so the network never sees
+        # the same noise realization twice. Validation keeps the frozen stored
+        # noise so validation losses stay comparable across epochs.
+        preloaded_train_raw = None
+        if getattr(dataset, "noise_resampling", False):
+            raw_loader = getattr(dataset, "read_raw_spectral_split", None)
+            if raw_loader is not None:
+                print("  Pre-loading train split (raw, noise resampling)...", flush=True)
+                preloaded_train_raw = raw_loader(
+                    DatasetSplit.TRAIN, parameter_space=self.config.parameter_space
+                )
+            if preloaded_train_raw is not None:
+                total_bytes = preloaded_train_raw["parameters"].nbytes + sum(
+                    arr.nbytes
+                    for block in preloaded_train_raw["blocks"]
+                    for arr in block.values()
+                    if isinstance(arr, np.ndarray)
+                )
+                print(
+                    f"  Noise resampling active: fresh noise realization per training "
+                    f"batch ({preloaded_train_raw['parameters'].shape[0]} samples, "
+                    f"{total_bytes / 1e6:.0f} MB raw)",
+                    flush=True,
+                )
+
+        preloaded_train = (
+            _preload_split(DatasetSplit.TRAIN) if preloaded_train_raw is None else None
+        )
         preloaded_val = _preload_split(DatasetSplit.VALIDATION) if has_validation else None
 
         # Conditioning scalar fed to the loss. The training value follows the
@@ -1532,7 +1608,36 @@ class SBITrainer:
                     dtype=jnp.float32,
                 )
 
-            if preloaded_train is not None:
+            if preloaded_train_raw is not None:
+                # Noise-resampling fast path: slice raw noise-free arrays by
+                # shuffled index, draw fresh noise, normalize per batch.
+                _all_params = preloaded_train_raw["parameters"]
+                n_train = _all_params.shape[0]
+                _perm = (
+                    np.random.default_rng(self.config.seed + epoch).permutation(n_train)
+                    if self.config.shuffle_train
+                    else np.arange(n_train)
+                )
+                _noise_rng = np.random.default_rng(
+                    (self.config.seed + 7919) * 1_000_003 + epoch
+                )
+                for _start in range(0, n_train, effective_batch_size):
+                    _idx = _perm[_start : _start + effective_batch_size]
+                    if len(_idx) < effective_batch_size:
+                        if mesh is not None:
+                            continue  # drop last incomplete batch
+                    _bp = _all_params[_idx]
+                    _bo = _noisy_prestacked_observations(
+                        preloaded_train_raw["blocks"],
+                        _idx,
+                        _noise_rng,
+                        dataset.preprocessing_metadata,
+                    )
+                    if mesh is not None:
+                        _bp, _bo = _maybe_pad_and_shard(_bp, _bo)
+                    model, optimizer_state, loss_value = _jit_step(model, optimizer_state, _bp, _bo, _train_cond)
+                    epoch_losses.append(float(loss_value))
+            elif preloaded_train is not None:
                 # Fast path: slice pre-loaded arrays by shuffled index
                 _all_params, _all_obs = preloaded_train
                 n_train = _all_params.shape[0]
@@ -1582,7 +1687,17 @@ class SBITrainer:
                     )
                     epoch_losses.append(float(loss_value))
 
-            train_metric = float(np.mean(epoch_losses)) if epoch_losses else float('nan')
+            if not epoch_losses:
+                raise RuntimeError(
+                    f"Epoch {epoch + 1} produced no training batches: the train "
+                    f"split is smaller than one effective batch "
+                    f"(batch size {effective_batch_size}; incomplete batches are "
+                    "dropped when sharding across devices). This usually means "
+                    "the simulation dataset is incomplete (aborted generation) "
+                    "or the batch size exceeds the split size -- refusing to "
+                    "loop over empty epochs with a nan loss."
+                )
+            train_metric = float(np.mean(epoch_losses))
             if epoch < len(train_loss_history):
                 train_loss_history[epoch] = train_metric
             else:
@@ -1759,6 +1874,12 @@ class SBITrainer:
                 )
                 if np.isfinite(inverse_logdet_error):
                     _selection_str += f" | inv_logdet_err: {inverse_logdet_error:.3e}"
+                calibration_error = epoch_validation_metrics.get(
+                    'calibration_coverage_error_max',
+                    float('nan'),
+                )
+                if np.isfinite(calibration_error):
+                    _selection_str += f" | cal_err: {calibration_error:.3f}"
                 _selection_str += f" | stable: {'yes' if is_stable_checkpoint else 'no'}"
                 if self.config.verbose_diagnostics:
                     max_derivative = epoch_validation_metrics.get('spline_max_derivative', float('nan'))

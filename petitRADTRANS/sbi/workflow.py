@@ -510,7 +510,7 @@ def run_sbi(config: SBIConfig) -> Path:
        regression is visible without retraining.
     7. **Held-out validation.** Compute a simulation-based calibration (SBC)
        report and a posterior-predictive report on the held-out *test* split.
-    8. **Optional test-time refinement** (ELBO runs only). When
+    8. **Optional test-time refinement** (any objective). When
        ``config.refinement.method`` is set, sharpen the posterior for the specific
        target spectrum with the differentiable forward model -- ``map_laplace``
        (MAP + Laplace / Gaussian-VI, optionally validated on held-out cases) or
@@ -606,7 +606,11 @@ def run_sbi(config: SBIConfig) -> Path:
         retrieval_config,
         simulation_config=SimulationConfig(
             batch_size=config.simulation_batch_size,
-            noise_model=NoiseModelConfig(mode="observational", seed=config.seed),
+            noise_model=NoiseModelConfig(
+                mode="observational",
+                seed=config.seed,
+                resample_during_training=config.noise_resample_during_training,
+            ),
             observation_value_constraints={
                 name: value_constraint for name in retrieval_config.data
             },
@@ -721,6 +725,7 @@ def run_sbi(config: SBIConfig) -> Path:
     )
 
     store = HDF5SimulationDatasetStore(chunk_size=train_batch_size)
+    dataset = None
     if dataset_path.exists():
         dataset = store.open(dataset_uri)
         expected_fingerprint = task.task_fingerprint.digest
@@ -731,6 +736,40 @@ def run_sbi(config: SBIConfig) -> Path:
                 f"task. Expected {expected_fingerprint}, found {cached_fingerprint}. "
                 f"Remove the stale dataset and rerun: {dataset_path}"
             )
+        # Completeness guard: an aborted generation leaves a partial file whose
+        # manifest records fewer rows than requested (e.g. train=768 with no
+        # validation split). Reusing it silently starves the trainer -- every
+        # sharded batch is dropped and the loss is nan for the whole run -- so
+        # move the partial artifact aside and regenerate.
+        manifest_splits = {
+            name: int(count)
+            for name, count in dict(getattr(dataset.manifest, "splits", {}) or {}).items()
+        }
+        missing = {
+            name: (manifest_splits.get(name, 0), int(count))
+            for name, count in split_counts.items()
+            if manifest_splits.get(name, 0) < int(count)
+        }
+        if missing:
+            import time as _time
+
+            suffix = _time.strftime("partial-%Y%m%dT%H%M%SZ", _time.gmtime())
+            partial_path = dataset_path.with_name(f"{dataset_path.name}.{suffix}")
+            dataset = None
+            dataset_path.rename(partial_path)
+            if preprocessing_sidecar.exists():
+                preprocessing_sidecar.rename(
+                    preprocessing_sidecar.with_name(
+                        f"{preprocessing_sidecar.name}.{suffix}"
+                    )
+                )
+            print(
+                "WARNING: existing simulation dataset is incomplete "
+                f"(rows found vs requested per split: {missing}); it is likely "
+                "left over from an aborted generation run. Moved it aside to "
+                f"{partial_path} and regenerating from scratch."
+            )
+    if dataset is not None:
         if preprocessing_sidecar.exists():
             preprocessing_metadata = TaskPreprocessingMetadata.from_payload(
                 json.loads(preprocessing_sidecar.read_text())
@@ -779,6 +818,8 @@ def run_sbi(config: SBIConfig) -> Path:
             if getattr(data, "spectrum", None) is not None
         },
         scale_check=config.startup_scale_check,
+        noise_resampling=task.simulation_config.noise_model.resample_during_training
+        and task.simulation_config.noise_model.mode not in ("none", "no_noise"),
     )
 
     posterior: Any
@@ -824,6 +865,22 @@ def run_sbi(config: SBIConfig) -> Path:
             diagnostics_plot_interval=config.training_diagnostics_plot_interval,
         )
         if config.training.training_objective == "elbo":
+            import warnings
+
+            warnings.warn(
+                "training_objective='elbo' is EXPERIMENTAL: the amortized "
+                "variational (reverse-KL) objective is mode-seeking and has not "
+                "converged on production retrieval benchmarks (validation loss "
+                "plateaus at hundreds of sigma per point; SBC is miscalibrated, "
+                "and any apparent fit comes from test-time refinement alone). "
+                "Use the default NPE objective unless you are explicitly "
+                "experimenting with the ELBO path.",
+                stacklevel=2,
+            )
+            print(
+                "WARNING: ELBO objective is experimental and has not converged on "
+                "production benchmarks; prefer training_objective='npe'."
+            )
             print(
                 "Objective: amortized variational (ELBO) -- building "
                 "differentiable forward-model likelihood (loads opacities)..."
@@ -894,12 +951,17 @@ def run_sbi(config: SBIConfig) -> Path:
         validation_sbc_report.normalized_mean_rank_error,
     )
 
-    # Optional test-time, per-observation refinement (ELBO runs only). The
-    # amortized posterior is a warm-start; the delivered target inference uses
-    # the refined posterior, while validation/SBC stay amortized.
+    # Optional test-time, per-observation refinement. The amortized posterior
+    # is a warm-start; the delivered target inference uses the refined
+    # posterior, while validation/SBC stay amortized. Available for BOTH
+    # objectives: it was historically gated to ELBO runs, but an NPE warm
+    # start benefits equally -- the amortized flow struggles to represent the
+    # razor-thin joint degeneracy ridges a low-noise spectrum demands
+    # (transmission: radius vs cloud-top height), and the likelihood-based
+    # MAP+Laplace step enforces exact data consistency for the delivered fit.
     target_posterior = posterior
     refinement = config.refinement
-    if refinement.method != "none" and config.training.training_objective == "elbo":
+    if refinement.method != "none":
         from .preprocessing import normalize_observation_blocks
         from .training import _prestack_observation_blocks
 
@@ -955,6 +1017,31 @@ def run_sbi(config: SBIConfig) -> Path:
                 seed=config.seed + 7,
                 **map_kwargs,
             )
+        elif refinement.method == "importance_sampling":
+            print(
+                "Importance-sampling refinement on the target spectrum "
+                f"({refinement.is_num_proposal_samples} amortized proposals, "
+                f"forward batch {refinement.is_forward_batch_size}; loads "
+                "opacities)..."
+            )
+            make_residual = _build_residual_fn_factory(task)
+            target_residual_fn = make_residual(target_prestacked)
+            target_posterior = posterior.importance_sampling_posterior_on_observation(
+                target_prestacked,
+                target_residual_fn,
+                n_proposal_samples=refinement.is_num_proposal_samples,
+                forward_batch_size=refinement.is_forward_batch_size,
+                n_posterior_samples=config.n_posterior_samples,
+                seed=config.seed + 13,
+            )
+            is_diagnostics = getattr(
+                target_posterior, "_importance_sampling_diagnostics", None
+            )
+            if is_diagnostics is not None:
+                write_json(
+                    run_root / "importance_sampling_diagnostics.json",
+                    is_diagnostics,
+                )
         else:  # "elbo"
             if elbo_log_likelihood_fn is None:
                 print(

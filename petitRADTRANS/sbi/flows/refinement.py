@@ -204,6 +204,146 @@ def refine_posterior_on_observation(
     return refined
 
 
+def importance_sampling_posterior_on_observation(
+    posterior,
+    target_observation: Any,
+    standardized_residual_fn: Callable[[jnp.ndarray], jnp.ndarray],
+    *,
+    n_proposal_samples: int = 16384,
+    forward_batch_size: int = 256,
+    n_posterior_samples: int = 4096,
+    seed: int = 0,
+    verbose: bool = True,
+) -> "ConditionalFlowPosterior":
+    """Likelihood importance sampling on top of the amortized posterior.
+
+    Draws proposal samples from the amortized flow conditioned on the target
+    observation, evaluates the exact Gaussian likelihood of each through the
+    differentiable forward model, and reweights by
+    ``log w = log L(theta) + log pi(theta) - log q(theta | x)``. This is the
+    field-standard correction for amortized posteriors (Gebhard et al. 2025):
+    unlike MAP+Laplace it cannot collapse to a degenerate covariance, and its
+    sampling efficiency ``eps = ESS / N`` is a built-in trust diagnostic —
+    ``eps`` near 1 means the amortized posterior already matches the true one;
+    ``eps`` near 0 means the amortized posterior misses the true posterior
+    mass and the importance estimate itself should not be trusted either.
+
+    Weights are computed in the flow's unconstrained (logit-of-cube) space,
+    where the uniform-cube prior is the standard logistic density and the
+    proposal density is the flow's own ``log_prob`` — both exact.
+
+    Parameters
+    ----------
+    target_observation:
+        Batch-1 prestacked target observation (conditions the proposal).
+    standardized_residual_fn:
+        Differentiable ``theta_cube[param_dim] -> (n_wavelengths,)`` returning
+        noise-standardized residuals ``(model(theta) - x_obs)/sigma`` for the
+        target; masked channels contribute 0.
+    n_proposal_samples:
+        Number of amortized proposal draws to weight.
+    forward_batch_size:
+        Forward-model chunk size (vmapped); bounds device memory exactly like
+        the ELBO per-batch forward passes did.
+    n_posterior_samples:
+        Number of importance-resampled posterior draws stored on the returned
+        estimator.
+
+    Returns
+    -------
+    ConditionalFlowPosterior
+        A shallow copy of ``posterior`` whose ``_fixed_cube_samples`` hold the
+        importance-resampled posterior, with the weighting diagnostics attached
+        as ``_importance_sampling_diagnostics``.
+    """
+    if posterior.parameter_space != "cube":
+        raise ValueError("Importance sampling requires parameter_space='cube'.")
+
+    n_proposal_samples = int(n_proposal_samples)
+    forward_batch_size = max(int(forward_batch_size), 1)
+
+    embedding = jnp.asarray(
+        batch_embeddings(posterior.model, target_observation), dtype=jnp.float32
+    )
+    key = random.PRNGKey(int(seed))
+    unconstrained = posterior.model.flow.sample(
+        context=embedding[0], n_samples=n_proposal_samples, key=key
+    )
+    log_q = vmap(lambda w: posterior.model.flow.log_prob(w, embedding[0]))(
+        unconstrained
+    )
+    # Uniform-cube prior expressed in logit space: standard logistic per dim.
+    log_prior = -jnp.sum(
+        nn.softplus(unconstrained) + nn.softplus(-unconstrained), axis=1
+    )
+    cube_samples = _clip_cube_support(nn.sigmoid(unconstrained))
+
+    residual_batch = jax.jit(vmap(standardized_residual_fn))
+    chi2_chunks = []
+    for start in range(0, n_proposal_samples, forward_batch_size):
+        chunk = cube_samples[start : start + forward_batch_size]
+        residuals = residual_batch(chunk)
+        chi2_chunks.append(jnp.sum(residuals * residuals, axis=-1))
+    chi2 = jnp.concatenate(chi2_chunks)
+
+    log_likelihood = -0.5 * chi2
+    log_weights = log_likelihood + log_prior - log_q
+    log_weights = jnp.where(jnp.isfinite(log_weights), log_weights, -jnp.inf)
+
+    log_weight_max = jnp.max(log_weights)
+    raw = jnp.exp(log_weights - log_weight_max)
+    weight_sum = jnp.sum(raw)
+    weights = np.asarray(raw / weight_sum, dtype=np.float64)
+    effective_sample_size = float(1.0 / np.sum(weights**2))
+    efficiency = effective_sample_size / float(n_proposal_samples)
+    # Evidence up to the (theta-independent) Gaussian normalizer of the
+    # likelihood, which the standardized residuals do not carry.
+    log_evidence_minus_const = float(
+        log_weight_max + jnp.log(weight_sum) - np.log(n_proposal_samples)
+    )
+
+    # Systematic resampling by the normalized weights.
+    rng = np.random.default_rng(int(seed) + 1)
+    positions = (rng.uniform() + np.arange(int(n_posterior_samples))) / float(
+        n_posterior_samples
+    )
+    cumulative = np.cumsum(weights)
+    cumulative[-1] = 1.0
+    resampled_indices = np.searchsorted(cumulative, positions)
+    cube_np = np.asarray(cube_samples, dtype=np.float64)
+
+    best_index = int(np.argmax(np.asarray(log_likelihood + log_prior)))
+    diagnostics = {
+        "n_proposal_samples": n_proposal_samples,
+        "effective_sample_size": effective_sample_size,
+        "sampling_efficiency": efficiency,
+        "max_weight_fraction": float(np.max(weights)),
+        "chi2_best": float(np.asarray(chi2)[best_index]),
+        "chi2_weighted_mean": float(np.sum(weights * np.asarray(chi2))),
+        "log_evidence_minus_const": log_evidence_minus_const,
+    }
+
+    if verbose:
+        print(
+            f"  importance sampling done | efficiency {efficiency:.3%} "
+            f"(ESS {effective_sample_size:.1f} / {n_proposal_samples}) "
+            f"| chi2(best) {diagnostics['chi2_best']:.2f} "
+            f"| max weight {diagnostics['max_weight_fraction']:.3f}"
+        )
+        if efficiency < 1e-3:
+            print(
+                "  WARNING: sampling efficiency < 0.1% — the amortized posterior "
+                "misses the true posterior mass for this observation; the "
+                "importance-weighted result is itself unreliable."
+            )
+
+    refined = copy.copy(posterior)
+    refined._fixed_cube_samples = cube_np[resampled_indices]
+    refined._fixed_point_estimate_cube = cube_np[best_index]
+    refined._importance_sampling_diagnostics = diagnostics
+    return refined
+
+
 def map_laplace_posterior_on_observation(
     posterior,
     target_observation: Any,

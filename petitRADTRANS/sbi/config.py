@@ -99,10 +99,15 @@ class FlowConfig:
         map when sampling.
     spline_small_bin_regularization_weight:
         Weight of the penalty discouraging collapsed spline bins (spline flows only).
-        ``None`` falls back to ``spline_entropy_regularization_weight``.
+        ``None`` defaults to ``1e-2`` for ``family='spline'`` (falling back to
+        ``spline_entropy_regularization_weight`` when that legacy weight is set),
+        and ``0.0`` otherwise. Sharpening the conditional density is otherwise
+        unpenalized by the NPE objective, so spline flows keep a mild
+        anti-collapse penalty on by default.
     spline_derivative_regularization_weight:
         Weight of the penalty keeping spline slopes within the target derivative
-        range.
+        range. ``None`` defaults to ``1e-2`` for ``family='spline'`` and ``0.0``
+        otherwise.
     spline_entropy_regularization_weight:
         Legacy alias supplying the default for
         ``spline_small_bin_regularization_weight``.
@@ -132,12 +137,24 @@ class FlowConfig:
     neural_autoregressive_inverse_bisection_steps: int = 64
     # Rational-quadratic spline regularization (only used by spline flows).
     spline_small_bin_regularization_weight: float | None = None
-    spline_derivative_regularization_weight: float = 0.0
+    spline_derivative_regularization_weight: float | None = None
     spline_entropy_regularization_weight: float = 0.0
     spline_entropy_floor: float = 0.6
     spline_min_bin_ratio_target: float = 0.2
     spline_min_derivative_target: float = 0.25
     spline_max_derivative_target: float = 5.0
+
+    def __post_init__(self) -> None:
+        # Spline flows keep mild anti-collapse regularization on by default:
+        # the NPE objective otherwise rewards arbitrarily sharp conditional
+        # densities, which is the collapse failure mode seen in production.
+        if self.spline_small_bin_regularization_weight is None:
+            if self.family == "spline" and self.spline_entropy_regularization_weight == 0.0:
+                self.spline_small_bin_regularization_weight = 1e-2
+        if self.spline_derivative_regularization_weight is None:
+            self.spline_derivative_regularization_weight = (
+                1e-2 if self.family == "spline" else 0.0
+            )
 
 
 @dataclass
@@ -153,7 +170,11 @@ class EncoderConfig:
     Attributes
     ----------
     spectrum_encoder_type:
-        Spectral encoder architecture: ``'convolution'``.
+        Spectral encoder architecture: ``'convolution'`` (dilated-conv +
+        attention with amplitude/shape factorization) or ``'resmlp'`` (plain
+        residual MLP over the whole normalized spectrum, the published-recipe
+        embedding of Vasist et al. 2023; ``hidden_dim`` sets its first block
+        width, 512 reproducing their 2x512/3x256/5x128 ladder).
     embedding_dim:
         Size of the final joint observation embedding consumed by the flow as its
         conditioning context.
@@ -221,6 +242,10 @@ class TrainingConfig:
         it sharpens. ``0`` (default) disables it.
     invertibility_loss_n_samples:
         Number of base samples used to estimate the invertibility penalty.
+    bnpe_balance_loss_weight:
+        Weight of the optional BNPE balance regularizer that pushes the amortized
+        posterior toward conservative (non-overconfident) coverage. ``0`` (default)
+        disables it; only active for ``parameter_space='cube'``.
     parameter_space:
         Coordinates the flow is trained in: ``'cube'`` (default; uniform-prior unit
         hypercube) or ``'unconstrained'``. ELBO requires ``'cube'``.
@@ -256,6 +281,7 @@ class TrainingConfig:
     # invertible as it sharpens; 0.0 disables it (default, unchanged behaviour).
     invertibility_loss_weight: float = 0.0
     invertibility_loss_n_samples: int = 64
+    bnpe_balance_loss_weight: float = 0.0
     # 'cube' (uniform prior) or 'unconstrained'. ELBO requires 'cube'.
     parameter_space: str = "cube"
     # ELBO-objective knobs (ignored when training_objective='npe').
@@ -289,30 +315,46 @@ class StabilityConfig:
     cube_edge_hit_rate:
         Maximum tolerated fraction of sampled coordinates pinned at the unit-cube
         edges (a signature of density collapse).
+    calibration_coverage_error:
+        Maximum tolerated deviation of the per-epoch empirical calibration probe
+        (central-80%-interval coverage over held-out validation simulations) from
+        its nominal 0.8. Selecting checkpoints on validation NLL alone deploys the
+        sharpest epoch even when it has become overconfident; this gate makes
+        "best" mean calibrated *and* low-loss.
     """
 
     inverse_forward_max_abs_error: float | None = 0.03
     inverse_forward_logdet_closure_max_abs_error: float | None = 0.03
     cube_edge_hit_rate: float | None = 0.02
+    calibration_coverage_error: float | None = 0.25
 
 
 @dataclass
 class RefinementConfig:
-    """Test-time, per-observation posterior refinement (ELBO runs only).
+    """Test-time, per-observation posterior refinement (any objective).
 
     ``method="none"`` (default) uses the amortized posterior directly for the
-    target inference -- the behaviour of a plain NPE run. ``"map_laplace"`` or
-    ``"elbo"`` refine the posterior for the specific target spectrum with the
-    differentiable forward model, initialized from the amortized fit; only the
-    target inference uses the refined posterior (validation/SBC stay amortized).
-    Refinement is applied only when the training objective is ``"elbo"``.
+    target inference -- the behaviour of a plain NPE run. ``"map_laplace"``,
+    ``"importance_sampling"``, or ``"elbo"`` refine the posterior for the
+    specific target spectrum with the differentiable forward model, starting
+    from the amortized fit; only the target inference uses the refined
+    posterior (validation/SBC stay amortized).
 
     Attributes
     ----------
     method:
         Refinement strategy: ``"none"`` (default; use the amortized posterior
         directly), ``"map_laplace"`` (MAP point estimate + Laplace/Gaussian-VI
-        covariance), or ``"elbo"`` (flow-ELBO refinement).
+        covariance), ``"importance_sampling"`` (exact-likelihood reweighting of
+        amortized proposal draws -- cannot collapse, and its sampling
+        efficiency is a built-in trust diagnostic), or ``"elbo"`` (flow-ELBO
+        refinement).
+    is_num_proposal_samples:
+        Amortized proposal draws weighted by the exact likelihood
+        (``method="importance_sampling"``).
+    is_forward_batch_size:
+        Forward-model chunk size for the importance weights (bounds device
+        memory like the ELBO per-batch forward passes).
     map_num_steps:
         Number of optimization steps for the MAP point estimate
         (``method="map_laplace"``).
@@ -347,7 +389,9 @@ class RefinementConfig:
         (``beta_start`` is taken from :attr:`TrainingConfig.elbo_beta_start`).
     """
 
-    method: str = "none"  # "none" | "map_laplace" | "elbo"
+    method: str = "none"  # "none" | "map_laplace" | "importance_sampling" | "elbo"
+    is_num_proposal_samples: int = 16384
+    is_forward_batch_size: int = 256
     # MAP + Laplace controls.
     map_num_steps: int = 600
     map_learning_rate: float = 5e-2
@@ -482,6 +526,7 @@ def build_conditional_flow_posterior(
         aux_scale_loss_weight=float(training.aux_scale_loss_weight),
         invertibility_loss_weight=float(training.invertibility_loss_weight),
         invertibility_loss_n_samples=int(training.invertibility_loss_n_samples),
+        bnpe_balance_loss_weight=float(training.bnpe_balance_loss_weight),
         weight_decay=float(training.weight_decay),
         gradient_clip_norm=training.gradient_clip_norm,
         early_stopping_patience=training.early_stopping_patience,
@@ -498,6 +543,7 @@ def build_conditional_flow_posterior(
             stability.inverse_forward_logdet_closure_max_abs_error
         ),
         stable_cube_edge_hit_rate_threshold=stability.cube_edge_hit_rate,
+        stable_calibration_coverage_error_threshold=stability.calibration_coverage_error,
         # plumbing
         seed=int(seed),
         checkpoint_directory=checkpoint_directory,
@@ -621,6 +667,11 @@ class SBIConfig:
     # Per-dataset value constraint for prior-predictive rejection sampling. When
     # None the workflow applies "value > 0" (emission flux / transit depth).
     observation_value_constraint: Any = None
+    # Redraw observational noise per training batch from the stored noise-free
+    # spectra (default) instead of replaying the single noise realization frozen
+    # into the dataset. Frozen noise lets the network overfit that realization
+    # and collapse the posterior; set False only to reproduce legacy runs.
+    noise_resample_during_training: bool = True
 
     # Presentation (predictive-spectrum plot axis labels) + optional known truths.
     # spectrum_y_label=None auto-derives from the retrieval config: emission flux
@@ -640,6 +691,7 @@ class SBIConfig:
                 self.n_predictive_forward_model_samples
             ),
             "validation_max_cases": self.validation_max_cases,
+            "noise_resample_during_training": self.noise_resample_during_training,
             "load_completed_model": self.load_completed_model,
             "resume_predictive_checkpoints": self.resume_predictive_checkpoints,
             "save_checkpoint_guardrails": self.save_checkpoint_guardrails,
