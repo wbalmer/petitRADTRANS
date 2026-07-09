@@ -3,6 +3,7 @@ from dataclasses import dataclass, field, replace as _dc_replace
 import gc
 import os
 import json
+import pickle
 from typing import Any, TYPE_CHECKING
 import warnings
 import numpy as np
@@ -1619,6 +1620,211 @@ class NumPyroSampler(Sampler):
 
         return samples_file, metadata_file
 
+    # --- block-wise checkpoint / resume (timeout-resilient single-chain NUTS) ---
+    def _checkpoint_path(self):
+        return self._get_output_prefix() + "_checkpoint.pkl"
+
+    def _save_checkpoint(self, payload):
+        """Atomically persist a checkpoint (write to .tmp then os.replace)."""
+        path = self._checkpoint_path()
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "wb") as handle:
+            pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp_path, path)
+
+    def _load_checkpoint(self):
+        path = self._checkpoint_path()
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, "rb") as handle:
+                return pickle.load(handle)
+        except (pickle.UnpicklingError, EOFError, AttributeError, ValueError) as error:
+            warnings.warn(
+                f"Could not read NUTS checkpoint {path} ({error}); restarting the chain.",
+                RuntimeWarning,
+            )
+            return None
+
+    def _remove_checkpoint(self):
+        for path in (self._checkpoint_path(), self._checkpoint_path() + ".tmp"):
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+
+    @staticmethod
+    def _concat_or_none(chunks):
+        return np.concatenate(chunks, axis=0) if chunks else None
+
+    def _run_checkpointed_nuts(
+        self,
+        *,
+        kernel,
+        initial_position,
+        rng_key,
+        num_warmup,
+        num_samples,
+        thinning,
+        progress_bar,
+        extra_fields,
+        checkpoint_interval,
+    ):
+        """Run a single NUTS chain in blocks, checkpointing after each block.
+
+        Collects ``num_samples`` draws in chunks of ``checkpoint_interval``. After
+        every block the post-warmup MCMC state (``mcmc.last_state``, as NumPy) and
+        all draws so far are pickled to ``<prefix>_checkpoint.pkl``. If that file is
+        present on entry (a resubmitted job after a timeout), sampling resumes from
+        it -- warmup is NOT repeated, because NumPyro's ``post_warmup_state`` carries
+        the frozen step size / mass matrix and the chain position forward.
+
+        Returns the same tuple the non-checkpointed single-device path produces:
+        ``(unconstrained_samples, potential_energy, acceptance_rate, is_divergent,
+        num_integration_steps, warmup_parameters)``.
+        """
+        block = max(1, int(checkpoint_interval))
+
+        unc_chunks, pe_chunks, accept_chunks, diverge_chunks, steps_chunks = (
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
+        collected = 0
+        post_warmup_state = None
+        warmup_parameters = {}
+
+        checkpoint = self._load_checkpoint()
+        if checkpoint is not None:
+            stale = (
+                checkpoint.get("num_samples_target") != num_samples
+                or checkpoint.get("num_warmup") != num_warmup
+            )
+            if stale:
+                warnings.warn(
+                    f"Ignoring stale checkpoint for '{self.retrieval_name}' "
+                    "(num_samples/num_warmup changed since it was written); "
+                    "restarting the chain from warmup.",
+                    RuntimeWarning,
+                )
+                self._remove_checkpoint()
+                checkpoint = None
+
+        if checkpoint is not None:
+            unc_chunks.append(np.asarray(checkpoint["unconstrained_samples"]))
+            for key, chunks in (
+                ("potential_energy", pe_chunks),
+                ("accept_prob", accept_chunks),
+                ("diverging", diverge_chunks),
+                ("num_steps", steps_chunks),
+            ):
+                if checkpoint.get(key) is not None:
+                    chunks.append(np.asarray(checkpoint[key]))
+            collected = int(checkpoint["collected"])
+            # Rehydrate the saved (NumPy) pytree back to JAX arrays for NumPyro.
+            post_warmup_state = tree.map(jnp.asarray, checkpoint["last_state"])
+            warmup_parameters = dict(checkpoint.get("warmup_parameters", {}))
+            print(
+                f"[checkpoint] resuming '{self.retrieval_name}' at "
+                f"{collected}/{num_samples} samples (warmup already complete)."
+            )
+
+        mcmc = None
+        mcmc_block = None
+        while collected < num_samples:
+            this_block = min(block, num_samples - collected)
+            # NumPyro returns exactly mcmc.num_samples draws per run; rebuild the
+            # object only when the block size changes (i.e. the short final block),
+            # so within a job the compiled sampler is reused across full blocks.
+            if mcmc is None or mcmc_block != this_block:
+                mcmc = NumPyroMCMC(
+                    kernel,
+                    num_warmup=num_warmup,
+                    num_samples=this_block,
+                    num_chains=1,
+                    thinning=thinning,
+                    progress_bar=progress_bar,
+                    chain_method="sequential",
+                    jit_model_args=False,
+                )
+                mcmc_block = this_block
+
+            if post_warmup_state is None:
+                # Fresh chain: this block runs warmup + the first sampling block.
+                mcmc.run(
+                    rng_key, init_params=initial_position, extra_fields=extra_fields
+                )
+            else:
+                # Continue sampling from the saved state, skipping warmup. Use the
+                # state's own rng_key so the stream advances as in one long run.
+                # init_params is still required: with a potential_fn kernel NumPyro
+                # calls sampler.init() to build _sample_fn whenever it is unset (a
+                # freshly rebuilt kernel after a resubmit), and that needs a valid
+                # position -- but the actual start state is post_warmup_state, which
+                # overrides it, so initial_position here only seeds compilation.
+                mcmc.post_warmup_state = post_warmup_state
+                mcmc.run(
+                    post_warmup_state.rng_key,
+                    init_params=initial_position,
+                    extra_fields=extra_fields,
+                )
+
+            block_unc = np.asarray(mcmc.get_samples(group_by_chain=False))
+            extra = mcmc.get_extra_fields(group_by_chain=False)
+            unc_chunks.append(block_unc)
+            for key, chunks in (
+                ("potential_energy", pe_chunks),
+                ("accept_prob", accept_chunks),
+                ("diverging", diverge_chunks),
+                ("num_steps", steps_chunks),
+            ):
+                if key in extra:
+                    chunks.append(np.asarray(extra[key]))
+            collected += int(block_unc.shape[0])
+            post_warmup_state = mcmc.last_state
+
+            adapt_state = mcmc.last_state.adapt_state
+            warmup_parameters = {
+                "step_size": np.asarray(adapt_state.step_size),
+                "inverse_mass_matrix": np.asarray(adapt_state.inverse_mass_matrix),
+            }
+            self._save_checkpoint(
+                {
+                    "version": 1,
+                    "retrieval_name": self.retrieval_name,
+                    "num_warmup": num_warmup,
+                    "num_samples_target": num_samples,
+                    "collected": collected,
+                    "last_state": tree.map(np.asarray, mcmc.last_state),
+                    "warmup_parameters": warmup_parameters,
+                    "unconstrained_samples": self._concat_or_none(unc_chunks),
+                    "potential_energy": self._concat_or_none(pe_chunks),
+                    "accept_prob": self._concat_or_none(accept_chunks),
+                    "diverging": self._concat_or_none(diverge_chunks),
+                    "num_steps": self._concat_or_none(steps_chunks),
+                }
+            )
+            print(
+                f"[checkpoint] '{self.retrieval_name}': {collected}/{num_samples} "
+                f"samples saved (step_size="
+                f"{float(np.asarray(adapt_state.step_size)):.3e})."
+            )
+
+        # The retained MCMC object holds only the final block; force the
+        # samples-array diagnostics path (not az.from_numpyro on a partial object).
+        self.mcmc = None
+
+        return (
+            self._concat_or_none(unc_chunks),
+            self._concat_or_none(pe_chunks),
+            self._concat_or_none(accept_chunks),
+            self._concat_or_none(diverge_chunks),
+            self._concat_or_none(steps_chunks),
+            warmup_parameters,
+        )
+
     def run_sampler(
         self,
         initial_position,
@@ -1635,6 +1841,7 @@ class NumPyroSampler(Sampler):
         num_chains=1,
         thinning=1,
         chain_method="vectorized",
+        checkpoint_interval=0,
         **numpyro_kwargs,
     ):
         self.parameter_names = list(parameter_names)
@@ -1761,6 +1968,31 @@ class NumPyroSampler(Sampler):
                 "inverse_mass_matrix": np.mean(np.asarray(all_imm), axis=0),
             }
             self.mcmc = None
+        elif checkpoint_interval and int(checkpoint_interval) > 0 and num_chains == 1:
+            # Checkpointed single-chain path: sample in blocks of checkpoint_interval,
+            # persisting the post-warmup MCMC state + collected draws after each block
+            # so a SLURM timeout/crash resumes (skipping warmup) instead of discarding
+            # all progress. Only for num_chains==1 (the run_single_chain array layout).
+            kernel = self.kernel_class(**kernel_kwargs)
+            (
+                unconstrained_samples,
+                potential_energy,
+                acceptance_rate,
+                is_divergent,
+                num_integration_steps,
+                warmup_parameters,
+            ) = self._run_checkpointed_nuts(
+                kernel=kernel,
+                initial_position=initial_position,
+                rng_key=rng_key,
+                num_warmup=num_warmup,
+                num_samples=num_samples,
+                thinning=thinning,
+                progress_bar=progress_bar,
+                extra_fields=extra_fields,
+                checkpoint_interval=int(checkpoint_interval),
+            )
+            logdensity = -potential_energy if potential_energy is not None else None
         else:
             # Single-device path (also handles num_chains=1 on any device count).
             kernel = self.kernel_class(**kernel_kwargs)
@@ -1838,6 +2070,10 @@ class NumPyroSampler(Sampler):
             warmup_parameters=warmup_parameters,
             metadata=metadata,
         )
+
+        # The full posterior is now on disk as ``_samples.npz``; the partial
+        # checkpoint (if any) is obsolete and would otherwise shadow a clean rerun.
+        self._remove_checkpoint()
 
         self.results = NumPyroSamplingResults(
             algorithm=self.algorithm_name,

@@ -195,6 +195,7 @@ def _compute_gravity(physical_params, parameter_units=None):
                 physical_params, parameter_units, "planet_mass", "g"
             ),
         )
+        planet_radius *= cst.r_jup_mean
     elif "log_g" in physical_params.keys():
         gravity = 10 ** _get_parameter_value(physical_params, "log_g")
         planet_radius = _parameter_value_in_cgs(
