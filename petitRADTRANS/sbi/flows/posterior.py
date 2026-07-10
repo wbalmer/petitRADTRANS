@@ -184,6 +184,11 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         disables it.
     invertibility_loss_n_samples:
         Number of base samples used to estimate the invertibility penalty.
+    bnpe_balance_loss_weight:
+        Weight of the optional BNPE balance regularizer (Delaunoy et al.) that
+        pushes the posterior toward conservative (non-overconfident) coverage;
+        ``0`` (default) disables it. Only active for ``parameter_space='cube'``,
+        where the prior log-density is exactly zero.
 
     stable_inverse_forward_max_abs_error_threshold:
         Checkpoint-selection gate: maximum tolerated inverse->forward round-trip
@@ -194,6 +199,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
     stable_cube_edge_hit_rate_threshold:
         Checkpoint-selection gate on the fraction of samples pinned at the cube
         edges (collapse indicator); ``None`` disables it.
+    stable_calibration_coverage_error_threshold:
+        Checkpoint-selection gate on the per-epoch empirical-calibration probe:
+        maximum tolerated deviation of the central-80%-interval coverage from
+        0.8 over held-out validation simulations. Guards against selecting a
+        sharper-but-overconfident epoch on validation NLL alone; ``None``
+        disables it.
 
     spectrum_encoder_type:
         Spectral encoder architecture: ``'convolution'`` (amplitude/shape
@@ -282,6 +293,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         spline_max_derivative_target: float = 5.0,
         invertibility_loss_weight: float = 0.0,
         invertibility_loss_n_samples: int = 64,
+        bnpe_balance_loss_weight: float = 0.0,
         weight_decay: float = 0.0,
         use_cosine_schedule: bool = False,
         warmup_fraction: float = 0.02,
@@ -291,6 +303,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         stable_inverse_forward_max_abs_error_threshold: float | None = 1e-4,
         stable_inverse_forward_logdet_closure_max_abs_error_threshold: float | None = 1e-4,
         stable_cube_edge_hit_rate_threshold: float | None = 0.0,
+        stable_calibration_coverage_error_threshold: float | None = 0.25,
         spectrum_encoder_type: str = "convolution",
         n_wavelengths: int = 233,
         spectrum_embedding_dim: int = 64,
@@ -386,6 +399,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.spline_max_derivative_target = float(spline_max_derivative_target)
         self.invertibility_loss_weight = float(invertibility_loss_weight)
         self.invertibility_loss_n_samples = int(invertibility_loss_n_samples)
+        self.bnpe_balance_loss_weight = float(bnpe_balance_loss_weight)
         self.weight_decay = float(weight_decay)
         self.use_cosine_schedule = bool(use_cosine_schedule)
         self.warmup_fraction = float(warmup_fraction)
@@ -413,6 +427,11 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             if stable_cube_edge_hit_rate_threshold is None
             else float(stable_cube_edge_hit_rate_threshold)
         )
+        self.stable_calibration_coverage_error_threshold = (
+            None
+            if stable_calibration_coverage_error_threshold is None
+            else float(stable_calibration_coverage_error_threshold)
+        )
         self.spectrum_encoder_type = str(spectrum_encoder_type)
         self.n_wavelengths = int(n_wavelengths)
         self.spectrum_embedding_dim = int(spectrum_embedding_dim)
@@ -430,6 +449,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             raise ValueError("spline_derivative_regularization_weight must be non-negative")
         if self.invertibility_loss_weight < 0.0:
             raise ValueError("invertibility_loss_weight must be non-negative")
+        if self.bnpe_balance_loss_weight < 0.0:
+            raise ValueError("bnpe_balance_loss_weight must be non-negative")
         if self.invertibility_loss_n_samples <= 0:
             raise ValueError("invertibility_loss_n_samples must be positive")
         if self.spline_min_bin_ratio_target <= 0.0:
@@ -483,6 +504,13 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             and self.stable_cube_edge_hit_rate_threshold < 0.0
         ):
             raise ValueError("stable_cube_edge_hit_rate_threshold must be non-negative")
+        if (
+            self.stable_calibration_coverage_error_threshold is not None
+            and self.stable_calibration_coverage_error_threshold < 0.0
+        ):
+            raise ValueError(
+                "stable_calibration_coverage_error_threshold must be non-negative"
+            )
 
         encoder_key, flow_key, scale_key = random.split(
             random.PRNGKey(self.seed), 3
@@ -512,6 +540,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             spline_max_derivative_target=self.spline_max_derivative_target,
             invertibility_loss_weight=self.invertibility_loss_weight,
             invertibility_loss_n_samples=self.invertibility_loss_n_samples,
+            bnpe_balance_loss_weight=self.bnpe_balance_loss_weight,
         )
 
     def _build_flow(self, key: Array) -> Any:
@@ -559,6 +588,14 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 conditioner_depth=self.conditioner_depth,
                 num_bins=self.num_spline_bins,
                 bound=self.spline_bound,
+                # Bin-size floors as a fraction of the full spline support
+                # (nflows convention), not the absolute 1e-3 default: on a
+                # cube-logit support of ~34 an absolute 1e-3 floor allows bin
+                # aspect ratios (h/w) of ~3e4, whose derivative spikes break
+                # the float32 inverse and made past runs' sampled posteriors
+                # disagree with their own density.
+                min_bin_width=1e-3 * 2.0 * self.spline_bound,
+                min_bin_height=1e-3 * 2.0 * self.spline_bound,
                 # Hard cap on the spline boundary derivatives (reusing the
                 # derivative-target knob): structurally bounds the spline slope
                 # and hence the density, preventing the unbounded-density
@@ -608,6 +645,19 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         which holds the implementation.
         """
         return refinement.map_laplace_posterior_on_observation(self, *args, **kwargs)
+
+    def importance_sampling_posterior_on_observation(
+        self, *args: Any, **kwargs: Any
+    ) -> PosteriorSamples:
+        """Test-time likelihood importance sampling on the amortized posterior.
+
+        Thin wrapper around
+        :func:`petitRADTRANS.sbi.flows.refinement.importance_sampling_posterior_on_observation`,
+        which holds the implementation.
+        """
+        return refinement.importance_sampling_posterior_on_observation(
+            self, *args, **kwargs
+        )
 
     def fit(
         self,
@@ -796,12 +846,13 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             selection_metric_name = "validation_selection_metric"
             stability_metric_fn = _elbo_stability_metrics
         else:
-            # Observational noise is injected once, at simulation time
-            # (RuntimeSimulator). Re-injecting it here at training time would
-            # double the effective noise the encoder sees relative to the target
-            # observation, desensitising it to the true spectral signal -- so the
-            # training loss is the plain conditional NLL with no noise/floor
-            # augmentation.
+            # Observational noise enters the training data upstream of the loss:
+            # either redrawn per batch from the stored noise-free spectra (the
+            # reader's noise-resampling path) or frozen at simulation time
+            # (legacy). Either way each training observation already carries
+            # exactly one noise realization, so the loss is the plain
+            # conditional NLL with no additional noise/floor augmentation --
+            # adding noise here would double it relative to a real observation.
             train_loss_fn = training_loss
             eval_loss_fn = compute_loss
             selection_metric_fn = _flow_validation_selection_metric
@@ -822,6 +873,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                     ),
                     cube_edge_hit_rate_threshold=(
                         self.stable_cube_edge_hit_rate_threshold
+                    ),
+                    calibration_coverage_error_threshold=(
+                        self.stable_calibration_coverage_error_threshold
                     ),
                 )
 
@@ -887,6 +941,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "aux_scale_loss_weight": self.aux_scale_loss_weight,
             "invertibility_loss_weight": self.invertibility_loss_weight,
             "invertibility_loss_n_samples": self.invertibility_loss_n_samples,
+            "bnpe_balance_loss_weight": self.bnpe_balance_loss_weight,
             "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
             "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
             "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -908,6 +963,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 self.stable_inverse_forward_logdet_closure_max_abs_error_threshold
             ),
             "stable_cube_edge_hit_rate_threshold": self.stable_cube_edge_hit_rate_threshold,
+            "stable_calibration_coverage_error_threshold": (
+                self.stable_calibration_coverage_error_threshold
+            ),
             "spectrum_encoder_type": self.spectrum_encoder_type,
             "n_wavelengths": self.n_wavelengths,
             "spectrum_embedding_dim": self.spectrum_embedding_dim,
@@ -952,6 +1010,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "aux_scale_loss_weight": self.aux_scale_loss_weight,
                 "invertibility_loss_weight": self.invertibility_loss_weight,
                 "invertibility_loss_n_samples": self.invertibility_loss_n_samples,
+                "bnpe_balance_loss_weight": self.bnpe_balance_loss_weight,
                 "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
                 "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
                 "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -973,6 +1032,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                     self.stable_inverse_forward_logdet_closure_max_abs_error_threshold
                 ),
                 "stable_cube_edge_hit_rate_threshold": self.stable_cube_edge_hit_rate_threshold,
+                "stable_calibration_coverage_error_threshold": (
+                    self.stable_calibration_coverage_error_threshold
+                ),
                 "spectrum_encoder_type": self.spectrum_encoder_type,
                 "n_wavelengths": self.n_wavelengths,
                 "spectrum_embedding_dim": self.spectrum_embedding_dim,
@@ -1039,6 +1101,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "conditioner_depth": metadata.get("conditioner_depth", 2),
             "aux_scale_loss_weight": metadata.get("aux_scale_loss_weight", 0.0),
             "invertibility_loss_weight": metadata.get("invertibility_loss_weight", 0.0),
+            "bnpe_balance_loss_weight": metadata.get("bnpe_balance_loss_weight", 0.0),
             "invertibility_loss_n_samples": metadata.get(
                 "invertibility_loss_n_samples", 64
             ),
@@ -1081,6 +1144,10 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "stable_cube_edge_hit_rate_threshold": metadata.get(
                 "stable_cube_edge_hit_rate_threshold",
                 0.0,
+            ),
+            "stable_calibration_coverage_error_threshold": metadata.get(
+                "stable_calibration_coverage_error_threshold",
+                0.25,
             ),
             "spectrum_encoder_type": metadata.get("spectrum_encoder_type", "convolution"),
             "n_wavelengths": metadata.get("n_wavelengths", 233),
@@ -1155,6 +1222,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             invertibility_loss_weight=float(
                 estimator_config.get("invertibility_loss_weight", 0.0)
             ),
+            bnpe_balance_loss_weight=float(
+                estimator_config.get("bnpe_balance_loss_weight", 0.0)
+            ),
             invertibility_loss_n_samples=int(
                 estimator_config.get("invertibility_loss_n_samples", 64)
             ),
@@ -1206,6 +1276,10 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             stable_cube_edge_hit_rate_threshold=estimator_config.get(
                 "stable_cube_edge_hit_rate_threshold",
                 0.0,
+            ),
+            stable_calibration_coverage_error_threshold=estimator_config.get(
+                "stable_calibration_coverage_error_threshold",
+                0.25,
             ),
             spectrum_encoder_type=str(estimator_config.get("spectrum_encoder_type", "convolution")),
             n_wavelengths=int(estimator_config.get("n_wavelengths", 233)),

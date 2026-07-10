@@ -29,6 +29,12 @@ from .transforms import (
 
 _VALIDATION_DIAGNOSTIC_SAMPLES = 64
 _DIAGNOSTIC_EDGE_THRESHOLD = 1e-6
+# Posterior draws per validation simulation for the per-epoch empirical
+# calibration probe (rank of the true parameter among posterior draws). With n
+# draws the rank is discrete on {0..n}/n, so the central-80% coverage of a
+# perfectly calibrated posterior is biased low by ~1/n; 64 draws keeps that
+# bias (~0.015) well below the 0.25 stability threshold.
+_VALIDATION_CALIBRATION_DRAWS = 64
 _REGULARIZATION_TAIL_FRACTION = 0.25
 _DIAGNOSTIC_FLOOR_RELATIVE_TOLERANCE = 1.05
 
@@ -68,6 +74,19 @@ _PATHOLOGICAL_INVERSE_FORWARD_MAX_ABS_ERROR = 2.0
 # is what actually keeps the inverse error small.
 _SELECTION_PENALTY_WEIGHT = 1.0
 _SELECTION_PENALTY_CAP = 12.0
+
+# Calibration-aware selection. The NPE validation NLL keeps improving as the
+# conditional density sharpens, including past the point where the posterior
+# becomes overconfident (truth outside the credible intervals on held-out
+# simulations) -- selecting on loss alone deploys the sharpest epoch, which is
+# how a collapsed model shipped in production. The per-epoch calibration probe
+# measures the empirical central-80%-interval coverage of the posterior over
+# held-out validation sims; its deviation from 0.8 feeds a *linear* penalty
+# strong enough to outweigh the ~1-2 nat loss gap that separates a calibrated
+# epoch from a sharper miscalibrated one. Above the pathology cutoff the truth
+# is essentially always outside the interval -- density collapse, never deploy.
+_CALIBRATION_SELECTION_PENALTY_WEIGHT = 4.0
+_PATHOLOGICAL_CALIBRATION_COVERAGE_ERROR = 0.6
 
 
 def _slice_observations_for_diagnostics(observations: Any, n_samples: int) -> Any:
@@ -887,6 +906,17 @@ def _flow_validation_selection_metric(
             np.log1p(edge_hit_excess / edge_hit_threshold)
         )
 
+    # Miscalibration penalty: linear in the coverage-error excess (not the
+    # saturating log1p) so a sharper-but-overconfident epoch cannot buy its way
+    # past a calibrated one with a ~1-nat loss improvement.
+    calibration_excess, calibration_threshold = _threshold_excess(
+        "calibration_coverage_error_max"
+    )
+    if calibration_excess > 0.0:
+        penalty += _CALIBRATION_SELECTION_PENALTY_WEIGHT * float(
+            calibration_excess / calibration_threshold
+        )
+
     max_derivative = float(diagnostics.get("spline_max_derivative", float("nan")))
     if np.isfinite(max_derivative) and max_derivative > 0.0:
         penalty += _SELECTION_PENALTY_WEIGHT * max(
@@ -907,6 +937,7 @@ def _flow_validation_stability_metrics(
     inverse_forward_max_abs_error_threshold: float | None,
     inverse_forward_logdet_closure_max_abs_error_threshold: float | None,
     cube_edge_hit_rate_threshold: float | None,
+    calibration_coverage_error_threshold: float | None = None,
 ) -> dict[str, float]:
     """Classify a checkpoint as stable and/or pathological from its diagnostics.
 
@@ -933,6 +964,10 @@ def _flow_validation_stability_metrics(
     inverse_forward_logdet_closure_max_abs_error_threshold:
     cube_edge_hit_rate_threshold:
         Soft-gate thresholds; ``None`` disables the corresponding check.
+    calibration_coverage_error_threshold:
+        Maximum tolerated deviation of the empirical central-80%-interval
+        coverage from 0.8 on held-out validation simulations (the per-epoch
+        calibration probe). ``None`` disables the check.
     """
     diagnostics = diagnostics or {}
     stable = np.isfinite(float(validation_loss))
@@ -984,6 +1019,11 @@ def _flow_validation_stability_metrics(
         cube_edge_hit_rate_threshold,
         ignore_non_finite=True,
     )
+    _apply_threshold(
+        "calibration_coverage_error_max",
+        calibration_coverage_error_threshold,
+        ignore_non_finite=True,
+    )
 
     metrics["checkpoint_is_stable"] = 1.0 if stable else 0.0
     metrics["checkpoint_stability_violation_count"] = float(violation_count)
@@ -1000,6 +1040,9 @@ def _flow_validation_stability_metrics(
     edge_hit_rate = float(diagnostics.get("cube_edge_hit_rate", float("nan")))
     max_derivative = float(diagnostics.get("spline_max_derivative", float("nan")))
     inverse_error = float(diagnostics.get("inverse_forward_max_abs_error", float("nan")))
+    calibration_error = float(
+        diagnostics.get("calibration_coverage_error_max", float("nan"))
+    )
     is_pathological = (
         not np.isfinite(float(validation_loss))
         or (np.isfinite(edge_hit_rate) and edge_hit_rate > 0.5)
@@ -1007,6 +1050,10 @@ def _flow_validation_stability_metrics(
         or (
             np.isfinite(inverse_error)
             and inverse_error > _PATHOLOGICAL_INVERSE_FORWARD_MAX_ABS_ERROR
+        )
+        or (
+            np.isfinite(calibration_error)
+            and calibration_error > _PATHOLOGICAL_CALIBRATION_COVERAGE_ERROR
         )
     )
     metrics["checkpoint_is_pathological"] = 1.0 if is_pathological else 0.0

@@ -915,12 +915,21 @@ class RetrievalRuntime:
                     else:
                         projected_model = vmap(project_epoch)(spectrum_model)
 
+                if _uses_mean_divided_time_series(observation):
+                    projected_model = mean_divide_time_series_model(
+                        projected_model, mask=observation.mask
+                    )
+
                 ll = compute_diagonal_observation_log_likelihood(
                     projected_model,
                     data_spectrum,
                     data_uncertainties,
                     mask=observation.mask,
                 )
+                # A NaN model (e.g. the NaN-poisoned unphysical-gravity guard in
+                # _compute_gravity) must become a finite rejection, not a NaN
+                # log-density that poisons NUTS adaptation.
+                ll = jnp.where(jnp.isnan(ll), INVALID_LOG_LIKELIHOOD, ll)
 
                 return jnp.where(
                     ll <= INVALID_LOG_LIKELIHOOD,
@@ -1107,6 +1116,11 @@ class RetrievalRuntime:
                     projected_model = lax.map(project_epoch, spectrum_model)
                 else:
                     projected_model = vmap(project_epoch)(spectrum_model)
+
+            if _uses_mean_divided_time_series(observation):
+                projected_model = mean_divide_time_series_model(
+                    projected_model, mask=observation.mask
+                )
 
             if observation.mask is None:
                 valid_mask = jnp.ones_like(
@@ -2314,6 +2328,37 @@ def project_model_time_series_to_observation_space(
         in_axes=1,
         out_axes=1,
     )(projected_model_spectra)
+
+
+def _uses_mean_divided_time_series(observation: "ObservationState") -> bool:
+    """Whether this time-series observation is fit in mean-divided space.
+
+    Set by ``RetrievalConfig.add_time_series_data(mean_divide=True)``: the stored
+    data spectrum/uncertainties are already divided by the per-wavelength time
+    mean, and the projected model must be divided by its own time mean before
+    scoring (F(lambda, t)/<F(lambda)>_t vs M(lambda, t)/<M(lambda)>_t).
+    """
+    time_series_config = (observation.metadata or {}).get("time_series_config") or {}
+    return bool(time_series_config.get("mean_divide", False))
+
+
+def mean_divide_time_series_model(projected_model: Any, mask: Any = None) -> Any:
+    """Divide each wavelength column of ``projected_model`` by its time mean.
+
+    ``projected_model`` has shape ``(N_obs, N_wavelength)``; ``mask`` follows the
+    observation convention (True = masked). The mean is taken over valid epochs
+    only, so it matches the mean used to normalise the data.
+    """
+    projected_model = jnp.asarray(projected_model)
+    if mask is None:
+        model_mean = jnp.mean(projected_model, axis=0)
+    else:
+        valid = ~jnp.asarray(mask, dtype=bool)
+        weights = valid.astype(projected_model.dtype)
+        n_valid = jnp.maximum(jnp.sum(weights, axis=0), 1.0)
+        model_mean = jnp.sum(projected_model * weights, axis=0) / n_valid
+    safe_mean = jnp.where(model_mean != 0.0, model_mean, 1.0)
+    return projected_model / safe_mean
 
 
 def compute_diagonal_observation_log_likelihood(

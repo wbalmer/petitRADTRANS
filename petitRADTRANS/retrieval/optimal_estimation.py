@@ -326,6 +326,10 @@ def _lbfgs_polish(logdensity, position, n_steps, verbose=True):
     """Refine ``position`` with optax.lbfgs (zoom line-search) minimising -logdensity.
     https://en.wikipedia.org/wiki/Limited-memory_BFGS
 
+    Tracks and returns the BEST point seen (not the last iterate), and returns
+    that best point even if a step raises mid-run (e.g. a physical-validity
+    callback such as the reference-gravity check aborting an over-long line
+    search step), so a late crash cannot discard the polish gains.
     """
     _require_jax_local()
     _require_optax()
@@ -345,17 +349,41 @@ def _lbfgs_polish(logdensity, position, n_steps, verbose=True):
         updates, opt_state = solver.update(
             grad, opt_state, position, value=value, grad=grad, value_fn=loss
         )
-        position = optax.apply_updates(position, updates)
-        return position, opt_state, value
+        new_position = optax.apply_updates(position, updates)
+        return new_position, opt_state, value
 
-    last_value = np.inf
+    # ``value`` returned by step k is the loss at the PRE-update position, so
+    # pair it with that position when tracking the best point.
+    best_value = np.inf
+    best_position = position
     for step in range(n_steps):
-        position, opt_state, value = _step(position, opt_state)
-        last_value = float(value)
+        try:
+            new_position, opt_state, value = _step(position, opt_state)
+        except Exception as error:  # noqa: BLE001 - keep the best point on any failure
+            warnings.warn(
+                f"L-BFGS polish aborted at step {step} ({error}); keeping the "
+                "best point found so far.",
+                RuntimeWarning,
+            )
+            break
+        value = float(value)
+        if np.isfinite(value) and value < best_value:
+            best_value = value
+            best_position = position
+        position = new_position
         if verbose and (step % max(1, n_steps // 5) == 0 or step == n_steps - 1):
-            print(f"  [optimal_estimation L-BFGS] step {step}: -log-posterior = {last_value:.6e}")
+            print(f"  [optimal_estimation L-BFGS] step {step}: -log-posterior = {value:.6e}")
 
-    return position, -last_value
+    # The final iterate has not been evaluated inside the loop; score it too.
+    try:
+        final_value = float(loss(position))
+        if np.isfinite(final_value) and final_value < best_value:
+            best_value = final_value
+            best_position = position
+    except Exception:  # noqa: BLE001 - final point may be invalid; best is kept
+        pass
+
+    return best_position, -best_value
 
 
 # --------------------------------------------------------------------------- #

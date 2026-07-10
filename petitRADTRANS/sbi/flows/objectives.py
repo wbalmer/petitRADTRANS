@@ -25,6 +25,7 @@ from .base import PosteriorBatch
 from .cube import _flow_space_parameters, _parameter_space_log_prob
 from .regularization import (
     _DIAGNOSTIC_EDGE_THRESHOLD,
+    _VALIDATION_CALIBRATION_DRAWS,
     _slice_batch_for_diagnostics,
     _spline_parameter_statistics,
     _spline_regularization_terms,
@@ -53,6 +54,7 @@ class _PosteriorModel(eqx.Module):
     spline_max_derivative_target: float = eqx.field(static=True)
     invertibility_loss_weight: float = eqx.field(static=True)
     invertibility_loss_n_samples: int = eqx.field(static=True)
+    bnpe_balance_loss_weight: float = eqx.field(static=True, default=0.0)
 
 
 def _mean_spectral_log_scale(blocks: list[ObservationBlock]) -> float | None:
@@ -303,6 +305,36 @@ def loss_from_observations(
                 model, embeddings, model.invertibility_loss_n_samples
             )
         )
+
+    # Optional BNPE balance regularizer (Delaunoy et al.): drives the batch-mean
+    # sigmoid of the posterior-to-prior log-ratio on joint (theta, x) pairs plus
+    # that on broken pairs (theta shuffled within the batch, approximating prior
+    # draws) toward 1, which an overconfident posterior violates. Only valid in
+    # cube coordinates, where the prior is uniform on [0, 1]^D and its
+    # log-density is exactly zero, so the clipped flow log-density IS the
+    # log-ratio.
+    if (
+        include_spline_regularization
+        and getattr(model, "bnpe_balance_loss_weight", 0.0) > 0.0
+        and parameter_space == "cube"
+    ):
+        shuffled_parameters = jnp.roll(parameters, 1, axis=0)
+        marginal_log_probabilities = jnp.clip(
+            _parameter_space_log_prob(
+                model.flow,
+                shuffled_parameters,
+                embeddings,
+                parameter_space,
+            ),
+            -50000.0,
+            15000.0,
+        )
+        balance = (
+            jnp.mean(nn.sigmoid(log_probabilities))
+            + jnp.mean(nn.sigmoid(marginal_log_probabilities))
+            - 1.0
+        )
+        total_loss = total_loss + model.bnpe_balance_loss_weight * jnp.square(balance)
 
     if model.aux_scale_loss_weight <= 0.0:
         return total_loss
@@ -566,6 +598,9 @@ def compute_validation_diagnostics(
             "cube_edge_hit_rate": float("nan"),
             "cube_low_edge_hit_rate": float("nan"),
             "cube_high_edge_hit_rate": float("nan"),
+            "calibration_coverage_error_max": float("nan"),
+            "calibration_coverage_error_mean": float("nan"),
+            "calibration_rank_error_max": float("nan"),
         }
 
     embeddings = batch_embeddings(
@@ -613,6 +648,41 @@ def compute_validation_diagnostics(
     )(sampled_inputs, embeddings)
     inverse_forward_error = jnp.abs(recovered_latents - latent_samples)
 
+    # Empirical calibration probe: rank the true parameters among posterior
+    # draws per validation simulation. Under a calibrated posterior the ranks
+    # are uniform, so the central 80% interval covers the truth 80% of the
+    # time. Coverage collapse (truth outside the interval) is the signature of
+    # the overconfident/collapsed conditional density that the validation NLL
+    # keeps rewarding -- this metric feeds the checkpoint-selection penalty and
+    # pathology gate. Ranks are computed in flow space, which is a per-dimension
+    # monotonic map of parameter space, so they equal parameter-space ranks.
+    calibration_latents = random.normal(
+        random.PRNGKey(1),
+        shape=(
+            _VALIDATION_CALIBRATION_DRAWS,
+            flow_inputs.shape[0],
+            model.flow.parameter_dim,
+        ),
+        dtype=flow_inputs.dtype,
+    )
+    calibration_draws = vmap(
+        lambda draw_latents: vmap(
+            lambda latent_sample, context: model.flow.inverse(latent_sample, context)[0]
+        )(draw_latents, embeddings)
+    )(calibration_latents)  # (n_draws, n_sims, n_dim)
+    truth_below = jnp.where(
+        jnp.isfinite(calibration_draws),
+        (calibration_draws < flow_inputs[None, :, :]).astype(flow_inputs.dtype),
+        0.5,
+    )
+    truth_ranks = jnp.mean(truth_below, axis=0)  # (n_sims, n_dim), uniform if calibrated
+    central_coverage = jnp.mean(
+        ((truth_ranks >= 0.1) & (truth_ranks <= 0.9)).astype(flow_inputs.dtype),
+        axis=0,
+    )  # per-dim empirical coverage of the central 80% interval
+    coverage_error = jnp.abs(central_coverage - 0.8)
+    mean_rank_error = 2.0 * jnp.abs(jnp.mean(truth_ranks, axis=0) - 0.5)
+
     diagnostics = {
         "forward_inverse_max_abs_error": float(jnp.max(forward_inverse_error)),
         "forward_inverse_mean_abs_error": float(jnp.mean(forward_inverse_error)),
@@ -635,6 +705,9 @@ def compute_validation_diagnostics(
         "cube_edge_hit_rate": float("nan"),
         "cube_low_edge_hit_rate": float("nan"),
         "cube_high_edge_hit_rate": float("nan"),
+        "calibration_coverage_error_max": float(jnp.max(coverage_error)),
+        "calibration_coverage_error_mean": float(jnp.mean(coverage_error)),
+        "calibration_rank_error_max": float(jnp.max(mean_rank_error)),
         "spline_small_bin_regularization_term": float("nan"),
         "spline_small_bin_width_regularization_term": float("nan"),
         "spline_small_bin_height_regularization_term": float("nan"),

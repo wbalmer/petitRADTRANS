@@ -1307,8 +1307,22 @@ class RuntimeSimulator(BatchedSimulator):
         while accepted_count < n_samples:
             remaining = int(n_samples - accepted_count)
             if attempted_count >= max_attempted:
+                acceptance = (
+                    float(accepted_count) / float(attempted_count)
+                    if attempted_count > 0
+                    else 0.0
+                )
                 raise RuntimeError(
-                    "Failed to generate enough valid simulations within the allowed resampling budget."
+                    "Failed to generate enough valid simulations within the allowed "
+                    f"resampling budget: accepted {accepted_count}/{n_samples} after "
+                    f"{attempted_count} attempts (acceptance rate {acceptance:.1%}, "
+                    f"budget {max_attempted}). Invalid rows per observation: "
+                    f"{invalid_counts_by_observation}. A row is invalid if any value "
+                    "is non-finite or violates its ObservationValueConstraint -- a "
+                    "collapsed acceptance rate usually means the constraint rejects "
+                    "physically valid simulations (e.g. a strict 'value > 0' bound "
+                    "rejecting fluxes that underflow to 0 in float32) or the forward "
+                    "model produces non-finite values over part of the prior."
                 )
 
             if proposal is None:
