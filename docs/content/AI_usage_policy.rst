@@ -7,14 +7,15 @@ By contributing to pRT as a co-author you agree to comply with our AI usage poli
 Preamble
 ________
 
-AI tools such as LLM-powered inline code completion or coding agents can lead to increased coding efficiency, the implementation of numerically faster or more accurate algorithms, better code structure, etc. However, this efficiency boost can only be accepted at the expense of additional homework that you, as a developer, have to do. This homework needs to be done to maintain the quality and rigor of pRT's implementation at its long-established level (and improve on it!). If you make changes to the the code, even if checked by others through merge requests, you will be seen as the default contact and main responsible person for that part of the code, going forward. Brushing responsibility off on AI is not acceptable. The main purpose of this policy is that we remain in control of the code base, have experts available for all parts of the code, and learn cool and new numerical techniques and coding approaches in the process.
+AI tools such as LLM-powered inline code completion or coding agents can lead to increased coding efficiency, the implementation of numerically faster or more accurate algorithms, better code structure, etc. However, this efficiency boost can only be accepted at the expense of additional homework that you, as a developer, have to do. This homework needs to be done to maintain the quality and rigor of pRT's implementation at its long-established level (and improve on it!). If you make changes to the the code, even if checked by others through merge requests, you will be seen as the default contact and main responsible person for that part of the code, going forward. Responsibility cannot be brushed off on AI. The main purpose of this policy is that we remain in control of the code base, have experts available for all parts of the code, and learn cool and new numerical techniques and coding approaches in the process.
 
 *Tell me and I will forget. Show me and I may remember. Let me do it and I will understand.*  -- Unknown origin
 
 Co-developer obligations
 ________________________
 
-- If parts of your code were AI generated, you have to carefully review the changes and understand what they do *line-by-line*.
+- Before you look into the finer details of code suggested by AI, you have to make sure that you understand and agree with explicit and implicit (!) assumptions made by AI to solve your coding task.
+- Then, for the AI generated code, you have to carefully review and understand what it does *line-by-line*.
 - You have to read the relevant parts of the documentation for libraries, packages and functions that the AI tool introduced to understand how and why they are used, and what they do.
 - If new coding concepts are introduced by the AI tool, you have to make yourself familiar with how they work, ideally by coding up a small toy example *without using AI*.
 - You have to test every part of the code that you introduce: does it exhibit the intended behaviour? Does it reproduce known limiting cases and break where it is supposed to break (throwing errors, ideally)? While at it: add unit tests and make sure that your added code does not make existing tests fail.
@@ -24,11 +25,11 @@ ________________________
 - You have to make sure that the code changes largely follow your and pRT's internal style and only deviate if there is good reason for doing so. Again, this ensures maintainability of the code base by all co-developers.
 - You have to carefully check merge requests assigned to you, without AI during the first pass (and without if altogether, if it can be avoided).
 
-Required input
-______________
+Required input:
+_______________
 
 TODO all:
-How to make AI-generated code visible in the code? Add a comment? Remark on its use in the change log...? Not do it at all (maybe bad)?
+How to make AI-generated code visible in the code? Add a comment? Remark on its use in the change log...? Describe AI contribtion in merge requests? Not do it at all (maybe bad)?
 
 Policy agreement
 ________________
