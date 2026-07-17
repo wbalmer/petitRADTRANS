@@ -19,17 +19,13 @@ ________________________
 - You have to read the relevant parts of the documentation for libraries, packages and functions that the AI tool introduced to understand how and why they are used, and what they do.
 - If new coding concepts are introduced by the AI tool, you have to make yourself familiar with how they work, ideally by coding up a small toy example *without using AI*.
 - You have to test every part of the code that you introduce: does it exhibit the intended behaviour? Does it reproduce known limiting cases and break where it is supposed to break (throwing errors, ideally)? While at it: add unit tests and make sure that your added code does not make existing tests fail.
-- You have to limit the scope of your AI usage: code maintainability relies on co-developers knowing where things are done in the code, and how. Do not unnecessarily change or refactor large parts of the code. Be as surgically precise as possible in your changes and AI coding requests.
 - You have to be able to answer this question with yes: "Can I debug the code I am adding without the use of AI?" Simple example: if you removed one line of code randomly, would you be able to tell it was missing and could you write it (potentially with the help of the relevant documentation)?
 - If changes in the code no longer feel like yours or you feel otherwise uneasy about them, it probably means that you have not done your homework enough yet. Do it :) !
 - You have to make sure that the code changes largely follow your and pRT's internal style and only deviate if there is good reason for doing so. Again, this ensures maintainability of the code base by all co-developers.
-- You have to carefully check merge requests assigned to you, without AI during the first pass (and without if altogether, if it can be avoided).
-
-Required input:
-_______________
-
-TODO all:
-How to make AI-generated code visible in the code? Add a comment? Remark on its use in the change log...? Describe AI contribtion in merge requests? Not do it at all (maybe bad)?
+- You have to limit the scope of your AI usage: code maintainability relies on co-developers knowing where things are done in the code, and how. Do not unnecessarily change or refactor large parts of the code. Be as surgically precise as possible in your changes and AI coding requests.
+- For now we work with this two person rule: merge requests will be completed in a one-on-one session with the review asignee and the code author, so meet either in person or virtually. This also means that you should merge often and make incremental updates to the code, whenever possible / reasonable. If a change is really tiny and straightforward, an independent (asynchronous) review by the asignee is fine, but this should be the exception and needs to be discussed with the asignee first. If you work on adding a larger new change / capability to pRT, you have to identify a team buddy to review your changes to your new branch periodically.
+- If your AI generated code introduce coding concepts that are new to the merge request reviewer, this will lead to the review asignee having to do the homework, too.
+- If a whole new function / part of the code was largely drafted by AI, add a corresponding comment at the top of that function and comment on it in the merge request. It is totally acceptable to use such AI-generated code as long as it is declared and the homework is done. Small in-line code completions to the code you are writing yourself or small bug fixes you worked out in interaction with AI do not need to be declared (but you need to do your homework).
 
 Policy agreement
 ________________
