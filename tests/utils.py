@@ -141,7 +141,8 @@ def make_petitradtrans_test_config_file(filename):
                     'radius': 1.0,  # (R_sun)
                     'mass': 1.0,  # (M_sun)
                     'incidence_angle': 30,  # (deg)
-                    'system_distance': 10  # (ly)
+                    'system_distance': 10,  # (ly)
+                    'spot_coverage': 0.1
                 },
                 'spectrum_parameters': {
                     'line_by_line_opacity_sampling': 4,

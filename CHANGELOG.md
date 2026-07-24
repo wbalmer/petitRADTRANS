@@ -3,12 +3,17 @@ All notable changes to petitRADTRANS will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
+## [3.4.0] - 2026-04-10
+### Added
+- Function `rackham_stellar_spot_correction` to correct for stellar spots in transmission spectra, ([issue 9](https://gitlab.com/mauricemolli/petitRADTRANS/-/work_items/9)).
+
+### Fixed
+- The incorrect reference file of test_correlated_k_transmission_spectrum_with_custom_cloud_distribution
+- The config_test_radtrans.json file 
 
 ## [3.3.3] - 2026-04-10
 ### Fixed
-- that the correct mass fraction is now used for H- free-free absorption (H instead of H-). This bug was introduced when moving from pRT version 2 to 3.
-- The incorrect reference file of test_correlated_k_transmission_spectrum_with_custom_cloud_distribution
-- The config_test_radtrans.json file 
+- Mass fraction used for H- free-free absorption (H instead of H-). This bug was introduced when moving from pRT version 2 to 3.
 
 ## [3.3.2] - 2026-02-16
 ### Fixed

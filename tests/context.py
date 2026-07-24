@@ -21,6 +21,7 @@ import petitRADTRANS.config
 import petitRADTRANS.planet
 import petitRADTRANS.spectral_model
 import petitRADTRANS.stellar_spectra.phoenix
+import petitRADTRANS.stellar_spectra.stellar_spot_correction
 import petitRADTRANS.physical_constants
 import petitRADTRANS.physics
 import petitRADTRANS.chemistry
