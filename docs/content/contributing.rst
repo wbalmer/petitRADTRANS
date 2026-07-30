@@ -3,6 +3,8 @@ Contributing
 ============
 We welcome contributions to petitRADTRANS! If you want to contribute a new capability to the code, especially if it is something more involved, please notify the development team before. This is such that we can gauge whether your contribution can or should be merged into pRT.
 
+**Please note that all contributions to pRT must comply with our** `AI usage policy <AI_usage_policy.html>`_ **.**
+
 Suggestions and reporting issues
 ================================
 We always aim to enhance petitRADTRANS, so do not hesitate to report bugs or propose new features or other suggestions. The preferred way in both cases is to create a new issue on the `petitRADTRANS gitlab <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. In that case, please take the time to read the guidelines below.

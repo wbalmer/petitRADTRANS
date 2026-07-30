@@ -63,16 +63,16 @@ Active Developers
 =================
 
 - Nora Bachmann
-- Doriann Blain (main developer, and mastermind behind Version 3)
+- Doriann Blain (mastermind behind Version 3)
 - Beatriz Campos Estrada
 - Sam de Regt
 - David Hägele
+- Angelique Kahle
 - Paul Mollière
 - Evert Nasedkin (mastermind behind Version 4 and the retrieval package)
 - Antonia von Stauffenberg
 
-Since publishing the first paper on pRT in 2019, the lead development has been passed on from Paul Mollière to other members of the team, listed alphabetically above. At the moment, Doriann Blain is the lead developer.
-Right now, Paul's main job is to determine the strategic directions for the code, managing its development, and adding new features here and there, from time to time...
+Since publishing the first paper on pRT in 2019, the lead development has been passed on from Paul to other members of the team, listed alphabetically above. Paul's main job is to determine the strategic directions for the code, managing its development, and adding new features from time to time...
 
 We also welcome new contributors!
 If you would like to become a contributor, please see `"Contributing" <content/contributing.html>`_.
