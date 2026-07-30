@@ -2026,14 +2026,10 @@ def _line_b_uncertainty_scaling(
     """Compute the Line (2015) 10^b uncertainty inflation term."""
     b_val = -jnp.inf
     if parameters is not None:
-        if f"{observation_name}_b" in parameters:
-            b_val = _get_parameter_value(
-                parameters, f"{observation_name}_b", default=-jnp.inf
-            )
-        elif "uncertainty_scaling_b" in parameters:
-            b_val = _get_parameter_value(
-                parameters, "uncertainty_scaling_b", default=-jnp.inf
-            )
+        for candidate in uncertainty_scaling_b_parameter_candidates(observation_name):
+            if candidate in parameters:
+                b_val = _get_parameter_value(parameters, candidate, default=-jnp.inf)
+                break
     return b_val
 
 

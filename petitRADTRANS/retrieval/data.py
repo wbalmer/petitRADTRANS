@@ -598,8 +598,10 @@ class Data:
         has_parameter_dependent_noise = (
             self.fit_covariance
             or self.scale_uncertainties
-            or f"{self.name}_b" in parameter_names
-            or "uncertainty_scaling_b" in parameter_names
+            or any(
++                candidate in parameter_names
++                for candidate in uncertainty_scaling_b_parameter_candidates(self.name)
++            )
         )
 
         data_covariance = self.covariance if has_parameter_dependent_noise else None

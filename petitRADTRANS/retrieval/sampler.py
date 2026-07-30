@@ -34,6 +34,9 @@ P = None
 tfp = None
 hessian = None
 
+# Most of these functions exist so that we don't need to have everything installed.
+# This allows the user to only install the sampler of their choice, and the
+# module won't crash on import errors for everything else.
 
 def _require_jax():
     global lax, random, tree, vmap, tree_util, jit, local_device_count
@@ -1689,7 +1692,7 @@ class NumPyroSampler(Sampler):
 
         Collects ``num_samples`` draws in chunks of ``checkpoint_interval``. After
         every block the post-warmup MCMC state (``mcmc.last_state``, as NumPy) and
-        all draws so far are pickled to ``<prefix>_checkpoint.pkl``. If that file is
+        all draws so far are saved to ``<prefix>_checkpoint.pkl``. If that file is
         present on entry (a resubmitted job after a timeout), sampling resumes from
         it -- warmup is NOT repeated, because NumPyro's ``post_warmup_state`` carries
         the frozen step size / mass matrix and the chain position forward.
@@ -1728,7 +1731,8 @@ class NumPyroSampler(Sampler):
                 checkpoint = None
 
         if checkpoint is not None:
-            unc_chunks.append(np.asarray(checkpoint["unconstrained_samples"]))
+            if checkpoint.get("unconstrained_samples") is not None:
+                unc_chunks.append(np.asarray(checkpoint["unconstrained_samples"]))
             for key, chunks in (
                 ("potential_energy", pe_chunks),
                 ("accept_prob", accept_chunks),
@@ -1748,11 +1752,58 @@ class NumPyroSampler(Sampler):
 
         mcmc = None
         mcmc_block = None
+
+        # --- adaptation phase (fresh chain only) ------------------------------
+        # Running warmup through NumPyro's dedicated `warmup()`
+        # lets us save the adapted state the moment adaptation ends, so a
+        # resubmission resumes at 0 draws instead of restarting from scratch.
+        if post_warmup_state is None:
+            first_block = min(block, num_samples)
+            mcmc = NumPyroMCMC(
+                kernel,
+                num_warmup=num_warmup,
+                num_samples=first_block,
+                num_chains=1,
+                thinning=thinning,
+                progress_bar=progress_bar,
+                chain_method="sequential",
+                jit_model_args=False,
+            )
+            mcmc_block = first_block
+            mcmc.warmup(
+                rng_key, init_params=initial_position, extra_fields=extra_fields
+            )
+            post_warmup_state = mcmc.post_warmup_state
+            adapt_state = post_warmup_state.adapt_state
+            warmup_parameters = {
+                "step_size": np.asarray(adapt_state.step_size),
+                "inverse_mass_matrix": np.asarray(adapt_state.inverse_mass_matrix),
+            }
+            self._save_checkpoint(
+                {
+                    "version": 1,
+                    "retrieval_name": self.retrieval_name,
+                    "num_warmup": num_warmup,
+                    "num_samples_target": num_samples,
+                    "collected": 0,
+                    "last_state": tree.map(np.asarray, post_warmup_state),
+                    "warmup_parameters": warmup_parameters,
+                    "unconstrained_samples": None,
+                    "potential_energy": None,
+                    "accept_prob": None,
+                    "diverging": None,
+                    "num_steps": None,
+                }
+            )
+            print(
+                f"[checkpoint] '{self.retrieval_name}': warmup complete "
+                f"({num_warmup} iterations), 0/{num_samples} samples saved "
+                f"(step_size={float(np.asarray(adapt_state.step_size)):.3e})."
+            )
+
         while collected < num_samples:
             this_block = min(block, num_samples - collected)
-            # NumPyro returns exactly mcmc.num_samples draws per run; rebuild the
-            # object only when the block size changes (i.e. the short final block),
-            # so within a job the compiled sampler is reused across full blocks.
+            # NumPyro returns exactly mcmc.num_samples draws per run
             if mcmc is None or mcmc_block != this_block:
                 mcmc = NumPyroMCMC(
                     kernel,
@@ -1766,25 +1817,15 @@ class NumPyroSampler(Sampler):
                 )
                 mcmc_block = this_block
 
-            if post_warmup_state is None:
-                # Fresh chain: this block runs warmup + the first sampling block.
-                mcmc.run(
-                    rng_key, init_params=initial_position, extra_fields=extra_fields
-                )
-            else:
-                # Continue sampling from the saved state, skipping warmup. Use the
-                # state's own rng_key so the stream advances as in one long run.
-                # init_params is still required: with a potential_fn kernel NumPyro
-                # calls sampler.init() to build _sample_fn whenever it is unset (a
-                # freshly rebuilt kernel after a resubmit), and that needs a valid
-                # position -- but the actual start state is post_warmup_state, which
-                # overrides it, so initial_position here only seeds compilation.
-                mcmc.post_warmup_state = post_warmup_state
-                mcmc.run(
-                    post_warmup_state.rng_key,
-                    init_params=initial_position,
-                    extra_fields=extra_fields,
-                )
+            # Always a resume: adaptation ran above (fresh chain) or was restored
+            # from the checkpoint, so warmup is never repeated here. Use the
+            # state's own rng_key so the stream advances as in one long run.
+            mcmc.post_warmup_state = post_warmup_state
+            mcmc.run(
+                post_warmup_state.rng_key,
+                init_params=initial_position,
+                extra_fields=extra_fields,
+            )
 
             block_unc = np.asarray(mcmc.get_samples(group_by_chain=False))
             extra = mcmc.get_extra_fields(group_by_chain=False)
@@ -1885,8 +1926,6 @@ class NumPyroSampler(Sampler):
 
         if use_multi_device:
             # Multi-device path: distribute chains across devices via shard_map.
-            # Each device runs chains_per_device chains with chain_method='vectorized',
-            # using a unique per-device RNG key derived from lax.axis_index + fold_in.
             effective_devices = min(n_devices, num_chains)
             chains_per_device = max(1, num_chains // effective_devices)
             _kernel_class = self.kernel_class
@@ -1894,34 +1933,6 @@ class NumPyroSampler(Sampler):
             _initial_position = initial_position
             mesh = make_mesh((effective_devices,), ("devices",))
 
-            # NOTE: ``init_position`` is passed as an explicit shard_map argument
-            # (replicated, in_specs=P()) rather than closed over. On JAX versions
-            # that put the mesh axes in "Explicit" sharding mode (set_mesh below),
-            # closing over an array inside shard_map raises
-            #   NotImplementedError: Closing over inputs to shard_map where the
-            #   input is sharded on `Explicit` axes is not implemented.
-            # because the captured array inherits the mesh's explicit sharding.
-            # Threading it through as an argument lets in_specs govern its
-            # sharding. This is the only closed-over JAX array here -- everything
-            # in _kernel_kwargs is a Python scalar/bool or the potential_fn
-            # closure, and extra_fields is a tuple of strings.
-            #
-            # FUTURE: once JAX implements closing over Explicit-sharded inputs to
-            # shard_map, init_position can simply be captured again and the extra
-            # argument/in_specs entry dropped, i.e.:
-            #
-            #     def run_on_device(base_key):
-            #         ...
-            #         device_mcmc.run(
-            #             device_key, init_params=_initial_position,
-            #             extra_fields=extra_fields,
-            #         )
-            #         ...
-            #     run_sharded = shard_map(
-            #         run_on_device, mesh=mesh, in_specs=P(),
-            #         out_specs=(P("devices"),) * 7,
-            #     )
-            #     ... = run_sharded(rng_key)
             def run_on_device(base_key, init_position):
                 device_idx = lax.axis_index("devices")
                 device_key = random.fold_in(base_key, device_idx)
@@ -1986,8 +1997,6 @@ class NumPyroSampler(Sampler):
         elif checkpoint_interval and int(checkpoint_interval) > 0 and num_chains == 1:
             # Checkpointed single-chain path: sample in blocks of checkpoint_interval,
             # persisting the post-warmup MCMC state + collected draws after each block
-            # so a SLURM timeout/crash resumes (skipping warmup) instead of discarding
-            # all progress. Only for num_chains==1 (the run_single_chain array layout).
             kernel = self.kernel_class(**kernel_kwargs)
             (
                 unconstrained_samples,
