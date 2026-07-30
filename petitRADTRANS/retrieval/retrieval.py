@@ -5399,7 +5399,27 @@ class Retrieval:
         parameters,
         only_return_best_fit_spectra=False,
         retain_best_fit_spectra=True,
+        mode="bestfit",
     ):
+        """Compute and (optionally) save the binned model spectra for the given parameters.
+
+        Args:
+            parameters : dict
+                A dictionary of Parameters (as built by build_param_dict) to use to compute
+                the model spectra.
+            only_return_best_fit_spectra : bool
+                If True, the binned spectra are computed and returned, but not written to disk.
+            retain_best_fit_spectra : bool
+                If True, store the computed spectra in ``self.best_fit_spectra``.
+            mode : str
+                'bestfit' or 'median', indicating which set of values ``parameters`` corresponds
+                to. This only affects the name of the saved output file, so that saving the
+                median-parameter spectrum does not overwrite (or get confused with) the
+                best-fit-parameter spectrum, and vice versa.
+        """
+        normalized_mode = mode.strip("-").strip("_").lower()
+        mode_token = "best_fit" if normalized_mode == "bestfit" else normalized_mode
+
         best_fit_spectra = self.best_fit_spectra if retain_best_fit_spectra else {}
 
         if retain_best_fit_spectra:
@@ -5522,7 +5542,7 @@ class Retrieval:
                         os.path.join(
                             self.output_directory,
                             "evaluate_" + self.configuration.retrieval_name,
-                            f"{self.configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat",
+                            f"{self.configuration.retrieval_name}_model_spec_{mode_token}_{data_safe_name}.dat",
                         ),
                         np.column_stack((data.wavelengths, binned)),
                     )
@@ -6086,6 +6106,7 @@ class Retrieval:
         model_generating_function=None,
         prt_reference=None,
         refresh=True,
+        apply_post_processing=False,
     ):
         """
         Plot a set of randomly sampled output spectra for each dataset in the retrieval.
@@ -6100,6 +6121,11 @@ class Retrieval:
             model_generating_function: Optional model function for spectrum generation.
             prt_reference: Optional reference for pRT object.
             refresh: If True, recalculate and overwrite cached results.
+            apply_post_processing: If False (default), the raw, full-resolution sampled
+                spectra are saved and plotted. If True, each sampled spectrum is instead
+                passed through the same post-processing pipeline (convolution, rebinning,
+                etc.) used for the best fit model, and the resulting per-dataset,
+                instrument-resolution spectra are saved and plotted instead.
         Returns:
             fig, ax: Matplotlib figure and axis objects.
         """
@@ -6112,6 +6138,7 @@ class Retrieval:
             model_generating_function=model_generating_function,
             prt_reference=prt_reference,
             refresh=refresh,
+            apply_post_processing=apply_post_processing,
         )
 
     def plot_spectra(

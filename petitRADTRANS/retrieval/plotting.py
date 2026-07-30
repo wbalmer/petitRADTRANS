@@ -9,7 +9,16 @@ from petitRADTRANS.math import running_mean
 from petitRADTRANS.opacities.opacities import Opacity
 from petitRADTRANS.physics import wavelength2frequency
 from petitRADTRANS.radtrans import Radtrans
+from petitRADTRANS.radtrans_core.spectrum_utils import (
+    convolve,
+    convolve_and_sample_variable_resolution_breads,
+    rebin_spectrum_bin,
+)
 from petitRADTRANS.retrieval.data import PhotometryData
+from petitRADTRANS.retrieval.utils import (
+    extract_spectrum_parameters,
+    process_spectrum_pipeline,
+)
 
 
 class RetrievalPlotter:
@@ -1028,6 +1037,66 @@ class RetrievalPlotter:
 
         return fig, ax
 
+    def _apply_sampled_spectrum_post_processing(
+        self, wavelengths_model, spectrum_model, parameters
+    ):
+        """Project a raw, full-resolution sampled model onto each data set's own grid.
+
+        Runs the same convolution/rebinning pipeline used by
+        ``Retrieval.save_best_fit_outputs`` (instrumental convolution, rebinning onto
+        the data wavelength grid, radial velocity shift and continuum subtraction where
+        applicable) so that raw posterior-sampled spectra can be turned into
+        instrument-resolution spectra comparable to the observations.
+
+        Returns:
+            dict mapping each data set name to a ``(data_wavelengths, binned_spectrum)`` tuple.
+        """
+        wavelengths_model = np.asarray(wavelengths_model, dtype=float)
+        spectrum_model = np.asarray(spectrum_model, dtype=float)
+
+        processed_spectra = {}
+
+        for name, data in self.configuration.data.items():
+            spectrum_params = extract_spectrum_parameters(parameters, name)
+
+            if not isinstance(data, PhotometryData):
+                binned = process_spectrum_pipeline(
+                    wavelengths_model=wavelengths_model,
+                    spectrum_model=spectrum_model,
+                    data=data,
+                    parameters=parameters,
+                    data_name=name,
+                    spectrum_params=spectrum_params,
+                    convolve_function=convolve,
+                    variable_resolution_binning_function=convolve_and_sample_variable_resolution_breads,
+                    rebin_spectrum_bin_function=rebin_spectrum_bin,
+                )
+            else:
+                data_space_spectrum = spectrum_model
+
+                if data.data_resolution_array_model is not None:
+                    data.initialise_data_resolution(wavelengths_model)
+                    data_space_spectrum = convolve(
+                        wavelengths_model,
+                        spectrum_model,
+                        data.data_resolution_array_model,
+                    )
+                elif data.data_resolution is not None:
+                    data_space_spectrum = convolve(
+                        wavelengths_model, spectrum_model, data.data_resolution
+                    )
+
+                binned = data.photometric_transformation_function(
+                    wavelengths_model, data_space_spectrum
+                )
+
+            processed_spectra[name] = (
+                np.asarray(data.wavelengths, dtype=float),
+                np.asarray(binned, dtype=float),
+            )
+
+        return processed_spectra
+
     def plot_sampled(
         self,
         samples_use,
@@ -1038,10 +1107,21 @@ class RetrievalPlotter:
         model_generating_function=None,
         prt_reference=None,
         refresh=True,
-        figsize=(16, 10)
+        figsize=(16, 10),
+        apply_post_processing=False,
     ):
         """
         Plot a set of randomly sampled output spectra for each dataset in the retrieval.
+
+        Args:
+            apply_post_processing : bool
+                If False (default), the raw, full-resolution model spectrum spanning the
+                combined wavelength range of all data sets is plotted and saved for each
+                sampled parameter set. If True, that raw spectrum is instead passed through
+                the same post-processing pipeline used for the best fit model (instrumental
+                convolution, rebinning onto each data set's wavelength grid, radial velocity
+                shift and continuum subtraction where applicable), and the resulting
+                per-dataset, instrument-resolution spectra are plotted and saved instead.
         """
         import matplotlib.pyplot as plt
         from petitRADTRANS.plotlib.plotlib import plot_data
@@ -1183,21 +1263,54 @@ class RetrievalPlotter:
                             np.column_stack((wavelengths, model)),
                         )
 
-            for wavelengths, model in zip(
-                sampled_wavelengths, sampled_models, strict=True
-            ):
-                if downsample_factor is not None:
-                    model = running_mean(model, downsample_factor)[::downsample_factor]
-                    wavelengths = wavelengths[::downsample_factor]
+            if apply_post_processing:
+                for i_sample, (wavelengths, model) in enumerate(
+                    zip(sampled_wavelengths, sampled_models, strict=True)
+                ):
+                    sample_parameters = self.build_param_dict(
+                        sample_matrix[i_sample], parameters_read
+                    )
+                    processed_spectra = self._apply_sampled_spectrum_post_processing(
+                        wavelengths, model, sample_parameters
+                    )
 
-                ax.plot(
-                    wavelengths,
-                    model * self.y_axis_scaling,
-                    color="#00d2f3",
-                    alpha=1 / self.nsample + 0.1,
-                    linewidth=0.2,
-                    marker=None,
-                )
+                    for name, (data_wavelengths, binned) in processed_spectra.items():
+                        ax.plot(
+                            data_wavelengths,
+                            binned * self.y_axis_scaling,
+                            color="#00d2f3",
+                            alpha=1 / self.nsample + 0.1,
+                            linewidth=0.5,
+                            marker=None,
+                        )
+
+                        if save_outputs:
+                            data_safe_name = name.replace("/", "_").replace(".", "_")
+                            random_index = random_ints[i_sample]
+                            np.save(
+                                os.path.join(
+                                    path,
+                                    "posterior_sampled_spectra_postprocessed_"
+                                    f"{data_safe_name}_{str(random_index).zfill(5)}",
+                                ),
+                                np.column_stack((data_wavelengths, binned)),
+                            )
+            else:
+                for wavelengths, model in zip(
+                    sampled_wavelengths, sampled_models, strict=True
+                ):
+                    if downsample_factor is not None:
+                        model = running_mean(model, downsample_factor)[::downsample_factor]
+                        wavelengths = wavelengths[::downsample_factor]
+
+                    ax.plot(
+                        wavelengths,
+                        model * self.y_axis_scaling,
+                        color="#00d2f3",
+                        alpha=1 / self.nsample + 0.1,
+                        linewidth=0.2,
+                        marker=None,
+                    )
 
             log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
 
@@ -1408,8 +1521,9 @@ class RetrievalPlotter:
 
             if only_save_best_fit_spectra:
                 self.save_best_fit_outputs(
-                    self.best_fit_parameters,
+                    self.build_param_dict(sample_use, parameters_read),
                     retain_best_fit_spectra=False,
+                    mode=mode,
                 )
                 return None, None, None
 
@@ -1431,7 +1545,7 @@ class RetrievalPlotter:
             )
 
             if not only_save_best_fit_spectra:
-                self.save_best_fit_outputs(self.best_fit_parameters)
+                self.save_best_fit_outputs(self.best_fit_parameters, mode=mode)
 
             plotted_model_wavelengths = np.asarray(best_fit_wavelengths, dtype=float)
             plotted_model_spectrum = np.asarray(best_fit_spectrum, dtype=float)
