@@ -16,7 +16,7 @@ py.install_sources([
     'validation.py',
     'workflow.py',
     ],
-    subdir: 'petitRADTRANS/sbi'
+    subdir: 'petitRADTRANS/experimental/sbi'
 )
 
 subdir('flows')

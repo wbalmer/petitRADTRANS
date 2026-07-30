@@ -1321,9 +1321,29 @@ def generate_simulation_dataset(
 
 
 def infer_split_counts(total_simulations: int) -> dict[str, int]:
-    """Split a simulation budget into train/validation/test counts."""
+    """Split a simulation budget into train/validation/test counts.
+
+    Production budgets get fixed-size held-out splits (2^17 test, 2^15
+    validation) so validation/SBC statistics are directly comparable across
+    runs of different sizes. Small budgets fall back to proportional splits:
+    the fixed sizes would otherwise leave a negative training split (which
+    surfaced only later, as a "split 'train' is not present" KeyError during
+    preprocessing).
+    """
+    if total_simulations < 16:
+        raise ValueError(
+            "total_simulations must be at least 16 to form train/validation/test "
+            f"splits; got {total_simulations}."
+        )
+
     n_test = 131_072  # 2^17
     n_val = 32_768  # 2^15
+    # Require the held-out splits to leave at least as many training samples as
+    # they consume; otherwise size everything proportionally.
+    if total_simulations < 2 * (n_test + n_val):
+        n_test = max(1, int(round(0.15 * total_simulations)))
+        n_val = max(1, int(round(0.05 * total_simulations)))
+
     split_counts = {
         DatasetSplit.TRAIN.value: total_simulations - n_test - n_val,
         DatasetSplit.VALIDATION.value: n_val,
