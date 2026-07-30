@@ -4,7 +4,7 @@ Free functions that sharpen the amortized posterior for one specific target
 spectrum using the differentiable forward model: a flow-ELBO refinement
 (:func:`refine_posterior_on_observation`) and a MAP + Laplace / Gaussian-VI
 refinement (:func:`map_laplace_posterior_on_observation`). Each takes the trained
-:class:`~petitRADTRANS.sbi.flows.posterior.ConditionalFlowPosterior` as its first
+:class:`~petitRADTRANS.experimental.sbi.flows.posterior.ConditionalFlowPosterior` as its first
 argument (``posterior``); the estimator exposes them as thin methods. Extracted
 from ``flows.posterior`` to keep the estimator focused on amortized inference.
 """
@@ -279,27 +279,80 @@ def importance_sampling_posterior_on_observation(
     cube_samples = _clip_cube_support(nn.sigmoid(unconstrained))
 
     residual_batch = jax.jit(vmap(standardized_residual_fn))
-    chi2_chunks = []
-    for start in range(0, n_proposal_samples, forward_batch_size):
-        chunk = cube_samples[start : start + forward_batch_size]
+
+    def _chi2_for_chunk(chunk: jnp.ndarray) -> np.ndarray:
+        """Run the forward model on one chunk and return host-side chi2.
+
+        Blocks and copies to the host per chunk. Without this the whole loop is
+        dispatched lazily: device buffers for every chunk stay live, peak memory
+        grows with the number of chunks, and any allocator failure surfaces at
+        the first host sync (the weight normalisation) instead of at the
+        forward-model call that actually caused it.
+        """
         residuals = residual_batch(chunk)
-        chi2_chunks.append(jnp.sum(residuals * residuals, axis=-1))
-    chi2 = jnp.concatenate(chi2_chunks)
+        chunk_chi2 = jnp.sum(residuals * residuals, axis=-1)
+        chunk_chi2 = jnp.reshape(chunk_chi2, (-1,))
+        chunk_chi2 = jax.block_until_ready(chunk_chi2)
+        host_chi2 = np.asarray(chunk_chi2, dtype=np.float64)
+        del residuals, chunk_chi2
+        return host_chi2
 
+    def _is_out_of_memory(error: Exception) -> bool:
+        message = str(error)
+        return "RESOURCE_EXHAUSTED" in message or "Out of memory" in message
+
+    chi2_parts: list[np.ndarray] = []
+    active_batch_size = forward_batch_size
+    start = 0
+    while start < n_proposal_samples:
+        chunk = cube_samples[start : start + active_batch_size]
+        try:
+            chi2_parts.append(_chi2_for_chunk(chunk))
+        except Exception as error:  # noqa: BLE001 - re-raised unless OOM
+            if not _is_out_of_memory(error) or active_batch_size <= 1:
+                raise
+            # Adaptive backoff: the forward model's per-sample memory is
+            # task-dependent (the scattering emission RT holds far larger
+            # intermediates than transmission). Halve and retry rather than
+            # losing a completed training run to an allocator failure.
+            active_batch_size = max(1, active_batch_size // 2)
+            if verbose:
+                print(
+                    "  importance sampling: forward-model chunk hit an "
+                    "out-of-memory error; retrying with forward batch "
+                    f"{active_batch_size}"
+                )
+            continue
+        start += chunk.shape[0]
+
+    # Weights are computed on the host in float64: the arrays are one scalar
+    # per proposal (a few hundred kB), and this keeps the normalisation exact
+    # and free of device-memory effects.
+    chi2 = np.concatenate(chi2_parts)
     log_likelihood = -0.5 * chi2
-    log_weights = log_likelihood + log_prior - log_q
-    log_weights = jnp.where(jnp.isfinite(log_weights), log_weights, -jnp.inf)
+    log_prior_np = np.asarray(log_prior, dtype=np.float64).reshape(-1)
+    log_q_np = np.asarray(log_q, dtype=np.float64).reshape(-1)
+    if not (log_likelihood.shape == log_prior_np.shape == log_q_np.shape):
+        raise RuntimeError(
+            "Importance-sampling weight terms must all be 1-D and equal length; "
+            f"got chi2 {log_likelihood.shape}, log_prior {log_prior_np.shape}, "
+            f"log_q {log_q_np.shape}. The residual function must return one "
+            "vector of standardized residuals per parameter vector."
+        )
 
-    log_weight_max = jnp.max(log_weights)
-    raw = jnp.exp(log_weights - log_weight_max)
-    weight_sum = jnp.sum(raw)
-    weights = np.asarray(raw / weight_sum, dtype=np.float64)
+    log_weights = log_likelihood + log_prior_np - log_q_np
+    log_weights = np.where(np.isfinite(log_weights), log_weights, -np.inf)
+
+    log_weight_max = float(np.max(log_weights))
+    raw = np.exp(log_weights - log_weight_max)
+    weight_sum = float(np.sum(raw))
+    weights = raw / weight_sum
     effective_sample_size = float(1.0 / np.sum(weights**2))
     efficiency = effective_sample_size / float(n_proposal_samples)
     # Evidence up to the (theta-independent) Gaussian normalizer of the
     # likelihood, which the standardized residuals do not carry.
     log_evidence_minus_const = float(
-        log_weight_max + jnp.log(weight_sum) - np.log(n_proposal_samples)
+        log_weight_max + np.log(weight_sum) - np.log(n_proposal_samples)
     )
 
     # Systematic resampling by the normalized weights.
@@ -312,14 +365,15 @@ def importance_sampling_posterior_on_observation(
     resampled_indices = np.searchsorted(cumulative, positions)
     cube_np = np.asarray(cube_samples, dtype=np.float64)
 
-    best_index = int(np.argmax(np.asarray(log_likelihood + log_prior)))
+    best_index = int(np.argmax(log_likelihood + log_prior_np))
     diagnostics = {
         "n_proposal_samples": n_proposal_samples,
         "effective_sample_size": effective_sample_size,
         "sampling_efficiency": efficiency,
         "max_weight_fraction": float(np.max(weights)),
-        "chi2_best": float(np.asarray(chi2)[best_index]),
-        "chi2_weighted_mean": float(np.sum(weights * np.asarray(chi2))),
+        "chi2_best": float(chi2[best_index]),
+        "chi2_weighted_mean": float(np.sum(weights * chi2)),
+        "forward_batch_size_used": int(active_batch_size),
         "log_evidence_minus_const": log_evidence_minus_const,
     }
 
@@ -330,6 +384,17 @@ def importance_sampling_posterior_on_observation(
             f"| chi2(best) {diagnostics['chi2_best']:.2f} "
             f"| max weight {diagnostics['max_weight_fraction']:.3f}"
         )
+        n_data = int(np.size(np.asarray(standardized_residual_fn(cube_samples[0]))))
+        chi2_per_point = diagnostics["chi2_best"] / max(n_data, 1)
+        if chi2_per_point > 100.0:
+            print(
+                f"  WARNING: chi2/N at the best proposal is {chi2_per_point:.3g}, "
+                "far above the ~1 expected for a well-fitting model. That points "
+                "at the LIKELIHOOD rather than the posterior -- e.g. the "
+                "observation reaching the residual function is not in the same "
+                "units/normalization as the forward model output. Check the "
+                "residual construction before interpreting these weights."
+            )
         if efficiency < 1e-3:
             print(
                 "  WARNING: sampling efficiency < 0.1% — the amortized posterior "
@@ -362,6 +427,7 @@ def map_laplace_posterior_on_observation(
     vi_num_samples: int = 32,
     vi_freeze_mean: bool = True,
     vi_beta: float = 1.0,
+    num_starts: int = 1,
     seed: int = 0,
     verbose: bool = True,
 ) -> "ConditionalFlowPosterior":
@@ -413,6 +479,18 @@ def map_laplace_posterior_on_observation(
     )
     init_cube = jnp.clip(nn.sigmoid(init_unconstrained).mean(axis=0), 1e-4, 1.0 - 1e-4)
     u0 = jnp.log(init_cube) - jnp.log1p(-init_cube)
+    # Multi-start: the amortized init can be biased, and a single gradient
+    # descent from a bad start can run a coordinate into the cube boundary
+    # where the sigmoid parametrization has vanishing gradients (observed:
+    # chi2(MAP) ~ 1e9 with the radius pinned at the prior edge). Additional
+    # starts from individual amortized draws let at least one path avoid the
+    # trap; the best final full-objective start wins.
+    start_points = [u0]
+    for start_index in range(max(int(num_starts) - 1, 0)):
+        draw_cube = jnp.clip(
+            nn.sigmoid(init_unconstrained[start_index]), 1e-4, 1.0 - 1e-4
+        )
+        start_points.append(jnp.log(draw_cube) - jnp.log1p(-draw_cube))
 
     def _residual_of_u(u: jnp.ndarray) -> jnp.ndarray:
         return standardized_residual_fn(nn.sigmoid(u))
@@ -435,6 +513,10 @@ def map_laplace_posterior_on_observation(
         grad = jnp.where(jnp.isfinite(grad), grad, 0.0)
         updates, state = optimizer.update(grad, state)
         u = optax.apply_updates(u, updates)
+        # Keep every coordinate away from the sigmoid-saturation region
+        # (|u| = 12 -> cube within ~6e-6 of the boundary): beyond it the
+        # gradient through sigmoid(u) vanishes and the coordinate freezes.
+        u = jnp.clip(u, -12.0, 12.0)
         obj_full = _neg_log_posterior(u, jnp.asarray(1.0, jnp.float32))
         return u, state, obj_full
 
@@ -445,25 +527,28 @@ def map_laplace_posterior_on_observation(
         progress = min(1.0, float(index) / window)
         return float(beta_start ** (1.0 - progress))
 
-    u = u0
     best_u = u0
     best_obj = float(_neg_log_posterior(u0, jnp.asarray(1.0, jnp.float32)))
-    for step_index in range(int(num_steps)):
-        beta = jnp.asarray(_beta_for_step(step_index), dtype=jnp.float32)
-        u, opt_state, obj_full = _step(u, opt_state, beta)
-        obj = float(obj_full)
-        if np.isfinite(obj) and obj < best_obj:
-            best_obj = obj
-            best_u = u
-        if verbose and (
-            step_index % 100 == 0 or step_index == int(num_steps) - 1
-        ):
-            chi2 = float(jnp.sum(_residual_of_u(best_u) ** 2))
-            print(
-                f"  map step {step_index:4d} | beta {float(beta):.3g} "
-                f"| -logpost(beta=1) {obj:.4f} | best {best_obj:.4f} "
-                f"| chi2 {chi2:.2f}"
-            )
+    for start_number, u_start in enumerate(start_points):
+        u = u_start
+        opt_state = optimizer.init(u)
+        for step_index in range(int(num_steps)):
+            beta = jnp.asarray(_beta_for_step(step_index), dtype=jnp.float32)
+            u, opt_state, obj_full = _step(u, opt_state, beta)
+            obj = float(obj_full)
+            if np.isfinite(obj) and obj < best_obj:
+                best_obj = obj
+                best_u = u
+            if verbose and (
+                step_index % 200 == 0 or step_index == int(num_steps) - 1
+            ):
+                chi2 = float(jnp.sum(_residual_of_u(best_u) ** 2))
+                print(
+                    f"  map start {start_number + 1}/{len(start_points)} "
+                    f"step {step_index:4d} | beta {float(beta):.3g} "
+                    f"| -logpost(beta=1) {obj:.4f} | best {best_obj:.4f} "
+                    f"| chi2 {chi2:.2f}"
+                )
 
     u_map = best_u
     cube_map = nn.sigmoid(u_map)

@@ -959,7 +959,7 @@ def _flow_validation_stability_metrics(
         pathological).
     diagnostics:
         Per-checkpoint diagnostics (see
-        :func:`~petitRADTRANS.sbi.flows.objectives.compute_validation_diagnostics`).
+        :func:`~petitRADTRANS.experimental.sbi.flows.objectives.compute_validation_diagnostics`).
     inverse_forward_max_abs_error_threshold:
     inverse_forward_logdet_closure_max_abs_error_threshold:
     cube_edge_hit_rate_threshold:

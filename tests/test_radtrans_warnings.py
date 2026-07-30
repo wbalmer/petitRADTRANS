@@ -95,3 +95,66 @@ def test_partial_cloud_fraction_with_power_law_clouds_does_not_warn():
         "there are no patchy clouds" in str(warning.message)
         for warning in caught
     )
+
+def _run_clear_spectrum_check(capsys, mass_fractions, cloud_species,
+                              cloud_fraction=1.0, return_clear_spectrum=True):
+    import jax
+
+    atmosphere = _make_minimal_radtrans(cloud_species=cloud_species)
+
+    atmosphere._init_spectral_function(
+        is_emission=False,
+        reference_gravity=1.0,
+        patchy_clouds=None,
+        return_clear_spectrum=return_clear_spectrum,
+        mass_fractions=mass_fractions,
+        cloud_fraction=cloud_fraction,
+        opaque_cloud_top_pressure=None,
+    )
+    jax.effects_barrier()
+
+    return capsys.readouterr().out
+
+
+def test_clear_spectrum_requested_without_effective_clouds_warns(capsys):
+    output = _run_clear_spectrum_check(
+        capsys,
+        mass_fractions={"Mg2SiO4": np.array([0.0])},
+        cloud_species=("Mg2SiO4",),
+    )
+
+    assert "clouds have no effect" in output
+
+
+def test_clear_spectrum_any_effective_cloud_species_does_not_warn(capsys):
+    # Regression test: only the last cloud species used to be consulted, so a
+    # zero-MMR species listed last incorrectly triggered the warning
+    output = _run_clear_spectrum_check(
+        capsys,
+        mass_fractions={"Mg2SiO4": np.array([1e-6]), "Fe": np.array([0.0])},
+        cloud_species=("Mg2SiO4", "Fe"),
+    )
+
+    assert "clouds have no effect" not in output
+
+
+def test_clear_spectrum_with_partial_cloud_coverage_warns(capsys):
+    output = _run_clear_spectrum_check(
+        capsys,
+        mass_fractions={"Mg2SiO4": np.array([1e-6])},
+        cloud_species=("Mg2SiO4",),
+        cloud_fraction=0.5,
+    )
+
+    assert "partial cloud coverage" in output
+
+
+def test_no_clear_spectrum_requested_does_not_warn(capsys):
+    output = _run_clear_spectrum_check(
+        capsys,
+        mass_fractions={"Mg2SiO4": np.array([0.0])},
+        cloud_species=("Mg2SiO4",),
+        return_clear_spectrum=False,
+    )
+
+    assert output == ""

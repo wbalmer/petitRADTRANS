@@ -34,6 +34,9 @@ from petitRADTRANS.physics import (
     hz2um,
 )
 from petitRADTRANS.temperature_profiles import guillot_metallic_temperature_profile
+from petitRADTRANS.radtrans_core.radiative_transfer_core import (
+    resolve_feautrier_chunking,
+)
 from petitRADTRANS.radtrans_core.spectrum_utils import (
     convolve_constant_resolution,
     rebin_spectrum,
@@ -133,7 +136,8 @@ class SpectralModel(Radtrans):
         filling_species:
             Dictionary with filling species as keys and the weights of the mass fractions as values. Unweighted
             filling species are represented with None. Filling species are used to ensure that the MMR at each layer is
-            1. See chemistry.utils.fill_atmosphere for more details.
+            1. The weights are mass-fraction weights. If None, the default H2/He background is used.
+            See chemistry.utils.fill_atmosphere for more details.
         guillot_temperature_profile_gamma:
             Ratio between visual and infrared opacity.
             Used by the Guillot temperature profile (``temperature_profile_mode='guillot'``).
@@ -1501,8 +1505,8 @@ class SpectralModel(Radtrans):
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
         adaptive_feautrier_iterations: bool = False,
-        chunk_feautrier: bool = False,
-        feautrier_chunk_size: int = 1024,
+        chunk_feautrier: bool = None,
+        feautrier_chunk_size: int = None,
         frequencies_to_wavelengths: bool = True,
         return_contribution: bool = False,
         return_clear_spectrum: bool = False,
@@ -1515,6 +1519,15 @@ class SpectralModel(Radtrans):
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_flux function."""
         _ = kwargs  # kwargs is not otherwise used in this function, this is intended
+
+        # resolve_feautrier_chunking is the single source of truth for the
+        # chunking precedence; this entry point keeps its historical fallbacks
+        chunk_feautrier, feautrier_chunk_size = resolve_feautrier_chunking(
+            chunk_feautrier=chunk_feautrier,
+            feautrier_chunk_size=feautrier_chunk_size,
+            fallback_chunk_feautrier=False,
+            fallback_chunk_size=1024,
+        )
 
         self.wavelengths, self.fluxes, additional_outputs = self.calculate_flux(
             temperatures=self.temperatures,
@@ -2183,16 +2196,14 @@ class SpectralModel(Radtrans):
         their imposed value as long as the sum of the imposed values is lower or equal to 1. H2 and He are used as
         filling gases.
         The different possible cases are dealt with as follows:
-            - Sum of imposed mass mixing ratios > 1: the mass mixing ratios are scaled down, conserving the ratio
-            between them. Non-imposed mass mixing ratios are set to 0.
-            - Sum of imposed mass mixing ratio of all imposed species < 1: if equilibrium chemistry is used or if H2 and
-            He are imposed species, the atmosphere will be filled with H2 and He respecting the imposed H2/He ratio.
-            Otherwise, the heh2_ratio parameter is used.
+            - Sum of imposed mass mixing ratios > 1: the imposed gas mass mixing ratios are scaled down, conserving
+            the ratios between them. Non-imposed mass mixing ratios are set to 0.
+            - Sum of imposed mass mixing ratio of all imposed species < 1: the atmosphere is filled with the filling
+            species, in proportion to their weights.
             - Sum of imposed and non-imposed mass mixing ratios > 1: the non-imposed mass mixing ratios are scaled down,
             conserving the ratios between them. Imposed mass mixing ratios are unchanged.
-            - Sum of imposed and non-imposed mass mixing ratios < 1: if equilibrium chemistry is used or if H2 and
-            He are imposed species, the atmosphere will be filled with H2 and He respecting the imposed H2/He ratio.
-            Otherwise, the heh2_ratio parameter is used.
+            - Sum of imposed and non-imposed mass mixing ratios < 1: the atmosphere is filled with the filling species,
+            in proportion to their weights.
 
         When using equilibrium chemistry with imposed mass mixing ratios, imposed mass mixing ratios are set to their
         imposed value regardless of chemical equilibrium consistency.
@@ -2214,7 +2225,10 @@ class SpectralModel(Radtrans):
                 pRT equilibrium chemistry table
             filling_species:
                 Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
-                filling species are represented with None.
+                filling species are represented with None. The weights are mass-fraction weights, so their ratio is the
+                ratio between the resulting mass fractions. If None, the default H2/He background is used: solar-like
+                weights (H2/He = 37/12 by mass) under free chemistry, and the equilibrium table's own H2/He under
+                equilibrium chemistry. Pass an empty dictionary to disable filling entirely.
             verbose: if True, print additional information
 
         Returns:

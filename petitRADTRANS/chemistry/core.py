@@ -35,11 +35,18 @@ from petitRADTRANS.chemistry.utils import (
     fill_atmosphere,
     mass_fractions2metallicity,
 )
+from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.chemistry import clouds as fc
 
 from petitRADTRANS.jax_dtype import JAX_DTYPE
 
 INVALID_VALUE = jnp.array(jnp.inf, JAX_DTYPE)
+
+# Default background composition expressed as mass-fraction weights: H2/He = 74/24
+# i.e. the solar hydrogen (X = 0.74) and helium (Y = 0.24) mass fractions.
+# Only the ratio between the weights matters, since fill_atmosphere normalizes them.
+DEFAULT_FILLING_SPECIES = ("H2", "He")
+DEFAULT_FILLING_SPECIES_WEIGHTS = {"H2": 74.0, "He": 24.0}
 
 _ISOTOPE_RATIO_SPECS = (
     {
@@ -350,12 +357,6 @@ def resolve_cloud_base_pressures(
             for _cloud, cloud_name in cloud_metadata
         }
 
-    if filling_species is None:
-        filling_species = {
-            "H2": 0.74 * jnp.ones(pressures.size),
-            "He": 0.24 * jnp.ones(pressures.size),
-        }
-
     line_species_no_resolution = tuple(
         [species.split(".R")[0] for species in line_species]
     )
@@ -464,6 +465,14 @@ def _replace_isotope(
     return re.sub(pattern, rf"\g<1>{to_isotope}", isotopologue_name)
 
 
+@lru_cache(maxsize=None)
+def _get_isotopologue_molar_mass_ratio(rare_species: str, main_species: str) -> float:
+    """Return the molar-mass ratio between a rare isotopologue and its main form."""
+    return get_species_molar_mass(
+        rare_species.split(".R")[0]
+    ) / get_species_molar_mass(main_species.split(".R")[0])
+
+
 def _build_isotopologue_ratio_mass_fractions(
     *,
     line_species,
@@ -474,7 +483,22 @@ def _build_isotopologue_ratio_mass_fractions(
 
     For each supported isotope ratio, when both a rare isotopologue and its
     corresponding main isotopologue are present in ``line_species``, this helper
-    defines the rare profile as ``ratio * main_profile``.
+    defines the rare profile from the main one.
+
+    The isotope-ratio parameters are *number* ratios, while the profiles are mass
+    fractions, so the ratio is converted with the isotopologue molar masses:
+        X_rare = ratio * (M_rare / M_main) * X_main,
+    which gives n_rare / n_main = ratio. The correction is a few percent (about
+    3.5% for 13CO and 7% for C18O), and neglecting it would bias the retrieved
+    ratio by the same amount.
+
+    Note:
+        The main isotopologue is not depleted to conserve the total elemental
+        abundance; at the isotope ratios found in nature this is a sub-percent
+        effect. For species carrying several atoms of the substituted element
+        (e.g. 13C in C2H2), only the singly-substituted isotopologue is
+        described, so the ratio applies to that isotopologue rather than to the
+        full substitution statistics.
     """
     line_species_isotopologues = {
         species: Opacity.get_species_isotopologue_name(species)
@@ -538,8 +562,16 @@ def _build_isotopologue_ratio_mass_fractions(
             if main_profile_key is None:
                 continue
 
+            # Convert the number ratio into a mass-fraction ratio.
+            molar_mass_ratio = _get_isotopologue_molar_mass_ratio(
+                species,
+                main_species,
+            )
+
             ratio_mass_fractions[species] = (
-                isotope_ratio * mass_fractions_chemical_table[main_profile_key]
+                isotope_ratio
+                * molar_mass_ratio
+                * mass_fractions_chemical_table[main_profile_key]
             )
 
     return ratio_mass_fractions
@@ -699,6 +731,107 @@ def _build_easychem_mass_fractions(
     return mass_fractions, mean_molar_mass
 
 
+def _normalize_filling_species(
+    filling_species,
+    pressure_template,
+    use_precalculated_equilibrium_chemistry,
+):
+    """Normalize a fill specification into a mapping of species to fill weights.
+
+    The returned weights are *mass-fraction* weights: ``fill_atmosphere``
+    distributes the mass missing from unity in proportion to them, so the ratio
+    between two weights is the ratio between the resulting mass fractions.
+
+    The accepted input forms are:
+        ``None``:
+            Use the default H2/He background (``DEFAULT_FILLING_SPECIES``).
+        A species name, or an iterable of species names:
+            Fill with those species without imposing explicit weights.
+        A mapping of species names to numeric weights:
+            Fill with those species using the given weights verbatim, in every
+            chemistry mode.
+        A mapping of species names to ``None``:
+            Equivalent to passing the same species as an iterable ("unweighted"
+            mode).
+        An empty mapping or an empty iterable:
+            Do not fill at all. The mass fractions are then not guaranteed to sum
+            to unity; this is the explicit opt-out.
+
+    When no explicit weights are given, the weights depend on the chemistry mode.
+    Under precalculated equilibrium chemistry the fill species get zero weight,
+    which makes ``fill_atmosphere`` rescale the abundances that the chemistry
+    table already provides for them instead of overwriting the table's
+    metallicity-dependent background. Under free chemistry, a bare H2/He fill
+    gets the default solar-like weights, and any other species set is filled in
+    equal parts.
+    """
+    if filling_species is None:
+        filling_species = DEFAULT_FILLING_SPECIES
+
+    if isinstance(filling_species, str):
+        filling_species = (filling_species,)
+
+    def _as_weight_profile(value):
+        return jnp.broadcast_to(
+            jnp.asarray(value, dtype=pressure_template.dtype),
+            pressure_template.shape,
+        )
+
+    def _implicit_weights(species_names):
+        # The chemistry table already provides a background: defer to it.
+        if use_precalculated_equilibrium_chemistry:
+            return {
+                species: _as_weight_profile(0.0) for species in species_names
+            }
+
+        if set(species_names) == set(DEFAULT_FILLING_SPECIES):
+            return {
+                species: _as_weight_profile(DEFAULT_FILLING_SPECIES_WEIGHTS[species])
+                for species in species_names
+            }
+
+        return {species: _as_weight_profile(1.0) for species in species_names}
+
+    if isinstance(filling_species, dict):
+        if len(filling_species) == 0:
+            return {}
+
+        weights = list(filling_species.values())
+
+        if all(weight is None for weight in weights):
+            return _implicit_weights(tuple(filling_species))
+
+        if any(weight is None for weight in weights):
+            unweighted = sorted(
+                species
+                for species, weight in filling_species.items()
+                if weight is None
+            )
+            raise ValueError(
+                f"filling species must be either all weighted or all unweighted, "
+                f"but no weight was given for {unweighted}"
+            )
+
+        return {
+            species: _as_weight_profile(weight)
+            for species, weight in filling_species.items()
+        }
+
+    if hasattr(filling_species, "__iter__"):
+        species_names = tuple(filling_species)
+
+        if len(species_names) == 0:
+            return {}
+
+        return _implicit_weights(species_names)
+
+    raise ValueError(
+        f"filling species must be None, a species name, an iterable of species "
+        f"names, or a mapping of species names to weights, but was "
+        f"'{filling_species}'"
+    )
+
+
 # @jit(static_argnames=['line_species', 'cloud_species', 'verbose'])
 def calculate_gas_mass_fractions(
     pressures,
@@ -740,9 +873,13 @@ def calculate_gas_mass_fractions(
             broader chemistry pipeline; they are not used directly in the active
             gas-fraction path.
         filling_species:
-            Optional fill-specification for background gases. This may be
-            ``None``, a species name, an iterable of species names, or a mapping
-            of species names to fill weights.
+            Optional fill-specification for background gases, given as
+            mass-fraction weights. This may be ``None`` (default H2/He
+            background), a species name, an iterable of species names, a mapping
+            of species names to weights, or an empty mapping or iterable to
+            disable filling entirely. See :func:`_normalize_filling_species` for
+            the full semantics, in particular how unweighted fill species defer
+            to the equilibrium chemistry table.
         use_equilibrium_chemistry:
             If ``True``, use the built-in precalculated equilibrium chemistry
             table together with ``metallicity`` and ``co_ratio``. The explicit
@@ -797,8 +934,6 @@ def calculate_gas_mass_fractions(
         imposed_mass_fractions = dict(imposed_mass_fractions)
 
     line_species_simple = _simplify_species_in_original_order(line_species)
-    line_species_lookup = set(line_species)
-    line_species_simple_lookup = set(line_species_simple)
 
     def _as_mass_fraction_profile(raw):
         raw_array = jnp.asarray(raw)
@@ -847,78 +982,11 @@ def calculate_gas_mass_fractions(
 
     imposed_mass_fractions = _merge_pressure_varying_profiles(imposed_mass_fractions)
 
-    def build_filling_species(filling_species):
-        def _zeros():
-            return jnp.zeros_like(pressure_template)
-
-        def _filled(value):
-            return jnp.full_like(pressure_template, value)
-
-        def h2he_case(filling_species):
-            fill_species = {}
-            if use_precalculated_equilibrium_chemistry:
-                fill_species = {
-                    "H2": _zeros(),
-                    "He": _zeros(),
-                }
-            else:
-                fill_species = {
-                    "H2": _filled(74.0),
-                    "He": _filled(24.0),
-                }
-            if isinstance(filling_species, dict):
-                for species, value in filling_species.items():
-                    if species not in fill_species:
-                        fill_species[species] = _filled(value)
-            elif isinstance(filling_species, tuple):
-                for species in filling_species:
-                    if species not in fill_species:
-                        fill_species[species] = _zeros()
-            return fill_species
-
-        def default_case(filling_species):
-            if isinstance(filling_species, dict):
-                return {key: _filled(value) for key, value in filling_species.items()}
-
-            return filling_species
-
-        if (
-            hasattr(filling_species, "__iter__")
-            and len(filling_species) == 2
-            and not isinstance(filling_species, dict)
-            and "H2" in filling_species
-            and "He" in filling_species
-        ):
-            return h2he_case(filling_species)
-
-        return default_case(filling_species)
-
-    filling_species = build_filling_species(filling_species)
-
-    # Handle string and non-dict case
-    def handle_non_dict(fs):
-        def str_case(_):
-            return {fs: jnp.ones_like(pressures)}
-
-        def iter_case(_):
-            return {species: jnp.ones_like(pressures) for species in fs}
-
-        def none_case(_):
-            return {}
-
-        def error_case(_):
-            raise ValueError(f"filling_species must be a dictionary, but is {fs}")
-
-        if isinstance(fs, str):
-            return str_case(None)
-        if hasattr(fs, "__iter__"):
-            return iter_case(None)
-        if fs is None:
-            return none_case(None)
-        return error_case(None)
-
-    if not isinstance(filling_species, dict):
-        filling_species = handle_non_dict(filling_species)
+    filling_species = _normalize_filling_species(
+        filling_species,
+        pressure_template,
+        use_precalculated_equilibrium_chemistry,
+    )
 
     mass_fractions: dict[str, typing.ArrayLike] = {}
     m_sum_imposed_species = jnp.zeros_like(pressure_template)
@@ -936,11 +1004,14 @@ def calculate_gas_mass_fractions(
             # warnings.warn(...)  # Not JIT compatible
             del filling_species[species]
 
-    # Ensure that the sum of imposed mass fractions is <= 1
+    # Ensure that the sum of imposed mass fractions is <= 1. Every imposed gas is
+    # rescaled, not just the line species, otherwise an imposed background gas
+    # (e.g. He) counts towards the sum without ever being scaled down. Condensates
+    # are excluded because fill_atmosphere keeps them out of the gas mass budget.
     imposed_gas_species = tuple(
         species
         for species in imposed_mass_fractions
-        if species in line_species_lookup or species in line_species_simple_lookup
+        if "(s)" not in species and "(l)" not in species
     )
 
     for species in imposed_gas_species:
@@ -1242,9 +1313,11 @@ def get_abundances(
         cloud_species:
             Condensate-opacity species names.
         filling_species:
-            Optional background fill-specification forwarded to
-            ``calculate_gas_mass_fractions``. If omitted, a default H2/He fill is
-            used.
+            Optional background fill-specification, given as mass-fraction
+            weights and forwarded to ``calculate_gas_mass_fractions``. If omitted,
+            the default H2/He background is used: solar-like weights under free
+            chemistry, and the equilibrium table's own H2/He under equilibrium
+            chemistry.
         adaptive_mesh_refinement:
             Forwarded to ``calculate_cloud_mass_fractions``. The current cloud path
             returns the identity pressure grid.
@@ -1271,13 +1344,6 @@ def get_abundances(
         An explicit full easyChem request takes precedence over the default
         precalculated equilibrium-table path.
     """
-    if filling_species is None:
-        filling_species = {
-            "H2": 0.74
-            * jnp.ones(pressures.size),  # % of atmosphere by mass for H2/He ratio
-            "He": 0.24 * jnp.ones(pressures.size),
-        }
-
     line_species_no_resolution = tuple(
         [species.split(".R")[0] for species in line_species]
     )
@@ -1584,14 +1650,16 @@ def get_abundances_legacy(
                 pressures
             )
         else:
-            abundances_interp["H2"] = 0.766 * (1.0 - msum)
+            # H2/He mass-fraction ratio 0.74/0.24 (37/12), as in the default
+            # filling species, normalized so that H2 + He fill to unity
+            abundances_interp["H2"] = (0.74 / 0.98) * (1.0 - msum)
 
         if "He" in parameters.keys():
             abundances_interp["He"] = 10 ** parameters["He"].value * jnp.ones_like(
                 pressures
             )
         else:
-            abundances_interp["He"] = 0.234 * (1.0 - msum)
+            abundances_interp["He"] = (0.24 / 0.98) * (1.0 - msum)
 
         # Imposing strict limit on msum to ensure H2 dominated composition
         # if jnp.max(msum) > 1.0:

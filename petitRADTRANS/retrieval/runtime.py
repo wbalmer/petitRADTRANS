@@ -2008,6 +2008,17 @@ def _offset_flux(
     return input_spectrum - offset_val
 
 
+def uncertainty_scaling_b_parameter_candidates(
+    observation_name: str,
+) -> tuple[str, ...]:
+    """Parameter names that may supply an observation's Line (2015) 10^b term.
+    """
+    parts = str(observation_name).split("/")
+    candidates = ["/".join(parts[:stop]) + "_b" for stop in range(len(parts), 0, -1)]
+    candidates.append("uncertainty_scaling_b")
+    return tuple(candidates)
+
+
 def _line_b_uncertainty_scaling(
     observation_name: str,
     parameters: Mapping[str, Any],

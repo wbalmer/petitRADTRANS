@@ -31,7 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
-from petitRADTRANS.sbi import (
+from petitRADTRANS.experimental.sbi import (
     AmortizedRetrieval,
     ArtifactRole,
     ConditionalSplineFlowPosterior,

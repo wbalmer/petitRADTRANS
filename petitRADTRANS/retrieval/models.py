@@ -30,6 +30,7 @@ from jax import core as jax_core, vmap, checkpoint, lax
 import jax.numpy as jnp
 
 from petitRADTRANS.chemistry import clouds
+from petitRADTRANS.radtrans_core import radiative_transfer_core
 from petitRADTRANS.chemistry.core import (
     _get_static_bool_parameter,
     get_abundances,
@@ -104,6 +105,15 @@ _SINUSOIDAL_REQUIRED_SUFFIXES = ("_amplitude", "_phase", "_offset")
 # boundary and the phase wrap, so gradient samplers see a nearly Gaussian
 # geometry.
 _CARTESIAN_REQUIRED_SUFFIXES = ("_cos_amplitude", "_sin_amplitude", "_offset")
+# Optional SECOND-HARMONIC coefficients for the Cartesian form. When both are
+# present the base additionally carries a component at twice the rotation
+# frequency (i.e. period/2):
+#   P(t) = offset + a1*cos(w t) + b1*sin(w t) + a2*cos(2 w t) + b2*sin(2 w t)
+# Rotational light curves of variable brown dwarfs are generally NOT pure
+# sinusoids -- a fundamental-only model leaves coherent residuals when the two
+# hemispheres are not identical. Both harmonic coefficients must be supplied
+# together; supplying neither reduces exactly to the fundamental-only form.
+_CARTESIAN_HARMONIC_SUFFIXES = ("_cos_amplitude_h2", "_sin_amplitude_h2")
 _SHARED_PERIOD_KEY = "period"
 
 
@@ -975,9 +985,33 @@ def _build_timestep_params(physical_params, t_idx, t_value):
         required_suffixes = (
             _SINUSOIDAL_REQUIRED_SUFFIXES if has_polar else _CARTESIAN_REQUIRED_SUFFIXES
         )
-        sinusoidal_bases[base] = "polar" if has_polar else "cartesian"
+        harmonic_present = [
+            f"{base}{suf}" in all_keys for suf in _CARTESIAN_HARMONIC_SUFFIXES
+        ]
+        if any(harmonic_present):
+            if has_polar:
+                raise ValueError(
+                    f"Time-series parameter '{base}' declares second-harmonic "
+                    "coefficients, which are only supported by the Cartesian "
+                    f"form; use {base}_cos_amplitude/{base}_sin_amplitude."
+                )
+            if not all(harmonic_present):
+                raise ValueError(
+                    f"Time-series parameter '{base}' declares only one of "
+                    f"{base}_cos_amplitude_h2 / {base}_sin_amplitude_h2; "
+                    "supply both or neither."
+                )
+        has_harmonic = all(harmonic_present) and not has_polar
+        sinusoidal_bases[base] = (
+            "polar"
+            if has_polar
+            else ("cartesian_h2" if has_harmonic else "cartesian")
+        )
         for suf in required_suffixes:
             sin_keys.add(f"{base}{suf}")
+        if has_harmonic:
+            for suf in _CARTESIAN_HARMONIC_SUFFIXES:
+                sin_keys.add(f"{base}{suf}")
         if f"{base}_period" in all_keys:
             sin_keys.add(f"{base}_period")
 
@@ -1013,9 +1047,16 @@ def _build_timestep_params(physical_params, t_idx, t_value):
         else:
             cos_amp = physical_params[f"{base}_cos_amplitude"]
             sin_amp = physical_params[f"{base}_sin_amplitude"]
-            base_dict[base] = (
-                offset + cos_amp * jnp.cos(angle) + sin_amp * jnp.sin(angle)
-            )
+            value = offset + cos_amp * jnp.cos(angle) + sin_amp * jnp.sin(angle)
+            if form == "cartesian_h2":
+                cos_amp_h2 = physical_params[f"{base}_cos_amplitude_h2"]
+                sin_amp_h2 = physical_params[f"{base}_sin_amplitude_h2"]
+                value = (
+                    value
+                    + cos_amp_h2 * jnp.cos(2.0 * angle)
+                    + sin_amp_h2 * jnp.sin(2.0 * angle)
+                )
+            base_dict[base] = value
 
     return PhysicalParams.from_mapping(base_dict)
 
@@ -4081,9 +4122,11 @@ def calculate_emission_spectrum_runtime(
     # CPU/GPU runs can trade memory against the (modest) extra scan overhead
     # without editing code. A value supplied via RetrievalConfig (carried on the
     # ModelContext) takes precedence over the environment variable.
-    feautrier_chunk_size = model_context.feautrier_chunk_size
-    if feautrier_chunk_size is None:
-        feautrier_chunk_size = int(os.environ.get("PRT_FEAUTRIER_CHUNK_SIZE", "128"))
+    _, feautrier_chunk_size = radiative_transfer_core.resolve_feautrier_chunking(
+        chunk_feautrier=model_context.chunk_feautrier,
+        feautrier_chunk_size=model_context.feautrier_chunk_size,
+        fallback_chunk_size=128,
+    )
 
     results = model_context.radtrans.calculate_flux(
         pressures=model_inputs.pressures,

@@ -10,7 +10,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "4.0.0b0"
+version = "4.0.0b1"
 requires-python = ">=3.12"
 description = "Exopanet spectral synthesis tool for retrievals"
 authors = [
@@ -97,6 +97,7 @@ retrieval = [
     "ultranest",
 ]
 
+# Dependencies for petitRADTRANS.experimental.sbi (under active development).
 sbi = [
     "equinox>=0.11",
     "optax>=0.2.8",

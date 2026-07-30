@@ -1,7 +1,7 @@
 """Training and checkpoint orchestration for SBI posterior models.
 
 This module holds the optimisation engine that
-:meth:`~petitRADTRANS.sbi.flows.posterior.ConditionalFlowPosterior.fit` (and the
+:meth:`~petitRADTRANS.experimental.sbi.flows.posterior.ConditionalFlowPosterior.fit` (and the
 flow-matching estimator) delegate to. It is deliberately backend-agnostic: the
 estimator supplies the model, a dataset reader, and a handful of callbacks (loss,
 validation loss, per-checkpoint diagnostics, and the selection/stability metrics),
@@ -13,7 +13,7 @@ Key pieces
 * :class:`TrainingSchemeConfig` -- the trainer's own (internal) optimisation
   configuration: schedule, batch size, multi-device flag, checkpointing, early
   stopping, and verbose-diagnostics knobs. Distinct from the public, grouped
-  :class:`petitRADTRANS.sbi.config.TrainingConfig`, which is translated into this
+  :class:`petitRADTRANS.experimental.sbi.config.TrainingConfig`, which is translated into this
   at fit time.
 * :class:`SBITrainer` -- the reusable loop: AdamW with an optional
   warmup+cosine schedule and gradient clipping, JIT-compiled train/eval steps,
@@ -52,7 +52,7 @@ Data path & performance
 Reading scattered (shuffled) rows from HDF5 every epoch is slow, so each split is
 loaded once, normalised, and pre-stacked into dense in-RAM arrays
 (:func:`_prestack_observation_blocks` →
-:class:`~petitRADTRANS.sbi.observation.PreStackedObservations`); per-epoch shuffling
+:class:`~petitRADTRANS.experimental.sbi.observation.PreStackedObservations`); per-epoch shuffling
 is then just a NumPy index permutation. The train/eval steps are JIT-compiled once
 and reused; when ``data_parallel`` is set and multiple devices are present, batches
 are padded to a fixed size and sharded across a device mesh (GSPMD inserts the
@@ -312,6 +312,29 @@ def _prestack_observation_blocks(blocks_batch: Any) -> Any:
     return PreStackedObservations(stacked_blocks=tuple(stacked), modalities=modalities)
 
 
+def _focal_sample_weights(
+    log10_medians: np.ndarray,
+    target_log10_median: float,
+    peak: float,
+    bandwidth_dex: float,
+) -> np.ndarray:
+    """Per-sample focal loss weights peaked at the target's log-median value.
+
+    ``w_i = 1 + (peak - 1) * exp(-0.5 ((s_i - s_t)/bw)^2)`` normalized to mean 1
+    so the loss scale (and hence the effective learning rate) is unchanged.
+    Weighting by a function of the observation does not bias the learned
+    conditional; it reallocates capacity toward the target's neighbourhood,
+    where the aggregate NPE loss is otherwise nearly insensitive (the
+    transmission target's depth band holds ~1% of the prior mass).
+    """
+    kernel = np.exp(
+        -0.5 * ((log10_medians - float(target_log10_median)) / float(bandwidth_dex)) ** 2
+    )
+    weights = 1.0 + (float(peak) - 1.0) * kernel
+    weights = weights / max(float(weights.mean()), 1e-12)
+    return weights.astype(np.float32)
+
+
 def _noisy_prestacked_observations(
     raw_blocks: list[dict],
     indices: np.ndarray,
@@ -380,7 +403,7 @@ class EarlyStoppingConfig:
 class TrainingSchemeConfig:
     """Internal optimisation configuration consumed by :class:`SBITrainer`.
 
-    The public, grouped :class:`petitRADTRANS.sbi.config.TrainingConfig` is
+    The public, grouped :class:`petitRADTRANS.experimental.sbi.config.TrainingConfig` is
     translated into this dataclass at fit time; end users normally configure the
     former.
 
@@ -446,6 +469,11 @@ class TrainingSchemeConfig:
     seed: int = 0
     shuffle_train: bool = True
     early_stopping: EarlyStoppingConfig | None = None
+    # x-space focal reweighting: per-sample loss weights peaked at the
+    # target observation's log-median-value; conditional-MLE invariant.
+    focal_reweighting: bool = False
+    focal_weight_peak: float = 50.0
+    focal_bandwidth_dex: float = 0.15
     checkpoint_directory: str | None = None
     checkpoint_backend: str = 'auto'
     resume_from_checkpoint: bool = False
@@ -1353,11 +1381,13 @@ class SBITrainer:
             _parameters: Any,
             _observations: Any,
             _cond: Any,
+            _weights: Any = None,
         ) -> tuple:
             _batch = PosteriorBatch(
                 parameters=_parameters,
                 observations=_observations,
                 metadata=batch_metadata,
+                sample_weights=_weights,
             )
             _loss_val, _grads = eqx.filter_value_and_grad(
                 lambda _mdl, _bch: _train_loss_fn(_mdl, _bch, _cond)
@@ -1393,15 +1423,17 @@ class SBITrainer:
             _parameters: Any,
             _observations: Any,
             _cond: Any,
+            _weights: Any = None,
         ) -> Any:
             _batch = PosteriorBatch(
                 parameters=_parameters,
                 observations=_observations,
                 metadata=batch_metadata,
+                sample_weights=_weights,
             )
             return _eval_loss_fn(_model, _batch, _cond)
 
-        def _maybe_pad_and_shard(params: Any, obs: Any) -> tuple:
+        def _maybe_pad_and_shard(params: Any, obs: Any, weights: Any = None) -> tuple:
             """Pad batch to ``effective_batch_size`` and shard across devices.
 
             Padding to the full batch size (instead of just a device multiple)
@@ -1433,7 +1465,10 @@ class SBITrainer:
                 )
             else:
                 obs = _shard_batch(obs, mesh)
-            return params, obs
+            if weights is not None:
+                weights = _pad_to_multiple(np.asarray(weights), effective_batch_size)
+                weights = _shard_batch(weights, mesh)
+            return params, obs, weights
 
         def _checkpoint_state(checkpoint_model: Any, next_epoch: int) -> dict[str, Any]:
             return {
@@ -1589,11 +1624,87 @@ class SBITrainer:
         )
         preloaded_val = _preload_split(DatasetSplit.VALIDATION) if has_validation else None
 
+        # --- x-space focal reweighting ------------------------------------
+        # Requires the raw (noise-resampling) path (per-sample deterministic
+        # medians) and a target statistic from the reader.
+        train_focal_weights = None
+        val_focal_weights = None
+        focal_active = False
+        if self.config.focal_reweighting:
+            target_stat = getattr(dataset, 'focal_target_log10_median', None)
+            if preloaded_train_raw is None or target_stat is None:
+                print(
+                    "  Focal reweighting requested but unavailable "
+                    "(needs the raw noise-resampling path and a target "
+                    "statistic on the reader); continuing unweighted."
+                )
+            else:
+                focal_active = True
+                train_medians = np.log10(
+                    np.maximum(
+                        np.abs(
+                            np.median(
+                                preloaded_train_raw['blocks'][0]['deterministic'],
+                                axis=1,
+                            )
+                        ),
+                        1e-300,
+                    )
+                )
+                train_focal_weights = _focal_sample_weights(
+                    train_medians,
+                    float(target_stat),
+                    self.config.focal_weight_peak,
+                    self.config.focal_bandwidth_dex,
+                )
+                raw_val = None
+                raw_loader = getattr(dataset, 'read_raw_spectral_split', None)
+                if raw_loader is not None and has_validation:
+                    raw_val = raw_loader(
+                        DatasetSplit.VALIDATION,
+                        parameter_space=self.config.parameter_space,
+                    )
+                if raw_val is not None:
+                    val_medians = np.log10(
+                        np.maximum(
+                            np.abs(
+                                np.median(raw_val['blocks'][0]['deterministic'], axis=1)
+                            ),
+                            1e-300,
+                        )
+                    )
+                    val_focal_weights = _focal_sample_weights(
+                        val_medians,
+                        float(target_stat),
+                        self.config.focal_weight_peak,
+                        self.config.focal_bandwidth_dex,
+                    )
+                    del raw_val
+                in_band = train_focal_weights > 0.5 * float(
+                    train_focal_weights.max()
+                )
+                print(
+                    "  Focal reweighting active: peak "
+                    f"{self.config.focal_weight_peak:.0f}, bandwidth "
+                    f"{self.config.focal_bandwidth_dex} dex around "
+                    f"log10(median)={float(target_stat):.3f}; "
+                    f"{int(in_band.sum())} train samples near peak weight; "
+                    f"band loss share {float(train_focal_weights[in_band].sum() / train_focal_weights.sum()):.1%}"
+                )
+
         # Conditioning scalar fed to the loss. The training value follows the
         # (optional) schedule; evaluation always uses 1.0 so selection tracks the
         # untempered objective. Kept as float32 device scalars so changing the
         # value across epochs does not retrigger JIT compilation.
         _eval_cond = jnp.asarray(1.0, dtype=jnp.float32)
+
+        # Rolling window for selection-metric smoothing: the per-epoch
+        # selection metric is noisy (diagnostics on a 64-sim probe), and raw
+        # patience on it stopped the 8M run at 147/384 epochs while the
+        # validation loss was still descending. Median-of-3 smoothing makes
+        # best-checkpoint tracking and patience robust to single-epoch spikes.
+        # (The window restarts empty on resume; acceptable.)
+        selection_metric_window: list[float] = []
 
         for epoch in range(start_epoch, self.config.num_epochs):
             _epoch_start = time.monotonic()
@@ -1627,6 +1738,11 @@ class SBITrainer:
                         if mesh is not None:
                             continue  # drop last incomplete batch
                     _bp = _all_params[_idx]
+                    _bw = (
+                        train_focal_weights[_idx]
+                        if train_focal_weights is not None
+                        else np.ones(len(_idx), dtype=np.float32)
+                    )
                     _bo = _noisy_prestacked_observations(
                         preloaded_train_raw["blocks"],
                         _idx,
@@ -1634,8 +1750,8 @@ class SBITrainer:
                         dataset.preprocessing_metadata,
                     )
                     if mesh is not None:
-                        _bp, _bo = _maybe_pad_and_shard(_bp, _bo)
-                    model, optimizer_state, loss_value = _jit_step(model, optimizer_state, _bp, _bo, _train_cond)
+                        _bp, _bo, _bw = _maybe_pad_and_shard(_bp, _bo, _bw)
+                    model, optimizer_state, loss_value = _jit_step(model, optimizer_state, _bp, _bo, _train_cond, _bw)
                     epoch_losses.append(float(loss_value))
             elif preloaded_train is not None:
                 # Fast path: slice pre-loaded arrays by shuffled index
@@ -1661,7 +1777,7 @@ class SBITrainer:
                         modalities=_all_obs.modalities,
                     )
                     if mesh is not None:
-                        _bp, _bo = _maybe_pad_and_shard(_bp, _bo)
+                        _bp, _bo, _ = _maybe_pad_and_shard(_bp, _bo)
                     model, optimizer_state, loss_value = _jit_step(model, optimizer_state, _bp, _bo, _train_cond)
                     epoch_losses.append(float(loss_value))
             else:
@@ -1679,7 +1795,7 @@ class SBITrainer:
                         batch_params = np.asarray(batch.parameters)
                         if batch_params.shape[0] < effective_batch_size:
                             continue
-                        batch_params, _obs = _maybe_pad_and_shard(batch_params, _obs)
+                        batch_params, _obs, _ = _maybe_pad_and_shard(batch_params, _obs)
                     else:
                         batch_params = batch.parameters
                     model, optimizer_state, loss_value = _jit_step(
@@ -1708,6 +1824,7 @@ class SBITrainer:
             selection_metric = float('nan')
             if has_validation:
                 validation_losses = []
+                focal_validation_losses = []
                 diagnostic_batches: list[PosteriorBatch] = []
                 diagnostic_rng = np.random.default_rng(self.config.seed + epoch)
                 n_diagnostic_batches = max(
@@ -1752,9 +1869,18 @@ class SBITrainer:
                             ),
                             modalities=_val_all_obs.modalities,
                         )
+                        _vw = (
+                            val_focal_weights[_idx]
+                            if val_focal_weights is not None
+                            else None
+                        )
                         if mesh is not None:
-                            _vp, _vo = _maybe_pad_and_shard(_vp, _vo)
+                            _vp, _vo, _vw = _maybe_pad_and_shard(_vp, _vo, _vw)
                         validation_losses.append(float(_jit_eval_loss(model, _vp, _vo, _eval_cond)))
+                        if _vw is not None:
+                            focal_validation_losses.append(
+                                float(_jit_eval_loss(model, _vp, _vo, _eval_cond, _vw))
+                            )
                 else:
                     seen_validation_batches = 0
                     for batch in dataset.iter_batches(
@@ -1781,10 +1907,19 @@ class SBITrainer:
                             if replace_index < n_diagnostic_batches:
                                 diagnostic_batches[replace_index] = diagnostic_candidate
                         if mesh is not None:
-                            val_params, _val_obs = _maybe_pad_and_shard(val_params, _val_obs)
+                            val_params, _val_obs, _ = _maybe_pad_and_shard(val_params, _val_obs)
                         validation_losses.append(float(_jit_eval_loss(model, val_params, _val_obs, _eval_cond)))
                 validation_metric = float(np.mean(validation_losses)) if validation_losses else float('nan')
                 epoch_validation_metrics = {'validation_loss': validation_metric}
+                focal_validation_metric = (
+                    float(np.mean(focal_validation_losses))
+                    if focal_validation_losses
+                    else float('nan')
+                )
+                if focal_active:
+                    epoch_validation_metrics['focal_validation_loss'] = (
+                        focal_validation_metric
+                    )
                 if eval_diagnostic_fn is not None and diagnostic_batches:
                     diagnostic_metrics = _aggregate_diagnostic_metrics(
                         [
@@ -1808,10 +1943,19 @@ class SBITrainer:
                         ).items()
                     }
                     epoch_validation_metrics.update(stability_metrics)
-                selection_metric = (
-                    float(selection_metric_fn(validation_metric, epoch_validation_metrics))
-                    if selection_metric_fn is not None
+                # With focal reweighting, checkpoint selection tracks the
+                # focal-weighted validation loss (the objective actually being
+                # optimized); the unweighted loss stays reported/logged for
+                # cross-run comparability.
+                selection_loss_input = (
+                    focal_validation_metric
+                    if focal_active and np.isfinite(focal_validation_metric)
                     else validation_metric
+                )
+                selection_metric = (
+                    float(selection_metric_fn(selection_loss_input, epoch_validation_metrics))
+                    if selection_metric_fn is not None
+                    else selection_loss_input
                 )
                 epoch_validation_metrics[effective_selection_metric_name] = selection_metric
                 _write_epoch_metrics(
@@ -1847,6 +1991,13 @@ class SBITrainer:
             _val_str = (
                 f" | val_loss: {validation_metric:.6f}" if has_validation else ""
             )
+            if has_validation and focal_active:
+                _focal_val = epoch_validation_metrics.get(
+                    'focal_validation_loss', float('nan')
+                )
+                if np.isfinite(_focal_val):
+                    _val_str += f" | focal_val: {_focal_val:.6f}"
+
             _selection_str = ""
             if has_validation and effective_selection_metric_name != 'validation_loss':
                 _selection_str += (
@@ -1958,6 +2109,12 @@ class SBITrainer:
             selection_monitor_metric = (
                 selection_metric if has_validation else train_metric
             )
+            if np.isfinite(selection_monitor_metric):
+                selection_metric_window.append(float(selection_monitor_metric))
+            if selection_metric_window:
+                selection_monitor_metric = float(
+                    np.median(selection_metric_window[-3:])
+                )
             if best_selection_epoch < 0:
                 selection_improved = True
             else:

@@ -1,6 +1,7 @@
 import abc
 from dataclasses import dataclass, field, replace as _dc_replace
 import gc
+import inspect
 import os
 import json
 import pickle
@@ -1307,9 +1308,23 @@ def _dense_inverse_mass_from_hessian(logdensity, map_position):
     metric used when ``is_mass_matrix_diagonal=False``).
     """
     _require_jax()
+    from jax import grad as _grad, jvp as _jvp
+
     map_position = jnp.asarray(map_position)
-    hess = hessian(logdensity)(map_position)
-    n = hess.shape[0]
+    n = int(map_position.shape[0])
+
+    # Build the Hessian one column at a time via Hessian-vector products. The
+    # vectorised ``jax.hessian`` holds n reverse-mode tapes of the forward model
+    # at once and OOMs heavy models (job 1869275 died this way on a 40 GB A100);
+    # each HVP keeps a single tape live, i.e. ~one gradient of peak memory.
+    grad_fn = _grad(logdensity)
+
+    @jit
+    def _hessian_vector_product(tangent):
+        return _jvp(grad_fn, (map_position,), (tangent,))[1]
+
+    eye = jnp.eye(n, dtype=map_position.dtype)
+    hess = jnp.stack([_hessian_vector_product(eye[i]) for i in range(n)]).T
     precision = -0.5 * (hess + hess.T)  # symmetrised precision (= inverse covariance)
     eigvals, eigvecs = jnp.linalg.eigh(precision)
     floor = 1e-8
@@ -2231,12 +2246,17 @@ class NumPyroSampler(Sampler):
                 )
                 return {}
 
-            inference_data = az.from_dict(
-                posterior={
-                    name: samples[:, index][np.newaxis, :]
-                    for index, name in enumerate(parameter_names)
-                }
-            )
+            posterior_groups = {
+                name: samples[:, index][np.newaxis, :]
+                for index, name in enumerate(parameter_names)
+            }
+            # ArviZ <1.0 takes the posterior as a keyword; ArviZ >=1.0 takes a
+            # single mapping of group name -> variables.
+            if "posterior" in inspect.signature(az.from_dict).parameters:
+                inference_data = az.from_dict(posterior=posterior_groups)
+            else:
+                inference_data = az.from_dict({"posterior": posterior_groups})
+
 
         trace_output = os.path.join(
             self.output_directory,
@@ -2245,11 +2265,16 @@ class NumPyroSampler(Sampler):
         )
 
         try:
-            plot_output = az.plot_trace(
-                inference_data,
-                compact=True,
-                figsize=(15, max(5, 2 * max(1, len(parameter_names)))),
-            )
+            try:
+                plot_output = az.plot_trace(
+                    inference_data,
+                    compact=True,
+                    figsize=(15, max(5, 2 * max(1, len(parameter_names)))),
+                )
+            except (TypeError, ValueError):
+                # ArviZ >=1.0 dropped the `compact`/`figsize` kwargs and rejects
+                # unmapped **kwargs outright; fall back to the bare call.
+                plot_output = az.plot_trace(inference_data)
             return {"trace": self._save_plot_figure(plot_output, trace_output)}
         except Exception as error:
             warnings.warn(

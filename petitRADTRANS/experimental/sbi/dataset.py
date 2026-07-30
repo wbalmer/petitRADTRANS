@@ -266,6 +266,9 @@ class NormalizedObservationDatasetReader:
     # the stored noise-free spectra instead of replaying the single noise
     # realization frozen into the dataset (see read_raw_spectral_split).
     noise_resampling: bool = False
+    # log10 of the target observation's median |value| (first spectrum block);
+    # consumed by the trainer's optional x-space focal loss reweighting.
+    focal_target_log10_median: float | None = None
     _split_cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     def __post_init__(self) -> None:

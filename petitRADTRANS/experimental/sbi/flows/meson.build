@@ -9,5 +9,5 @@ py.install_sources([
     'regularization.py',
     'transforms.py',
     ],
-    subdir: 'petitRADTRANS/sbi/flows'
+    subdir: 'petitRADTRANS/experimental/sbi/flows'
 )

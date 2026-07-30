@@ -621,6 +621,47 @@ def normalize_observation_blocks(
     ]
 
 
+def denormalize_spectral_values(
+    normalized_values: Any,
+    normalized_uncertainties: Any,
+    stats: "BlockNormalizationStats",
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Exact inverse of the spectral value transform, in raw physical units.
+
+    MUST remain the exact inverse of the spectral branch of
+    :func:`normalize_observation_block` / :func:`normalize_spectral_block_matrix`
+    (there is a round-trip unit test). Anything that needs the observation in
+    raw units -- notably the likelihood used by test-time refinement -- has to
+    invert whichever transform was actually applied. A hardcoded inverse of the
+    *global-scale* transform silently corrupted the target spectrum by ~100x
+    (and flipped its sign) once per-wavelength normalization became the default,
+    which is why the inverse now lives here beside the forward transform rather
+    than being restated by each consumer.
+
+    Returns ``(raw_values, raw_uncertainties)``; the uncertainty is ``None``
+    when ``normalized_uncertainties`` is ``None``.
+    """
+    normalized = np.asarray(normalized_values, dtype=float)
+    n_wavelengths = normalized.shape[-1]
+    per_wavelength = _per_wavelength_stats_arrays(stats, n_wavelengths)
+
+    if per_wavelength is not None:
+        center, scale = per_wavelength
+    else:
+        center = 0.0
+        scale = max(float(_global_spectral_scale(stats)), _NORMALIZATION_SCALE_FLOOR)
+
+    raw_values = center + scale * np.sinh(normalized)
+    if normalized_uncertainties is None:
+        return raw_values, None
+
+    # Forward: sigma_norm = sigma_raw / (scale * sqrt(1 + z^2)) with
+    # z = sinh(normalized), so the local slope is scale * cosh(normalized).
+    local_scale = scale * np.cosh(normalized)
+    raw_uncertainties = np.asarray(normalized_uncertainties, dtype=float) * local_scale
+    return raw_values, raw_uncertainties
+
+
 def normalize_spectral_block_matrix(
     values: Any,
     uncertainties: Any,
@@ -731,4 +772,5 @@ __all__ = [
     "normalize_observation_block",
     "normalize_observation_blocks",
     "normalize_spectral_block_matrix",
+    "denormalize_spectral_values",
 ]

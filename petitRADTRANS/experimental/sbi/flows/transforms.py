@@ -15,7 +15,7 @@ change-of-variables formula gives an exact density,
 sampling and test-time refinement use the inverse direction.
 
 This module provides the building blocks and four interchangeable flow *families*,
-all selectable from :class:`~petitRADTRANS.sbi.flows.posterior.ConditionalFlowPosterior`
+all selectable from :class:`~petitRADTRANS.experimental.sbi.flows.posterior.ConditionalFlowPosterior`
 via ``flow_family``. Each family trades expressiveness against cost and against how
 cleanly it can be inverted (which matters because sampling and the posterior's own
 sharpness diagnostics rely on an accurate inverse). In practice, we have found that

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 import numpy as np
 
 if TYPE_CHECKING:
-    from petitRADTRANS.sbi.task import SBITask
+    from petitRADTRANS.experimental.sbi.task import SBITask
 
 
 class ArtifactRole(str, Enum):

@@ -3,24 +3,24 @@
 This subpackage groups everything related to the conditional normalizing-flow
 machinery and the posterior estimators built on top of it:
 
-* :mod:`~petitRADTRANS.sbi.flows.transforms` -- low-level conditional flow
+* :mod:`~petitRADTRANS.experimental.sbi.flows.transforms` -- low-level conditional flow
   transforms and flow stacks (affine / spline / autoregressive / NAF).
-* :mod:`~petitRADTRANS.sbi.flows.base` -- backend-agnostic posterior interfaces,
+* :mod:`~petitRADTRANS.experimental.sbi.flows.base` -- backend-agnostic posterior interfaces,
   shared dataclasses, and the persistence base class.
-* :mod:`~petitRADTRANS.sbi.flows.cube` -- parameter-space / unit-cube transforms.
-* :mod:`~petitRADTRANS.sbi.flows.regularization` -- spline regularization and
+* :mod:`~petitRADTRANS.experimental.sbi.flows.cube` -- parameter-space / unit-cube transforms.
+* :mod:`~petitRADTRANS.experimental.sbi.flows.regularization` -- spline regularization and
   checkpoint-selection stability diagnostics.
-* :mod:`~petitRADTRANS.sbi.flows.objectives` -- the training objective and the
+* :mod:`~petitRADTRANS.experimental.sbi.flows.objectives` -- the training objective and the
   conditional encoder+flow model container.
-* :mod:`~petitRADTRANS.sbi.flows.refinement` -- test-time per-observation
+* :mod:`~petitRADTRANS.experimental.sbi.flows.refinement` -- test-time per-observation
   posterior refinement (MAP+Laplace / flow-ELBO).
-* :mod:`~petitRADTRANS.sbi.flows.posterior` -- :class:`ConditionalFlowPosterior`.
-* :mod:`~petitRADTRANS.sbi.flows.matching` -- :class:`FlowMatchingPosterior`.
+* :mod:`~petitRADTRANS.experimental.sbi.flows.posterior` -- :class:`ConditionalFlowPosterior`.
+* :mod:`~petitRADTRANS.experimental.sbi.flows.matching` -- :class:`FlowMatchingPosterior`.
 
 The estimator-family registry and the generic :func:`load_posterior_estimator`
 loader live in :mod:`.base`. Importing this package eagerly imports
 :mod:`.posterior` and :mod:`.matching`, which register their families, so a bare
-``import petitRADTRANS.sbi`` is enough for :func:`load_posterior_estimator` to
+``import petitRADTRANS.experimental.sbi`` is enough for :func:`load_posterior_estimator` to
 resolve either family.
 """
 

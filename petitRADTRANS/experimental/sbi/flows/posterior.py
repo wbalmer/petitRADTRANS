@@ -53,7 +53,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
     """Concrete amortized posterior using a conditional flow backend.
 
     Parameters are grouped below by concern. Most callers should construct this
-    object through :func:`petitRADTRANS.sbi.config.build_conditional_flow_posterior`
+    object through :func:`petitRADTRANS.experimental.sbi.config.build_conditional_flow_posterior`
     (which expands the grouped config dataclasses), but every knob is also a direct
     constructor argument.
 
@@ -65,7 +65,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
 
     flow_family:
         Conditional density-transform family (see
-        :mod:`petitRADTRANS.sbi.flows.transforms` for the trade-offs). One of
+        :mod:`petitRADTRANS.experimental.sbi.flows.transforms` for the trade-offs). One of
         ``'spline'`` (default; rational-quadratic splines, analytic inverse),
         ``'affine'`` (cheapest, smooth posteriors), ``'autoregressive'`` (affine
         autoregressive), or ``'neural_autoregressive'`` (most expressive, iterative
@@ -284,6 +284,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         resume_from_checkpoint: bool = False,
         gradient_clip_norm: float | None = 1.0,
         aux_scale_loss_weight: float = 0.0,
+        focal_reweighting: bool = False,
+        focal_weight_peak: float = 50.0,
+        focal_bandwidth_dex: float = 0.15,
         spline_small_bin_regularization_weight: float | None = None,
         spline_min_bin_ratio_target: float = 0.2,
         spline_entropy_regularization_weight: float = 0.0,
@@ -400,6 +403,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.invertibility_loss_weight = float(invertibility_loss_weight)
         self.invertibility_loss_n_samples = int(invertibility_loss_n_samples)
         self.bnpe_balance_loss_weight = float(bnpe_balance_loss_weight)
+        self.focal_reweighting = bool(focal_reweighting)
+        self.focal_weight_peak = float(focal_weight_peak)
+        self.focal_bandwidth_dex = float(focal_bandwidth_dex)
         self.weight_decay = float(weight_decay)
         self.use_cosine_schedule = bool(use_cosine_schedule)
         self.warmup_fraction = float(warmup_fraction)
@@ -617,7 +623,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         """Per-checkpoint flow invertibility / collapse diagnostics.
 
         Thin wrapper around
-        :func:`petitRADTRANS.sbi.flows.objectives.compute_validation_diagnostics`,
+        :func:`petitRADTRANS.experimental.sbi.flows.objectives.compute_validation_diagnostics`,
         forwarding this estimator's ``verbose_diagnostics`` flag.
         """
         return compute_validation_diagnostics(
@@ -630,7 +636,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         """Test-time flow-ELBO posterior refinement for one observation.
 
         Thin wrapper around
-        :func:`petitRADTRANS.sbi.flows.refinement.refine_posterior_on_observation`,
+        :func:`petitRADTRANS.experimental.sbi.flows.refinement.refine_posterior_on_observation`,
         which holds the implementation.
         """
         return refinement.refine_posterior_on_observation(self, *args, **kwargs)
@@ -641,7 +647,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         """Test-time MAP + Laplace / Gaussian-VI posterior refinement.
 
         Thin wrapper around
-        :func:`petitRADTRANS.sbi.flows.refinement.map_laplace_posterior_on_observation`,
+        :func:`petitRADTRANS.experimental.sbi.flows.refinement.map_laplace_posterior_on_observation`,
         which holds the implementation.
         """
         return refinement.map_laplace_posterior_on_observation(self, *args, **kwargs)
@@ -652,7 +658,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         """Test-time likelihood importance sampling on the amortized posterior.
 
         Thin wrapper around
-        :func:`petitRADTRANS.sbi.flows.refinement.importance_sampling_posterior_on_observation`,
+        :func:`petitRADTRANS.experimental.sbi.flows.refinement.importance_sampling_posterior_on_observation`,
         which holds the implementation.
         """
         return refinement.importance_sampling_posterior_on_observation(
@@ -723,6 +729,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 seed=self.seed,
                 shuffle_train=True,
                 early_stopping=early_stopping,
+                focal_reweighting=self.focal_reweighting,
+                focal_weight_peak=self.focal_weight_peak,
+                focal_bandwidth_dex=self.focal_bandwidth_dex,
                 checkpoint_directory=self.checkpoint_directory,
                 checkpoint_backend=self.checkpoint_backend,
                 resume_from_checkpoint=self.resume_from_checkpoint,
@@ -942,6 +951,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "invertibility_loss_weight": self.invertibility_loss_weight,
             "invertibility_loss_n_samples": self.invertibility_loss_n_samples,
             "bnpe_balance_loss_weight": self.bnpe_balance_loss_weight,
+            "focal_reweighting": self.focal_reweighting,
+            "focal_weight_peak": self.focal_weight_peak,
+            "focal_bandwidth_dex": self.focal_bandwidth_dex,
             "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
             "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
             "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -1011,6 +1023,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "invertibility_loss_weight": self.invertibility_loss_weight,
                 "invertibility_loss_n_samples": self.invertibility_loss_n_samples,
                 "bnpe_balance_loss_weight": self.bnpe_balance_loss_weight,
+                "focal_reweighting": self.focal_reweighting,
+                "focal_weight_peak": self.focal_weight_peak,
+                "focal_bandwidth_dex": self.focal_bandwidth_dex,
                 "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
                 "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
                 "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -1102,6 +1117,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "aux_scale_loss_weight": metadata.get("aux_scale_loss_weight", 0.0),
             "invertibility_loss_weight": metadata.get("invertibility_loss_weight", 0.0),
             "bnpe_balance_loss_weight": metadata.get("bnpe_balance_loss_weight", 0.0),
+            "focal_reweighting": metadata.get("focal_reweighting", False),
+            "focal_weight_peak": metadata.get("focal_weight_peak", 50.0),
+            "focal_bandwidth_dex": metadata.get("focal_bandwidth_dex", 0.15),
             "invertibility_loss_n_samples": metadata.get(
                 "invertibility_loss_n_samples", 64
             ),
@@ -1225,6 +1243,9 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             bnpe_balance_loss_weight=float(
                 estimator_config.get("bnpe_balance_loss_weight", 0.0)
             ),
+            focal_reweighting=bool(estimator_config.get("focal_reweighting", False)),
+            focal_weight_peak=float(estimator_config.get("focal_weight_peak", 50.0)),
+            focal_bandwidth_dex=float(estimator_config.get("focal_bandwidth_dex", 0.15)),
             invertibility_loss_n_samples=int(
                 estimator_config.get("invertibility_loss_n_samples", 64)
             ),
@@ -1546,7 +1567,7 @@ __all__ = [
 
 
 # Self-register this estimator family so ``load_posterior_estimator`` can resolve
-# it after a bare ``import petitRADTRANS.sbi`` (the package __init__ imports this
+# it after a bare ``import petitRADTRANS.experimental.sbi`` (the package __init__ imports this
 # module). The registry lives in ``flows.base`` (already imported above), so this
 # introduces no new import.
 from .base import register_posterior_estimator as _register  # noqa: E402

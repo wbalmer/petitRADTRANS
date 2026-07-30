@@ -1,10 +1,25 @@
-"""Simulation-based inference interfaces for petitRADTRANS.
+"""Simulation-based inference interfaces for petitRADTRANS (EXPERIMENTAL).
 
-The modules in :mod:`petitRADTRANS.sbi` provide a production-oriented
-architecture for amortized inference workflows built on top of the existing
-retrieval runtime. The package is intentionally lightweight at this stage: it
-defines the core task, simulation, dataset, and posterior interfaces without
-committing to one training backend or storage engine.
+The modules in :mod:`petitRADTRANS.experimental.sbi` implement amortized
+simulation-based inference (neural posterior estimation) on top of the existing
+retrieval runtime: task definition, prior-predictive simulation, dataset
+generation/streaming, preprocessing, observation encoders, conditional
+normalizing flows, training, calibration diagnostics, and an end-to-end
+:func:`run_sbi` workflow.
+
+.. warning::
+
+   This package is **under active development and subject to change**. It lives
+   under :mod:`petitRADTRANS.experimental` precisely because it is not yet
+   covered by the usual deprecation policy: public names, call signatures,
+   default hyperparameters, on-disk artifacts (simulation datasets, saved
+   posteriors, run manifests), and numerical results may change in any release.
+   Cached datasets and trained posteriors are keyed by a task fingerprint and
+   may need regenerating after an upgrade. Pin an exact petitRADTRANS version
+   if you depend on this package.
+
+See ``ARCHITECTURE.md`` in this directory for a module-by-module overview and a
+separation of the scientific core from the supporting infrastructure.
 """
 
 # Calibration / diagnostics

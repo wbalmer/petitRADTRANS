@@ -220,7 +220,13 @@ def optimize_unconstrained_position(
 
         for step in range(n_steps):
             steps_run = step + 1
-            # Value/grad are evaluated at the current position, then a step is taken.
+            # Value/grad are evaluated at the CURRENT position, then a step is
+            # taken -- so ``logd`` belongs to ``position`` BEFORE the update.
+            # Keep that pre-update point as the candidate best; pairing the
+            # value with the post-update position (as this loop used to) stores
+            # a point whose true log-posterior differs from ``best_value`` and
+            # silently hands the polish/sampler a worse start than reported.
+            previous_position = position
             position, opt_state, logd, grad_inf_norm = _update(position, opt_state)
             logd_value = float(logd)
             grad_inf_norm = float(grad_inf_norm)
@@ -228,7 +234,7 @@ def optimize_unconstrained_position(
 
             if np.isfinite(logd_value) and logd_value > best_value:
                 best_value = logd_value
-                best_position = position
+                best_position = previous_position
                 steps_since_improvement = 0
             else:
                 steps_since_improvement += 1
@@ -513,7 +519,25 @@ def laplace_covariance(logdensity, position, *, eigenvalue_floor=1e-8):
     _require_jax_local()
     position = jnp.asarray(position)
 
-    hessian = np.asarray(jax.hessian(lambda z: -logdensity(z))(position), dtype=float)
+    # Build the Hessian column by column with Hessian-vector products rather
+    # than jax.hessian: the latter's forward-over-reverse pass materialises the
+    # whole matrix tape at once and OOMed a 40 GB A100 on the time-series model
+    # (job 1869275). An HVP costs ~2 gradients and uses gradient-like memory.
+    negative_logdensity = lambda z: -logdensity(z)  # noqa: E731
+
+    @jax.jit
+    def hessian_vector_product(z, vector):
+        return jax.jvp(jax.grad(negative_logdensity), (z,), (vector,))[1]
+
+    n_parameters = int(position.shape[-1])
+    identity = np.eye(n_parameters)
+    columns = [
+        np.asarray(
+            hessian_vector_product(position, jnp.asarray(identity[index])), dtype=float
+        )
+        for index in range(n_parameters)
+    ]
+    hessian = np.array(columns).T
     hessian = 0.5 * (hessian + hessian.T)  # symmetrise against round-off
 
     eigenvalues, eigenvectors = np.linalg.eigh(hessian)

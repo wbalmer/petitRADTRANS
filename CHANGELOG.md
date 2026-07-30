@@ -4,7 +4,20 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0b0] - 2026-06-13
+## [Unreleased]
+### Changed
+- **Moved the simulation-based inference package from `petitRADTRANS.sbi` to
+  `petitRADTRANS.experimental.sbi`.** The new `petitRADTRANS.experimental`
+  namespace marks features that are under active development: they are not
+  covered by the usual deprecation policy, and their public API, saved-artifact
+  formats (datasets, posteriors, run manifests), and numerical behaviour may
+  change in any release. Importing anything from `petitRADTRANS.experimental`
+  emits a `UserWarning` to that effect. Update imports from
+  `from petitRADTRANS.sbi import ...` to
+  `from petitRADTRANS.experimental.sbi import ...`; no compatibility shim is
+  provided at the old path.
+
+## [4.0.0b1] - 2026-07-30
 ### Summary
 pRT 4.0 replaces the existing Fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS and Hamiltonian Monte-Carlo samplers, and allows pRT
@@ -21,6 +34,8 @@ to run natively on GPUs and TPUs. Version 4.0 is in beta, and is subject to chan
 - Future goals: Explore using mpi4jax to distribute on CPU clusters.
 
 ### Changed
+- b1: migrated SBI to experimental
+- b1: Fixed recompilation bug due to `clouds_have_effect` and scaler type changes.
 - a45: Updated failing test references where there are genuine numerical differences.
 - a44: Stable test version, later versions will have updated reference files.
 - a42: Can now specify fits extensions when loading fits file for Data objects
@@ -99,7 +114,7 @@ to run natively on GPUs and TPUs. Version 4.0 is in beta, and is subject to chan
 - a15 Added automatic calculation of BIC, AIC and BPICS following retrievals.
 - a15 Added covariance fitting for spectroscopic retrieval datasets, including automatic covariance hyperparameters in `RetrievalConfig`, covariance construction in `Data`, and Cholesky-based covariance likelihood evaluation in `LogLikelihood`.
 - a15 Added a dedicated runtime-native JAX emission retrieval tutorial using the built-in runtime model exports.
-- a15 Added the `petitRADTRANS.sbi` package scaffold for simulation-based inference workflows built on the retrieval runtime.
+- a15 Added the `petitRADTRANS.experimental.sbi` package scaffold for simulation-based inference workflows built on the retrieval runtime.
 - a14: Added autodiff version of calculate_transit_radii function.
 - a13: Added autodiff version of calculate_flux functions.
 - Reimplemented synthetic photometry calculations from `species` to avoid circular dependencies.

@@ -29,7 +29,10 @@ def _require_matplotlib() -> Any:
 
 def _prt_style_module() -> Any:
     """Return the ``petitRADTRANS.plotlib.style`` module (needs matplotlib)."""
-    from ..plotlib import style
+    # Absolute import on purpose: a relative one would silently rebind if this
+    # package moves within petitRADTRANS (it broke when sbi moved under
+    # petitRADTRANS.experimental).
+    from petitRADTRANS.plotlib import style
 
     return style
 

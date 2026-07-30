@@ -2729,7 +2729,10 @@ class Retrieval:
         chunk_results = None
 
         if all_native:
-            batched_evaluate = jit(vmap(evaluate_single))
+            # Memoized: rebuilding jit(vmap(...)) here would recompile the whole
+            # batched likelihood on every call. A final partial batch still
+            # compiles a second shape.
+            batched_evaluate = self._get_batched_per_datapoint_evaluate()
 
             try:
                 chunk_results = []
@@ -4520,6 +4523,39 @@ class Retrieval:
             self.runtime = runtime
 
         return runtime
+
+    def _get_batched_per_datapoint_evaluate(self):
+        """Memoized jit(vmap(...)) over the per-datapoint log-likelihood.
+
+        jax.jit caches on the identity of the wrapped function, so the batched
+        evaluator must be built once and reused; invalidated when the runtime
+        or parameter layout is replaced.
+        """
+        runtime = self._get_runtime()
+        parameter_layout = self._get_parameter_layout()
+        cache = getattr(self, "_batched_per_datapoint_evaluate_cache", None)
+
+        if (
+            cache is not None
+            and cache[0] is runtime
+            and cache[1] is parameter_layout
+        ):
+            return cache[2]
+
+        def evaluate_single(free_parameter_values):
+            physical_params = parameter_layout.physical_params_from_free_values(
+                free_parameter_values
+            )
+            return runtime.evaluate_per_datapoint_jax(physical_params)
+
+        batched_evaluate = jit(vmap(evaluate_single))
+        self._batched_per_datapoint_evaluate_cache = (
+            runtime,
+            parameter_layout,
+            batched_evaluate,
+        )
+
+        return batched_evaluate
 
     def _has_only_legacy_model_groups(self) -> bool:
         runtime = self._get_runtime()

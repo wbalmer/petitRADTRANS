@@ -650,6 +650,238 @@ def test_calculate_gas_mass_fractions_accepts_tuple_filling_species():
     )
 
 
+def _patch_equilibrium_chemistry_table(monkeypatch, pressures, table_values):
+    """Replace the equilibrium table with fixed, vertically constant abundances."""
+
+    def fake_interpolate_mass_fractions(*_args, **_kwargs):
+        chemistry_table = {
+            species: value * jnp.ones_like(pressures)
+            for species, value in table_values.items()
+        }
+        return chemistry_table, None, None
+
+    monkeypatch.setattr(
+        petitRADTRANS.chemistry.core.pre_calculated_equilibrium_chemistry_table,
+        "interpolate_mass_fractions",
+        fake_interpolate_mass_fractions,
+    )
+
+
+def test_calculate_gas_mass_fractions_default_fill_uses_solar_h2_he_mass_ratio():
+    pressures = jnp.logspace(-6.0, 2.0, 5)
+    temperatures = 1000.0 * jnp.ones_like(pressures)
+
+    mass_fractions, m_sum_total = (
+        petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            imposed_mass_fractions={"H2O": 1e-3},
+            line_species=("H2O",),
+            cloud_species=(),
+            filling_species=None,
+        )
+    )
+
+    h2 = np.asarray(mass_fractions["H2"])
+    he = np.asarray(mass_fractions["He"])
+
+    # The fill weights are mass fractions, so the ratio is the H2/He mass ratio.
+    np.testing.assert_allclose(h2 / he, np.full(pressures.size, 37.0 / 12.0))
+    np.testing.assert_allclose(np.asarray(m_sum_total), np.ones(pressures.size))
+
+
+def test_calculate_gas_mass_fractions_equilibrium_default_fill_follows_chemistry_table(
+    monkeypatch,
+):
+    pressures = jnp.logspace(-6.0, 2.0, 5)
+    temperatures = 1200.0 * jnp.ones_like(pressures)
+    table_h2 = 0.70
+    table_he = 0.28
+    _patch_equilibrium_chemistry_table(
+        monkeypatch,
+        pressures,
+        {"H2": table_h2, "He": table_he, "H2O": 1e-3},
+    )
+
+    mass_fractions, m_sum_total = (
+        petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            imposed_mass_fractions={},
+            line_species=("H2O",),
+            cloud_species=(),
+            filling_species=None,
+            use_equilibrium_chemistry=True,
+            metallicity=0.0,
+            co_ratio=0.55,
+        )
+    )
+
+    h2 = np.asarray(mass_fractions["H2"])
+    he = np.asarray(mass_fractions["He"])
+
+    # The table's background must be kept (up to closing the mass budget), not
+    # overwritten by the fixed solar-like weights.
+    np.testing.assert_allclose(h2 / he, np.full(pressures.size, table_h2 / table_he))
+    assert not np.allclose(h2 / he, 37.0 / 12.0)
+    np.testing.assert_allclose(np.asarray(m_sum_total), np.ones(pressures.size))
+
+
+def test_calculate_gas_mass_fractions_explicit_fill_weights_override_chemistry_table(
+    monkeypatch,
+):
+    pressures = jnp.logspace(-6.0, 2.0, 5)
+    temperatures = 1200.0 * jnp.ones_like(pressures)
+    _patch_equilibrium_chemistry_table(
+        monkeypatch,
+        pressures,
+        {"H2": 0.70, "He": 0.28, "H2O": 1e-3},
+    )
+
+    for chemistry_arguments in (
+        {"use_equilibrium_chemistry": True, "metallicity": 0.0, "co_ratio": 0.55},
+        {"use_equilibrium_chemistry": False},
+    ):
+        mass_fractions, m_sum_total = (
+            petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+                pressures=pressures,
+                temperatures=temperatures,
+                imposed_mass_fractions={},
+                line_species=("H2O",),
+                cloud_species=(),
+                filling_species={"H2": 1.0, "He": 1.0},
+                **chemistry_arguments,
+            )
+        )
+
+        np.testing.assert_allclose(
+            np.asarray(mass_fractions["H2"]),
+            np.asarray(mass_fractions["He"]),
+        )
+        np.testing.assert_allclose(np.asarray(m_sum_total), np.ones(pressures.size))
+
+
+def test_calculate_gas_mass_fractions_unweighted_dict_fill_matches_iterable_fill():
+    pressures = jnp.logspace(-6.0, 2.0, 5)
+    temperatures = 1000.0 * jnp.ones_like(pressures)
+
+    def run(filling_species):
+        mass_fractions, _ = (
+            petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+                pressures=pressures,
+                temperatures=temperatures,
+                imposed_mass_fractions={"H2O": 1e-3},
+                line_species=("H2O",),
+                cloud_species=(),
+                filling_species=filling_species,
+            )
+        )
+        return mass_fractions
+
+    unweighted = run({"H2": None, "He": None})
+    iterable = run(("H2", "He"))
+
+    for species in ("H2", "He"):
+        np.testing.assert_allclose(
+            np.asarray(unweighted[species]), np.asarray(iterable[species])
+        )
+
+
+def test_calculate_gas_mass_fractions_empty_fill_disables_filling():
+    pressures = jnp.logspace(-6.0, 2.0, 5)
+    temperatures = 1000.0 * jnp.ones_like(pressures)
+
+    for empty_fill in ({}, ()):
+        mass_fractions, m_sum_total = (
+            petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+                pressures=pressures,
+                temperatures=temperatures,
+                imposed_mass_fractions={"H2O": 0.3},
+                line_species=("H2O",),
+                cloud_species=(),
+                filling_species=empty_fill,
+            )
+        )
+
+        assert set(mass_fractions) == {"H2O"}
+        np.testing.assert_allclose(
+            np.asarray(m_sum_total), np.full(pressures.size, 0.3)
+        )
+
+
+def test_calculate_gas_mass_fractions_rejects_partially_weighted_fill():
+    pressures = jnp.logspace(-6.0, 2.0, 5)
+    temperatures = 1000.0 * jnp.ones_like(pressures)
+
+    with np.testing.assert_raises(ValueError):
+        petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            imposed_mass_fractions={},
+            line_species=(),
+            cloud_species=(),
+            filling_species={"H2": 74.0, "He": None},
+        )
+
+
+def test_calculate_gas_mass_fractions_rescales_imposed_non_line_species():
+    pressures = jnp.logspace(-6.0, 2.0, 5)
+    temperatures = 1000.0 * jnp.ones_like(pressures)
+
+    # He is imposed but is not a line species: it must still be scaled down when
+    # the imposed species oversubscribe the layer.
+    mass_fractions, m_sum_total = (
+        petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+            pressures=pressures,
+            temperatures=temperatures,
+            imposed_mass_fractions={"He": 0.6, "H2O": 0.7},
+            line_species=("H2O",),
+            cloud_species=(),
+            filling_species=None,
+        )
+    )
+
+    he = np.asarray(mass_fractions["He"])
+    h2o = np.asarray(mass_fractions["H2O"])
+
+    np.testing.assert_allclose(he, np.full(pressures.size, 0.6 / 1.3))
+    np.testing.assert_allclose(h2o, np.full(pressures.size, 0.7 / 1.3))
+    np.testing.assert_allclose(he / h2o, np.full(pressures.size, 0.6 / 0.7))
+    np.testing.assert_allclose(np.asarray(m_sum_total), np.ones(pressures.size))
+
+
+def test_calculate_gas_mass_fractions_fill_normalization_is_jittable():
+    pressures = jnp.logspace(-6.0, 2.0, 5)
+    temperatures = 1000.0 * jnp.ones_like(pressures)
+
+    def compute(temperatures, water_mass_fraction):
+        mass_fractions, _ = (
+            petitRADTRANS.chemistry.core.calculate_gas_mass_fractions(
+                pressures=pressures,
+                temperatures=temperatures,
+                imposed_mass_fractions={"H2O": water_mass_fraction},
+                line_species=("H2O",),
+                cloud_species=(),
+                filling_species=None,
+            )
+        )
+        return jnp.sum(mass_fractions["H2"])
+
+    jitted = jax.jit(compute)
+
+    np.testing.assert_allclose(
+        np.asarray(jitted(temperatures, 1e-3)),
+        np.asarray(compute(temperatures, 1e-3)),
+        rtol=1e-6,
+    )
+
+    gradient = jax.grad(compute, argnums=1)(temperatures, 1e-3)
+
+    assert np.isfinite(np.asarray(gradient)).all()
+    # More water leaves less room for the H2 background.
+    assert np.asarray(gradient) < 0
+
+
 def test_calculate_gas_mass_fractions_ignores_metallicity_without_equilibrium():
     pressures = np.asarray(test_parameters["pressures"])
     temperatures = np.full_like(
@@ -813,18 +1045,32 @@ def test_calculate_gas_mass_fractions_builds_rare_isotopologue_profiles_from_rat
     h2o_main = np.asarray(mass_fractions_with_ratios["1H2-16O__HITEMP.R1000_0.1-250mu"])
     nh3_main = np.asarray(mass_fractions_with_ratios["14N-1H3__HITRAN.R1000_0.1-250mu"])
 
+    # The isotope ratios are number ratios, so the mass fractions carry the
+    # isotopologue molar-mass ratio on top of the requested ratio.
     np.testing.assert_allclose(
         np.asarray(mass_fractions_with_ratios["13C-16O__HITEMP.R1000_0.1-250mu"]),
-        0.02 * co_main,
+        0.02 * (29.0 / 28.0) * co_main,
     )
     np.testing.assert_allclose(
         np.asarray(mass_fractions_with_ratios["1H2-18O__HITEMP.R1000_0.1-250mu"]),
-        0.01 * h2o_main,
+        0.01 * (20.0 / 18.0) * h2o_main,
     )
     np.testing.assert_allclose(
         np.asarray(mass_fractions_with_ratios["15N-1H3__HITRAN.R1000_0.1-250mu"]),
-        0.03 * nh3_main,
+        0.03 * (18.0 / 17.0) * nh3_main,
     )
+
+    # The retrieved quantity is the number ratio: check it round-trips exactly.
+    for rare, main, molar_masses, ratio in (
+        ("13C-16O__HITEMP", "12C-16O__HITEMP", (29.0, 28.0), 0.02),
+        ("1H2-18O__HITEMP", "1H2-16O__HITEMP", (20.0, 18.0), 0.01),
+        ("15N-1H3__HITRAN", "14N-1H3__HITRAN", (18.0, 17.0), 0.03),
+    ):
+        suffix = ".R1000_0.1-250mu"
+        number_ratio = (
+            np.asarray(mass_fractions_with_ratios[rare + suffix]) / molar_masses[0]
+        ) / (np.asarray(mass_fractions_with_ratios[main + suffix]) / molar_masses[1])
+        np.testing.assert_allclose(number_ratio, ratio)
     np.testing.assert_allclose(np.asarray(m_sum_total), np.ones(pressures.size))
 
     assert np.all(

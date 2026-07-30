@@ -1205,7 +1205,7 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
     def encode_from_prestacked(self, obs: Any) -> jnp.ndarray:
         """Encode a batch of observations from pre-stacked arrays.
 
-        Accepts a :class:`~petitRADTRANS.sbi.observation.PreStackedObservations`
+        Accepts a :class:`~petitRADTRANS.experimental.sbi.observation.PreStackedObservations`
         instance whose array fields have already been extracted from
         ``ObservationBlock`` objects outside the JAX JIT boundary.  Only the
         vmapped XLA computation runs here, enabling the training step to be

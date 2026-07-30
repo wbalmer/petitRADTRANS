@@ -6,6 +6,7 @@ import warnings
 from typing import Any, Callable
 
 import jax.numpy as jnp
+from jax import core as jax_core
 from jax import jit, vmap, lax, tree_util, debug
 from jax.typing import ArrayLike
 
@@ -59,6 +60,26 @@ from petitRADTRANS.jax_dtype import (
 # JAX-friendly sentinels and helpers for optional inputs
 _MISSING_FLOAT = jnp.array(-1.0, dtype=WORKING_JAX_DTYPE)
 _MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=WORKING_JAX_DTYPE)
+
+
+def _as_kernel_scalar(value):
+    """Normalize an optional numeric scalar to a strongly-typed jnp array.
+
+    Python floats/ints and numpy scalars produce weak/strong avals that differ
+    between call sites, splitting the jit cache. None passes through unchanged
+    (kernels branch on it eagerly).
+    """
+    if value is None:
+        return None
+
+    return jnp.asarray(value, dtype=JAX_DTYPE)
+
+
+def _handle_invalid_reference_gravity(reference_gravity):
+    if reference_gravity <= 0:
+        raise ValueError(
+            f"reference gravity must be > 0, but was {reference_gravity}"
+        )
 
 
 def _noop_opacity_fn(wavelengths, pressures):
@@ -552,29 +573,20 @@ class Radtrans:
         self._wavelength_boundaries = array
 
     def _clouds_have_effect(self, mass_fractions, cloud_fraction):
-        """Check if the clouds have any effect, i.e. if the cloud species MMR is greater than 0.
+        """Check if the clouds have any effect, i.e. if any cloud species MMR is greater than 0.
 
         Args:
             mass_fractions: atmospheric mass mixing ratios
             cloud_fraction: cloud coverage fraction
         """
+        has_effect = False
 
-        output = lax.cond(cloud_fraction == 0, lambda: False, lambda: True)
+        for cloud_species in self._cloud_species:
+            has_effect = jnp.logical_or(
+                has_effect, jnp.any(mass_fractions[cloud_species] > 0)
+            )
 
-        def _clouds_have_effect_internal(mass_fractions):
-            add_cloud_opacity = False
-            if len(self._cloud_species) > 0:
-                for cloud_species in self._cloud_species:
-                    add_cloud_opacity = lax.cond(
-                        jnp.any(mass_fractions[cloud_species] > 0),
-                        lambda: True,
-                        lambda: False,
-                    )
-            return add_cloud_opacity
-
-        return lax.cond(
-            output, lambda: _clouds_have_effect_internal(mass_fractions), lambda: False
-        )
+        return jnp.logical_and(jnp.not_equal(cloud_fraction, 0), has_effect)
 
     @staticmethod
     def _has_partial_coverage_background_cloud(
@@ -717,13 +729,10 @@ class Radtrans:
     ):
         """Initializations and checks common to calculate_flux and calculate_transit_radii."""
 
-        def handle_invalid_reference_gravity(reference_gravity):
-            if reference_gravity <= 0:
-                raise ValueError(
-                    f"reference gravity must be > 0, but was {reference_gravity}"
-                )
-
-        debug.callback(handle_invalid_reference_gravity, reference_gravity)
+        if isinstance(reference_gravity, jax_core.Tracer):
+            debug.callback(_handle_invalid_reference_gravity, reference_gravity)
+        else:
+            _handle_invalid_reference_gravity(float(reference_gravity))
 
         patchy_clouds = self._normalize_patchy_clouds(
             patchy_clouds=patchy_clouds,
@@ -740,18 +749,19 @@ class Radtrans:
 
         spectrum_clear = None
 
-        background_clouds_have_effect = jnp.logical_and(
-            has_partial_coverage_background_cloud,
-            jnp.not_equal(cloud_fraction, 0),
-        )
+        def clouds_have_effect_fn():
+            return jnp.logical_or(
+                self._clouds_have_effect(mass_fractions, cloud_fraction),
+                jnp.logical_and(
+                    has_partial_coverage_background_cloud,
+                    jnp.not_equal(cloud_fraction, 0),
+                ),
+            )
 
         # Sanity checking and debugging messaging
         _check_return_clear_spectrum_relevance(
             return_clear_spectrum=return_clear_spectrum,
-            clouds_have_effect=jnp.logical_or(
-                self._clouds_have_effect(mass_fractions, cloud_fraction),
-                background_clouds_have_effect,
-            ),
+            clouds_have_effect_fn=clouds_have_effect_fn,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
             cloud_fraction=cloud_fraction,
         )
@@ -2115,10 +2125,10 @@ class Radtrans:
             self._emission_angle_grid,
         )
         aux_data = {
-            "line_species": self._line_species,
-            "gas_continuum_contributors": self._gas_continuum_contributors,
-            "rayleigh_species": self._rayleigh_species,
-            "cloud_species": self._cloud_species,
+            "line_species": tuple(self._line_species),
+            "gas_continuum_contributors": tuple(self._gas_continuum_contributors),
+            "rayleigh_species": tuple(self._rayleigh_species),
+            "cloud_species": tuple(self._cloud_species),
             "line_opacity_mode": self._line_opacity_mode,
             "line_by_line_opacity_sampling": self._line_by_line_opacity_sampling,
             "scattering_in_emission": self._scattering_in_emission,
@@ -2138,10 +2148,13 @@ class Radtrans:
             "sum_opacities_emission": self._sum_opacities_emission,
             "anisotropic_cloud_scattering_emission": self._anisotropic_cloud_scattering_emission,
         }
-        return children, aux_data
+        # A tuple of items keeps the treedef hashable, so jit dispatch uses hash
+        # lookups instead of falling back to per-call dict equality comparisons
+        return children, tuple(sorted(aux_data.items()))
 
     @classmethod
     def _tree_unflatten(cls, aux_data, children):
+        aux_data = dict(aux_data)
         instance = cls.__new__(cls)
         (
             instance._pressures,
@@ -2506,8 +2519,8 @@ class Radtrans:
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
         adaptive_feautrier_iterations: bool = False,
-        chunk_feautrier: bool = True,
-        feautrier_chunk_size: int = 1536,
+        chunk_feautrier: bool = None,
+        feautrier_chunk_size: int = None,
         frequencies_to_wavelengths: bool = True,
         return_contribution: bool = False,
         return_clear_spectrum: bool = False,
@@ -2633,6 +2646,9 @@ class Radtrans:
                 It may be used to add simple cloud absorption laws, for example, which
                 have opacities that vary only slowly with wavelength, such that the current
                 model resolution is sufficient to resolve any variations.
+                This is a static (compile-time) argument: pass a stable, module-level function reference;
+                passing a freshly created lambda or closure on each call forces a full recompilation
+                of the spectral kernel.
             additional_scattering_opacities_function (Optional[function]):
                 A python function that takes wavelength arrays in microns and pressure arrays in bars
                 as input, and returns an isotropic scattering opacity matrix in units of cm^2/g, in the shape of
@@ -2641,9 +2657,20 @@ class Radtrans:
                 It may be used to add simple cloud absorption laws, for example, which
                 have opacities that vary only slowly with wavelength, such that the current
                 model resolution is sufficient to resolve any variations.
+                This is a static (compile-time) argument: pass a stable, module-level function reference;
+                passing a freshly created lambda or closure on each call forces a full recompilation
+                of the spectral kernel.
             adaptive_feautrier_iterations (Optional[bool]):
                 If True, adapt the number of iterations of the Feautrier scattering-method
                 (scattering_in_emission=True) based on the photon destruction probability.
+            chunk_feautrier (Optional[bool]):
+                If True, evaluate the Feautrier solver in frequency chunks. If None (default),
+                resolves to True.
+            feautrier_chunk_size (Optional[int]):
+                Number of frequency bins per chunk when ``chunk_feautrier`` is enabled. If None
+                (default), resolves to the PRT_FEAUTRIER_CHUNK_SIZE environment variable, or 1536.
+                Both chunking settings are static (compile-time) arguments: every distinct
+                (chunk_feautrier, feautrier_chunk_size) pair compiles its own kernel.
             frequencies_to_wavelengths (Optional[bool]):
                 if True, convert the frequencies (Hz) output to wavelengths (cm),
                 and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-1.cm-2/cm)
@@ -2679,6 +2706,12 @@ class Radtrans:
                 Pressure to target for selective bin disabling. Pressure bin closest to
                 the input value will be disabled.
         """
+        chunk_feautrier, feautrier_chunk_size = (
+            radiative_transfer_core.resolve_feautrier_chunking(
+                chunk_feautrier=chunk_feautrier,
+                feautrier_chunk_size=feautrier_chunk_size,
+            )
+        )
         has_partial_coverage_background_cloud = (
             self._has_partial_coverage_background_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
@@ -2718,9 +2751,9 @@ class Radtrans:
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=reference_gravity,
-            planet_radius=planet_radius,
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            reference_gravity=_as_kernel_scalar(reference_gravity),
+            planet_radius=_as_kernel_scalar(planet_radius),
+            opaque_cloud_top_pressure=_as_kernel_scalar(opaque_cloud_top_pressure),
             cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_particle_radius_distribution=cloud_particle_radius_distribution,
@@ -2730,20 +2763,20 @@ class Radtrans:
             clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-            haze_factor=haze_factor,
-            power_law_opacity_350nm=power_law_opacity_350nm,
-            power_law_opacity_coefficient=power_law_opacity_coefficient,
-            gray_opacity=gray_opacity,
+            haze_factor=_as_kernel_scalar(haze_factor),
+            power_law_opacity_350nm=_as_kernel_scalar(power_law_opacity_350nm),
+            power_law_opacity_coefficient=_as_kernel_scalar(power_law_opacity_coefficient),
+            gray_opacity=_as_kernel_scalar(gray_opacity),
             cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
-            cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
-            cloud_fraction=cloud_fraction,
+            cloud_photosphere_median_optical_depth=_as_kernel_scalar(cloud_photosphere_median_optical_depth),
+            cloud_fraction=_as_kernel_scalar(cloud_fraction),
             patchy_clouds=patchy_clouds,
             irradiation_geometry=irradiation_geometry,
             stellar_intensities=stellar_intensities,
-            star_effective_temperature=star_effective_temperature,
-            star_radius=star_radius,
-            orbit_semi_major_axis=orbit_semi_major_axis,
-            star_irradiation_angle=star_irradiation_angle,
+            star_effective_temperature=_as_kernel_scalar(star_effective_temperature),
+            star_radius=_as_kernel_scalar(star_radius),
+            orbit_semi_major_axis=_as_kernel_scalar(orbit_semi_major_axis),
+            star_irradiation_angle=_as_kernel_scalar(star_irradiation_angle),
             reflectances=reflectances,
             emissivities=emissivities,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
@@ -2779,6 +2812,8 @@ class Radtrans:
             "patchy_clouds",
             "sum_opacities",
             "anisotropic_cloud_scattering",
+            "additional_absorption_opacities_function",
+            "additional_scattering_opacities_function",
             "return_contribution",
             "return_clear_spectrum",
             "return_photosphere_radius",
@@ -3211,8 +3246,8 @@ class Radtrans:
         emissivities: ArrayLike = None,
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
-        chunk_feautrier: bool = True,
-        feautrier_chunk_size: int = 1536,
+        chunk_feautrier: bool = None,
+        feautrier_chunk_size: int = None,
         frequencies_to_wavelengths: bool = True,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, any]]:
         r"""Autodiff-oriented emission-spectrum API with grouped cloud controls.
@@ -3288,13 +3323,19 @@ class Radtrans:
             ),
         )
         solver_pressures = self._resolve_solver_pressures(pressures)
+        chunk_feautrier, feautrier_chunk_size = (
+            radiative_transfer_core.resolve_feautrier_chunking(
+                chunk_feautrier=chunk_feautrier,
+                feautrier_chunk_size=feautrier_chunk_size,
+            )
+        )
 
         return self._calculate_flux_kernel(
             pressures=solver_pressures,
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=reference_gravity,
+            reference_gravity=_as_kernel_scalar(reference_gravity),
             irradiation_geometry=irradiation_geometry,
             stellar_intensities=stellar_intensities,
             star_irradiation_angle=star_irradiation_angle,
@@ -3756,6 +3797,9 @@ class Radtrans:
                     It may be used to add simple cloud absorption laws, for example, which
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
+                    This is a static (compile-time) argument: pass a stable, module-level function reference;
+                    passing a freshly created lambda or closure on each call forces a full recompilation
+                    of the spectral kernel.
                 additional_scattering_opacities_function (Optional[function]):
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an isotropic scattering opacity matrix in units of cm^2/g, in the shape of
@@ -3764,6 +3808,9 @@ class Radtrans:
                     It may be used to add simple cloud absorption laws, for example, which
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
+                    This is a static (compile-time) argument: pass a stable, module-level function reference;
+                    passing a freshly created lambda or closure on each call forces a full recompilation
+                    of the spectral kernel.
                 frequencies_to_wavelengths (Optional[bool]):
                     If True, convert the frequencies (Hz) output to wavelengths (cm).
                 return_contribution (Optional[bool]):
@@ -3824,11 +3871,11 @@ class Radtrans:
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=reference_gravity,
-            reference_pressure=reference_pressure,
-            planet_radius=planet_radius,
+            reference_gravity=_as_kernel_scalar(reference_gravity),
+            reference_pressure=_as_kernel_scalar(reference_pressure),
+            planet_radius=_as_kernel_scalar(planet_radius),
             variable_gravity=variable_gravity,
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            opaque_cloud_top_pressure=_as_kernel_scalar(opaque_cloud_top_pressure),
             cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_particle_radius_distribution=cloud_particle_radius_distribution,
@@ -3838,11 +3885,11 @@ class Radtrans:
             clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-            haze_factor=haze_factor,
-            power_law_opacity_350nm=power_law_opacity_350nm,
-            power_law_opacity_coefficient=power_law_opacity_coefficient,
-            gray_opacity=gray_opacity,
-            cloud_fraction=cloud_fraction,
+            haze_factor=_as_kernel_scalar(haze_factor),
+            power_law_opacity_350nm=_as_kernel_scalar(power_law_opacity_350nm),
+            power_law_opacity_coefficient=_as_kernel_scalar(power_law_opacity_coefficient),
+            gray_opacity=_as_kernel_scalar(gray_opacity),
+            cloud_fraction=_as_kernel_scalar(cloud_fraction),
             patchy_clouds=patchy_clouds,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function,
@@ -3870,6 +3917,8 @@ class Radtrans:
             "patchy_clouds",
             "sum_opacities",
             "anisotropic_cloud_scattering",
+            "additional_absorption_opacities_function",
+            "additional_scattering_opacities_function",
             "return_contribution",
             "return_clear_spectrum",
             "return_radius_hydrostatic_equilibrium",

@@ -1,6 +1,6 @@
 """User interface for configuration dataclasses for amortized SBI.
 
-:class:`~petitRADTRANS.sbi.flows.posterior.ConditionalFlowPosterior` accepts ~50
+:class:`~petitRADTRANS.experimental.sbi.flows.posterior.ConditionalFlowPosterior` accepts ~50
 flat keyword arguments. Driving it directly forces callers into a long, error-prone
 keyword ceremony. This module provides user-facing access to those knobs by grouping
 them into small dataclasses, each with sensible defaults, so a caller declares only
@@ -32,7 +32,7 @@ Two entry points consume these groups:
 
 * :class:`SBIConfig` bundles all five groups *plus* the simulation/workflow knobs
   and the built ``RetrievalConfig`` into the single object consumed by
-  :func:`petitRADTRANS.sbi.run_sbi`, so a benchmark script configures an entire run
+  :func:`petitRADTRANS.experimental.sbi.run_sbi`, so a benchmark script configures an entire run
   declaratively and calls one function. ``SBIConfig.to_run_config`` serializes the
   estimator-relevant subset to a flat, JSON-able provenance dict that also seeds the
   run hash.
@@ -53,7 +53,7 @@ class FlowConfig:
     """Normalizing-flow family and geometry.
 
     Selects the conditional density-estimator hypothesis class and its shape. See
-    :mod:`petitRADTRANS.sbi.flows.transforms` for the trade-offs between families.
+    :mod:`petitRADTRANS.experimental.sbi.flows.transforms` for the trade-offs between families.
 
     Attributes
     ----------
@@ -164,7 +164,7 @@ class EncoderConfig:
     Configures the network that turns observation blocks into the fixed-length
     embedding the flow conditions on. Defaults to the convolution encoder that
     explicitly factors a spectrum's amplitude from its shape (see
-    :class:`petitRADTRANS.sbi.encoders.SpectralConvolutionEncoder`), so the
+    :class:`petitRADTRANS.experimental.sbi.encoders.SpectralConvolutionEncoder`), so the
     posterior cannot collapse to the prior on shape-determined parameters.
 
     Attributes
@@ -282,6 +282,15 @@ class TrainingConfig:
     invertibility_loss_weight: float = 0.0
     invertibility_loss_n_samples: int = 64
     bnpe_balance_loss_weight: float = 0.0
+    # x-space focal reweighting of the NPE loss: per-sample weights peaked at
+    # the target observation's log-median value. Conditional-MLE invariant
+    # (does not bias p(theta|x)); reallocates capacity toward the target's
+    # neighbourhood in observation space. Requires noise resampling (the raw
+    # data path). Checkpoint selection then tracks the focal-weighted
+    # validation loss; the unweighted loss remains logged for comparability.
+    focal_reweighting: bool = False
+    focal_weight_peak: float = 50.0
+    focal_bandwidth_dex: float = 0.15
     # 'cube' (uniform prior) or 'unconstrained'. ELBO requires 'cube'.
     parameter_space: str = "cube"
     # ELBO-objective knobs (ignored when training_objective='npe').
@@ -353,8 +362,12 @@ class RefinementConfig:
         Amortized proposal draws weighted by the exact likelihood
         (``method="importance_sampling"``).
     is_forward_batch_size:
-        Forward-model chunk size for the importance weights (bounds device
-        memory like the ELBO per-batch forward passes).
+        Forward-model chunk size for the importance weights. ``None`` (default)
+        inherits ``SBIConfig.simulation_batch_size``, i.e. the per-device batch
+        already validated for this task's forward model during dataset
+        generation -- the scattering emission RT holds far larger per-sample
+        intermediates than transmission, and a hardcoded chunk size OOMed a
+        completed emission run at the refinement step.
     map_num_steps:
         Number of optimization steps for the MAP point estimate
         (``method="map_laplace"``).
@@ -371,6 +384,10 @@ class RefinementConfig:
     map_vi_num_steps, map_vi_learning_rate, map_vi_num_samples:
         Controls for the ``"gaussian_vi"`` covariance estimate (steps, learning
         rate, reparameterized samples per step).
+    map_num_starts:
+        Independent MAP optimization starts (the amortized mean plus
+        individual amortized draws); the best final objective wins. Defends
+        against boundary-saturation divergence from a biased warm start.
     test_time_validation:
         If ``True``, also run the actual test-time method (MAP+Laplace) on held-out
         simulations to measure its accuracy and calibration.
@@ -391,13 +408,17 @@ class RefinementConfig:
 
     method: str = "none"  # "none" | "map_laplace" | "importance_sampling" | "elbo"
     is_num_proposal_samples: int = 16384
-    is_forward_batch_size: int = 256
+    is_forward_batch_size: int | None = None
     # MAP + Laplace controls.
     map_num_steps: int = 600
     map_learning_rate: float = 5e-2
     map_beta_start: float = 1e-3
     map_beta_anneal_fraction: float = 0.5
     map_covariance_method: str = "laplace"  # "laplace" | "gaussian_vi"
+    # Independent MAP starts (1 = amortized mean only; >1 adds individual
+    # amortized draws). Guards against the logit-boundary saturation trap when
+    # the amortized init is biased; best final objective wins.
+    map_num_starts: int = 4
     map_vi_num_steps: int = 300
     map_vi_learning_rate: float = 1e-2
     map_vi_num_samples: int = 32
@@ -527,6 +548,9 @@ def build_conditional_flow_posterior(
         invertibility_loss_weight=float(training.invertibility_loss_weight),
         invertibility_loss_n_samples=int(training.invertibility_loss_n_samples),
         bnpe_balance_loss_weight=float(training.bnpe_balance_loss_weight),
+        focal_reweighting=bool(training.focal_reweighting),
+        focal_weight_peak=float(training.focal_weight_peak),
+        focal_bandwidth_dex=float(training.focal_bandwidth_dex),
         weight_decay=float(training.weight_decay),
         gradient_clip_norm=training.gradient_clip_norm,
         early_stopping_patience=training.early_stopping_patience,
@@ -558,7 +582,7 @@ def build_conditional_flow_posterior(
 
 @dataclass
 class SBIConfig:
-    """End-to-end configuration for :func:`petitRADTRANS.sbi.run_sbi`.
+    """End-to-end configuration for :func:`petitRADTRANS.experimental.sbi.run_sbi`.
 
     Bundles the experiment definition (a built ``RetrievalConfig`` carrying the
     priors and model-generating function) with the grouped estimator configs and

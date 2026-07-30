@@ -23,6 +23,8 @@ from petitRADTRANS.retrieval.runtime import (
     _offset_flux,
     _line_b_uncertainty_scaling,
     _scale_and_inflate_uncertainties,
+    uncertainty_scaling_b_parameter_candidates,
+
 )
 
 from petitRADTRANS.jax_dtype import JAX_DTYPE

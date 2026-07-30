@@ -54,7 +54,11 @@ from .flows import load_posterior_estimator
 from .inference import AmortizedRetrieval
 from .observation import build_observation_block_batch, build_raw_observation_blocks
 from .plotting import plot_posterior_predictive_report, save_validation_plots
-from .preprocessing import TaskPreprocessingMetadata, fit_task_preprocessing
+from .preprocessing import (
+    TaskPreprocessingMetadata,
+    denormalize_spectral_values,
+    fit_task_preprocessing,
+)
 from .task import NoiseModelConfig, ObservationValueConstraint, SBITask, SimulationConfig
 from .training import load_trainer_checkpoint_state
 
@@ -68,7 +72,33 @@ def _resolve_spectrum_y_label(config: SBIConfig) -> str:
     return "Transit depth"
 
 
-def _build_elbo_log_likelihood_fn(task: SBITask):
+def _spectral_inverse_terms(stats, n_wavelengths: int):
+    """``(center, scale)`` such that ``raw = center + scale * sinh(normalized)``.
+
+    JAX-friendly mirror of
+    :func:`petitRADTRANS.experimental.sbi.preprocessing.denormalize_spectral_values` (same
+    round-trip test covers both).
+    """
+    from .preprocessing import (
+        _global_spectral_scale,
+        _NORMALIZATION_SCALE_FLOOR,
+        _per_wavelength_stats_arrays,
+    )
+
+    per_wavelength = _per_wavelength_stats_arrays(stats, n_wavelengths)
+    if per_wavelength is not None:
+        center, scale = per_wavelength
+        return (
+            jnp.asarray(center, dtype=jnp.float32),
+            jnp.asarray(scale, dtype=jnp.float32),
+        )
+    global_scale = max(float(_global_spectral_scale(stats)), _NORMALIZATION_SCALE_FLOOR)
+    return jnp.asarray(0.0, dtype=jnp.float32), jnp.asarray(
+        global_scale, dtype=jnp.float32
+    )
+
+
+def _build_elbo_log_likelihood_fn(task: SBITask, preprocessing_metadata=None):
     """Build a differentiable forward-model log-likelihood for the ELBO objective.
 
     Returns ``log_likelihood_fn(theta_cube, observations) -> (batch,)``: it maps
@@ -76,10 +106,14 @@ def _build_elbo_log_likelihood_fn(task: SBITask):
     forward model used to generate the dataset (and used by JAXNS), projects the
     model spectrum onto the observation grid, and scores the batch's observed
     spectra under the known Gaussian noise model. The observed values reaching
-    the loss are reader-normalized (``arcsinh(raw/scale)``); we invert that here
-    so the likelihood is evaluated in raw units where the noise is Gaussian.
+    the loss are reader-normalized, so they are inverted here -- via the single
+    round-trip-tested
+    :func:`petitRADTRANS.experimental.sbi.preprocessing.denormalize_spectral_values` -- so
+    the likelihood is evaluated in raw units where the noise is Gaussian.
+    ``preprocessing_metadata`` is required whenever per-wavelength
+    normalization is in use (the current default).
     """
-    from petitRADTRANS.sbi.simulator import SimulationRuntime
+    from petitRADTRANS.experimental.sbi.simulator import SimulationRuntime
     from petitRADTRANS.retrieval.runtime import _apply_flux_scaling, _offset_flux
 
     runtime = SimulationRuntime.from_configuration(
@@ -124,17 +158,30 @@ def _build_elbo_log_likelihood_fn(task: SBITask):
             batched_pp, batched_result.wavelengths, batched_result.spectrum
         )
 
+    block_stats = None
+    if preprocessing_metadata is not None:
+        block_stats = preprocessing_metadata.blocks.get(obs_name)
+    if block_stats is None:
+        raise ValueError(
+            "The ELBO likelihood needs the task's preprocessing statistics to "
+            "recover raw observation units from the reader-normalized batch; "
+            "pass preprocessing_metadata."
+        )
+    inverse_center, inverse_scale = _spectral_inverse_terms(
+        block_stats, int(np.size(observation.wavelengths))
+    )
+
     def log_likelihood_fn(theta_cube, observations):
         # observations is a PreStackedObservations; block 0 is the spectrum.
         block = observations.stacked_blocks[0]
-        value_norm = jnp.asarray(block[0], dtype=jnp.float32)   # arcsinh(raw/scale)
-        uncert_norm = jnp.asarray(block[1], dtype=jnp.float32)  # raw_sigma/(scale*cosh)
+        value_norm = jnp.asarray(block[0], dtype=jnp.float32)
+        uncert_norm = jnp.asarray(block[1], dtype=jnp.float32)
         mask = jnp.asarray(block[3])                            # True == masked out
-        scale = jnp.asarray(block[6], dtype=jnp.float32)[:, None]  # (batch, 1)
 
-        # Invert the reader's arcsinh normalization to raw units.
-        raw_values = scale * jnp.sinh(value_norm)
-        raw_uncert = uncert_norm * scale * jnp.cosh(value_norm)
+        # Exact inverse of the applied normalization (see
+        # preprocessing.denormalize_spectral_values).
+        raw_values = inverse_center + inverse_scale * jnp.sinh(value_norm)
+        raw_uncert = uncert_norm * inverse_scale * jnp.cosh(value_norm)
 
         theta_physical = parameter_layout.transform_cube_to_physical_batch(theta_cube)
         model_spectrum = spectrum_fn(theta_physical)
@@ -154,14 +201,24 @@ def _build_elbo_log_likelihood_fn(task: SBITask):
 def _build_residual_fn_factory(task: SBITask):
     """Build the differentiable forward model once and return a residual factory.
 
-    Returns ``make_residual(target_observation) -> residual(theta_cube)`` where
-    ``residual`` is the noise-standardized ``(x_obs - model(theta))/sigma`` (masked
-    channels set to 0) in raw units. The expensive ``SimulationRuntime`` (opacity
-    load + model context) is constructed a single time, so the per-observation
-    closures are cheap -- enabling test-time MAP+Laplace over many held-out cases
-    without reloading opacities.
+    Returns ``make_residual(raw_values, raw_uncertainties, mask=None) ->
+    residual(theta_cube)`` where ``residual`` is the noise-standardized
+    ``(x_obs - model(theta))/sigma`` (masked channels set to 0) in RAW physical
+    units. The expensive ``SimulationRuntime`` (opacity load + model context) is
+    constructed a single time, so the per-observation closures are cheap --
+    enabling test-time refinement over many held-out cases without reloading
+    opacities.
+
+    The caller supplies the observation in raw units. This function deliberately
+    does NOT invert the reader's normalization: a hardcoded inverse of the
+    global-scale transform silently corrupted the target by ~100x (with a sign
+    flip) once per-wavelength normalization became the default, making every
+    refinement optimise a meaningless objective. Callers that only hold
+    normalized data must go through
+    :func:`petitRADTRANS.experimental.sbi.preprocessing.denormalize_spectral_values`, the
+    single round-trip-tested inverse.
     """
-    from petitRADTRANS.sbi.simulator import SimulationRuntime
+    from petitRADTRANS.experimental.sbi.simulator import SimulationRuntime
     from petitRADTRANS.retrieval.runtime import _apply_flux_scaling, _offset_flux
 
     runtime = SimulationRuntime.from_configuration(
@@ -194,15 +251,17 @@ def _build_residual_fn_factory(task: SBITask):
             batched_pp, batched_result.wavelengths, batched_result.spectrum
         )
 
-    def make_residual(target_observation):
-        block = target_observation.stacked_blocks[0]
-        value_norm = jnp.asarray(block[0], dtype=jnp.float32)[0]
-        uncert_norm = jnp.asarray(block[1], dtype=jnp.float32)[0]
-        mask = jnp.asarray(block[3])[0]
-        scale = jnp.asarray(block[6], dtype=jnp.float32)[0]
-        raw_values = scale * jnp.sinh(value_norm)
-        raw_uncert = jnp.abs(uncert_norm) * scale * jnp.cosh(value_norm)
-        valid = (~mask.astype(bool)).astype(jnp.float32)
+    def make_residual(raw_values, raw_uncertainties, mask=None):
+        raw_values = jnp.asarray(raw_values, dtype=jnp.float32).reshape(-1)
+        raw_uncert = jnp.abs(
+            jnp.asarray(raw_uncertainties, dtype=jnp.float32)
+        ).reshape(-1)
+        if mask is None:
+            valid = jnp.ones_like(raw_values)
+        else:
+            valid = (
+                ~jnp.asarray(mask).reshape(-1).astype(bool)
+            ).astype(jnp.float32)
         sigma = jnp.where(raw_uncert > 0.0, raw_uncert, 1.0)
 
         def residual(theta_cube):
@@ -236,7 +295,7 @@ def _generate_test_time_validation_report(
     simulations (where the truth is known) and reports its accuracy (chi2/N at the
     MAP) and calibration (90% coverage and mean SBC rank per parameter).
     """
-    from petitRADTRANS.sbi.observation import PreStackedObservations
+    from petitRADTRANS.experimental.sbi.observation import PreStackedObservations
     from .training import _prestack_observation_blocks
 
     batch = next(
@@ -275,6 +334,7 @@ def _generate_test_time_validation_report(
         )
 
     param_dim = true_cube.shape[1]
+    block_name = next(iter(reader.dataset.manifest.observation_schema["modalities"]))
     rank_fraction = np.zeros((n_cases, param_dim))      # P(sample < true)
     inside_90 = np.zeros((n_cases, param_dim), dtype=bool)
     chi2_per_n = np.zeros(n_cases)
@@ -282,7 +342,15 @@ def _generate_test_time_validation_report(
 
     for case_index in range(n_cases):
         case_obs = _slice_case(case_index)
-        residual = make_residual(case_obs)
+        case_block = case_obs.stacked_blocks[0]
+        case_raw_values, case_raw_uncert = denormalize_spectral_values(
+            np.asarray(case_block[0])[0],
+            np.asarray(case_block[1])[0],
+            reader.preprocessing_metadata.blocks[block_name],
+        )
+        residual = make_residual(
+            case_raw_values, case_raw_uncert, np.asarray(case_block[3])[0]
+        )
         refined = posterior.map_laplace_posterior_on_observation(
             case_obs,
             residual,
@@ -809,17 +877,25 @@ def run_sbi(config: SBIConfig) -> Path:
     # The reader runs the observation/training flux-scale guard automatically on
     # construction (NormalizedObservationDatasetReader.__post_init__): a
     # units/scale mismatch or stale/corrupt dataset aborts here, before training.
+    target_value_arrays = {
+        name: np.asarray(data.spectrum, dtype=float)
+        for name, data in retrieval_config.data.items()
+        if getattr(data, "spectrum", None) is not None
+    }
+    focal_target_log10_median = None
+    if target_value_arrays:
+        first_target = next(iter(target_value_arrays.values()))
+        focal_target_log10_median = float(
+            np.log10(max(float(np.median(np.abs(first_target))), 1e-300))
+        )
     reader = NormalizedObservationDatasetReader(
         dataset=dataset,
         preprocessing_metadata=preprocessing_metadata,
-        target_observations={
-            name: np.asarray(data.spectrum, dtype=float)
-            for name, data in retrieval_config.data.items()
-            if getattr(data, "spectrum", None) is not None
-        },
+        target_observations=target_value_arrays,
         scale_check=config.startup_scale_check,
         noise_resampling=task.simulation_config.noise_model.resample_during_training
         and task.simulation_config.noise_model.mode not in ("none", "no_noise"),
+        focal_target_log10_median=focal_target_log10_median,
     )
 
     posterior: Any
@@ -885,7 +961,7 @@ def run_sbi(config: SBIConfig) -> Path:
                 "Objective: amortized variational (ELBO) -- building "
                 "differentiable forward-model likelihood (loads opacities)..."
             )
-            elbo_log_likelihood_fn = _build_elbo_log_likelihood_fn(task)
+            elbo_log_likelihood_fn = _build_elbo_log_likelihood_fn(task, preprocessing_metadata)
             training_artifacts = posterior.fit(
                 reader,
                 elbo_log_likelihood_fn=elbo_log_likelihood_fn,
@@ -969,6 +1045,16 @@ def run_sbi(config: SBIConfig) -> Path:
             raw_observation_blocks, preprocessing_metadata
         )
         target_prestacked = _prestack_observation_blocks([normalized_target_blocks])
+        # The likelihood is scored in raw physical units, taken straight from
+        # the observation (never re-derived from the normalized copy).
+        target_raw_block = raw_observation_blocks[0]
+        target_raw_arrays = (
+            np.asarray(target_raw_block.values, dtype=float),
+            np.asarray(target_raw_block.uncertainties, dtype=float),
+            None
+            if target_raw_block.mask is None
+            else np.asarray(target_raw_block.mask),
+        )
 
         if refinement.method == "map_laplace":
             print(
@@ -979,6 +1065,7 @@ def run_sbi(config: SBIConfig) -> Path:
             # Build the differentiable forward model once; reuse it for the target
             # and for the held-out test-time validation cases.
             make_residual = _build_residual_fn_factory(task)
+            target_residual_fn = make_residual(*target_raw_arrays)
             map_kwargs = dict(
                 num_steps=refinement.map_num_steps,
                 learning_rate=refinement.map_learning_rate,
@@ -988,11 +1075,17 @@ def run_sbi(config: SBIConfig) -> Path:
                 vi_num_steps=refinement.map_vi_num_steps,
                 vi_learning_rate=refinement.map_vi_learning_rate,
                 vi_num_samples=refinement.map_vi_num_samples,
+                num_starts=refinement.map_num_starts,
             )
             if refinement.test_time_validation:
                 print(
                     "Test-time (MAP+Laplace) validation on "
                     f"{refinement.test_time_validation_cases} held-out cases..."
+                )
+                # Bound the held-out validation cost: fewer starts per case.
+                ttv_map_kwargs = dict(map_kwargs)
+                ttv_map_kwargs["num_starts"] = min(
+                    2, int(refinement.map_num_starts)
                 )
                 test_time_validation_report = _generate_test_time_validation_report(
                     posterior,
@@ -1001,7 +1094,7 @@ def run_sbi(config: SBIConfig) -> Path:
                     split=DatasetSplit.TEST,
                     max_cases=refinement.test_time_validation_cases,
                     n_posterior_samples=refinement.test_time_validation_samples,
-                    map_kwargs=map_kwargs,
+                    map_kwargs=ttv_map_kwargs,
                     parameter_names=parameter_names,
                     seed=config.seed + 11,
                 )
@@ -1009,7 +1102,6 @@ def run_sbi(config: SBIConfig) -> Path:
                     run_root / "test_time_validation_report.json",
                     test_time_validation_report,
                 )
-            target_residual_fn = make_residual(target_prestacked)
             target_posterior = posterior.map_laplace_posterior_on_observation(
                 target_prestacked,
                 target_residual_fn,
@@ -1018,19 +1110,26 @@ def run_sbi(config: SBIConfig) -> Path:
                 **map_kwargs,
             )
         elif refinement.method == "importance_sampling":
+            # Inherit the per-device forward-model batch validated for this
+            # task during dataset generation unless explicitly overridden.
+            is_forward_batch_size = int(
+                refinement.is_forward_batch_size
+                if refinement.is_forward_batch_size is not None
+                else config.simulation_batch_size
+            )
             print(
                 "Importance-sampling refinement on the target spectrum "
                 f"({refinement.is_num_proposal_samples} amortized proposals, "
-                f"forward batch {refinement.is_forward_batch_size}; loads "
+                f"forward batch {is_forward_batch_size}; loads "
                 "opacities)..."
             )
             make_residual = _build_residual_fn_factory(task)
-            target_residual_fn = make_residual(target_prestacked)
+            target_residual_fn = make_residual(*target_raw_arrays)
             target_posterior = posterior.importance_sampling_posterior_on_observation(
                 target_prestacked,
                 target_residual_fn,
                 n_proposal_samples=refinement.is_num_proposal_samples,
-                forward_batch_size=refinement.is_forward_batch_size,
+                forward_batch_size=is_forward_batch_size,
                 n_posterior_samples=config.n_posterior_samples,
                 seed=config.seed + 13,
             )
@@ -1048,7 +1147,7 @@ def run_sbi(config: SBIConfig) -> Path:
                     "Semi-amortized refinement -- building differentiable "
                     "forward-model likelihood (loads opacities)..."
                 )
-                elbo_log_likelihood_fn = _build_elbo_log_likelihood_fn(task)
+                elbo_log_likelihood_fn = _build_elbo_log_likelihood_fn(task, preprocessing_metadata)
             print(
                 "Semi-amortized (flow-ELBO) refinement on the target spectrum "
                 f"({refinement.elbo_num_steps} steps, lr={refinement.elbo_learning_rate}, "

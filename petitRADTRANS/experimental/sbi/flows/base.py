@@ -41,6 +41,10 @@ class PosteriorBatch:
     parameters: Any
     observations: Any
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    # Optional per-sample loss weights (x-space focal reweighting). ``None``
+    # means uniform. Reweighting in x does not bias the learned conditional
+    # p(theta|x); it only reallocates capacity across observation space.
+    sample_weights: Any = None
 
 
 class PosteriorEstimator(abc.ABC):

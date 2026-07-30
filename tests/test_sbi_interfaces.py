@@ -17,7 +17,7 @@ sys.modules.setdefault("pymultinest", SimpleNamespace())
 
 from petitRADTRANS.retrieval.runtime import ParameterLayout  # noqa: E402
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig  # noqa: E402
-from petitRADTRANS.sbi import (  # noqa: E402
+from petitRADTRANS.experimental.sbi import (  # noqa: E402
     AmortizedRetrieval,
     build_observation_block_batch,
     ConditionalSplineFlowPosterior,
@@ -49,28 +49,28 @@ from petitRADTRANS.sbi import (  # noqa: E402
     normalize_observation_blocks,
     plot_posterior_corner,
 )
-from petitRADTRANS.sbi.artifacts import (
+from petitRADTRANS.experimental.sbi.artifacts import (
     ArtifactMetadata,
     ArtifactRole,
     FileArtifactRegistry,
 )  # noqa: E402
-from petitRADTRANS.sbi.calibration import (
+from petitRADTRANS.experimental.sbi.calibration import (
     central_credible_interval,
     empirical_interval_coverage,
 )  # noqa: E402
-from petitRADTRANS.sbi.compatibility import CompatibilityReport  # noqa: E402
-from petitRADTRANS.sbi.dataset import (
+from petitRADTRANS.experimental.sbi.compatibility import CompatibilityReport  # noqa: E402
+from petitRADTRANS.experimental.sbi.dataset import (
     SimulationDatasetManifest,
     SplitSamplingPolicy,
 )  # noqa: E402
-from petitRADTRANS.sbi.flows import (
+from petitRADTRANS.experimental.sbi.flows import (
     ConditionalNeuralAutoregressiveFlow,
     ConditionalSplineFlow,
 )  # noqa: E402
-from petitRADTRANS.sbi.preprocessing import (
+from petitRADTRANS.experimental.sbi.preprocessing import (
     compute_block_normalization_stats,
 )  # noqa: E402
-from petitRADTRANS.sbi.training import SBITrainer, TrainingSchemeConfig  # noqa: E402
+from petitRADTRANS.experimental.sbi.training import SBITrainer, TrainingSchemeConfig  # noqa: E402
 
 
 def _dummy_model(*args, **kwargs):
@@ -1722,7 +1722,7 @@ def test_posterior_checkpoint_falls_back_from_orbax_for_callable_leaves(
             raise AssertionError("restore should not be called in this test")
 
     monkeypatch.setattr(
-        "petitRADTRANS.sbi.training.resolve_checkpoint_backend",
+        "petitRADTRANS.experimental.sbi.training.resolve_checkpoint_backend",
         lambda preferred="auto": _FailingOrbaxBackend(),
     )
 

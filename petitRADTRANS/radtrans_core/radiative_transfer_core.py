@@ -41,6 +41,40 @@ _UNROLL_SPECIES_LIMIT = 8
 # but cap memory less.
 _CK_CHUNK_SIZE_DEFAULT = int(os.environ.get("PRT_CK_CHUNK_SIZE", "0"))
 
+# Single source of truth for the Feautrier chunking defaults. Both values are
+# static (compile-time) arguments of the flux kernels: every distinct
+# (chunk_feautrier, feautrier_chunk_size) pair compiles its own kernel, and the
+# chunk size also selects the linear solver variant (see linalg._feautrier_use_thomas).
+# Entry points keep their own fallbacks (memory constraints differ between
+# forward modelling and retrievals); set PRT_FEAUTRIER_CHUNK_SIZE to pin one
+# value process-wide and avoid duplicate compilations when mixing entry points.
+DEFAULT_CHUNK_FEAUTRIER = True
+DEFAULT_FEAUTRIER_CHUNK_SIZE = 1536
+
+
+def resolve_feautrier_chunking(
+    chunk_feautrier=None,
+    feautrier_chunk_size=None,
+    fallback_chunk_feautrier=DEFAULT_CHUNK_FEAUTRIER,
+    fallback_chunk_size=DEFAULT_FEAUTRIER_CHUNK_SIZE,
+):
+    """Resolve the Feautrier chunking settings.
+
+    Precedence: explicit argument > PRT_FEAUTRIER_CHUNK_SIZE environment
+    variable (chunk size only) > caller-supplied fallback. Values are coerced
+    to plain bool/int so the static jit cache keys do not split on equivalent
+    representations (e.g. 1536 vs numpy.int64(1536)).
+    """
+    if chunk_feautrier is None:
+        chunk_feautrier = fallback_chunk_feautrier
+
+    if feautrier_chunk_size is None:
+        feautrier_chunk_size = int(
+            os.environ.get("PRT_FEAUTRIER_CHUNK_SIZE", str(fallback_chunk_size))
+        )
+
+    return bool(chunk_feautrier), int(feautrier_chunk_size)
+
 
 def build_ck_combination_state(weights_gauss: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
     """Precompute the pairwise quadrature weights used for c-k mixing.

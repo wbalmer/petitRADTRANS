@@ -13,7 +13,7 @@ import importlib.metadata
 import inspect
 from typing import Any, Mapping
 
-from petitRADTRANS.sbi.compatibility import (
+from petitRADTRANS.experimental.sbi.compatibility import (
     CompatibilityReport,
     TaskFingerprint,
     compare_named_mappings,

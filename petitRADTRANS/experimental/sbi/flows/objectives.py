@@ -2,7 +2,7 @@
 
 Holds :class:`_PosteriorModel` (the encoder + flow + auxiliary scale head bundled
 as one Equinox module) and the loss functions optimised by
-:class:`~petitRADTRANS.sbi.flows.posterior.ConditionalFlowPosterior`: the
+:class:`~petitRADTRANS.experimental.sbi.flows.posterior.ConditionalFlowPosterior`: the
 conditional negative-log-likelihood (NPE) objective with its optional spline and
 invertibility regularization, and the amortized-variational (ELBO) objective.
 Extracted from ``flows.posterior`` so the objective maths lives apart from the
@@ -133,7 +133,7 @@ def batch_embeddings(model: _PosteriorModel, observations: Any) -> jnp.ndarray:
 
     Dispatches over the supported observation representations and returns a
     ``(batch, embedding_dim)`` float32 array: already-encoded arrays pass through;
-    :class:`~petitRADTRANS.sbi.observation.PreStackedObservations` use the
+    :class:`~petitRADTRANS.experimental.sbi.observation.PreStackedObservations` use the
     JIT-friendly ``encode_from_prestacked`` path; a list of equally-structured
     block lists uses the vmapped ``encode_stacked_batch``; otherwise each
     observation is encoded individually. This is the single entry point the loss
@@ -180,6 +180,7 @@ def compute_loss(model: _PosteriorModel, batch: PosteriorBatch) -> jnp.ndarray:
         batch.observations,
         str(batch.metadata.get("parameter_space", "physical")),
         include_spline_regularization=False,
+        sample_weights=getattr(batch, "sample_weights", None),
     )
 
 
@@ -197,6 +198,7 @@ def training_loss(model: _PosteriorModel, batch: PosteriorBatch) -> jnp.ndarray:
         batch.observations,
         str(batch.metadata.get("parameter_space", "physical")),
         include_spline_regularization=True,
+        sample_weights=getattr(batch, "sample_weights", None),
     )
 
 
@@ -207,6 +209,7 @@ def loss_from_observations(
     parameter_space: str,
     *,
     include_spline_regularization: bool,
+    sample_weights: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Conditional negative-log-likelihood (NPE) objective for one batch.
 
@@ -260,8 +263,20 @@ def loss_from_observations(
     log_probabilities = jnp.clip(log_probabilities, -50000.0, 15000.0)
     finite_mask = jnp.isfinite(log_probabilities)
     safe_log_probs = jnp.where(finite_mask, log_probabilities, 0.0)
-    n_valid = jnp.maximum(finite_mask.sum(), 1)
-    total_loss = -jnp.sum(safe_log_probs) / n_valid
+    if sample_weights is None:
+        n_valid = jnp.maximum(finite_mask.sum(), 1)
+        total_loss = -jnp.sum(safe_log_probs) / n_valid
+    else:
+        # x-space focal reweighting: weighted mean NLL over finite entries.
+        # Weighting by a function of the OBSERVATION does not bias the
+        # learned conditional p(theta|x) (the weighted-loss minimizer is
+        # still the true conditional); it only reallocates capacity across
+        # observation space toward the target's neighbourhood.
+        weights = jnp.asarray(sample_weights, dtype=safe_log_probs.dtype)
+        weights = weights * finite_mask.astype(safe_log_probs.dtype)
+        total_loss = -jnp.sum(weights * safe_log_probs) / jnp.maximum(
+            jnp.sum(weights), 1e-8
+        )
 
     # Regularization terms to help optimisation
     # If the bins are collapsing or the spline derivative is too large, the flow is ill-conditioned and
@@ -565,7 +580,7 @@ def compute_validation_diagnostics(
         The encoder + flow bundle to probe.
     batch:
         Validation batch; only the leading
-        :data:`~petitRADTRANS.sbi.flows.regularization._VALIDATION_DIAGNOSTIC_SAMPLES`
+        :data:`~petitRADTRANS.experimental.sbi.flows.regularization._VALIDATION_DIAGNOSTIC_SAMPLES`
         rows are used.
     verbose_diagnostics:
         When ``True``, include the extra per-dimension cube-edge breakdown used by

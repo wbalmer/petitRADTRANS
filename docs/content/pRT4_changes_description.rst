@@ -49,7 +49,7 @@ Added
     likelihood evaluation through ``LogLikelihood``.
 -  The ``RetrievalPlotter`` class, which separates retrieval plotting from the
     core ``Retrieval`` object.
--  A new ``petitRADTRANS.sbi`` package scaffold for simulation-based inference,
+-  A new ``petitRADTRANS.experimental.sbi`` package scaffold for simulation-based inference,
     including simulators, training tasks, and normalising flow
     based SBI workflows.
 -  Time-variable retrieval support through
