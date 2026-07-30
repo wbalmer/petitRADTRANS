@@ -26,10 +26,10 @@ rank = 0
 _mpi_checked = False
 
 
-def _get_mpi_context():
+def _get_mpi_context(disable_mpi: bool = False):
     global MPI, comm, rank, _mpi_checked
 
-    if os.environ.get("pRT_emcee_mode") == "True":
+    if disable_mpi:
         return None, None, 0
 
     if not _mpi_checked:
@@ -3720,7 +3720,11 @@ class CorrelatedKOpacity(Opacity):
 
     @classmethod
     def exo_k_multiple_rebin(
-        cls, input_files: list[str], resolving_power: float, rewrite=False
+        cls,
+        input_files: list[str],
+        resolving_power: float,
+        rewrite=False,
+        disable_mpi: bool = False,
     ):
         if input_files is None:
             input_files = []
@@ -3737,6 +3741,7 @@ class CorrelatedKOpacity(Opacity):
                 resolving_power=resolving_power,
                 wavenumber_grid=wavenumber_grid,
                 rewrite=rewrite,
+                disable_mpi=disable_mpi,
             )
 
             if state == 0:
@@ -3760,6 +3765,7 @@ class CorrelatedKOpacity(Opacity):
         resolving_power: float,
         wavenumber_grid: npt.NDArray[np.floating] = None,
         rewrite: bool = False,
+        disable_mpi: bool = False,
     ) -> int:
         try:
             import exo_k
@@ -3785,7 +3791,7 @@ class CorrelatedKOpacity(Opacity):
                 f"Verify if the input file name flag is correct, or use an opacity sampled at constant resolving power."
             )
 
-        _, comm, rank = _get_mpi_context()
+        _, comm, rank = _get_mpi_context(disable_mpi=disable_mpi)
 
         if (
             rank == 0

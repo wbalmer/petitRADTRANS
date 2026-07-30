@@ -58,8 +58,7 @@ class RetrievalConfig:
             Number of frequency bins solved per chunk of the Feautrier scattering solver used for
             emission spectra. Smaller values reduce the peak memory of the radiative transfer at the
             cost of a modest amount of extra scan overhead, which is useful on memory-constrained
-            GPUs. If None (default), the value is taken from the ``PRT_FEAUTRIER_CHUNK_SIZE``
-            environment variable (falling back to a built-in default). This is forwarded to the
+            GPUs. If None (default), a built-in default is used. This is forwarded to the
             ``ModelContext`` objects used to compute the radiative transfer.
         chunk_feautrier : bool
             Whether the Feautrier scattering solver chunks the frequency axis (see

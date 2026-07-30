@@ -20,6 +20,7 @@ from petitRADTRANS.radtrans_core.interpolate_line_opacities import (
     interpolate_species_opacities_summed,
 )
 from petitRADTRANS.radtrans_core import radiative_transfer_core
+from petitRADTRANS.radtrans_core import linalg
 from petitRADTRANS.radtrans_core.spectrum_utils import compute_bins_edges
 from petitRADTRANS.opacities.opacities import (
     CIAOpacity,
@@ -1007,6 +1008,7 @@ class Radtrans:
         sum_opacities=True,
         chunk_feautrier=True,
         feautrier_chunk_size=1536,
+        thomas_min_batch=linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
     ):
         """Compute the emission flux for the already-prepared opacity state.
 
@@ -1062,6 +1064,9 @@ class Radtrans:
             feautrier_chunk_size:
                 Number of frequency bins per chunk when ``chunk_feautrier`` is
                 enabled.
+            thomas_min_batch:
+                Batch size above which the Thomas-factorisation Feautrier
+                solver path is used over PCR on GPU.
 
         Returns:
             Tuple ``(flux, emission_contribution, optical_depths,
@@ -1142,6 +1147,7 @@ class Radtrans:
                     return_contribution=return_contribution,
                     chunk_feautrier=chunk_feautrier,
                     feautrier_chunk_size=feautrier_chunk_size,
+                    thomas_min_batch=thomas_min_batch,
                 )
             )
         else:
@@ -1373,6 +1379,7 @@ class Radtrans:
         anisotropic_cloud_scattering=None,
         target_particle_radii=None,
         target_pressure=None,
+        ck_chunk_size=radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE,
     ):
         """Build line, continuum, and cloud opacity products for a spectrum calculation.
 
@@ -1659,6 +1666,7 @@ class Radtrans:
                 "ck_g_combination_weights_sum"
             ],
             input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
+            ck_chunk_size=ck_chunk_size,
         )
         if compute_clear_opacities:
             clear_continuum_opacities = (
@@ -1697,6 +1705,7 @@ class Radtrans:
                         "ck_g_combination_weights_sum"
                     ],
                     input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
+                    ck_chunk_size=ck_chunk_size,
                 )
         else:
             clear_opacities = jnp.zeros_like(opacities)
@@ -1719,7 +1728,10 @@ class Radtrans:
         )
 
     def _combine_deferred_clear_opacities(
-        self, deferred_clear_opacity_inputs, sum_opacities
+        self,
+        deferred_clear_opacity_inputs,
+        sum_opacities,
+        ck_chunk_size=radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE,
     ):
         """Run the clear-column opacity combination deferred by
         ``_calculate_opacities(defer_clear_opacity_combination=True)``.
@@ -1736,6 +1748,9 @@ class Radtrans:
                 ``clear_opacities`` slot of ``_calculate_opacities``.
             sum_opacities:
                 Same static flag that was passed to ``_calculate_opacities``.
+            ck_chunk_size:
+                Same c-k mixing chunk size that was passed to
+                ``_calculate_opacities``.
 
         Returns:
             Combined clear-column opacities, identical to what
@@ -1765,6 +1780,7 @@ class Radtrans:
                 "ck_g_combination_weights_sum"
             ],
             input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
+            ck_chunk_size=ck_chunk_size,
         )
 
     def _calculate_transit_radii(
@@ -2521,6 +2537,8 @@ class Radtrans:
         adaptive_feautrier_iterations: bool = False,
         chunk_feautrier: bool = None,
         feautrier_chunk_size: int = None,
+        thomas_min_batch: int = None,
+        ck_chunk_size: int = None,
         frequencies_to_wavelengths: bool = True,
         return_contribution: bool = False,
         return_clear_spectrum: bool = False,
@@ -2668,9 +2686,18 @@ class Radtrans:
                 resolves to True.
             feautrier_chunk_size (Optional[int]):
                 Number of frequency bins per chunk when ``chunk_feautrier`` is enabled. If None
-                (default), resolves to the PRT_FEAUTRIER_CHUNK_SIZE environment variable, or 1536.
-                Both chunking settings are static (compile-time) arguments: every distinct
-                (chunk_feautrier, feautrier_chunk_size) pair compiles its own kernel.
+                (default), resolves to 1536. Both chunking settings are static (compile-time)
+                arguments: every distinct (chunk_feautrier, feautrier_chunk_size) pair compiles
+                its own kernel.
+            thomas_min_batch (Optional[int]):
+                Batch size (``n_gf * n_angles``) above which the Thomas-factorisation Feautrier
+                solver path is used over PCR on GPU. If None (default), resolves to
+                ``linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH``. Static (compile-time) argument.
+            ck_chunk_size (Optional[int]):
+                Number of (frequency, layer) cells per chunk in the pure-JAX correlated-k
+                mixing kernel, used to cap peak memory on memory-constrained runs. If None
+                (default), resolves to ``radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE`` (0,
+                chunking disabled). Static (compile-time) argument.
             frequencies_to_wavelengths (Optional[bool]):
                 if True, convert the frequencies (Hz) output to wavelengths (cm),
                 and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-1.cm-2/cm)
@@ -2712,6 +2739,10 @@ class Radtrans:
                 feautrier_chunk_size=feautrier_chunk_size,
             )
         )
+        if thomas_min_batch is None:
+            thomas_min_batch = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH
+        if ck_chunk_size is None:
+            ck_chunk_size = radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE
         has_partial_coverage_background_cloud = (
             self._has_partial_coverage_background_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
@@ -2784,6 +2815,8 @@ class Radtrans:
             adaptive_feautrier_iterations=adaptive_feautrier_iterations,
             chunk_feautrier=chunk_feautrier,
             feautrier_chunk_size=feautrier_chunk_size,
+            thomas_min_batch=thomas_min_batch,
+            ck_chunk_size=ck_chunk_size,
             frequencies_to_wavelengths=frequencies_to_wavelengths,
             return_contribution=return_contribution,
             return_clear_spectrum=return_clear_spectrum,
@@ -2808,6 +2841,8 @@ class Radtrans:
             "irradiation_geometry",
             "chunk_feautrier",
             "feautrier_chunk_size",
+            "thomas_min_batch",
+            "ck_chunk_size",
             "frequencies_to_wavelengths",
             "patchy_clouds",
             "sum_opacities",
@@ -2865,6 +2900,8 @@ class Radtrans:
         adaptive_feautrier_iterations=False,
         chunk_feautrier=True,
         feautrier_chunk_size=1536,
+        thomas_min_batch=linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
+        ck_chunk_size=radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE,
         frequencies_to_wavelengths=True,
         return_contribution=False,
         return_clear_spectrum=False,
@@ -3016,6 +3053,7 @@ class Radtrans:
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             target_particle_radii=sanitized_inputs["target_particle_radii"],
             target_pressure=sanitized_inputs["target_pressure"],
+            ck_chunk_size=ck_chunk_size,
         )
 
         (
@@ -3046,6 +3084,7 @@ class Radtrans:
             sum_opacities=sum_opacities,
             chunk_feautrier=chunk_feautrier,
             feautrier_chunk_size=feautrier_chunk_size,
+            thomas_min_batch=thomas_min_batch,
         )
 
         # --- Cloud blending for partial coverage ---
@@ -3076,6 +3115,7 @@ class Radtrans:
                     sum_opacities=sum_opacities,
                     chunk_feautrier=chunk_feautrier,
                     feautrier_chunk_size=feautrier_chunk_size,
+                    thomas_min_batch=thomas_min_batch,
                 )
                 flux = lax.cond(
                     jnp.less(cloud_fraction, 1),
@@ -3091,7 +3131,7 @@ class Radtrans:
                     # so it is skipped entirely when cloud_fraction == 1.
                     combined_clear_opacities = (
                         self._combine_deferred_clear_opacities(
-                            clear_opacities, sum_opacities
+                            clear_opacities, sum_opacities, ck_chunk_size
                         )
                     )
                     clear_flux, _, _, _, _ = self._calculate_flux(
@@ -3117,6 +3157,7 @@ class Radtrans:
                         sum_opacities=sum_opacities,
                         chunk_feautrier=chunk_feautrier,
                         feautrier_chunk_size=feautrier_chunk_size,
+                        thomas_min_batch=thomas_min_batch,
                     )
                     return (
                         cloud_fraction * cloudy_flux + (1 - cloud_fraction) * clear_flux
@@ -3248,6 +3289,8 @@ class Radtrans:
         additional_scattering_opacities_function: Callable = None,
         chunk_feautrier: bool = None,
         feautrier_chunk_size: int = None,
+        thomas_min_batch: int = None,
+        ck_chunk_size: int = None,
         frequencies_to_wavelengths: bool = True,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, any]]:
         r"""Autodiff-oriented emission-spectrum API with grouped cloud controls.
@@ -3329,6 +3372,10 @@ class Radtrans:
                 feautrier_chunk_size=feautrier_chunk_size,
             )
         )
+        if thomas_min_batch is None:
+            thomas_min_batch = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH
+        if ck_chunk_size is None:
+            ck_chunk_size = radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE
 
         return self._calculate_flux_kernel(
             pressures=solver_pressures,
@@ -3345,6 +3392,8 @@ class Radtrans:
             additional_scattering_opacities_function=additional_scattering_opacities_function,
             chunk_feautrier=chunk_feautrier,
             feautrier_chunk_size=feautrier_chunk_size,
+            thomas_min_batch=thomas_min_batch,
+            ck_chunk_size=ck_chunk_size,
             frequencies_to_wavelengths=frequencies_to_wavelengths,
             sum_opacities=self._sum_opacities_emission,
             anisotropic_cloud_scattering=self._anisotropic_cloud_scattering_emission,

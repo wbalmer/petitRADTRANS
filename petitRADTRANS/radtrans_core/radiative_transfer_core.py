@@ -3,7 +3,6 @@ JAX implementation of fortran_core.core
 - rayleigh scattering moved to jax_rayleigh_scattering
 """
 
-import os
 from functools import partial
 from typing import Literal, Optional, cast, overload
 
@@ -36,18 +35,17 @@ _UNROLL_SPECIES_LIMIT = 8
 # is dominated by the input opacity array and its transpose (which this chunking
 # does not touch), not the sort buffers it caps. It is therefore an opt-in tool
 # for memory-constrained runs (large frequency grids / heavily vmapped
-# retrievals near the device memory limit) rather than a default. Enable and size
-# it via PRT_CK_CHUNK_SIZE (e.g. 16384-65536); larger chunks regress speed less
-# but cap memory less.
-_CK_CHUNK_SIZE_DEFAULT = int(os.environ.get("PRT_CK_CHUNK_SIZE", "0"))
+# retrievals near the device memory limit) rather than a default. Enable via the
+# ``ck_chunk_size`` argument (e.g. 16384-65536); larger chunks regress speed
+# less but cap memory less.
+DEFAULT_CK_CHUNK_SIZE = 0
 
 # Single source of truth for the Feautrier chunking defaults. Both values are
 # static (compile-time) arguments of the flux kernels: every distinct
 # (chunk_feautrier, feautrier_chunk_size) pair compiles its own kernel, and the
 # chunk size also selects the linear solver variant (see linalg._feautrier_use_thomas).
 # Entry points keep their own fallbacks (memory constraints differ between
-# forward modelling and retrievals); set PRT_FEAUTRIER_CHUNK_SIZE to pin one
-# value process-wide and avoid duplicate compilations when mixing entry points.
+# forward modelling and retrievals).
 DEFAULT_CHUNK_FEAUTRIER = True
 DEFAULT_FEAUTRIER_CHUNK_SIZE = 1536
 
@@ -60,18 +58,15 @@ def resolve_feautrier_chunking(
 ):
     """Resolve the Feautrier chunking settings.
 
-    Precedence: explicit argument > PRT_FEAUTRIER_CHUNK_SIZE environment
-    variable (chunk size only) > caller-supplied fallback. Values are coerced
-    to plain bool/int so the static jit cache keys do not split on equivalent
-    representations (e.g. 1536 vs numpy.int64(1536)).
+    Precedence: explicit argument > caller-supplied fallback. Values are
+    coerced to plain bool/int so the static jit cache keys do not split on
+    equivalent representations (e.g. 1536 vs numpy.int64(1536)).
     """
     if chunk_feautrier is None:
         chunk_feautrier = fallback_chunk_feautrier
 
     if feautrier_chunk_size is None:
-        feautrier_chunk_size = int(
-            os.environ.get("PRT_FEAUTRIER_CHUNK_SIZE", str(fallback_chunk_size))
-        )
+        feautrier_chunk_size = fallback_chunk_size
 
     return bool(chunk_feautrier), int(feautrier_chunk_size)
 
@@ -164,7 +159,7 @@ def _combine_ck_opacities_jax(
     g_combination_weights: Optional[ArrayLike] = None,
     g_combination_weights_sum: Optional[ArrayLike] = None,
     input_layout: str = "ng_f_s_l",
-    ck_chunk_size: int = _CK_CHUNK_SIZE_DEFAULT,
+    ck_chunk_size: int = DEFAULT_CK_CHUNK_SIZE,
 ) -> ArrayLike:
     """
     Combines correlated-k opacities across species.
@@ -505,6 +500,7 @@ def combine_ck_opacities(
     g_combination_weights: Optional[ArrayLike] = None,
     g_combination_weights_sum: Optional[ArrayLike] = None,
     input_layout: str = "ng_f_s_l",
+    ck_chunk_size: int = DEFAULT_CK_CHUNK_SIZE,
 ) -> ArrayLike:
     """Combine correlated-k opacities across species.
 
@@ -512,6 +508,11 @@ def combine_ck_opacities(
     custom call) and the JAX implementation for reverse-mode
     differentiation. Non-CPU backends use the pure JAX implementation for both
     forward and backward execution.
+
+    ``ck_chunk_size`` only affects the pure-JAX path (non-CPU backends, or the
+    reverse-mode VJP of the FFI forward pass): it caps the peak memory of the
+    per-species combination by processing the (frequency, layer) cells in
+    chunks. A non-positive value (the default) disables chunking.
     """
     if g_combination_weights is None or g_combination_weights_sum is None:
         if weights_gauss is None:
@@ -551,6 +552,7 @@ def combine_ck_opacities(
         g_combination_weights=g_combination_weights,
         g_combination_weights_sum=g_combination_weights_sum,
         input_layout=input_layout,
+        ck_chunk_size=ck_chunk_size,
     )
 
 
@@ -891,6 +893,7 @@ def _compute_feautrier_radiative_transfer_chunk(
     return_solver_diagnostics: Literal[False] = False,
     iter_scat_max: int = 100,
     convergence_threshold: float = 1e-2,
+    thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike]: ...
 
 
@@ -913,6 +916,7 @@ def _compute_feautrier_radiative_transfer_chunk(
     return_solver_diagnostics: Literal[True] = True,
     iter_scat_max: int = 100,
     convergence_threshold: float = 1e-2,
+    thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]: ...
 
 
@@ -923,6 +927,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         "return_contribution",
         "return_solver_diagnostics",
         "iter_scat_max",
+        "thomas_min_batch",
     )
 )
 def _compute_feautrier_radiative_transfer_chunk(
@@ -943,6 +948,7 @@ def _compute_feautrier_radiative_transfer_chunk(
     return_solver_diagnostics: bool = False,
     iter_scat_max: int = 100,
     convergence_threshold: float = 1e-2,
+    thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> (
     tuple[ArrayLike, ArrayLike, ArrayLike]
     | tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]
@@ -1180,6 +1186,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         n_gf,
         n_angles,
         n_layers,
+        thomas_min_batch=thomas_min_batch,
     )
 
     # loop-invariant ALI intermediates precomputed once.
@@ -1213,6 +1220,7 @@ def _compute_feautrier_radiative_transfer_chunk(
             n_gf,
             n_angles,
             n_layers,
+            thomas_min_batch=thomas_min_batch,
         )
 
         d1_surf = f_surface_ga * (x_last_ga - x_nm2_ga)
@@ -1743,6 +1751,7 @@ def compute_feautrier_radiative_transfer(
     convergence_threshold: float = 1e-2,
     chunk_feautrier: bool = True,
     feautrier_chunk_size: int = 1536,
+    thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike]: ...
 
 
@@ -1767,6 +1776,7 @@ def compute_feautrier_radiative_transfer(
     convergence_threshold: float = 1e-2,
     chunk_feautrier: bool = True,
     feautrier_chunk_size: int = 1536,
+    thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]: ...
 
 
@@ -1779,6 +1789,7 @@ def compute_feautrier_radiative_transfer(
         "iter_scat_max",
         "chunk_feautrier",
         "feautrier_chunk_size",
+        "thomas_min_batch",
     )
 )
 def compute_feautrier_radiative_transfer(
@@ -1801,6 +1812,7 @@ def compute_feautrier_radiative_transfer(
     convergence_threshold: float = 1e-2,
     chunk_feautrier: bool = True,
     feautrier_chunk_size: int = 1536,
+    thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> (
     tuple[ArrayLike, ArrayLike, ArrayLike]
     | tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]
@@ -1847,6 +1859,9 @@ def compute_feautrier_radiative_transfer(
         solver to reduce peak memory use.
     feautrier_chunk_size : int, optional
         Number of frequency bins per chunk when chunking is enabled.
+    thomas_min_batch : int, optional
+        Batch size (``n_gf * n_angles``) above which the Thomas-factorisation
+        solver path is used over PCR on GPU. See :func:`linalg._feautrier_use_thomas`.
 
     Returns
     -------
@@ -1878,6 +1893,7 @@ def compute_feautrier_radiative_transfer(
             return_solver_diagnostics=return_solver_diagnostics,
             iter_scat_max=iter_scat_max,
             convergence_threshold=convergence_threshold,
+            thomas_min_batch=thomas_min_batch,
         )
 
     if feautrier_chunk_size <= 0:
@@ -1990,6 +2006,7 @@ def compute_feautrier_radiative_transfer(
                     return_solver_diagnostics=True,
                     iter_scat_max=iter_scat_max,
                     convergence_threshold=convergence_threshold,
+                    thomas_min_batch=thomas_min_batch,
                 )
 
                 return None, (
@@ -2046,6 +2063,7 @@ def compute_feautrier_radiative_transfer(
                     return_solver_diagnostics=True,
                     iter_scat_max=iter_scat_max,
                     convergence_threshold=convergence_threshold,
+                    thomas_min_batch=thomas_min_batch,
                 )
 
                 return None, (
@@ -2098,6 +2116,7 @@ def compute_feautrier_radiative_transfer(
                         return_solver_diagnostics=False,
                         iter_scat_max=iter_scat_max,
                         convergence_threshold=convergence_threshold,
+                        thomas_min_batch=thomas_min_batch,
                     ),
                 )
 
@@ -2153,6 +2172,7 @@ def compute_feautrier_radiative_transfer(
                         return_solver_diagnostics=False,
                         iter_scat_max=iter_scat_max,
                         convergence_threshold=convergence_threshold,
+                        thomas_min_batch=thomas_min_batch,
                     )
                 )
 

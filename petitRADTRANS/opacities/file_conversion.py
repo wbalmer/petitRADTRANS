@@ -2888,7 +2888,7 @@ def _sort_pressure_temperature_grid(pressure_temperature_grid_file):
     return [sorted_grid[:, :-1][:, ::-1], names_sorted, n_temperatures, n_pressures]
 
 
-def bin_species_exok(species: list[str], resolution: float):
+def bin_species_exok(species: list[str], resolution: float, disable_mpi: bool = False):
     """
     This function uses exo-k to bin the c-k table of a
     multiple species to a desired (lower) spectral resolution.
@@ -2898,6 +2898,8 @@ def bin_species_exok(species: list[str], resolution: float):
             The name of the species
         resolution : int
             The desired spectral resolving power.
+        disable_mpi : bool
+            If True, skip MPI context detection and run as a single process.
     """
     from petitRADTRANS.config import petitradtrans_config_parser
 
@@ -2913,7 +2915,10 @@ def bin_species_exok(species: list[str], resolution: float):
         print(f" Re-binned opacities: '{ck_paths[-1]}'")
 
     rebin_multiple_ck_line_opacities(
-        target_resolving_power=int(resolution), paths=ck_paths, species=species
+        target_resolving_power=int(resolution),
+        paths=ck_paths,
+        species=species,
+        disable_mpi=disable_mpi,
     )
 
 
@@ -4338,9 +4343,13 @@ def load_exocross(
 
 
 def rebin_ck_line_opacities(
-    input_file, target_resolving_power, wavenumber_grid=None, rewrite=False
+    input_file,
+    target_resolving_power,
+    wavenumber_grid=None,
+    rewrite=False,
+    disable_mpi=False,
 ):
-    _, comm, rank = _get_mpi_context()
+    _, comm, rank = _get_mpi_context(disable_mpi=disable_mpi)
 
     from .correlated_k_binning import Ktable
 
@@ -4409,7 +4418,7 @@ def rebin_ck_line_opacities(
 
 
 def rebin_multiple_ck_line_opacities(
-    target_resolving_power, paths=None, species=None, rewrite=False
+    target_resolving_power, paths=None, species=None, rewrite=False, disable_mpi=False
 ):
     if species is None:
         species = []
@@ -4443,6 +4452,7 @@ def rebin_multiple_ck_line_opacities(
             target_resolving_power=target_resolving_power,
             wavenumber_grid=wavenumber_grid,
             rewrite=rewrite,
+            disable_mpi=disable_mpi,
         )
 
         if state is None:

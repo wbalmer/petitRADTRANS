@@ -203,7 +203,7 @@ def load_hdf5_line_opacity_table(
     return _line_opacities_grid
 
 
-def get_line_opacity_file(path_input_data, species, category):
+def get_line_opacity_file(path_input_data, species, category, disable_mpi=False):
     hdf5_file = None
 
     # Handle bin-down of correlated-k opacities
@@ -284,6 +284,7 @@ def get_line_opacity_file(path_input_data, species, category):
                     target_resolving_power=target_resolving_power,
                     wavenumber_grid=None,
                     rewrite=False,
+                    disable_mpi=disable_mpi,
                 )
 
                 if state == -1:
@@ -415,9 +416,13 @@ def _get_default_rebinning_wavelength_range():
 
 
 def rebin_ck_line_opacities(
-    input_file, target_resolving_power, wavenumber_grid=None, rewrite=False
+    input_file,
+    target_resolving_power,
+    wavenumber_grid=None,
+    rewrite=False,
+    disable_mpi=False,
 ):
-    _, comm, rank = _get_mpi_context()
+    _, comm, rank = _get_mpi_context(disable_mpi=disable_mpi)
 
     try:
         import exo_k
@@ -493,7 +498,7 @@ def rebin_ck_line_opacities(
 
 
 def rebin_multiple_ck_line_opacities(
-    target_resolving_power, paths=None, species=None, rewrite=False
+    target_resolving_power, paths=None, species=None, rewrite=False, disable_mpi=False
 ):
     if species is None:
         species = []
@@ -527,6 +532,7 @@ def rebin_multiple_ck_line_opacities(
             target_resolving_power=target_resolving_power,
             wavenumber_grid=wavenumber_grid,
             rewrite=rewrite,
+            disable_mpi=disable_mpi,
         )
 
         if state is None:

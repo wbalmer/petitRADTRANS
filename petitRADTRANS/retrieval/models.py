@@ -4118,10 +4118,8 @@ def calculate_emission_spectrum_runtime(
     # ~48 GiB allocation that exhausted the 40 GB A100 (job 1860410). The
     # Feautrier driver chunks the frequency axis with lax.scan -- exact and
     # reverse-mode differentiable -- so a smaller chunk size cuts the per-chunk
-    # peak roughly proportionally. Tunable via PRT_FEAUTRIER_CHUNK_SIZE so the
-    # CPU/GPU runs can trade memory against the (modest) extra scan overhead
-    # without editing code. A value supplied via RetrievalConfig (carried on the
-    # ModelContext) takes precedence over the environment variable.
+    # peak roughly proportionally. A value supplied via RetrievalConfig (carried
+    # on the ModelContext) takes precedence over the fallback below.
     _, feautrier_chunk_size = radiative_transfer_core.resolve_feautrier_chunking(
         chunk_feautrier=model_context.chunk_feautrier,
         feautrier_chunk_size=model_context.feautrier_chunk_size,

@@ -1,5 +1,4 @@
 import math
-import os
 from functools import partial
 
 from jax import default_backend
@@ -39,15 +38,15 @@ _USE_GPU = default_backend() != "cpu"
 #
 # The full-loop crossover on an A100 sits below batch ~24k for scattering
 # (multiple solves); 16384 routes production-scale and medium batches to the
-# assoc path while leaving tiny batches on PCR. Tunable via
-# PRT_FEAUTRIER_THOMAS_MIN_BATCH (huge value forces PCR everywhere; 0 forces the
+# assoc path while leaving tiny batches on PCR. Tunable via the
+# ``thomas_min_batch`` argument (huge value forces PCR everywhere; 0 forces the
 # Thomas-factor/assoc path everywhere).
-_FEAUTRIER_THOMAS_MIN_BATCH = int(
-    os.environ.get("PRT_FEAUTRIER_THOMAS_MIN_BATCH", "16384")
-)
+DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH = 16384
 
 
-def _feautrier_use_thomas(n_gf: int, n_angles: int) -> bool:
+def _feautrier_use_thomas(
+    n_gf: int, n_angles: int, thomas_min_batch: int = DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH
+) -> bool:
     """Whether to use the Thomas-factorisation Feautrier path over PCR.
 
     The Thomas factorisation (``prepare``) feeds either the sequential scan solve
@@ -60,7 +59,7 @@ def _feautrier_use_thomas(n_gf: int, n_angles: int) -> bool:
     """
     if not _USE_GPU:
         return True
-    return (n_gf * n_angles) >= _FEAUTRIER_THOMAS_MIN_BATCH
+    return (n_gf * n_angles) >= thomas_min_batch
 
 
 @jit
@@ -375,6 +374,7 @@ def prepare_feautrier_system_lm(
     n_gf,
     n_angles,
     n_layers,
+    thomas_min_batch: int = DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ):
     """Build the per-chunk Feautrier solver state, Lambda diagonal and surface
     stencil coefficient from layer-major delta-optical-depths.
@@ -386,7 +386,7 @@ def prepare_feautrier_system_lm(
     """
     prepare = (
         _prepare_feautrier_system_lm_cpu
-        if _feautrier_use_thomas(n_gf, n_angles)
+        if _feautrier_use_thomas(n_gf, n_angles, thomas_min_batch)
         else _prepare_feautrier_system_lm_gpu
     )
     return prepare(
@@ -644,6 +644,7 @@ def solve_feautrier_system_lm(
     n_gf,
     n_angles,
     n_layers,
+    thomas_min_batch: int = DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ):
     """Solve the prepared layer-major Feautrier system for one source iterate.
 
@@ -664,7 +665,7 @@ def solve_feautrier_system_lm(
       ``prepare`` wins the full prepare+solve loop when the batch is too small to
       amortise the Thomas factorisation.
     """
-    if _feautrier_use_thomas(n_gf, n_angles):
+    if _feautrier_use_thomas(n_gf, n_angles, thomas_min_batch):
         solve = (
             _solve_feautrier_system_lm_assoc
             if _USE_GPU

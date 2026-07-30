@@ -69,6 +69,7 @@ def compute_combined_opacities(
     g_combination_weights=None,
     g_combination_weights_sum=None,
     input_layout="ng_f_s_l",
+    ck_chunk_size=radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE,
 ):
     if line_opacity_mode == "c-k" and sum_opacities:
         # Similar to the line-by-line case below, if sum_opacities is True, we will put the total opacity
@@ -83,6 +84,7 @@ def compute_combined_opacities(
             g_combination_weights=g_combination_weights,
             g_combination_weights_sum=g_combination_weights_sum,
             input_layout=input_layout,
+            ck_chunk_size=ck_chunk_size,
         )
 
     # Combine line opacities with continuum opacities, apply line opacity mass fraction weighting
@@ -109,6 +111,7 @@ def combine_ck_opacities(
     g_combination_weights=None,
     g_combination_weights_sum=None,
     input_layout="ng_f_s_l",
+    ck_chunk_size=radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE,
 ):
     combined_opacities = radiative_transfer_core.combine_ck_opacities(
         opacities,
@@ -119,6 +122,7 @@ def combine_ck_opacities(
         g_combination_weights=g_combination_weights,
         g_combination_weights_sum=g_combination_weights_sum,
         input_layout=input_layout,
+        ck_chunk_size=ck_chunk_size,
     )
 
     return combined_opacities[:, :, None, :]
