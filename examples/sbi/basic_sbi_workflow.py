@@ -18,9 +18,15 @@ grouped configuration dataclasses (:class:`FlowConfig`, :class:`EncoderConfig`,
 ``advanced_sbi_features.py`` for the lower-level building blocks that
 :func:`run_sbi` orchestrates.
 
-The forward model here is a fast analytic toy so the example runs in a couple of
-minutes on a laptop; it is a reference for the control flow and the API, not for
-a scientifically meaningful retrieval.
+The forward model here is a fast analytic toy, and the synthetic observation is
+deliberately low signal-to-noise (8 spectral points at sigma = 0.3), so the whole
+workflow finishes in a few minutes on a laptop. That matters for more than
+runtime: the number of simulations a run needs is driven by how narrow the
+posterior is relative to the prior. A high-SNR observation whose posterior
+occupies ~1% of the prior range per parameter needs of order 1e6 simulations
+before the flow can resolve it -- see the transmission/emission benchmarks for
+that regime. Treat this script as a reference for the control flow and the API,
+not as a guide to simulation budgets.
 
 .. warning::
 
@@ -54,16 +60,16 @@ from petitRADTRANS.experimental.sbi import (
 tfpd = tfp.distributions
 
 OBSERVATION_NAME = 'synthetic_spectrum'
-WAVELENGTHS = np.linspace(1.0, 2.5, 24)
+WAVELENGTHS = np.linspace(1.0, 2.5, 8)
 
 # Ground truth behind the synthetic observation, so the recovered posterior can
 # be compared against a known answer at the end of the run.
 TRUTH_PARAMETER_VALUES: dict[str, float] = {
     'amplitude': 1.30,
-    'tilt': 0.40,
-    'line_depth': 0.25,
+    'tilt': 0.20,
+    'line_depth': 0.30,
 }
-NOISE_SIGMA = 0.01
+NOISE_SIGMA = 0.3
 
 
 def synthetic_spectrum_model(
@@ -86,7 +92,7 @@ def synthetic_spectrum_model(
 
     wavelengths = jnp.asarray(WAVELENGTHS)
     continuum = amplitude + tilt * (wavelengths - 1.75)
-    line = line_depth * jnp.exp(-0.5 * ((wavelengths - 1.60) / 0.06) ** 2)
+    line = line_depth * jnp.exp(-0.5 * ((wavelengths - 1.65) / 0.25) ** 2)
     return ModelResult(
         kind='spectrum',
         wavelengths=wavelengths,
@@ -117,10 +123,10 @@ def build_retrieval_config(observed_spectrum: np.ndarray) -> RetrievalConfig:
         'amplitude', is_free_parameter=True, distribution=tfpd.Uniform(low=0.5, high=2.0)
     )
     configuration.add_parameter(
-        'tilt', is_free_parameter=True, distribution=tfpd.Uniform(low=-1.0, high=1.0)
+        'tilt', is_free_parameter=True, distribution=tfpd.Uniform(low=-0.5, high=0.5)
     )
     configuration.add_parameter(
-        'line_depth', is_free_parameter=True, distribution=tfpd.Uniform(low=0.0, high=0.6)
+        'line_depth', is_free_parameter=True, distribution=tfpd.Uniform(low=0.0, high=0.5)
     )
 
     configuration.add_data(
@@ -147,8 +153,8 @@ def main() -> None:
             # --- simulation budget -------------------------------------
             # Real problems need 1e6+ simulations; this toy model is cheap
             # and low-dimensional, so a small bank suffices.
-            n_simulations=4096,
-            simulation_batch_size=256,
+            n_simulations=8192,
+            simulation_batch_size=512,
             # The toy spectrum is strictly positive, so reject any draw that
             # is not (this is the prior-predictive admissibility constraint).
             observation_value_constraint=ObservationValueConstraint(
@@ -160,21 +166,31 @@ def main() -> None:
             # the posterior becomes.
             flow=FlowConfig(
                 family='spline',
-                num_transforms=6,
+                num_transforms=4,
+                hidden_dim=64,
                 num_spline_bins=8,
                 base_distribution='logistic',
             ),
-            encoder=EncoderConfig(embedding_dim=32, spectrum_embedding_dim=32, hidden_dim=64),
+            encoder=EncoderConfig(embedding_dim=24, spectrum_embedding_dim=24, hidden_dim=32),
             training=TrainingConfig(
-                num_epochs=30,
-                batch_size=256,
-                learning_rate=1e-3,
-                lr_schedule_total_epochs=30.0,
+                # ~13k training simulations at batch 128 is ~100 gradient
+                # steps per epoch: the total step count is what matters, and a
+                # few hundred steps is nowhere near enough to resolve a
+                # posterior this much narrower than the prior.
+                num_epochs=40,
+                batch_size=128,
+                learning_rate=2e-3,
+                lr_schedule_total_epochs=40.0,
             ),
             # --- validation / reporting budget --------------------------
-            n_posterior_samples=1024,
-            n_predictive_forward_model_samples=64,
-            validation_max_cases=16,
+            n_posterior_samples=512,
+            n_predictive_forward_model_samples=32,
+            validation_max_cases=8,
+            # Per-epoch diagnostic artifacts and per-checkpoint guardrail
+            # inferences are valuable on real runs but dominate the cost of a
+            # toy one.
+            verbose_training_diagnostics=False,
+            save_checkpoint_guardrails=False,
             truth_parameter_values=TRUTH_PARAMETER_VALUES,
         )
 
@@ -186,16 +202,41 @@ def main() -> None:
             print(f'  {path.name}')
 
         summary = json.loads((run_root / 'amortized_summary.json').read_text())
-        print('\nRecovered posterior vs truth:')
-        for name, statistics in summary['posterior_summary'].items():
-            truth = TRUTH_PARAMETER_VALUES.get(name)
-            mean, std = statistics['mean'], statistics['std']
-            deviation = '' if truth is None else f'  ({abs(mean - truth) / max(std, 1e-12):.1f} sigma from truth)'
-            print(f'  {name:12s} {mean:+.3f} +- {std:.3f}   truth {truth}{deviation}')
 
+        # ``posterior_summary`` holds the p16/median/p84 credible interval per
+        # parameter, plus the truth value when ``truth_parameter_values`` was
+        # supplied -- so the run reports its own accuracy.
+        print('\nRecovered posterior (median with 68% interval) vs truth:')
+        for name, statistics in summary['posterior_summary'].items():
+            median = statistics['median']
+            minus = median - statistics['p16']
+            plus = statistics['p84'] - median
+            truth = statistics['truth']
+            if truth is None:
+                print(f'  {name:12s} {median:+.3f} -{minus:.3f}/+{plus:.3f}')
+                continue
+            sigma = max(0.5 * (minus + plus), 1e-12)
+            print(
+                f'  {name:12s} {median:+.3f} -{minus:.3f}/+{plus:.3f}'
+                f'   truth {truth:+.3f}  ({abs(median - truth) / sigma:.1f} sigma)'
+            )
+
+        # Simulation-based calibration: a well-calibrated posterior gives
+        # uniform ranks, i.e. a normalized mean-rank error near 0.
         print(
-            '\nSBC normalized mean-rank error (0 = perfectly calibrated):',
-            np.round(summary['sbc_normalized_mean_rank_error'], 3),
+            '\nSBC normalized mean-rank error (0 = calibrated):',
+            dict(
+                zip(
+                    summary['parameter_names'],
+                    np.round(summary['sbc_normalized_mean_rank_error'], 3),
+                )
+            ),
+        )
+        predictive = summary['target_predictive_summary']
+        print(
+            'Target posterior-predictive: '
+            f"MAE {predictive['mean_absolute_error_sigma'][OBSERVATION_NAME]:.2f} sigma, "
+            f"90% interval coverage {predictive['interval_coverage'][OBSERVATION_NAME]:.2f}"
         )
 
 
