@@ -36,5 +36,5 @@ I have read and agree with pRT's AI usage policy for co-developers:
 - Paul Mollière
 - David Hägele
 - Beatriz Campos Estrada
-
+- Evert Nasedkin
 
