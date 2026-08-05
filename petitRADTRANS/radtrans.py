@@ -76,11 +76,20 @@ _MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=WORKING_JAX_DTYPE)
 
 def _convert_scalar_to_strong_type(value):
     """Normalize an optional numeric scalar to a strongly-typed jnp array.
-
-    Python floats/ints and numpy scalars produce weak/strong avals that differ
-    between call sites, splitting the jit cache. None passes through unchanged
-    (kernels branch on it eagerly).
+    Some nominal values for optional keyword arguments of functions are defined as weakly typed
+    Python floats, say. Depending on what kind of scalar the user gives to the function
+    (Python weakly typed, strongly typed, different precision, etc.) this may cause a recompilation.
+    Converting all scalars to strongly typed (length 1) JAX arrays before passing them
+    to the jit compiled kernel inside a function circumvents this issue.
+    None passes through unchanged (this is taken care of in the sanitizing functions
+    inside the kernels).
     """
+
+    # TODO discus with Evert:
+    #     According to Claude repeated calls of this functions in every model call (say ~10 times, and
+    #     outside of git, which is what happens in the functions below) may add up to 0.5 ms.
+    #     So we may start feeling this in our fastest forward models on the GPU.
+
     if value is None:
         return None
 
@@ -88,6 +97,11 @@ def _convert_scalar_to_strong_type(value):
 
 
 def _handle_invalid_reference_gravity(reference_gravity):
+    '''Raises an error if the reference gravity is negative.
+    '''
+    # Such a check raising an error can only work outside the jitted function
+    # and is therefore not done in the actually jitted function kernels.
+    # (debug.callbacks are an option, but these are slow.)
     if reference_gravity <= 0:
         raise ValueError(
             f"reference gravity must be > 0, but was {reference_gravity}"
@@ -741,6 +755,13 @@ class Radtrans:
     ):
         """Initializations and checks common to calculate_flux and calculate_transit_radii."""
 
+        # TODO discuss with Evert
+        # Caution, this can be slow if running in a jitted environment on a GPU
+        # since GPU<->host communication has to happen at every step.
+        # Claude suggests a validate_inputs=False flag that turns off all
+        # such checks if specifically requested (could also be used for
+        # _convert_scalar_to_strong_type, sanitizing operations (with a different
+        # flag though...)
         if isinstance(reference_gravity, jax_core.Tracer):
             debug.callback(_handle_invalid_reference_gravity, reference_gravity)
         else:
