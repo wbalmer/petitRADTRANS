@@ -8,6 +8,8 @@ other numerically sensitive kernels that should honor ``jax_enable_x64``.
 ``FEAUTRIER_JAX_DTYPE`` while the codebase is migrated to explicit per-surface
 dtype choices.
 """
+# TODO discuss before dev merge: what is meant by "while the codebase is migrated to explicit per-surface
+# dtype choices." Adapt comments to be not look so agent-like...
 
 from jax import config
 import jax.numpy as jnp

@@ -52,18 +52,29 @@ from petitRADTRANS.validation import (
     _warn_partial_cloud_coverage_without_patchy_clouds,
 )
 
+# TODO confirm comment with Evert
+# pRT does its computation at single precision, where possible,
+# achieving a higher speed and smaller memory footprint
+# (WORKING_JAX_DTYPE). FEAUTRIER_JAX_DTYPE is jnp.float64
+# if config.jax_enable_x64 is True. In general JAX_DTYPE = FEAUTRIER_JAX_DTYPE
 from petitRADTRANS.jax_dtype import (
     FEAUTRIER_JAX_DTYPE,
     JAX_DTYPE,
     WORKING_JAX_DTYPE,
 )
 
-# JAX-friendly sentinels and helpers for optional inputs
+# TODO confirm comment with Evert
+# JAX functions below may have "sanitized inputs", ensuring that
+# the inputs into traced functions always looks the same
+# (especially important for keyword arguments
+# that may sometimes be None and sometimes be something else). Empty keyword
+# values use these _MISSING_X variables to fill optional keyword arguments
+# with something JAX can easily handle.
 _MISSING_FLOAT = jnp.array(-1.0, dtype=WORKING_JAX_DTYPE)
 _MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=WORKING_JAX_DTYPE)
 
 
-def _as_kernel_scalar(value):
+def _convert_scalar_to_strong_type(value):
     """Normalize an optional numeric scalar to a strongly-typed jnp array.
 
     Python floats/ints and numpy scalars produce weak/strong avals that differ
@@ -2782,9 +2793,9 @@ class Radtrans:
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=_as_kernel_scalar(reference_gravity),
-            planet_radius=_as_kernel_scalar(planet_radius),
-            opaque_cloud_top_pressure=_as_kernel_scalar(opaque_cloud_top_pressure),
+            reference_gravity=_convert_scalar_to_strong_type(reference_gravity),
+            planet_radius=_convert_scalar_to_strong_type(planet_radius),
+            opaque_cloud_top_pressure=_convert_scalar_to_strong_type(opaque_cloud_top_pressure),
             cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_particle_radius_distribution=cloud_particle_radius_distribution,
@@ -2794,20 +2805,20 @@ class Radtrans:
             clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-            haze_factor=_as_kernel_scalar(haze_factor),
-            power_law_opacity_350nm=_as_kernel_scalar(power_law_opacity_350nm),
-            power_law_opacity_coefficient=_as_kernel_scalar(power_law_opacity_coefficient),
-            gray_opacity=_as_kernel_scalar(gray_opacity),
+            haze_factor=_convert_scalar_to_strong_type(haze_factor),
+            power_law_opacity_350nm=_convert_scalar_to_strong_type(power_law_opacity_350nm),
+            power_law_opacity_coefficient=_convert_scalar_to_strong_type(power_law_opacity_coefficient),
+            gray_opacity=_convert_scalar_to_strong_type(gray_opacity),
             cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
-            cloud_photosphere_median_optical_depth=_as_kernel_scalar(cloud_photosphere_median_optical_depth),
-            cloud_fraction=_as_kernel_scalar(cloud_fraction),
+            cloud_photosphere_median_optical_depth=_convert_scalar_to_strong_type(cloud_photosphere_median_optical_depth),
+            cloud_fraction=_convert_scalar_to_strong_type(cloud_fraction),
             patchy_clouds=patchy_clouds,
             irradiation_geometry=irradiation_geometry,
             stellar_intensities=stellar_intensities,
-            star_effective_temperature=_as_kernel_scalar(star_effective_temperature),
-            star_radius=_as_kernel_scalar(star_radius),
-            orbit_semi_major_axis=_as_kernel_scalar(orbit_semi_major_axis),
-            star_irradiation_angle=_as_kernel_scalar(star_irradiation_angle),
+            star_effective_temperature=_convert_scalar_to_strong_type(star_effective_temperature),
+            star_radius=_convert_scalar_to_strong_type(star_radius),
+            orbit_semi_major_axis=_convert_scalar_to_strong_type(orbit_semi_major_axis),
+            star_irradiation_angle=_convert_scalar_to_strong_type(star_irradiation_angle),
             reflectances=reflectances,
             emissivities=emissivities,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
@@ -3382,7 +3393,7 @@ class Radtrans:
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=_as_kernel_scalar(reference_gravity),
+            reference_gravity=_convert_scalar_to_strong_type(reference_gravity),
             irradiation_geometry=irradiation_geometry,
             stellar_intensities=stellar_intensities,
             star_irradiation_angle=star_irradiation_angle,
@@ -3920,11 +3931,11 @@ class Radtrans:
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=_as_kernel_scalar(reference_gravity),
-            reference_pressure=_as_kernel_scalar(reference_pressure),
-            planet_radius=_as_kernel_scalar(planet_radius),
+            reference_gravity=_convert_scalar_to_strong_type(reference_gravity),
+            reference_pressure=_convert_scalar_to_strong_type(reference_pressure),
+            planet_radius=_convert_scalar_to_strong_type(planet_radius),
             variable_gravity=variable_gravity,
-            opaque_cloud_top_pressure=_as_kernel_scalar(opaque_cloud_top_pressure),
+            opaque_cloud_top_pressure=_convert_scalar_to_strong_type(opaque_cloud_top_pressure),
             cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_particle_radius_distribution=cloud_particle_radius_distribution,
@@ -3934,11 +3945,11 @@ class Radtrans:
             clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-            haze_factor=_as_kernel_scalar(haze_factor),
-            power_law_opacity_350nm=_as_kernel_scalar(power_law_opacity_350nm),
-            power_law_opacity_coefficient=_as_kernel_scalar(power_law_opacity_coefficient),
-            gray_opacity=_as_kernel_scalar(gray_opacity),
-            cloud_fraction=_as_kernel_scalar(cloud_fraction),
+            haze_factor=_convert_scalar_to_strong_type(haze_factor),
+            power_law_opacity_350nm=_convert_scalar_to_strong_type(power_law_opacity_350nm),
+            power_law_opacity_coefficient=_convert_scalar_to_strong_type(power_law_opacity_coefficient),
+            gray_opacity=_convert_scalar_to_strong_type(gray_opacity),
+            cloud_fraction=_convert_scalar_to_strong_type(cloud_fraction),
             patchy_clouds=patchy_clouds,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function,
