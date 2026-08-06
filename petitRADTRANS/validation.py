@@ -399,7 +399,7 @@ def _sanitize_flux_opacity_inputs(
     cloud_species,
     missing_float,
     missing_neg_inf,
-    noop_opacity_fn: Callable,
+    additional_opacities_placeholder_fn: Callable,
 ):
     if cloud_f_sed is None:
         cloud_f_sed_norm = {}
@@ -484,12 +484,12 @@ def _sanitize_flux_opacity_inputs(
         "additional_absorption_opacities_function": (
             additional_absorption_opacities_function
             if additional_absorption_opacities_function is not None
-            else noop_opacity_fn
+            else additional_opacities_placeholder_fn
         ),
         "additional_scattering_opacities_function": (
             additional_scattering_opacities_function
             if additional_scattering_opacities_function is not None
-            else noop_opacity_fn
+            else additional_opacities_placeholder_fn
         ),
         "target_particle_radii": (
             None

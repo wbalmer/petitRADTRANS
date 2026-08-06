@@ -108,8 +108,11 @@ def _handle_invalid_reference_gravity(reference_gravity):
         )
 
 
-def _noop_opacity_fn(wavelengths, pressures):
-    """Return zero opacity matrix with shape (n_wavelengths, n_pressures)."""
+def _additional_opacities_placeholder_fn(wavelengths, pressures):
+    """Returns a zero opacity matrix with shape (n_wavelengths, n_pressures).
+    This is needed for the input normalization (in functions _sanitize_*)
+    in the case that a user does not specify an additional_absorption_opacities_function
+    or additional_scattering_opacities_function."""
     return jnp.zeros((wavelengths.size, pressures.size), dtype=WORKING_JAX_DTYPE)
 
 
@@ -2990,7 +2993,7 @@ class Radtrans:
             cloud_species=self._cloud_species,
             missing_float=_MISSING_FLOAT,
             missing_neg_inf=_MISSING_NEG_INF,
-            noop_opacity_fn=_noop_opacity_fn,
+            additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]
@@ -3650,7 +3653,7 @@ class Radtrans:
             cloud_species=self._cloud_species,
             missing_float=_MISSING_FLOAT,
             missing_neg_inf=_MISSING_NEG_INF,
-            noop_opacity_fn=_noop_opacity_fn,
+            additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
 
         # No photospheric cloud in Rosseland or Planck opacities
@@ -4079,7 +4082,7 @@ class Radtrans:
             cloud_species=self._cloud_species,
             missing_float=_MISSING_FLOAT,
             missing_neg_inf=_MISSING_NEG_INF,
-            noop_opacity_fn=_noop_opacity_fn,
+            additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]
