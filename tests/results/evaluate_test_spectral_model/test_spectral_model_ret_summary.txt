@@ -1,12 +1,13 @@
 test_spectral_model
-2025-05-27, 18:14:35
-pRT v3.2.0a34
-/Users/nasedkin/python-packages/petitRADTRANS/tests/results
-Live points: 15
+2026-08-06, 10:24:49
+pRT v4.0.0b1
+/Users/molliere/Documents/pRT_source/petitRADTRANS/tests/results
+
+Sampler
 
 Fixed Parameters
-    line_species = ['1H2-16O__POKAZATEL.R1e6_2.3-2.3mu', 'C-O-NatAbund__HITEMP.R1e6_2.3-2.3mu']
-    cloud_species = []
+    line_species = ('1H2-16O__POKAZATEL.R1e6_2.3-2.3mu', 'C-O-NatAbund__HITEMP.R1e6_2.3-2.3mu')
+    cloud_species = ()
 Free Parameters, Prior^-1(0), Prior^-1(1)
     temperature = 500.000100, 1499.999900
     CO-NatAbund = -6.000000, -1.000000
@@ -19,18 +20,20 @@ Free Parameters, Prior^-1(0), Prior^-1(1)
 Data
 data_1
     Model Function = model_generating_function
-    distance = 3.0856775814913675e+19
 
-Multinest Outputs
-  marginal evidence:
-    log Z = -6.0 +- 0.0
-    ln Z = -13.8 +- 0.1
-  Statistical Fit Parameters
-    temperature    1187 +- 25
-    CO-NatAbund    -3.7 +- 1.3
-    H2O            -3.0 +- 1.4
-    log10_opaque_cloud_top_pressure0.1 +- 1.3
-    radial_velocity_semi_amplitude14145159 +- 2876590
-    rest_frame_velocity_shift-154018 +- 19806
-    mid_transit_time-5 +- 22
+Model Comparison Statistics
+    log_likelihood = -0.0532577
+    𝛘^2/n_wlen = 11.98
+    𝛘^2/DoF = 12.02
+    BIC = 53.9161
+    AIC = 14.1065
+    BPICS = 16.5942
 
+Best Fit Parameters
+    temperature = 1.194e+03
+    CO-NatAbund = -4.793e+00
+    H2O = -4.902e+00
+    log10_opaque_cloud_top_pressure = 3.693e-01
+    radial_velocity_semi_amplitude = 1.755e+07
+    rest_frame_velocity_shift = -1.541e+05
+    mid_transit_time = -1.932e+00

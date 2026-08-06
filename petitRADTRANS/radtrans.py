@@ -117,7 +117,7 @@ def _additional_opacities_placeholder_fn(wavelengths, pressures):
 
 
 def _interpolate_linear_sorted(x_grid, y_grid, x_query):
-    """Linearly interpolate ``y(x)`` on a sorted 1D grid for a scalar query."""
+    """Linearly interpolate ``y(x)`` on a sorted 1D grid for to evaluate estimate y(x_query)."""
     upper_index = jnp.clip(
         jnp.searchsorted(x_grid, x_query, side="left"),
         1,
@@ -130,9 +130,9 @@ def _interpolate_linear_sorted(x_grid, y_grid, x_query):
     y0 = y_grid[lower_index]
     y1 = y_grid[upper_index]
 
-    slope = jnp.where(x1 == x0, 0.0, (x_query - x0) / (x1 - x0))
+    slope = jnp.where(x1 == x0, 0.0, (y1 - y0) / (x1 - x0))
 
-    return y0 + slope * (y1 - y0)
+    return y0 + slope * (x_query - x0)
 
 
 class Radtrans:

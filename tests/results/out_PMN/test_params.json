@@ -1,1 +1,7 @@
-["R_pl", "Temperature", "log_Pcloud", "1H2-16O__HITEMP", "12C-1H4__YT34to10"]
+[
+    "R_pl",
+    "Temperature",
+    "log_Pcloud",
+    "1H2-16O__HITEMP.R1000_0.9-1.2mu",
+    "12C-1H4__YT34to10.R1000_0.9-1.2mu"
+]
