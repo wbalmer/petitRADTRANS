@@ -1,7 +1,7 @@
 """This module provides vapor pressure curves for various condensate species."""
 
 import jax.numpy as jnp
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 
 
 # ============================================================================
@@ -364,7 +364,7 @@ def vapour_pressure_ch4(temp, metallicity=0):
     ALV = 552.36  # latent heat of vaporization
 
     is_scalar = isinstance(temp, float)
-    temp_arr = jnp.atleast_1d(jnp.asarray(temp, dtype=JAX_DTYPE))
+    temp_arr = jnp.atleast_1d(jnp.asarray(temp, dtype=FEAUTRIER_JAX_DTYPE))
 
     # Prepare coefficients for both phases
     C_solid = -AMR * AS

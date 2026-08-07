@@ -52,18 +52,15 @@ from petitRADTRANS.validation import (
     _warn_partial_cloud_coverage_without_patchy_clouds,
 )
 
-# TODO confirm comment with Evert
 # pRT does its computation at single precision, where possible,
 # achieving a higher speed and smaller memory footprint
 # (WORKING_JAX_DTYPE). FEAUTRIER_JAX_DTYPE is jnp.float64
 # if config.jax_enable_x64 is True. In general JAX_DTYPE = FEAUTRIER_JAX_DTYPE
 from petitRADTRANS.jax_dtype import (
     FEAUTRIER_JAX_DTYPE,
-    JAX_DTYPE,
     WORKING_JAX_DTYPE,
 )
 
-# TODO confirm comment with Evert
 # JAX functions below may have "sanitized inputs", ensuring that
 # the inputs into traced functions always looks the same
 # (especially important for keyword arguments
@@ -85,15 +82,15 @@ def _convert_scalar_to_strong_type(value):
     inside the kernels).
     """
 
-    # TODO discus with Evert:
+    # TODO for the future:
     #     According to Claude repeated calls of this functions in every model call (say ~10 times, and
-    #     outside of git, which is what happens in the functions below) may add up to 0.5 ms.
+    #     outside of jit, which is what happens in the functions below) may add up to 0.5 ms.
     #     So we may start feeling this in our fastest forward models on the GPU.
 
     if value is None:
         return None
 
-    return jnp.asarray(value, dtype=JAX_DTYPE)
+    return jnp.asarray(value, dtype=FEAUTRIER_JAX_DTYPE)
 
 
 def _handle_invalid_reference_gravity(reference_gravity):
@@ -758,7 +755,8 @@ class Radtrans:
     ):
         """Initializations and checks common to calculate_flux and calculate_transit_radii."""
 
-        # TODO discuss with Evert
+        # TODO check why this debug.callback is needed, since the _init_spectra_function
+        #   is nominally not run in jitted mode.
         # Caution, this can be slow if running in a jitted environment on a GPU
         # since GPU<->host communication has to happen at every step.
         # Claude suggests a validate_inputs=False flag that turns off all
@@ -1329,7 +1327,7 @@ class Radtrans:
         optical_depths = jnp.asarray(optical_depths, dtype=WORKING_JAX_DTYPE)
         radius_hydrostatic_equilibrium = jnp.asarray(
             radius_hydrostatic_equilibrium,
-            dtype=JAX_DTYPE,
+            dtype=FEAUTRIER_JAX_DTYPE,
         )
         tau_target = jnp.asarray(2.0 / 3.0, dtype=WORKING_JAX_DTYPE)
         tau_profiles = jnp.sum(
@@ -1365,7 +1363,7 @@ class Radtrans:
                 'radius" at tau = 2/3. Returning the radius at maximum pressure instead!'
             )
 
-        return jnp.asarray(photosphere_radius, dtype=JAX_DTYPE)
+        return jnp.asarray(photosphere_radius, dtype=FEAUTRIER_JAX_DTYPE)
 
     @jit(
         static_argnames=[
@@ -1864,7 +1862,7 @@ class Radtrans:
             transmission_contribution)``.
         """
         transmission_contribution = jnp.zeros(
-            (jnp.size(pressures), self._frequencies.size), dtype=JAX_DTYPE
+            (jnp.size(pressures), self._frequencies.size), dtype=FEAUTRIER_JAX_DTYPE
         )
 
         # Calculate the transmission spectrum
@@ -2423,7 +2421,7 @@ class Radtrans:
                         if _default_mass_fractions is None:
                             _default_mass_fractions = {
                                 species: jnp.zeros(
-                                    self._pressures.size, dtype=JAX_DTYPE
+                                    self._pressures.size, dtype=FEAUTRIER_JAX_DTYPE
                                 )
                             }
 
@@ -3261,7 +3259,7 @@ class Radtrans:
                 )
             else:
                 additional_outputs["photosphere_radius"] = jnp.zeros(
-                    self._frequencies.size, dtype=JAX_DTYPE
+                    self._frequencies.size, dtype=FEAUTRIER_JAX_DTYPE
                 )
 
         if return_cloud_contribution and len(self._cloud_species) > 0:
@@ -3526,7 +3524,7 @@ class Radtrans:
                 radius_hydrostatic_equilibrium=radius_hydrostatic_equilibrium,
             )
 
-        return jnp.zeros(self._frequencies.size, dtype=JAX_DTYPE)
+        return jnp.zeros(self._frequencies.size, dtype=FEAUTRIER_JAX_DTYPE)
 
     def calculate_rosseland_planck_opacities(
         self,

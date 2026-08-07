@@ -30,7 +30,7 @@ import numpy.typing as npt
 from jax import Array, core as jax_core, lax, vmap, nn, tree_util, debug
 from jax.scipy.linalg import solve_triangular
 
-from petitRADTRANS.retrieval.parameter import JAX_DTYPE, Parameter
+from petitRADTRANS.retrieval.parameter import FEAUTRIER_JAX_DTYPE, Parameter
 from petitRADTRANS.retrieval.utils import _get_parameter_value
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Sentinel value returned for invalid model evaluations.
-INVALID_LOG_LIKELIHOOD = jnp.asarray(jnp.finfo(JAX_DTYPE).min, dtype=JAX_DTYPE)
+INVALID_LOG_LIKELIHOOD = jnp.asarray(jnp.finfo(FEAUTRIER_JAX_DTYPE).min, dtype=FEAUTRIER_JAX_DTYPE)
 
 
 @tree_util.register_pytree_node_class
@@ -937,7 +937,7 @@ class RetrievalRuntime:
                     ll + additional_log_likelihood,
                 )
 
-            log_likelihood = jnp.asarray(0.0, dtype=JAX_DTYPE)
+            log_likelihood = jnp.asarray(0.0, dtype=FEAUTRIER_JAX_DTYPE)
 
             if jnp.ndim(spectrum_model) == 1:
                 spectrum_model = jnp.broadcast_to(
@@ -976,7 +976,7 @@ class RetrievalRuntime:
 
         # --- 3-D spectrum (e.g. multi-detector multi-order) ---
         if jnp.ndim(observation.spectrum) == 3:
-            log_likelihood = jnp.asarray(0.0, dtype=JAX_DTYPE)
+            log_likelihood = jnp.asarray(0.0, dtype=FEAUTRIER_JAX_DTYPE)
             for i, detector in enumerate(observation.spectrum):
                 for j, spectrum_data in enumerate(detector):
                     masked_model = spectrum_model[i, j, ~observation.mask[i, j, :]]
@@ -1124,7 +1124,7 @@ class RetrievalRuntime:
 
             if observation.mask is None:
                 valid_mask = jnp.ones_like(
-                    jnp.asarray(data_spectrum, dtype=JAX_DTYPE), dtype=bool
+                    jnp.asarray(data_spectrum, dtype=FEAUTRIER_JAX_DTYPE), dtype=bool
                 )
             else:
                 valid_mask = ~jnp.asarray(observation.mask, dtype=bool)
@@ -1276,9 +1276,9 @@ class RetrievalRuntime:
         comparisons.
         """
         invalid_value = INVALID_LOG_LIKELIHOOD
-        tiny = jnp.finfo(JAX_DTYPE).tiny
+        tiny = jnp.finfo(FEAUTRIER_JAX_DTYPE).tiny
         log_likelihood_contributions = []
-        log_prior = jnp.asarray(0.0, dtype=JAX_DTYPE)
+        log_prior = jnp.asarray(0.0, dtype=FEAUTRIER_JAX_DTYPE)
         has_invalid_contribution = jnp.asarray(False)
 
         for group in self.model_groups:
@@ -1292,7 +1292,7 @@ class RetrievalRuntime:
                 ~model_valid,
             )
 
-            group_contribution = jnp.asarray(0.0, dtype=JAX_DTYPE)
+            group_contribution = jnp.asarray(0.0, dtype=FEAUTRIER_JAX_DTYPE)
             for observation_name in group.observation_names:
                 contribution = self._score_dataset(
                     observation_name,
@@ -1321,7 +1321,7 @@ class RetrievalRuntime:
             log_prior = log_prior + aux.get("log_prior_weight", 0.0)
 
         log_likelihood = jnp.sum(
-            jnp.asarray(log_likelihood_contributions, dtype=JAX_DTYPE)
+            jnp.asarray(log_likelihood_contributions, dtype=FEAUTRIER_JAX_DTYPE)
         )
         log_likelihood = jnp.where(
             has_invalid_contribution, invalid_value, log_likelihood
@@ -1334,7 +1334,7 @@ class RetrievalRuntime:
 
         total = jnp.where(total < invalid_value, invalid_value, total)
         total = jnp.where(
-            jnp.abs(total) < tiny, jnp.asarray(tiny, dtype=JAX_DTYPE), total
+            jnp.abs(total) < tiny, jnp.asarray(tiny, dtype=FEAUTRIER_JAX_DTYPE), total
         )
 
         if print_log_likelihood_for_debugging:
@@ -1365,7 +1365,7 @@ class RetrievalRuntime:
                 print_log_likelihood_for_debugging=print_log_likelihood_for_debugging,
             )
 
-        free_parameter_values = jnp.asarray(free_parameter_values, dtype=JAX_DTYPE)
+        free_parameter_values = jnp.asarray(free_parameter_values, dtype=FEAUTRIER_JAX_DTYPE)
 
         if jnp.ndim(free_parameter_values) == 1:
             return evaluate_single(free_parameter_values)
@@ -1491,7 +1491,7 @@ class ParameterLayout:
     free_parameter_indices: tuple[int, ...]
     parameter_templates: tuple[Parameter, ...]
     cube_epsilon: float = field(
-        default_factory=lambda: float(1e-7 if JAX_DTYPE == jnp.float32 else 1e-12)
+        default_factory=lambda: float(1e-7 if FEAUTRIER_JAX_DTYPE == jnp.float32 else 1e-12)
     )
     # Per-free-parameter routing for the *unconstrained* (gradient-sampler) path.
     # Free parameters with a Normal prior use an affine map physical = loc + scale*z
@@ -1643,7 +1643,7 @@ class ParameterLayout:
 
     def transform_cube_to_physical(self, cube_position: Any) -> jnp.ndarray:
         """Transform one unit-cube position into JAX physical coordinates."""
-        cube_position = jnp.asarray(cube_position, dtype=JAX_DTYPE)
+        cube_position = jnp.asarray(cube_position, dtype=FEAUTRIER_JAX_DTYPE)
         transformed = []
 
         for index, free_parameter_name in enumerate(self.free_parameter_names):
@@ -1653,18 +1653,18 @@ class ParameterLayout:
             transformed.append(
                 jnp.asarray(
                     self._transform_parameter(parameter, cube_position[index]),
-                    dtype=JAX_DTYPE,
+                    dtype=FEAUTRIER_JAX_DTYPE,
                 )
             )
 
         if not transformed:
-            return jnp.zeros((0,), dtype=JAX_DTYPE)
+            return jnp.zeros((0,), dtype=FEAUTRIER_JAX_DTYPE)
 
         return jnp.stack(transformed)
 
     def transform_cube_to_physical_batch(self, cube_positions: Any) -> jnp.ndarray:
         """Transform one or many unit-cube positions into physical coordinates."""
-        cube_positions = jnp.asarray(cube_positions, dtype=JAX_DTYPE)
+        cube_positions = jnp.asarray(cube_positions, dtype=FEAUTRIER_JAX_DTYPE)
 
         if jnp.ndim(cube_positions) == 1:
             return self.transform_cube_to_physical(cube_positions)[jnp.newaxis, :]
@@ -1673,7 +1673,7 @@ class ParameterLayout:
 
     def cube_from_unconstrained(self, unconstrained_position: Any) -> jnp.ndarray:
         """Map unconstrained coordinates onto the open unit cube."""
-        unconstrained_position = jnp.asarray(unconstrained_position, dtype=JAX_DTYPE)
+        unconstrained_position = jnp.asarray(unconstrained_position, dtype=FEAUTRIER_JAX_DTYPE)
         return jnp.clip(
             nn.sigmoid(unconstrained_position),
             self.cube_epsilon,
@@ -1684,7 +1684,7 @@ class ParameterLayout:
         self, unconstrained_positions: Any
     ) -> jnp.ndarray:
         """Map one or many unconstrained positions onto the open unit cube."""
-        unconstrained_positions = jnp.asarray(unconstrained_positions, dtype=JAX_DTYPE)
+        unconstrained_positions = jnp.asarray(unconstrained_positions, dtype=FEAUTRIER_JAX_DTYPE)
         return jnp.clip(
             nn.sigmoid(unconstrained_positions),
             self.cube_epsilon,
@@ -1700,8 +1700,8 @@ class ParameterLayout:
         if not any(self.free_affine_mask):
             return None, None, None
         mask = jnp.asarray(self.free_affine_mask, dtype=bool)
-        loc = jnp.asarray(self.free_affine_loc, dtype=JAX_DTYPE)
-        scale = jnp.asarray(self.free_affine_scale, dtype=JAX_DTYPE)
+        loc = jnp.asarray(self.free_affine_loc, dtype=FEAUTRIER_JAX_DTYPE)
+        scale = jnp.asarray(self.free_affine_scale, dtype=FEAUTRIER_JAX_DTYPE)
         return mask, loc, scale
 
     def transform_unconstrained(self, unconstrained_position: Any) -> jnp.ndarray:
@@ -1710,7 +1710,7 @@ class ParameterLayout:
         Normal-prior free parameters use the affine map physical = loc + scale*z;
         all others use the bounded cube map physical = quantile(sigmoid(z)).
         """
-        z = jnp.asarray(unconstrained_position, dtype=JAX_DTYPE)
+        z = jnp.asarray(unconstrained_position, dtype=FEAUTRIER_JAX_DTYPE)
         cube_physical = self.transform_cube_to_physical(self.cube_from_unconstrained(z))
         mask, loc, scale = self._affine_arrays()
         if mask is None:
@@ -1722,7 +1722,7 @@ class ParameterLayout:
         self, unconstrained_positions: Any
     ) -> jnp.ndarray:
         """Transform one or many unconstrained positions into physical values."""
-        unconstrained_positions = jnp.asarray(unconstrained_positions, dtype=JAX_DTYPE)
+        unconstrained_positions = jnp.asarray(unconstrained_positions, dtype=FEAUTRIER_JAX_DTYPE)
         if jnp.ndim(unconstrained_positions) == 1:
             return self.transform_unconstrained(unconstrained_positions)[jnp.newaxis, :]
         return vmap(self.transform_unconstrained)(unconstrained_positions)
@@ -1736,7 +1736,7 @@ class ParameterLayout:
         ``-0.5 z**2`` (constant dropped), which exactly reproduces the
         Normal(loc, scale) prior on the physical value.
         """
-        z = jnp.asarray(unconstrained_position, dtype=JAX_DTYPE)
+        z = jnp.asarray(unconstrained_position, dtype=FEAUTRIER_JAX_DTYPE)
         cube_term = -nn.softplus(-z) - nn.softplus(z)
         mask, _loc, _scale = self._affine_arrays()
         if mask is None:
@@ -1746,7 +1746,7 @@ class ParameterLayout:
 
     def log_jacobian(self, unconstrained_positions: Any) -> jnp.ndarray:
         """Return log-Jacobian terms for one or many unconstrained positions."""
-        unconstrained_positions = jnp.asarray(unconstrained_positions, dtype=JAX_DTYPE)
+        unconstrained_positions = jnp.asarray(unconstrained_positions, dtype=FEAUTRIER_JAX_DTYPE)
 
         if jnp.ndim(unconstrained_positions) == 1:
             return self.log_jacobian_single(unconstrained_positions)
@@ -1812,7 +1812,7 @@ class ParameterLayout:
         """Extract the ordered free-parameter vector from ``PhysicalParams``."""
         mapping = physical_params.as_dict()
         return jnp.asarray(
-            [mapping[name] for name in self.free_parameter_names], dtype=JAX_DTYPE
+            [mapping[name] for name in self.free_parameter_names], dtype=FEAUTRIER_JAX_DTYPE
         )
 
     def build_legacy_parameter_dict(
@@ -1886,7 +1886,7 @@ def _flatten_parameter_values(
         return values.reshape(-1)
 
     if _is_jax_parameter_values(values):
-        return jnp.asarray(values, dtype=JAX_DTYPE).reshape(-1)
+        return jnp.asarray(values, dtype=FEAUTRIER_JAX_DTYPE).reshape(-1)
 
     if hasattr(values, "tolist"):
         converted_values = values.tolist()
@@ -2462,16 +2462,16 @@ def compute_observation_log_likelihood_per_datapoint(
 
     NaN model values yield a vector filled with ``INVALID_LOG_LIKELIHOOD``.
     """
-    model_spectrum = jnp.atleast_1d(jnp.asarray(model_spectrum, dtype=JAX_DTYPE))
-    data_spectrum = jnp.atleast_1d(jnp.asarray(data_spectrum, dtype=JAX_DTYPE))
+    model_spectrum = jnp.atleast_1d(jnp.asarray(model_spectrum, dtype=FEAUTRIER_JAX_DTYPE))
+    data_spectrum = jnp.atleast_1d(jnp.asarray(data_spectrum, dtype=FEAUTRIER_JAX_DTYPE))
     residual = data_spectrum - model_spectrum
 
     if covariance_cholesky_factor is not None or data_covariance is not None:
         if covariance_cholesky_factor is not None:
-            cholesky_factor = jnp.asarray(covariance_cholesky_factor, dtype=JAX_DTYPE)
+            cholesky_factor = jnp.asarray(covariance_cholesky_factor, dtype=FEAUTRIER_JAX_DTYPE)
         else:
             cholesky_factor = jnp.linalg.cholesky(
-                jnp.asarray(data_covariance, dtype=JAX_DTYPE)
+                jnp.asarray(data_covariance, dtype=FEAUTRIER_JAX_DTYPE)
             )
 
         whitened_residual = solve_triangular(cholesky_factor, residual, lower=True)
@@ -2482,13 +2482,13 @@ def compute_observation_log_likelihood_per_datapoint(
         if inv_covariance_diagonal is None:
             inverse_cholesky_factor = solve_triangular(
                 cholesky_factor,
-                jnp.eye(cholesky_factor.shape[0], dtype=JAX_DTYPE),
+                jnp.eye(cholesky_factor.shape[0], dtype=FEAUTRIER_JAX_DTYPE),
                 lower=True,
             )
             inv_covariance_diagonal = jnp.sum(inverse_cholesky_factor**2, axis=0)
         else:
             inv_covariance_diagonal = jnp.asarray(
-                inv_covariance_diagonal, dtype=JAX_DTYPE
+                inv_covariance_diagonal, dtype=FEAUTRIER_JAX_DTYPE
             )
 
         log_likelihood_terms = (
@@ -2497,7 +2497,7 @@ def compute_observation_log_likelihood_per_datapoint(
         )
     else:
         data_uncertainties = jnp.atleast_1d(
-            jnp.asarray(data_uncertainties, dtype=JAX_DTYPE)
+            jnp.asarray(data_uncertainties, dtype=FEAUTRIER_JAX_DTYPE)
         )
         log_likelihood_terms = (
             -0.5 * jnp.log(2.0 * jnp.pi * data_uncertainties**2)

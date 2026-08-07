@@ -229,30 +229,9 @@ def _sanitize_frequency_surface_input(
     if jnp.ndim(values) == 0:
         return values * jnp.ones_like(frequencies, dtype=WORKING_JAX_DTYPE)
 
-    # TODO discuss with Evert
-    '''From Claude
-    1. debug.callback in _sanitize_frequency_surface_input (validation.py:239,
-    used inside _sanitize_emission_surface_inputs, called from the jitted _calculate_flux_kernel).
-    debug.callback isn't traced away — it forces a device→host round-trip on every    
-    execution of the compiled function. But the check itself (jnp.size(_values) != _frequencies.size)
-    only compares shapes, which are static under jit tracing.
-    This could just be a plain Python if/raise at trace time (zero runtime cost, checked once at    
-    compile), instead of a runtime host callback paid on every call.
-    This is the one genuine, avoidable inefficiency in the sanitizers.
-    '''
-
-    '''
-    def _check_input_size(_values, _frequencies):
-        if jnp.size(_values) != _frequencies.size:
-            raise ValueError(
-                f"{quantity_name} must be a scalar or of the same size than frequencies "
-                f"({_frequencies.size}), but is of size {jnp.size(_values)}"
-            )
-
-    debug.callback(_check_input_size, values, frequencies)
-    '''
-    # Comment from Paul: the lines below implements Claude's suggestion.
-    # This error raising would always only happen at compile time anyway,
+    # In the past a debug.callback was used here.
+    # But since _sanitize is called before the kernels, in the non-jitted part,
+    # this error raising will always only happen at compile time,
     # since if the emissivity shape is changed a new compile is triggered.
     if jnp.size(_values) != _frequencies.size:
         raise ValueError(

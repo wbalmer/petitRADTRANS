@@ -1,9 +1,46 @@
 test_spectral_model
-2026-08-06, 14:37:04
+2026-08-07, 10:21:30
 pRT v4.0.0b1
 /Users/molliere/Documents/pRT_source/petitRADTRANS/tests/results
 
 Sampler
+    sampler = PymultinestSampler
+Sampler Parameters
+    n_dims = 7
+    outputfiles_basename = /Users/molliere/Documents/pRT_source/petitRADTRANS/tests/results/out_PMN/test_spectral_model_
+    sampling_efficiency = 0.8
+    const_efficiency_mode = False
+    n_live_points = 15
+    evidence_tolerance = 0.5
+    n_iter_before_update = 50
+    resume = False
+    verbose = True
+    max_iter = 0
+    seed = 12345
+    n_clustering_params = None
+    wrapped_params = None
+    importance_nested_sampling = True
+    multimodal = True
+    null_log_evidence = -1e+90
+    max_modes = 100
+    mode_tolerance = -1e+90
+    context = 0
+    write_output = True
+    log_zero = -1e+100
+    use_MPI = True
+    init_MPI = False
+    dump_callback = False
+Posterior Summary
+    ln Z = 13041.7 +- 0.0834462
+    log Z = 5663.92 +- 0.0362402
+Statistical Fit Parameters
+    temperature    1190 +- 21
+    CO-NatAbund    -3.0 +- 1.8
+    H2O            -4.3 +- 1.4
+    log10_opaque_cloud_top_pressure0.2 +- 1.1
+    radial_velocity_semi_amplitude14534077 +- 3050970
+    rest_frame_velocity_shift-149147 +- 25562
+    mid_transit_time2 +- 25
 
 Fixed Parameters
     line_species = ('1H2-16O__POKAZATEL.R1e6_2.3-2.3mu', 'C-O-NatAbund__HITEMP.R1e6_2.3-2.3mu')
@@ -22,18 +59,18 @@ data_1
     Model Function = model_generating_function
 
 Model Comparison Statistics
-    log_likelihood = -0.0532577
-    𝛘^2/n_wlen = 11.98
-    𝛘^2/DoF = 12.02
-    BIC = 53.9161
-    AIC = 14.1065
-    BPICS = 16.5942
+    log_likelihood = 13055.5
+    𝛘^2/n_wlen = 0.00
+    𝛘^2/DoF = 0.00
+    BIC = -26057.2
+    AIC = -26097
+    BPICS = -26094.8
 
 Best Fit Parameters
-    temperature = 1.194e+03
-    CO-NatAbund = -4.793e+00
-    H2O = -4.902e+00
-    log10_opaque_cloud_top_pressure = 3.693e-01
-    radial_velocity_semi_amplitude = 1.755e+07
-    rest_frame_velocity_shift = -1.541e+05
-    mid_transit_time = -1.932e+00
+    temperature = 1.192e+03
+    CO-NatAbund = -1.445e+00
+    H2O = -3.486e+00
+    log10_opaque_cloud_top_pressure = 3.003e-01
+    radial_velocity_semi_amplitude = 1.395e+07
+    rest_frame_velocity_shift = -1.491e+05
+    mid_transit_time = -2.298e+00
