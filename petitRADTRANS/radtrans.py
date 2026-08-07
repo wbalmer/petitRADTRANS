@@ -156,32 +156,45 @@ class Radtrans:
             correlated-k assumption. if equal to ``'lbl'``: use high-resolution mode, at
             :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line treatment.
         line_by_line_opacity_sampling (Optional[int]):
-            If ``mode = 'lbl'``, then this will only load every line_by_line_opacity_sampling-nth point of the
-            high-resolution opacities. This can be used to save time and RAM.
-            The user should verify whether this leads to solutions which are identical to the results of the
-            non down-sampled :math:`10^6` resolution.
+            If ``line_opacity_mode = 'lbl'``, then this will only load every line_by_line_opacity_sampling-nth point of the
+            high-resolution opacities. This can be used to save computation time and RAM.
+            The user should verify whether this leads to spectra which are sufficiently close to the results of the
+            calculation at full :math:`\\lambda/\\Delta \\lambda = 10^6` resolution when binned down.
         scattering_in_emission (Optional[bool]):
             Will be ``False`` by default.
             If ``True`` scattering will be included in the emission spectral calculations. Note that this increases
             the runtime of pRT!
         emission_angle_grid (Optional):
             Array defining the cosines of the angle grid to be used for the emission spectrum calculations,
-            and their weights. The array is of shape (2, n_angles), with emission_angle_grid[0] being the cosines of
-            the angles, and emission_angle_grid[1] being the weights.
-            A dictionary of array with keys 'cos_angles' and 'weights' can also be used.
-            If None, a default set of values and weights are used.
+            and their quadrature weights for angle integrations. This is the cosine of the angle between a
+            ray of light and the atmospheric normal vector, which can have values between 0 and 1.
+            The array is of shape (2, n_angles), with emission_angle_grid[0] being the cosines of
+            the angles, and emission_angle_grid[1] being the quadrature weights. By default pRT
+            uses 3-point Gaussian quadrature grid. A dictionary of array with keys 'cos_angles' and 'weights'
+            can also be used. If None, a default set of values and weights are used.
         anisotropic_cloud_scattering (Optional[bool, str]):
-            If True, anisotropic cloud scattering opacities are used for the spectral calculations.
-            If False, isotropic cloud scattering opacities are used for the spectral calculations.
+            If True, the anisotropic cloud scattering approximation is used for the spectral calculations.
+            This is done by multiplying the scattering opacity by (1-g), where g is the scattering anisotropy.
+            If False, isotropic cloud scattering opacities are used.
             If 'auto' (recommended), anisotropic_cloud_scattering is set to True for emission spectrum
             calculations, and to False for transmission spectrum calculations.
-        retain_line_opacities_for_plotting (Optional[bool]):
-            If True, keep per-species unstacked line opacity tables after the
+        retain_unstacked_line_opacities_for_plotting (Optional[bool]):
+            To simplify the implementation of the opacity handling (P-T interpolation)
+            in the spectral calculations kernels, all opacities in pRT (even if they have different
+            P-T grids) are combined into one big matrix of fixed size per species.
+            For species with smaller grids, unnecessary matrix values are set to 0.
+            This avoids looping over species in the jitted version of the code.
+            The danger is that one finely resolved (in P-T) species can balloon memory usage.
+            TODO Paul: check if implementation of interpolation is done correctly.
+            If retain_unstacked_line_opacities_for_plotting is True,
+            keep per-species unstacked line opacity tables after the
             stacked runtime layout has been built. This is intended for plotting
             and debugging only and increases memory usage.
         path_input_data (Optional[str]):
             Path to the input_data folder, containing the files to be loaded by petitRADTRANS.
     """
+
+    # Paul continue reviewing here!
 
     __dat_opacity_files_warning_message = (
         "loading opacities from .dat files is discouraged, the HDF5 format offer better performances at for a lower "
@@ -221,7 +234,7 @@ class Radtrans:
         scattering_in_emission: bool = True,
         emission_angle_grid: ArrayLike = None,
         anisotropic_cloud_scattering: bool = "auto",  # NOTE: Probably doesn't need to be a main parameter
-        retain_line_opacities_for_plotting: bool = False,
+        retain_unstacked_line_opacities_for_plotting: bool = False,
         path_input_data: str = None,
     ):
         # Inputs checks
@@ -246,7 +259,7 @@ class Radtrans:
         self._line_opacity_mode = line_opacity_mode
         self._line_by_line_opacity_sampling = line_by_line_opacity_sampling
         self._scattering_in_emission = scattering_in_emission
-        self._retain_line_opacities_for_plotting = retain_line_opacities_for_plotting
+        self._retain_unstacked_line_opacities_for_plotting = retain_unstacked_line_opacities_for_plotting
 
         if wavelength_boundaries is None:
             self._wavelength_boundaries = jnp.array(
@@ -990,7 +1003,7 @@ class Radtrans:
         self._lines_loaded_opacities["pressure_grid_size"].clear()
         self._lines_loaded_opacities["opacity_grid"].clear()
 
-        if not self._retain_line_opacities_for_plotting:
+        if not self._retain_unstacked_line_opacities_for_plotting:
             return
 
         self._lines_loaded_opacities["temperature_pressure_grid"].update(
@@ -2182,7 +2195,7 @@ class Radtrans:
             "line_by_line_opacity_sampling": self._line_by_line_opacity_sampling,
             "scattering_in_emission": self._scattering_in_emission,
             "anisotropic_cloud_scattering": self._anisotropic_cloud_scattering,
-            "retain_line_opacities_for_plotting": self._retain_line_opacities_for_plotting,
+            "retain_unstacked_line_opacities_for_plotting": self._retain_unstacked_line_opacities_for_plotting,
             "path_input_data": self._path_input_data,
             "cia_collision_names": tuple(self._cias_loaded_opacities.keys()),
             "cia_collision_molecules": tuple(
@@ -2245,8 +2258,8 @@ class Radtrans:
         instance._anisotropic_cloud_scattering = aux_data[
             "anisotropic_cloud_scattering"
         ]
-        instance._retain_line_opacities_for_plotting = aux_data[
-            "retain_line_opacities_for_plotting"
+        instance._retain_unstacked_line_opacities_for_plotting = aux_data[
+            "retain_unstacked_line_opacities_for_plotting"
         ]
         instance._path_input_data = aux_data["path_input_data"]
         instance._Radtrans__scattering_in_transmission = aux_data[
