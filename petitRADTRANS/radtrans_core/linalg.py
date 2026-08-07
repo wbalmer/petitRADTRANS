@@ -5,10 +5,10 @@ from jax import default_backend
 import jax.numpy as jnp
 from jax import lax, jit
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 
-TINIEST = jnp.finfo(JAX_DTYPE).tiny
-HUGE_SQRT = jnp.sqrt(jnp.finfo(JAX_DTYPE).max)
+TINIEST = jnp.finfo(FEAUTRIER_JAX_DTYPE).tiny
+HUGE_SQRT = jnp.sqrt(jnp.finfo(FEAUTRIER_JAX_DTYPE).max)
 # Gradient-safe denominator floor. A reciprocal 1/x has gradient -1/x**2, which
 # overflows to inf once x**2 underflows to 0 -- i.e. for x in roughly
 # [TINIEST, sqrt(TINIEST)]. Flooring denominators at sqrt(TINIEST) keeps x**2 in

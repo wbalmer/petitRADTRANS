@@ -27,7 +27,7 @@ from petitRADTRANS.retrieval.runtime import (
 
 )
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 
 
 class Data:
@@ -232,7 +232,7 @@ class Data:
         self.covariance_jitter: float = float(covariance_jitter)
 
         if covariance is not None:
-            self.covariance = jnp.asarray(covariance, dtype=JAX_DTYPE)
+            self.covariance = jnp.asarray(covariance, dtype=FEAUTRIER_JAX_DTYPE)
             self._cache_covariance_factorization()
 
         if covariance is not None and uncertainties is None:
@@ -415,34 +415,34 @@ class Data:
 
         if hasattr(data, "columns") and data.columns is not None:
             column_names = tuple(data.columns.names)
-            self.wavelengths = jnp.asarray(data.field(wavelength_column_name), dtype=JAX_DTYPE)
-            self.spectrum = jnp.asarray(data.field(flux_column_name), dtype=JAX_DTYPE)
+            self.wavelengths = jnp.asarray(data.field(wavelength_column_name), dtype=FEAUTRIER_JAX_DTYPE)
+            self.spectrum = jnp.asarray(data.field(flux_column_name), dtype=FEAUTRIER_JAX_DTYPE)
 
             if covariance_column_name in column_names:
-                self.covariance = jnp.asarray(data.field(covariance_column_name), dtype=JAX_DTYPE)
+                self.covariance = jnp.asarray(data.field(covariance_column_name), dtype=FEAUTRIER_JAX_DTYPE)
                 self._cache_covariance_factorization()
                 self.uncertainties = jnp.sqrt(self.covariance.diagonal())
             elif error_column_name in column_names:
                 # Note that this will only be the uncorrelated error.
                 # Dot with the correlation matrix (if available) to get
                 # the full error.
-                self.uncertainties = jnp.asarray(data.field(error_column_name), dtype=JAX_DTYPE)
+                self.uncertainties = jnp.asarray(data.field(error_column_name), dtype=FEAUTRIER_JAX_DTYPE)
                 self.covariance = None
                 self.inv_cov = None
                 self.covariance_cholesky_factor = None
                 self.log_covariance_determinant = None
         else:
             hdul = fits.open(path)
-            self.wavelengths = jnp.asarray(hdul[1].data[wavelength_column_name], dtype=JAX_DTYPE)
-            self.spectrum = jnp.asarray(hdul[1].data[flux_column_name], dtype=JAX_DTYPE)
+            self.wavelengths = jnp.asarray(hdul[1].data[wavelength_column_name], dtype=FEAUTRIER_JAX_DTYPE)
+            self.spectrum = jnp.asarray(hdul[1].data[flux_column_name], dtype=FEAUTRIER_JAX_DTYPE)
 
             if error_column_name in hdul[1].data.columns.names:
                 self.uncertainties = jnp.asarray(
-                    hdul[1].data[error_column_name], dtype=JAX_DTYPE
+                    hdul[1].data[error_column_name], dtype=FEAUTRIER_JAX_DTYPE
                 )
 
             if covariance_column_name in hdul[1].data.columns.names:
-                self.covariance = jnp.asarray(hdul[1].data[covariance_column_name], dtype=JAX_DTYPE)
+                self.covariance = jnp.asarray(hdul[1].data[covariance_column_name], dtype=FEAUTRIER_JAX_DTYPE)
 
             if self.covariance is not None:
                 self._cache_covariance_factorization()
@@ -576,7 +576,7 @@ class Data:
         covariance_np = np.asarray(self.covariance)
         cholesky_factor = np.linalg.cholesky(covariance_np)
 
-        self.covariance_cholesky_factor = jnp.asarray(cholesky_factor, dtype=JAX_DTYPE)
+        self.covariance_cholesky_factor = jnp.asarray(cholesky_factor, dtype=FEAUTRIER_JAX_DTYPE)
         self.log_covariance_determinant = self.covariance.shape[0] * jnp.log(
             2.0 * jnp.pi
         ) + 2.0 * jnp.sum(jnp.log(jnp.diagonal(self.covariance_cholesky_factor)))
@@ -621,7 +621,7 @@ class Data:
                 # against the identity on every sample.
                 inverse_cholesky_factor = solve_triangular(
                     covariance_cholesky_factor,
-                    jnp.eye(covariance_cholesky_factor.shape[0], dtype=JAX_DTYPE),
+                    jnp.eye(covariance_cholesky_factor.shape[0], dtype=FEAUTRIER_JAX_DTYPE),
                     lower=True,
                 )
                 inv_covariance_diagonal = jnp.sum(inverse_cholesky_factor**2, axis=0)
@@ -913,7 +913,7 @@ class TimeSeriesData(Data):
         mask=None,
     ):
         if observation_times is not None:
-            self.observation_times = jnp.asarray(observation_times, dtype=JAX_DTYPE)
+            self.observation_times = jnp.asarray(observation_times, dtype=FEAUTRIER_JAX_DTYPE)
         else:
             self.observation_times = None
         self.filename_list = filename_list

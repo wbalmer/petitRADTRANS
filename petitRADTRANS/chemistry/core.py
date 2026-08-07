@@ -38,9 +38,9 @@ from petitRADTRANS.chemistry.utils import (
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.chemistry import clouds as fc
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 
-INVALID_VALUE = jnp.array(jnp.inf, JAX_DTYPE)
+INVALID_VALUE = jnp.array(jnp.inf, FEAUTRIER_JAX_DTYPE)
 
 # Default background composition expressed as mass-fraction weights: H2/He = 74/24
 # i.e. the solar hydrogen (X = 0.74) and helium (Y = 0.24) mass fractions.
@@ -221,17 +221,17 @@ def _resolve_cloud_base_pressure(
 ):
     log_pbase_key = f"log_Pbase_{cloud_name}"
     if log_pbase_key in parameter_keys:
-        return jnp.asarray(10 ** parameters[log_pbase_key], dtype=JAX_DTYPE)
+        return jnp.asarray(10 ** parameters[log_pbase_key], dtype=FEAUTRIER_JAX_DTYPE)
 
     pbase_key = f"Pbase_{cloud_name}"
     if pbase_key in parameter_keys:
-        return jnp.asarray(parameters[pbase_key], dtype=JAX_DTYPE)
+        return jnp.asarray(parameters[pbase_key], dtype=FEAUTRIER_JAX_DTYPE)
 
     log_x_cb_key = f"log_X_cb_{cloud_name}"
     mean_molar_mass_array = None
     if mean_molar_mass is not None:
         mean_molar_mass_array = jnp.ravel(
-            jnp.asarray(mean_molar_mass, dtype=JAX_DTYPE)
+            jnp.asarray(mean_molar_mass, dtype=FEAUTRIER_JAX_DTYPE)
         )
 
     if not has_equilibrium_cloud_base and log_x_cb_key in parameter_keys:
@@ -248,7 +248,7 @@ def _resolve_cloud_base_pressure(
                 10 ** parameters[log_x_cb_key],
                 cast(Any, mean_molar_mass_array[0]),
             ),
-            dtype=JAX_DTYPE,
+            dtype=FEAUTRIER_JAX_DTYPE,
         )
 
     if has_equilibrium_cloud_base:
@@ -266,10 +266,10 @@ def _resolve_cloud_base_pressure(
                 co_ratio=co_ratio,
                 mmw=cast(
                     Any,
-                    jnp.asarray(jnp.mean(mean_molar_mass_array), dtype=JAX_DTYPE),
+                    jnp.asarray(jnp.mean(mean_molar_mass_array), dtype=FEAUTRIER_JAX_DTYPE),
                 ),
             ),
-            dtype=JAX_DTYPE,
+            dtype=FEAUTRIER_JAX_DTYPE,
         )
 
     return INVALID_VALUE
@@ -278,9 +278,9 @@ def _resolve_cloud_base_pressure(
 def _resolve_cloud_fsed(cloud_name, parameters, parameter_keys):
     cloud_fsed_key = f"f_sed_{cloud_name}"
     if cloud_fsed_key in parameter_keys:
-        return jnp.asarray(parameters[cloud_fsed_key], dtype=JAX_DTYPE)
+        return jnp.asarray(parameters[cloud_fsed_key], dtype=FEAUTRIER_JAX_DTYPE)
     if "f_sed" in parameter_keys:
-        return jnp.asarray(parameters["f_sed"], dtype=JAX_DTYPE)
+        return jnp.asarray(parameters["f_sed"], dtype=FEAUTRIER_JAX_DTYPE)
     return INVALID_VALUE
 
 

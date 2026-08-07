@@ -18,7 +18,7 @@ from jax import Array, random, vmap
 import jax.numpy as jnp
 import numpy as np
 
-from petitRADTRANS.retrieval.parameter import JAX_DTYPE
+from petitRADTRANS.retrieval.parameter import FEAUTRIER_JAX_DTYPE
 from petitRADTRANS.retrieval.runtime import (
     PhotometryObservationState,
     RetrievalRuntime,
@@ -87,9 +87,9 @@ def _stack_simulation_output_payloads(payloads: list[dict]) -> dict:
             stacked[key] = jnp.stack(
                 [
                     (
-                        jnp.asarray(v, dtype=JAX_DTYPE)
+                        jnp.asarray(v, dtype=FEAUTRIER_JAX_DTYPE)
                         if v is not None
-                        else jnp.asarray(jnp.nan, dtype=JAX_DTYPE)
+                        else jnp.asarray(jnp.nan, dtype=FEAUTRIER_JAX_DTYPE)
                     )
                     for v in values
                 ]
@@ -133,7 +133,7 @@ def _concatenate_batched_observation_outputs(
             else:
                 merged_payload[key] = jnp.concatenate(
                     [
-                        jnp.asarray(v, dtype=JAX_DTYPE)
+                        jnp.asarray(v, dtype=FEAUTRIER_JAX_DTYPE)
                         for v in values
                         if v is not None
                     ],
@@ -356,7 +356,7 @@ class SimulationRuntime(RetrievalRuntime):
                         batched_result.wavelengths,
                         batched_result.spectrum,
                     ),
-                    dtype=JAX_DTYPE,
+                    dtype=FEAUTRIER_JAX_DTYPE,
                 )
 
                 # --- Uncertainties -----------------------------------------
@@ -391,26 +391,26 @@ class SimulationRuntime(RetrievalRuntime):
                         unc_list.append(u)
                         cov_list.append(c)
                     stacked_unc = (
-                        jnp.stack([jnp.asarray(u, dtype=JAX_DTYPE) for u in unc_list])
+                        jnp.stack([jnp.asarray(u, dtype=FEAUTRIER_JAX_DTYPE) for u in unc_list])
                         if base_unc is not None
                         else None
                     )
                     stacked_cov = (
-                        jnp.stack([jnp.asarray(c, dtype=JAX_DTYPE) for c in cov_list])
+                        jnp.stack([jnp.asarray(c, dtype=FEAUTRIER_JAX_DTYPE) for c in cov_list])
                         if base_cov is not None
                         else None
                     )
                 else:
                     if base_unc is not None:
                         stacked_unc = jnp.broadcast_to(
-                            jnp.asarray(base_unc, dtype=JAX_DTYPE)[jnp.newaxis, :],
+                            jnp.asarray(base_unc, dtype=FEAUTRIER_JAX_DTYPE)[jnp.newaxis, :],
                             (n_samples,) + jnp.asarray(base_unc).shape,
                         )
                     else:
                         stacked_unc = None
                     if base_cov is not None:
                         stacked_cov = jnp.broadcast_to(
-                            jnp.asarray(base_cov, dtype=JAX_DTYPE)[jnp.newaxis, :, :],
+                            jnp.asarray(base_cov, dtype=FEAUTRIER_JAX_DTYPE)[jnp.newaxis, :, :],
                             (n_samples,) + jnp.asarray(base_cov).shape,
                         )
                     else:
@@ -433,7 +433,7 @@ class SimulationRuntime(RetrievalRuntime):
                     if observation.mask is not None
                     else None
                 )
-                _coord_arr = jnp.asarray(observation.wavelengths, dtype=JAX_DTYPE)
+                _coord_arr = jnp.asarray(observation.wavelengths, dtype=FEAUTRIER_JAX_DTYPE)
 
                 simulated_observations[obs_name] = {
                     "values": projected_batch,
@@ -489,7 +489,7 @@ class SimulationRuntime(RetrievalRuntime):
         """
         from petitRADTRANS.retrieval.models import MODEL_CONTRACT_DIFFERENTIABLE
 
-        parameter_matrix = jnp.asarray(parameter_matrix, dtype=JAX_DTYPE)
+        parameter_matrix = jnp.asarray(parameter_matrix, dtype=FEAUTRIER_JAX_DTYPE)
         if parameter_matrix.ndim == 1:
             parameter_matrix = parameter_matrix[jnp.newaxis, :]
 
@@ -863,7 +863,7 @@ class RuntimeSimulator(BatchedSimulator):
 
     def _sample_prior_parameter_batch(self, n_samples: int) -> dict[str, jnp.ndarray]:
         if self.task.parameter_layout.n_free_parameters == 0:
-            empty = jnp.zeros((n_samples, 0), dtype=JAX_DTYPE)
+            empty = jnp.zeros((n_samples, 0), dtype=FEAUTRIER_JAX_DTYPE)
             return {
                 "parameters": empty,
                 "cube_parameters": empty,
@@ -874,7 +874,7 @@ class RuntimeSimulator(BatchedSimulator):
         cube_samples = random.uniform(
             cube_key,
             shape=(n_samples, self.task.parameter_layout.n_free_parameters),
-            dtype=JAX_DTYPE,
+            dtype=FEAUTRIER_JAX_DTYPE,
             minval=self.task.parameter_layout.cube_epsilon,
             maxval=1.0 - self.task.parameter_layout.cube_epsilon,
         )
@@ -935,7 +935,7 @@ class RuntimeSimulator(BatchedSimulator):
         covariance: Any,
     ) -> tuple[Any, Any, Any]:
         mode = self.task.simulation_config.noise_model.mode
-        values = jnp.asarray(values, dtype=JAX_DTYPE)
+        values = jnp.asarray(values, dtype=FEAUTRIER_JAX_DTYPE)
 
         if mode in {"none", "no_noise"}:
             return values, uncertainties, covariance
@@ -946,16 +946,16 @@ class RuntimeSimulator(BatchedSimulator):
         key = self._next_key()
 
         if covariance is not None:
-            covariance = jnp.asarray(covariance, dtype=JAX_DTYPE)
-            mean = jnp.zeros(covariance.shape[0], dtype=JAX_DTYPE)
+            covariance = jnp.asarray(covariance, dtype=FEAUTRIER_JAX_DTYPE)
+            mean = jnp.zeros(covariance.shape[0], dtype=FEAUTRIER_JAX_DTYPE)
             noise = random.multivariate_normal(key, mean=mean, cov=covariance)
             return values + noise, uncertainties, covariance
 
         if uncertainties is None:
             return values, uncertainties, covariance
 
-        uncertainties = jnp.asarray(uncertainties, dtype=JAX_DTYPE)
-        noise = random.normal(key, shape=values.shape, dtype=JAX_DTYPE) * uncertainties
+        uncertainties = jnp.asarray(uncertainties, dtype=FEAUTRIER_JAX_DTYPE)
+        noise = random.normal(key, shape=values.shape, dtype=FEAUTRIER_JAX_DTYPE) * uncertainties
         return values + noise, uncertainties, covariance
 
     def _apply_noise_batched(
@@ -978,7 +978,7 @@ class RuntimeSimulator(BatchedSimulator):
         from jax import vmap as _vmap
 
         mode = self.task.simulation_config.noise_model.mode
-        values_batch = jnp.asarray(values_batch, dtype=JAX_DTYPE)
+        values_batch = jnp.asarray(values_batch, dtype=FEAUTRIER_JAX_DTYPE)
 
         if mode in {"none", "no_noise"}:
             return values_batch, uncertainties_batch, covariance_batch
@@ -989,9 +989,9 @@ class RuntimeSimulator(BatchedSimulator):
         n_samples = int(values_batch.shape[0])
 
         if covariance_batch is not None:
-            covariance_batch = jnp.asarray(covariance_batch, dtype=JAX_DTYPE)
+            covariance_batch = jnp.asarray(covariance_batch, dtype=FEAUTRIER_JAX_DTYPE)
             n = int(covariance_batch.shape[-1])
-            mean = jnp.zeros(n, dtype=JAX_DTYPE)
+            mean = jnp.zeros(n, dtype=FEAUTRIER_JAX_DTYPE)
             key = self._next_key()
             subkeys = random.split(key, n_samples)
             noise = _vmap(lambda k, c: random.multivariate_normal(k, mean, c))(
@@ -1002,10 +1002,10 @@ class RuntimeSimulator(BatchedSimulator):
         if uncertainties_batch is None:
             return values_batch, uncertainties_batch, covariance_batch
 
-        uncertainties_batch = jnp.asarray(uncertainties_batch, dtype=JAX_DTYPE)
+        uncertainties_batch = jnp.asarray(uncertainties_batch, dtype=FEAUTRIER_JAX_DTYPE)
         key = self._next_key()
         noise = (
-            random.normal(key, shape=values_batch.shape, dtype=JAX_DTYPE)
+            random.normal(key, shape=values_batch.shape, dtype=FEAUTRIER_JAX_DTYPE)
             * uncertainties_batch
         )
         return values_batch + noise, uncertainties_batch, covariance_batch
@@ -1029,9 +1029,9 @@ class RuntimeSimulator(BatchedSimulator):
             stacked_payload[key] = jnp.stack(
                 [
                     (
-                        jnp.asarray(value, dtype=JAX_DTYPE)
+                        jnp.asarray(value, dtype=FEAUTRIER_JAX_DTYPE)
                         if value is not None
-                        else jnp.asarray(jnp.nan, dtype=JAX_DTYPE)
+                        else jnp.asarray(jnp.nan, dtype=FEAUTRIER_JAX_DTYPE)
                     )
                     for value in values
                 ]
@@ -1046,7 +1046,7 @@ class RuntimeSimulator(BatchedSimulator):
         unconstrained_parameters: Any = None,
         data_parallel: bool = False,
     ) -> SimulationBatch:
-        parameter_matrix = jnp.asarray(parameter_matrix, dtype=JAX_DTYPE)
+        parameter_matrix = jnp.asarray(parameter_matrix, dtype=FEAUTRIER_JAX_DTYPE)
 
         if jnp.ndim(parameter_matrix) == 1:
             parameter_matrix = parameter_matrix[jnp.newaxis, :]
@@ -1084,9 +1084,9 @@ class RuntimeSimulator(BatchedSimulator):
                 if cube_parameters is not None:
                     cube_parameters = jnp.concatenate(
                         [
-                            jnp.asarray(cube_parameters, dtype=JAX_DTYPE),
+                            jnp.asarray(cube_parameters, dtype=FEAUTRIER_JAX_DTYPE),
                             jnp.repeat(
-                                jnp.asarray(cube_parameters, dtype=JAX_DTYPE)[-1:],
+                                jnp.asarray(cube_parameters, dtype=FEAUTRIER_JAX_DTYPE)[-1:],
                                 pad_count,
                                 axis=0,
                             ),
@@ -1096,9 +1096,9 @@ class RuntimeSimulator(BatchedSimulator):
                 if unconstrained_parameters is not None:
                     unconstrained_parameters = jnp.concatenate(
                         [
-                            jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE),
+                            jnp.asarray(unconstrained_parameters, dtype=FEAUTRIER_JAX_DTYPE),
                             jnp.repeat(
-                                jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE)[
+                                jnp.asarray(unconstrained_parameters, dtype=FEAUTRIER_JAX_DTYPE)[
                                     -1:
                                 ],
                                 pad_count,
@@ -1126,12 +1126,12 @@ class RuntimeSimulator(BatchedSimulator):
             if padded_n > n_samples:
                 parameter_matrix = parameter_matrix[:n_samples]
                 if cube_parameters is not None:
-                    cube_parameters = jnp.asarray(cube_parameters, dtype=JAX_DTYPE)[
+                    cube_parameters = jnp.asarray(cube_parameters, dtype=FEAUTRIER_JAX_DTYPE)[
                         :n_samples
                     ]
                 if unconstrained_parameters is not None:
                     unconstrained_parameters = jnp.asarray(
-                        unconstrained_parameters, dtype=JAX_DTYPE
+                        unconstrained_parameters, dtype=FEAUTRIER_JAX_DTYPE
                     )[:n_samples]
                 for obs_name in det_obs:
                     payload = det_obs[obs_name]
@@ -1168,7 +1168,7 @@ class RuntimeSimulator(BatchedSimulator):
             if self.task.simulation_config.store_per_datapoint_log_likelihood:
                 # Reuse the batched evaluator for per-sample log-likelihoods.
                 batched_log_likelihood = jnp.asarray(
-                    self.runtime.evaluate_jax_batched(parameter_matrix), dtype=JAX_DTYPE
+                    self.runtime.evaluate_jax_batched(parameter_matrix), dtype=FEAUTRIER_JAX_DTYPE
                 )
 
             diagnostics_batched = {
@@ -1181,12 +1181,12 @@ class RuntimeSimulator(BatchedSimulator):
                 cube_parameters=(
                     None
                     if cube_parameters is None
-                    else jnp.asarray(cube_parameters, dtype=JAX_DTYPE)
+                    else jnp.asarray(cube_parameters, dtype=FEAUTRIER_JAX_DTYPE)
                 ),
                 unconstrained_parameters=(
                     None
                     if unconstrained_parameters is None
-                    else jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE)
+                    else jnp.asarray(unconstrained_parameters, dtype=FEAUTRIER_JAX_DTYPE)
                 ),
                 log_likelihood=batched_log_likelihood,
                 diagnostics=diagnostics_batched,
@@ -1261,17 +1261,17 @@ class RuntimeSimulator(BatchedSimulator):
             cube_parameters=(
                 None
                 if cube_parameters is None
-                else jnp.asarray(cube_parameters, dtype=JAX_DTYPE)
+                else jnp.asarray(cube_parameters, dtype=FEAUTRIER_JAX_DTYPE)
             ),
             unconstrained_parameters=(
                 None
                 if unconstrained_parameters is None
-                else jnp.asarray(unconstrained_parameters, dtype=JAX_DTYPE)
+                else jnp.asarray(unconstrained_parameters, dtype=FEAUTRIER_JAX_DTYPE)
             ),
             log_likelihood=(
                 None
                 if log_likelihood is None
-                else jnp.asarray(log_likelihood, dtype=JAX_DTYPE)
+                else jnp.asarray(log_likelihood, dtype=FEAUTRIER_JAX_DTYPE)
             ),
             diagnostics=diagnostics,
         )
