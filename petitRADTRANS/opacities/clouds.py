@@ -8,11 +8,11 @@ import petitRADTRANS.physical_constants as cst
 
 from petitRADTRANS.utils import LockedDict
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE, WORKING_JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE, WORKING_JAX_DTYPE
 
 # JAX-friendly sentinels and helpers for optional inputs
-_MISSING_FLOAT = jnp.array(-1.0, dtype=JAX_DTYPE)
-_MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=JAX_DTYPE)
+_MISSING_FLOAT = jnp.array(-1.0, dtype=FEAUTRIER_JAX_DTYPE)
+_MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=FEAUTRIER_JAX_DTYPE)
 
 
 def _selected_clouds_have_effect(mass_fractions, selected_cloud_species):
@@ -49,14 +49,14 @@ def _resolve_cloud_parameter_key(parameter, cloud_name):
 
 
 def _expand_cloud_parameter_column(value, pressures, parameter_name, cloud_name):
-    value = jnp.asarray(value, dtype=JAX_DTYPE)
+    value = jnp.asarray(value, dtype=FEAUTRIER_JAX_DTYPE)
 
     if value.ndim == 0:
-        return jnp.full((pressures.size,), value, dtype=JAX_DTYPE)
+        return jnp.full((pressures.size,), value, dtype=FEAUTRIER_JAX_DTYPE)
 
     if value.ndim == 1:
         if value.shape[0] == 1:
-            return jnp.full((pressures.size,), value[0], dtype=JAX_DTYPE)
+            return jnp.full((pressures.size,), value[0], dtype=FEAUTRIER_JAX_DTYPE)
 
         if value.shape[0] == pressures.size:
             return value
@@ -80,7 +80,7 @@ def _standardize_cloud_species_parameter(
     n_clouds = len(cloud_species)
 
     if isinstance(parameter, dict):
-        parameter_grid = jnp.zeros((n_layers, n_clouds), dtype=JAX_DTYPE)
+        parameter_grid = jnp.zeros((n_layers, n_clouds), dtype=FEAUTRIER_JAX_DTYPE)
         missing_species = []
 
         for i_spec, cloud_name in enumerate(cloud_species):
@@ -106,10 +106,10 @@ def _standardize_cloud_species_parameter(
 
         return parameter_grid
 
-    parameter = jnp.asarray(parameter, dtype=JAX_DTYPE)
+    parameter = jnp.asarray(parameter, dtype=FEAUTRIER_JAX_DTYPE)
 
     if parameter.ndim == 0:
-        return jnp.full((n_layers, n_clouds), parameter, dtype=JAX_DTYPE)
+        return jnp.full((n_layers, n_clouds), parameter, dtype=FEAUTRIER_JAX_DTYPE)
 
     if parameter.ndim == 1:
         if parameter.shape[0] == n_layers:
@@ -172,8 +172,8 @@ def _select_loaded_cloud_opacity_tables(
 
 def _init_cloud_branch_outputs(frequencies, pressures, n_clouds):
     min_cloud_shape = max(n_clouds, 1)
-    zero_2d = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
-    zero_radii = jnp.zeros((pressures.size, min_cloud_shape), dtype=JAX_DTYPE)
+    zero_2d = jnp.zeros((frequencies.size, pressures.size), dtype=FEAUTRIER_JAX_DTYPE)
+    zero_radii = jnp.zeros((pressures.size, min_cloud_shape), dtype=FEAUTRIER_JAX_DTYPE)
 
     return zero_2d, zero_2d, zero_2d, zero_2d, zero_2d, zero_radii
 
@@ -186,7 +186,7 @@ def _maybe_add_opaque_cloud_deck(
     # inf before the shell-path integration.
     _OPAQUE_DECK_OPACITY = jnp.array(
         jnp.finfo(WORKING_JAX_DTYPE).max / 2,
-        dtype=JAX_DTYPE,
+        dtype=FEAUTRIER_JAX_DTYPE,
     )
 
     deck_active = jnp.greater_equal(opaque_cloud_top_pressure, 0.0)
@@ -304,10 +304,10 @@ def _init_cloud_background_continuum(
         )
     else:
         clear_continuum_opacities = jnp.zeros(
-            (frequencies.size, pressures.size), dtype=JAX_DTYPE
+            (frequencies.size, pressures.size), dtype=FEAUTRIER_JAX_DTYPE
         )
         clear_continuum_opacities_scattering = jnp.zeros(
-            (frequencies.size, pressures.size), dtype=JAX_DTYPE
+            (frequencies.size, pressures.size), dtype=FEAUTRIER_JAX_DTYPE
         )
 
     _validate_power_law_inputs(power_law_opacity_350nm, power_law_opacity_coefficient)
@@ -510,12 +510,12 @@ def _maybe_compute_cloud_branch(
 
     def _cast_branch_outputs(args):
         return (
-            jnp.asarray(args[0], dtype=JAX_DTYPE),
-            jnp.asarray(args[1], dtype=JAX_DTYPE),
-            jnp.asarray(args[2], dtype=JAX_DTYPE),
-            jnp.asarray(args[3], dtype=JAX_DTYPE),
-            jnp.asarray(args[4], dtype=JAX_DTYPE),
-            jnp.asarray(args[5], dtype=JAX_DTYPE),
+            jnp.asarray(args[0], dtype=FEAUTRIER_JAX_DTYPE),
+            jnp.asarray(args[1], dtype=FEAUTRIER_JAX_DTYPE),
+            jnp.asarray(args[2], dtype=FEAUTRIER_JAX_DTYPE),
+            jnp.asarray(args[3], dtype=FEAUTRIER_JAX_DTYPE),
+            jnp.asarray(args[4], dtype=FEAUTRIER_JAX_DTYPE),
+            jnp.asarray(args[5], dtype=FEAUTRIER_JAX_DTYPE),
         )
 
     (
@@ -593,12 +593,12 @@ def _initialize_cloud_species_inputs(
     n_clouds = len(cloud_species)
     min_cloud_shape = max(n_clouds, 1)
     species_mass_fractions = jnp.zeros(
-        (pressures.size, min_cloud_shape), dtype=JAX_DTYPE
+        (pressures.size, min_cloud_shape), dtype=FEAUTRIER_JAX_DTYPE
     )
     cloud_particle_mean_radii_grid = jnp.zeros(
-        (pressures.size, min_cloud_shape), dtype=JAX_DTYPE
+        (pressures.size, min_cloud_shape), dtype=FEAUTRIER_JAX_DTYPE
     )
-    cloud_particle_density = jnp.zeros(n_clouds, dtype=JAX_DTYPE)
+    cloud_particle_density = jnp.zeros(n_clouds, dtype=FEAUTRIER_JAX_DTYPE)
 
     # Iterate in explicit cloud_species order to keep i_spec aligned with
     # clouds_loaded_opacities tables. Dict iteration order may differ under JAX tracing.
@@ -645,7 +645,7 @@ def _initialize_cloud_species_inputs(
 def _standardize_f_sed(cloud_f_sed, cloud_species, pressures_size):
     if isinstance(cloud_f_sed, dict) and len(cloud_f_sed) == 0:
         cloud_f_sed = None  # treat empty dict as no per-species f_sed
-    f_seds = jnp.zeros((pressures_size, len(cloud_species)), dtype=JAX_DTYPE)
+    f_seds = jnp.zeros((pressures_size, len(cloud_species)), dtype=FEAUTRIER_JAX_DTYPE)
 
     for i_spec, cloud in enumerate(cloud_species):
         if isinstance(cloud_f_sed, dict):
@@ -939,9 +939,9 @@ def init_clouds_particle_porosity_factor(
         _porosity = jnp.asarray(
             clouds_particle_porosity_factor.get(
                 species,
-                jnp.array(jnp.nan, dtype=JAX_DTYPE),
+                jnp.array(jnp.nan, dtype=FEAUTRIER_JAX_DTYPE),
             ),
-            dtype=JAX_DTYPE,
+            dtype=FEAUTRIER_JAX_DTYPE,
         )
 
         # For DHS sources: if porosity == 0 -> print a warning (leave value unchanged),
@@ -961,7 +961,7 @@ def init_clouds_particle_porosity_factor(
                 lambda q: lax.cond(
                     jnp.isfinite(q),
                     lambda r: r,
-                    lambda r: jnp.array(0.25, dtype=JAX_DTYPE),
+                    lambda r: jnp.array(0.25, dtype=FEAUTRIER_JAX_DTYPE),
                     q,
                 ),
                 porosity,
@@ -972,7 +972,7 @@ def init_clouds_particle_porosity_factor(
             return lax.cond(
                 jnp.isfinite(porosity),
                 lambda r: r,
-                lambda r: jnp.array(0.0, dtype=JAX_DTYPE),
+                lambda r: jnp.array(0.0, dtype=FEAUTRIER_JAX_DTYPE),
                 porosity,
             )
 
@@ -1391,7 +1391,7 @@ def _compute_cloud_opacities(
 
     if continuum_opacities is None:
         continuum_opacities = jnp.zeros(
-            (frequency_bins_edges.size - 1, pressures.size), dtype=JAX_DTYPE
+            (frequency_bins_edges.size - 1, pressures.size), dtype=FEAUTRIER_JAX_DTYPE
         )
 
     cloud_hansen_b = _initialize_hansen_b(
@@ -1463,7 +1463,7 @@ def _compute_cloud_opacities(
             cloud_particle_radius_distribution_std
             if cloud_particle_radius_distribution_std is not None
             and cloud_particle_radius_distribution_std is not _MISSING_FLOAT
-            else jnp.array(1.05, dtype=JAX_DTYPE)
+            else jnp.array(1.05, dtype=FEAUTRIER_JAX_DTYPE)
         )
         (
             clouds_total_absorption_opacities,

@@ -36,7 +36,7 @@ def test_sanitize_flux_opacity_inputs_accepts_radius_std_mapping():
         cloud_species=("MgSiO3(c)", "Fe(c)"),
         missing_float=petitRADTRANS.radtrans._MISSING_FLOAT,
         missing_neg_inf=petitRADTRANS.radtrans._MISSING_NEG_INF,
-        noop_opacity_fn=petitRADTRANS.radtrans._noop_opacity_fn,
+        additional_opacities_placeholder_fn=petitRADTRANS.radtrans._additional_opacities_placeholder_fn,
     )
 
     assert isinstance(

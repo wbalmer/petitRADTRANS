@@ -52,44 +52,69 @@ from petitRADTRANS.validation import (
     _warn_partial_cloud_coverage_without_patchy_clouds,
 )
 
+# pRT does its computation at single precision, where possible,
+# achieving a higher speed and smaller memory footprint
+# (WORKING_JAX_DTYPE). FEAUTRIER_JAX_DTYPE is jnp.float64
+# if config.jax_enable_x64 is True. In general JAX_DTYPE = FEAUTRIER_JAX_DTYPE
 from petitRADTRANS.jax_dtype import (
     FEAUTRIER_JAX_DTYPE,
-    JAX_DTYPE,
     WORKING_JAX_DTYPE,
 )
 
-# JAX-friendly sentinels and helpers for optional inputs
+# JAX functions below may have "sanitized inputs", ensuring that
+# the inputs into traced functions always looks the same
+# (especially important for keyword arguments
+# that may sometimes be None and sometimes be something else). Empty keyword
+# values use these _MISSING_X variables to fill optional keyword arguments
+# with something JAX can easily handle.
 _MISSING_FLOAT = jnp.array(-1.0, dtype=WORKING_JAX_DTYPE)
 _MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=WORKING_JAX_DTYPE)
 
 
-def _as_kernel_scalar(value):
+def _convert_scalar_to_strong_type(value):
     """Normalize an optional numeric scalar to a strongly-typed jnp array.
-
-    Python floats/ints and numpy scalars produce weak/strong avals that differ
-    between call sites, splitting the jit cache. None passes through unchanged
-    (kernels branch on it eagerly).
+    Some nominal values for optional keyword arguments of functions are defined as weakly typed
+    Python floats, say. Depending on what kind of scalar the user gives to the function
+    (Python weakly typed, strongly typed, different precision, etc.) this may cause a recompilation.
+    Converting all scalars to strongly typed (length 1) JAX arrays before passing them
+    to the jit compiled kernel inside a function circumvents this issue.
+    None passes through unchanged (this is taken care of in the sanitizing functions
+    inside the kernels).
     """
+
+    # TODO for the future:
+    #     According to Claude repeated calls of this functions in every model call (say ~10 times, and
+    #     outside of jit, which is what happens in the functions below) may add up to 0.5 ms.
+    #     So we may start feeling this in our fastest forward models on the GPU.
+
     if value is None:
         return None
 
-    return jnp.asarray(value, dtype=JAX_DTYPE)
+    return jnp.asarray(value, dtype=FEAUTRIER_JAX_DTYPE)
 
 
 def _handle_invalid_reference_gravity(reference_gravity):
+    '''Raises an error if the reference gravity is negative.
+    '''
+    # Such a check raising an error can only work outside the jitted function
+    # and is therefore not done in the actually jitted function kernels.
+    # (debug.callbacks are an option, but these are slow.)
     if reference_gravity <= 0:
         raise ValueError(
             f"reference gravity must be > 0, but was {reference_gravity}"
         )
 
 
-def _noop_opacity_fn(wavelengths, pressures):
-    """Return zero opacity matrix with shape (n_wavelengths, n_pressures)."""
+def _additional_opacities_placeholder_fn(wavelengths, pressures):
+    """Returns a zero opacity matrix with shape (n_wavelengths, n_pressures).
+    This is needed for the input normalization (in functions _sanitize_*)
+    in the case that a user does not specify an additional_absorption_opacities_function
+    or additional_scattering_opacities_function."""
     return jnp.zeros((wavelengths.size, pressures.size), dtype=WORKING_JAX_DTYPE)
 
 
 def _interpolate_linear_sorted(x_grid, y_grid, x_query):
-    """Linearly interpolate ``y(x)`` on a sorted 1D grid for a scalar query."""
+    """Linearly interpolate ``y(x)`` on a sorted 1D grid for to evaluate estimate y(x_query)."""
     upper_index = jnp.clip(
         jnp.searchsorted(x_grid, x_query, side="left"),
         1,
@@ -102,9 +127,9 @@ def _interpolate_linear_sorted(x_grid, y_grid, x_query):
     y0 = y_grid[lower_index]
     y1 = y_grid[upper_index]
 
-    slope = jnp.where(x1 == x0, 0.0, (x_query - x0) / (x1 - x0))
+    slope = jnp.where(x1 == x0, 0.0, (y1 - y0) / (x1 - x0))
 
-    return y0 + slope * (y1 - y0)
+    return y0 + slope * (x_query - x0)
 
 
 class Radtrans:
@@ -730,6 +755,14 @@ class Radtrans:
     ):
         """Initializations and checks common to calculate_flux and calculate_transit_radii."""
 
+        # TODO check why this debug.callback is needed, since the _init_spectra_function
+        #   is nominally not run in jitted mode.
+        # Caution, this can be slow if running in a jitted environment on a GPU
+        # since GPU<->host communication has to happen at every step.
+        # Claude suggests a validate_inputs=False flag that turns off all
+        # such checks if specifically requested (could also be used for
+        # _convert_scalar_to_strong_type, sanitizing operations (with a different
+        # flag though...)
         if isinstance(reference_gravity, jax_core.Tracer):
             debug.callback(_handle_invalid_reference_gravity, reference_gravity)
         else:
@@ -1294,7 +1327,7 @@ class Radtrans:
         optical_depths = jnp.asarray(optical_depths, dtype=WORKING_JAX_DTYPE)
         radius_hydrostatic_equilibrium = jnp.asarray(
             radius_hydrostatic_equilibrium,
-            dtype=JAX_DTYPE,
+            dtype=FEAUTRIER_JAX_DTYPE,
         )
         tau_target = jnp.asarray(2.0 / 3.0, dtype=WORKING_JAX_DTYPE)
         tau_profiles = jnp.sum(
@@ -1330,7 +1363,7 @@ class Radtrans:
                 'radius" at tau = 2/3. Returning the radius at maximum pressure instead!'
             )
 
-        return jnp.asarray(photosphere_radius, dtype=JAX_DTYPE)
+        return jnp.asarray(photosphere_radius, dtype=FEAUTRIER_JAX_DTYPE)
 
     @jit(
         static_argnames=[
@@ -1829,7 +1862,7 @@ class Radtrans:
             transmission_contribution)``.
         """
         transmission_contribution = jnp.zeros(
-            (jnp.size(pressures), self._frequencies.size), dtype=JAX_DTYPE
+            (jnp.size(pressures), self._frequencies.size), dtype=FEAUTRIER_JAX_DTYPE
         )
 
         # Calculate the transmission spectrum
@@ -2388,7 +2421,7 @@ class Radtrans:
                         if _default_mass_fractions is None:
                             _default_mass_fractions = {
                                 species: jnp.zeros(
-                                    self._pressures.size, dtype=JAX_DTYPE
+                                    self._pressures.size, dtype=FEAUTRIER_JAX_DTYPE
                                 )
                             }
 
@@ -2782,9 +2815,9 @@ class Radtrans:
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=_as_kernel_scalar(reference_gravity),
-            planet_radius=_as_kernel_scalar(planet_radius),
-            opaque_cloud_top_pressure=_as_kernel_scalar(opaque_cloud_top_pressure),
+            reference_gravity=_convert_scalar_to_strong_type(reference_gravity),
+            planet_radius=_convert_scalar_to_strong_type(planet_radius),
+            opaque_cloud_top_pressure=_convert_scalar_to_strong_type(opaque_cloud_top_pressure),
             cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_particle_radius_distribution=cloud_particle_radius_distribution,
@@ -2794,20 +2827,20 @@ class Radtrans:
             clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-            haze_factor=_as_kernel_scalar(haze_factor),
-            power_law_opacity_350nm=_as_kernel_scalar(power_law_opacity_350nm),
-            power_law_opacity_coefficient=_as_kernel_scalar(power_law_opacity_coefficient),
-            gray_opacity=_as_kernel_scalar(gray_opacity),
+            haze_factor=_convert_scalar_to_strong_type(haze_factor),
+            power_law_opacity_350nm=_convert_scalar_to_strong_type(power_law_opacity_350nm),
+            power_law_opacity_coefficient=_convert_scalar_to_strong_type(power_law_opacity_coefficient),
+            gray_opacity=_convert_scalar_to_strong_type(gray_opacity),
             cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
-            cloud_photosphere_median_optical_depth=_as_kernel_scalar(cloud_photosphere_median_optical_depth),
-            cloud_fraction=_as_kernel_scalar(cloud_fraction),
+            cloud_photosphere_median_optical_depth=_convert_scalar_to_strong_type(cloud_photosphere_median_optical_depth),
+            cloud_fraction=_convert_scalar_to_strong_type(cloud_fraction),
             patchy_clouds=patchy_clouds,
             irradiation_geometry=irradiation_geometry,
             stellar_intensities=stellar_intensities,
-            star_effective_temperature=_as_kernel_scalar(star_effective_temperature),
-            star_radius=_as_kernel_scalar(star_radius),
-            orbit_semi_major_axis=_as_kernel_scalar(orbit_semi_major_axis),
-            star_irradiation_angle=_as_kernel_scalar(star_irradiation_angle),
+            star_effective_temperature=_convert_scalar_to_strong_type(star_effective_temperature),
+            star_radius=_convert_scalar_to_strong_type(star_radius),
+            orbit_semi_major_axis=_convert_scalar_to_strong_type(orbit_semi_major_axis),
+            star_irradiation_angle=_convert_scalar_to_strong_type(star_irradiation_angle),
             reflectances=reflectances,
             emissivities=emissivities,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
@@ -2958,7 +2991,7 @@ class Radtrans:
             cloud_species=self._cloud_species,
             missing_float=_MISSING_FLOAT,
             missing_neg_inf=_MISSING_NEG_INF,
-            noop_opacity_fn=_noop_opacity_fn,
+            additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]
@@ -3226,7 +3259,7 @@ class Radtrans:
                 )
             else:
                 additional_outputs["photosphere_radius"] = jnp.zeros(
-                    self._frequencies.size, dtype=JAX_DTYPE
+                    self._frequencies.size, dtype=FEAUTRIER_JAX_DTYPE
                 )
 
         if return_cloud_contribution and len(self._cloud_species) > 0:
@@ -3382,7 +3415,7 @@ class Radtrans:
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=_as_kernel_scalar(reference_gravity),
+            reference_gravity=_convert_scalar_to_strong_type(reference_gravity),
             irradiation_geometry=irradiation_geometry,
             stellar_intensities=stellar_intensities,
             star_irradiation_angle=star_irradiation_angle,
@@ -3491,7 +3524,7 @@ class Radtrans:
                 radius_hydrostatic_equilibrium=radius_hydrostatic_equilibrium,
             )
 
-        return jnp.zeros(self._frequencies.size, dtype=JAX_DTYPE)
+        return jnp.zeros(self._frequencies.size, dtype=FEAUTRIER_JAX_DTYPE)
 
     def calculate_rosseland_planck_opacities(
         self,
@@ -3618,7 +3651,7 @@ class Radtrans:
             cloud_species=self._cloud_species,
             missing_float=_MISSING_FLOAT,
             missing_neg_inf=_MISSING_NEG_INF,
-            noop_opacity_fn=_noop_opacity_fn,
+            additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
 
         # No photospheric cloud in Rosseland or Planck opacities
@@ -3920,11 +3953,11 @@ class Radtrans:
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=_as_kernel_scalar(reference_gravity),
-            reference_pressure=_as_kernel_scalar(reference_pressure),
-            planet_radius=_as_kernel_scalar(planet_radius),
+            reference_gravity=_convert_scalar_to_strong_type(reference_gravity),
+            reference_pressure=_convert_scalar_to_strong_type(reference_pressure),
+            planet_radius=_convert_scalar_to_strong_type(planet_radius),
             variable_gravity=variable_gravity,
-            opaque_cloud_top_pressure=_as_kernel_scalar(opaque_cloud_top_pressure),
+            opaque_cloud_top_pressure=_convert_scalar_to_strong_type(opaque_cloud_top_pressure),
             cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_particle_radius_distribution=cloud_particle_radius_distribution,
@@ -3934,11 +3967,11 @@ class Radtrans:
             clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-            haze_factor=_as_kernel_scalar(haze_factor),
-            power_law_opacity_350nm=_as_kernel_scalar(power_law_opacity_350nm),
-            power_law_opacity_coefficient=_as_kernel_scalar(power_law_opacity_coefficient),
-            gray_opacity=_as_kernel_scalar(gray_opacity),
-            cloud_fraction=_as_kernel_scalar(cloud_fraction),
+            haze_factor=_convert_scalar_to_strong_type(haze_factor),
+            power_law_opacity_350nm=_convert_scalar_to_strong_type(power_law_opacity_350nm),
+            power_law_opacity_coefficient=_convert_scalar_to_strong_type(power_law_opacity_coefficient),
+            gray_opacity=_convert_scalar_to_strong_type(gray_opacity),
+            cloud_fraction=_convert_scalar_to_strong_type(cloud_fraction),
             patchy_clouds=patchy_clouds,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function,
@@ -4047,7 +4080,7 @@ class Radtrans:
             cloud_species=self._cloud_species,
             missing_float=_MISSING_FLOAT,
             missing_neg_inf=_MISSING_NEG_INF,
-            noop_opacity_fn=_noop_opacity_fn,
+            additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]

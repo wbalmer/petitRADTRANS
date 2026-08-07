@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 from jax import config, tree_util
-from petitRADTRANS.jax_dtype import JAX_DTYPE  # noqa: F401  (re-exported for other modules)
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE  # noqa: F401  (re-exported for other modules)
 from petitRADTRANS.retrieval.utils import (
     log_prior,
     uniform_prior,
