@@ -194,18 +194,6 @@ class Radtrans:
             Path to the input_data folder, containing the files to be loaded by petitRADTRANS.
     """
 
-    # Paul continue reviewing here!
-
-    __dat_opacity_files_warning_message = (
-        "loading opacities from .dat files is discouraged, the HDF5 format offer better performances at for a lower "
-        "memory usage\n\n"
-        "Converting petitRADTRANS .dat opacity files into HDF5 can be done by executing:\n"
-        ">>> from petitRADTRANS.opacities.file_conversion import convert_all\n"
-        ">>> convert_all()\n\n"
-        "Alternatively, the petitRADTRANS HDF5 files can be downloaded "
-        "(see https://petitradtrans.readthedocs.io/en/latest/content/available_opacities.html)"
-    )
-
     __line_opacity_property_setting_warning_message = (
         "setting a Radtrans line opacity property should be avoided\n"
         "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
@@ -243,7 +231,9 @@ class Radtrans:
 
         # Initialize properties
         if pressures is None:
-            debug.print("pressure was not set, initializing one layer at 1 bar")
+            # TODO discuss with Evert: this was debug.print(), but it is in the unjitted __init__ of radtrans,
+            #   so not necessary?
+            warnings.warn("pressure was not set, initializing one layer at 1 bar")
             pressures = jnp.array([1.0], dtype=FEAUTRIER_JAX_DTYPE)  # bar
 
         self._pressures = (
@@ -273,8 +263,11 @@ class Radtrans:
 
         self._anisotropic_cloud_scattering = anisotropic_cloud_scattering
 
-        # Pre-resolve derived config used by the emission flux kernels
-        # so that the method does not read mutable instance state at call time.
+        # Pre-resolve whether opacities of species can be summed in the first
+        # column such that kernel methods do not read mutable instance states at call time.
+        # TODO Paul: check if self._sum_opacities_emission is really needed. _set_sum_opacities() is used
+        #   in other functions below, but self._sum_opacities_emission is only used once,
+        #   in calculate_flux_autodiff, which Evert said should not still be there.
         self._sum_opacities_emission: bool = self._set_sum_opacities(
             emission=True,
             line_opacity_mode=self._line_opacity_mode,
@@ -298,7 +291,7 @@ class Radtrans:
             and len(self._cloud_species) == 0
         )
 
-        # Initialize line parameters
+        # Initialize line parameters  # TODO Paul: continue review from within here!
         self._frequencies, self._frequency_bins_edges = self._init_frequency_grid()
 
         # Initialize loaded line opacities variables
@@ -1017,7 +1010,23 @@ class Radtrans:
 
     @staticmethod
     def _set_sum_opacities(emission, line_opacity_mode, scattering_in_emission):
+        """Determine whether opacities / optical depths (depends on line_opacity_mode)
+        can be treated in a "combined into one species" way (either corr-k mixing or
+        line-by-line adding).
+
+        Args:
+            emission (bool):
+                Whether pRT is used to calculate an emission spectrum or not
+            line_opacity_mode ([string]):
+                Defines if pRT is in correlated-k ("c-k") or line-by-line ("lbl") opacity mode.
+            scattering_in_emission (bool):
+                Defines if pRT is considering scattering in emission (default).
+
+        Return:
+            Whether opacities will be treated in a combined mode, for all species.
+        """
         sum_opacities = False  # False in c-k emission if no scattering, and always False in c-k transmission
+                               #
         if line_opacity_mode == "c-k":
             if emission and scattering_in_emission:
                 sum_opacities = True
@@ -1940,7 +1949,7 @@ class Radtrans:
             1. lines,
             2. CIA,
             3. clouds.
-        If not opacities are provided, the mean of the wavelength boundaries is used. The frequency grid in that case
+        If no opacities are provided, the mean of the wavelength boundaries is used. The frequency grid in that case
         has only 1 element.
 
         Returns:
@@ -1952,7 +1961,7 @@ class Radtrans:
         """
         if len(self._line_species) > 0:
             frequencies, frequency_bins_edges = self._init_frequency_grid_from_lines()
-        elif len(self._gas_continuum_contributors) > 0:
+        elif len(self._gas_continuum_contributors) > 0: # TODO Paul: continue review from here!
             hdf5_file = cia.get_cia_aliases(self._gas_continuum_contributors[0])
             hdf5_file = CIAOpacity.find(
                 path_input_data=self._path_input_data, species=hdf5_file
@@ -2004,6 +2013,22 @@ class Radtrans:
     def _init_frequency_grid_from_frequency_grid(
         frequency_grid, wavelength_boundaries, sampling=1
     ):
+        """Returns that subsection of a frequency grid that falls between (inclusive) the
+        to wavelength boundaries given (which will be converted to frequencies), accounting
+        for opacity downsampling at high resolution.
+
+        Args:
+            frequency_grid (jnp arrary of floats):
+                frequency grid to be used for constructing the pRT official frequency grid.
+            wavelength_boundaries (tuple of floats):
+                Wavelength boundaries requested by the user, in microns.
+            sampling (integer):
+                Whether a frequency sampling is to be applied.
+                E.g., sampling = 4 only keeps every 4th frequency point.
+
+        Returns:
+            Array of frequencies and the frequency bin edges of said array.
+        """
         # Get frequency boundaries
         frequency_min = um2hz(wavelength_boundaries[1])
         frequency_max = um2hz(wavelength_boundaries[0])
@@ -2056,6 +2081,13 @@ class Radtrans:
         return frequencies, frequency_bins_edges
 
     def _init_frequency_grid_from_lines(self):
+        """Loads opacity files from the first requested line species to define the frequency grid within the
+        requested wavelength range. The species wavelength range is expanded if smaller than the user request,
+        and cut down if smaller.
+
+        Returns:
+            Frequencies and frequency bin edges of the defined array.
+        """
         import h5py
 
         if self._line_opacity_mode == "c-k":  # correlated-k
@@ -2144,6 +2176,8 @@ class Radtrans:
             )
 
             # Get the corresponding frequencies bin edges, +2 is to catch the upper bin edge
+            # +1 because there's N+1 edges to N frequency points, and another
+            # +1 to be larger than larger boundary wavelength, actually.
             frequency_bins_edges = jnp.array(
                 frequency_bins_edges[
                     indices_within_boundaries[0] : indices_within_boundaries[-1] + 2

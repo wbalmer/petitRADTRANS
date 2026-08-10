@@ -107,7 +107,8 @@ def compute_optical_depths(
             compute_species_optical_depths(
                 reference_gravity=reference_gravity,
                 pressures=pressures,
-                cloud_opacities=opacities,
+                cloud_opacities=opacities, # TODO David: these are opacities per (gas) species, too
+                                           #    not just clouds. Fix function naming.
             ),
             dtype=WORKING_JAX_DTYPE,
         )

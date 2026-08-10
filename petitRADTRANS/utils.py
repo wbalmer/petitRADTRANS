@@ -541,6 +541,16 @@ def topological_sort(source):
 
 
 def tuple_init(arg):
+    """Convert iterable argument (list, array) into tuple.
+    Here used to convert lists that are fed into pRT during initialization in to tuples,
+    which are immutable, thus jittable.
+
+    Args:
+        arg: iterable argument to be converted into tuple
+
+    Returns:
+        The tuple. Will be empty if arg is None.
+    """
     if arg is None:
         return ()
     return tuple(arg)
