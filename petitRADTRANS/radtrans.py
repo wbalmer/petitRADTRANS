@@ -291,8 +291,13 @@ class Radtrans:
             and len(self._cloud_species) == 0
         )
 
-        # Initialize line parameters  # TODO Paul: continue review from within here!
+        # Initialize line parameters
+        # TODO: only c-k species allow user to request a wavelength grid that is larger
+        #   than the opacity file range. For line-by-line, CIA and cloud it crashes.
+        #   Look into a fix!
         self._frequencies, self._frequency_bins_edges = self._init_frequency_grid()
+
+        # TODO: Paul continue code review from here!
 
         # Initialize loaded line opacities variables
         self._lines_loaded_opacities = LockedDict.build_and_lock(
@@ -1961,8 +1966,8 @@ class Radtrans:
         """
         if len(self._line_species) > 0:
             frequencies, frequency_bins_edges = self._init_frequency_grid_from_lines()
-        elif len(self._gas_continuum_contributors) > 0: # TODO Paul: continue review from here!
-            hdf5_file = cia.get_cia_aliases(self._gas_continuum_contributors[0])
+        elif len(cia.get_cia_contributors(self._gas_continuum_contributors)) > 0:
+            hdf5_file = cia.get_cia_aliases(cia.get_cia_contributors(self._gas_continuum_contributors)[0])
             hdf5_file = CIAOpacity.find(
                 path_input_data=self._path_input_data, species=hdf5_file
             )
