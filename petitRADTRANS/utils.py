@@ -111,6 +111,7 @@ class LockedDict(dict):
     def unlock(self):
         self._locked = False
 
+    # Enable pytree registration of LockedDict
     def tree_flatten(self):
         children = list(self.values())
         aux_data = (tuple(self.keys()), self._locked)
@@ -379,10 +380,12 @@ def hdf52dict(hdf5_file):
 
 
 def intersection_indices(array1: npt.NDArray, array2: npt.NDArray):
-    """Get the indices of the intersection between two sorted arrays in increasing order.
+    """Get the indices of the intersection between two sorted arrays in decreasing order.
 
-    For example, if array1 is [0.1, ..., 0.3, ..., 3] and array2 is interval [0.3, ..., 3, ..., 28], then the output
-    indices will be the indices corresponding to [0.3, ..., 3] in both arrays.
+    For example, if array1 is [0.1, ..., 0.3, ..., 3][::-1] and array2 is interval [0.3, ..., 3, ..., 28][::-1], then the output
+    indices will be the indices corresponding to [0.3, ..., 3][::-1] in both arrays.
+    The [::-1] denotes changing the array from increasing to decreasing order, since intersection_indices
+    only works for decreasing order arrays.
 
     Args:
         array1: the first array
@@ -553,6 +556,11 @@ def tuple_init(arg):
     """
     if arg is None:
         return ()
+    # Take care of the case where users hand over a "one-element tuple",
+    # without a "," . For example, ("H2O") is not actually a tuple.
+    # The correct way would be ("H2O",). ("H2O") = "H2O" is a string.
+    if isinstance(arg, str):
+        return (arg,)
     return tuple(arg)
 
 

@@ -297,8 +297,6 @@ class Radtrans:
         #   Look into a fix!
         self._frequencies, self._frequency_bins_edges = self._init_frequency_grid()
 
-        # TODO: Paul continue code review from here!
-
         # Initialize loaded line opacities variables
         self._lines_loaded_opacities = LockedDict.build_and_lock(
             {
@@ -363,11 +361,12 @@ class Radtrans:
         )
 
         if emission_angle_grid is None:
+            # 3-point Gaussian quadrature grid for mu, which is ranging from 0 to 1.
             self._emission_angle_grid["cos_angles"] = jnp.array(
                 [0.1127016654, 0.5, 0.8872983346],
                 dtype=WORKING_JAX_DTYPE,
             )
-
+            # Corresponding weights of the same grid.
             self._emission_angle_grid["weights"] = jnp.array(
                 [0.2777777778, 0.4444444444, 0.2777777778],
                 dtype=WORKING_JAX_DTYPE,
@@ -404,7 +403,7 @@ class Radtrans:
                 )
 
         # Load all opacities
-        self.load_all_opacities()
+        self.load_all_opacities() # TODO: Paul continue review from within here
 
     def __getattr__(self, name):
         """Override of the object base __getattr__ method, in order to hint towards
@@ -4658,7 +4657,7 @@ class Radtrans:
         return_radtrans_opacities=True,
         return_host_array=False,
     ):
-        """Load k-coefficient tables in HDF5 format, based on the ExoMol setup."""
+        """Load k-coefficient tables in HDF5 format, based on the ExoMolOP setup."""
         import h5py
 
         with h5py.File(file_path_hdf5, "r") as f:
@@ -4734,7 +4733,7 @@ class Radtrans:
                         max_relative_difference
                         > cls._frequency_grid_misalignment_tolerance / resolving_power
                     ):
-                        debug.print(
+                        raise ValueError(
                             f"maximum frequency grid misalignment from file ({max_relative_difference}) "
                             f"is larger than tolerated "
                             f"({cls._frequency_grid_misalignment_tolerance / resolving_power}); "
@@ -4744,6 +4743,8 @@ class Radtrans:
                         )
 
             selected_file_indices = np.nonzero(indices_file)[0]
+            # Invert index order since frequency arrays were inverted above,
+            # but opacity file is still in its original order.
             selection_start = n_wavelengths - int(selected_file_indices[-1]) - 1
             selection_stop = n_wavelengths - int(selected_file_indices[0])
             selected_wavelengths = selection_stop - selection_start
@@ -4765,14 +4766,19 @@ class Radtrans:
 
         line_opacities_grid = k_table * mol_mass_inv
 
-        if line_opacities_grid.shape[1] == frequencies.size and np.all(indices_opacities):
-            line_opacities_grid = line_opacities_grid[:, :, np.newaxis, :]
-        else:
+        # So line opacities grid has shape (g_size, selected_wavelengths, n_pressures*n_temperatures)
+        # With wavelengths in ascending order.
+
+        if not (line_opacities_grid.shape[1] == frequencies.size and np.all(indices_opacities)):
+        #    line_opacities_grid = line_opacities_grid[:, :, np.newaxis, :]
+        # Only fill in those values where the data existed in the opacity
+        # input file:
+        # else:
             opacities = np.zeros(
-                (g_size, frequencies.size, 1, temperature_pressure_grid_size),
+                (g_size, frequencies.size, temperature_pressure_grid_size),
                 dtype=host_dtype,
             )
-            opacities[:, indices_opacities, 0, :] = line_opacities_grid
+            opacities[:, indices_opacities, :] = line_opacities_grid
             line_opacities_grid = opacities
 
         if return_host_array:
@@ -4843,10 +4849,12 @@ class Radtrans:
                                 species
                             ].shape[0],
                             return_host_array=True,
-                        )[:, :, 0, :],
+                        ), # [:, :, 0, :], # TODO discuss with Evert: no longer the third axis here
+                                           #    since it is no longer added in load_hdf5_ktables:
+                                           #    it was always added and then immediately removed.
                         dtype=host_dtype,
                     )
-                elif self._line_opacity_mode == "lbl":
+                elif self._line_opacity_mode == "lbl": # TODO Paul: continue here!
                     opacity_grids[species] = load.load_hdf5_line_opacity_table(
                         file_path_hdf5=hdf5_file,
                         frequencies=self._frequencies,
