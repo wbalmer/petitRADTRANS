@@ -169,7 +169,7 @@ def find_input_file(file: str, path_input_data: str, sub_path: str = None,
                     match_function: Callable = None, find_all: bool = False, search_online: bool = True):
     '''Given a base species filename, input data path and sub_path for the data category
     (e.g., CIA, clouds, etc.) and a match_function that knows how the input files of a given category
-    are supposed to look like, return all aboslute paths to opacity files in the folder in question.
+    are supposed to look like, return all absolute paths to opacity files in the folder in question.
     '''
     if match_function is None:
         match_function = match_function_default

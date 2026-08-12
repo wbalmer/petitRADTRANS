@@ -231,8 +231,6 @@ class Radtrans:
 
         # Initialize properties
         if pressures is None:
-            # TODO discuss with Evert: this was debug.print(), but it is in the unjitted __init__ of radtrans,
-            #   so not necessary?
             warnings.warn("pressure was not set, initializing one layer at 1 bar")
             pressures = jnp.array([1.0], dtype=FEAUTRIER_JAX_DTYPE)  # bar
 
