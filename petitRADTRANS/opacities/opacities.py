@@ -3108,6 +3108,11 @@ class CloudOpacity(Opacity):
         find_all: bool = False,
         search_online: bool = True,
     ) -> str:
+        """Override of "find" classmethod of the Opacity parent class.
+        Here the natural abundance string is added, which exists for the
+        CIA input files, but is usually not added by the user when initializing
+        a pRT object. Then the parent class's find (in the Opacity class) is called.
+        """
         # Natural abundance by default
         if not cls._has_isotope(species):
             name, natural_abundance, charge, cloud_info, source, spectral_info = (

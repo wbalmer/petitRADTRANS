@@ -90,7 +90,7 @@ def load_hdf5_line_opacity_table(
     line_by_line_opacity_sampling=1,
     return_radtrans_opacities=True,
 ):
-    """Load LBL opacities into a host-side ``(g, frequency, temperature-pressure)`` table.
+    """Load line-by-line opacities into a host-side ``(g, frequency, n_temperature*n_pressure)`` table.
 
     The returned array stays on the host as a NumPy array so callers can build
     the final stacked runtime layout first and only convert to JAX once.
@@ -321,6 +321,12 @@ def load_line_opacities_pressure_temperature_grid(hdf5_file):
         pressure_grid * 1e6,
         indexing="ij",
     )
+    # The operation below will finally return a jnp array
+    # with shape (N_pressures * N_temperatures, 2) with this content:
+    # T0, P0
+    # T0, P1,
+    # ...
+    # TN_temperatures, PN_pressures
     line_opacities_temperature_pressure_grid = (
         np.stack(
             (temperature_mesh, pressure_mesh),
@@ -346,9 +352,11 @@ def get_frequency_grids_intersection_indices(
 ) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]:
     """Get the indices to fill frequencies from a file within the Radtrans frequency grid.
 
-    For example, if the Radtrans frequency grid is [0.1, ..., 0.3, ..., 3] and some loaded opacity frequency grid
-    is in the interval [0.3, ..., 3, ..., 28], then the output indices will be the indices corresponding to
-    [0.3, ..., 3] on the Radtrans frequency grid, and on the file frequency grid.
+    For example, if the Radtrans frequency grid is [0.1, ..., 0.3, ..., 3][::-1] and some loaded opacity frequency grid
+    is in the interval [0.3, ..., 3, ..., 28][::-1], then the output indices will be the indices corresponding to
+    [0.3, ..., 3][::-1] on the Radtrans frequency grid, and on the file frequency grid.
+    The [::-1] denotes changing the array from increasing to decreasing order, since intersection_indices
+    only works for decreasing order arrays.
 
     Args:
         frequencies: the Radtrans frequency grid

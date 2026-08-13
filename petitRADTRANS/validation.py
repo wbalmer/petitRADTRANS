@@ -69,7 +69,7 @@ def _check_anisotropic_cloud_scattering(mode: Union[str, bool]):
     """
     if mode not in ["auto", True, False]:
         raise ValueError(
-            f"anisotropic cloud scattering must be 'auto'|True|False, but was '{mode}'"
+            f"anisotropic_cloud_scattering must be 'auto'|True|False, but was '{mode}'"
         )
 
 
@@ -80,7 +80,7 @@ def _check_line_opacity_mode(mode: str):
         mode: The line opacity mode.
     """
     if mode not in ["c-k", "lbl"]:
-        raise ValueError(f"opacity mode must be 'c-k'|'lbl', but was '{mode}'")
+        raise ValueError(f"line_opacity_mode must be 'c-k'|'lbl', but was '{mode}'")
 
 
 def _check_input_data_file_existence(path: str):
