@@ -1378,7 +1378,7 @@ def guillot_patchy_transmission(
     )
 
 
-def madhushudhan_seager_emission(
+def madhusudhan_seager_emission(
     model_context: ModelContext,
     physical_params: PhysicalParams,
     pt_plot_mode: bool = False,
@@ -1444,7 +1444,7 @@ def madhushudhan_seager_emission(
     return calculate_emission_spectrum_runtime(model_context, model_inputs)
 
 
-def madhushudhan_seager_transmission(
+def madhusudhan_seager_transmission(
     model_context: ModelContext,
     physical_params: PhysicalParams,
     pt_plot_mode: bool = False,
@@ -1526,7 +1526,7 @@ def madhu_seager_patchy_transmission(
     physical_params: PhysicalParams,
     pt_plot_mode: bool = False,
 ) -> ModelResult:
-    return madhushudhan_seager_transmission(
+    return madhusudhan_seager_transmission(
         model_context,
         physical_params,
         pt_plot_mode=pt_plot_mode,
@@ -2916,7 +2916,7 @@ def legacy_guillot_patchy_transmission(
 
 
 @mark_legacy_model_function
-def legacy_madhushudhan_seager_emission(
+def legacy_madhusudhan_seager_emission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
     """
@@ -3073,13 +3073,13 @@ def legacy_madhushudhan_seager_emission(
 
 
 @mark_legacy_model_function
-def legacy_madhushudhan_seager_transmission(
+def legacy_madhusudhan_seager_transmission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
     """
     Transmission Model, Madhusudhan Seager 2009 Profile
 
-    This model computes a transmission spectrum based on a Guillot temperature-pressure profile.
+    This model computes a transmission spectrum based on the Madhu & Seager (2009) temperature-pressure profile.
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
     It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
     Chemical clouds can be used, or a simple gray opacity source. This model requires patchy clouds.
@@ -3248,7 +3248,7 @@ def legacy_madhu_seager_patchy_transmission(
     """
     Deprecated
     """
-    return legacy_madhushudhan_seager_transmission(
+    return legacy_madhusudhan_seager_transmission(
         prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement
     )
 
@@ -3397,7 +3397,7 @@ def legacy_power_law_profile_transmission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
     """
-    This model computes a emission spectrum based a gradient temperature-pressure profile (Zhang 2023).
+    This model computes a transmission spectrum based on a gradient power-law pressure-temperature profile.
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
     It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
 
@@ -3448,7 +3448,7 @@ def legacy_power_law_profile_transmission(
         spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
-            Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
+            Optional, the transmission contribution function, relative contributions for each wavelength and pressure level.
     """
     p_use, PGLOBAL = initialize_pressure_from_legacy_dict(
         prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement
@@ -4514,13 +4514,13 @@ guillot_patchy_transmission = make_unified_model(
     guillot_patchy_transmission,
     legacy_guillot_patchy_transmission,
 )
-madhushudhan_seager_emission = make_unified_model(
-    madhushudhan_seager_emission,
-    legacy_madhushudhan_seager_emission,
+madhusudhan_seager_emission = make_unified_model(
+    madhusudhan_seager_emission,
+    legacy_madhusudhan_seager_emission,
 )
-madhushudhan_seager_transmission = make_unified_model(
-    madhushudhan_seager_transmission,
-    legacy_madhushudhan_seager_transmission,
+madhusudhan_seager_transmission = make_unified_model(
+    madhusudhan_seager_transmission,
+    legacy_madhusudhan_seager_transmission,
 )
 madhu_seager_patchy_transmission = make_unified_model(
     madhu_seager_patchy_transmission,
