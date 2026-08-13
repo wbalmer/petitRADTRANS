@@ -2098,7 +2098,7 @@ def legacy_guillot_emission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, Emission contribution function, relative contributions for each wavelength and pressure level.
 
@@ -2232,7 +2232,7 @@ def legacy_guillot_emission_add_gaussian_temperature(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, Emission contribution function, relative contributions for each wavelength and pressure level.
 
@@ -2391,7 +2391,7 @@ def legacy_interpolated_profile_emission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
@@ -2527,7 +2527,7 @@ def legacy_gradient_profile_emission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
@@ -2673,7 +2673,7 @@ def legacy_power_law_profile_emission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
@@ -2814,7 +2814,7 @@ def legacy_guillot_transmission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
@@ -2980,7 +2980,7 @@ def legacy_madhushudhan_seager_emission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
@@ -3138,7 +3138,7 @@ def legacy_madhushudhan_seager_transmission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
@@ -3308,7 +3308,7 @@ def legacy_isothermal_transmission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
@@ -3446,7 +3446,7 @@ def legacy_power_law_profile_transmission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
