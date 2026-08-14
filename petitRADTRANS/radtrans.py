@@ -841,26 +841,50 @@ class Radtrans:
 
     def _stack_loaded_line_opacities(
         self,
-        temperature_pressure_grids=None,
-        temperature_grid_sizes_map=None,
-        pressure_grid_sizes_map=None,
-        opacity_grids=None,
+        temperature_pressure_grids,
+        temperature_grid_sizes_map,
+        pressure_grid_sizes_map,
+        opacity_grids,
     ):
+        '''Takes in the read line opacities, each on their own T-P grid,
+        and enters them all into one big matrix of shape
+        (n_line_species, n_g, self._frequencies.size, max_temperature_pressure_grid_size)
+        which is easier for jax functions to consume in the following.
+        The max_temperature_pressure_grid_size is defined by the species with the largest
+        T, P grids (T and P largest grids can come from different species).
+        Interestingly: since .reshape()ing opacities into a 2-d T-P grid (after they were serial
+        before) does not change the memory layout of the arrays, these operations are essentially
+        free and are done below to help with readability.
+        The T, P and opacity grids of all species with smaller
+        P-T grids will be padded like shown in the ASCII art below.
+        What is more, in the end the P-T interpolation will be done per species in pRT4,
+        so there's no underlying assumption of species sharing P-T grids whatsoever.
+        At least this is my current interpretation.
+        # TODO paul: this is my current assumption, also after asking
+        #   Claude quickly about it. Confirm this during the code review later.
+        The original P-T grid sizes of all species are retained.
+        So the padding works like this (note that it would be more conventional
+        to have T on the y and P on the x axis, but I was too lazy to change that
+        now from my first draft):
+                                      T  -->
+                 |-----------------------|-----------------------|
+                 |          P0           |          P0           |
+                 |                       |                       |
+                 |  T0            Tact   |  Tact           Tact  |
+                 |                       |                       |
+             P   |         Pact          |         Pact          |
+             |   |-----------------------|-----------------------|
+             v   |         Pact          |         Pact          |
+                 |                       |                       |
+                 |  T0            Tact   |  Tact           Tact  |
+                 |                       |                       |
+                 |         Pact          |         Pact          |
+                 |-----------------------|-----------------------|
+        '''
         n_line_species = len(self._line_species)
 
-        if temperature_pressure_grids is None:
-            temperature_pressure_grids = self._lines_loaded_opacities[
-                "temperature_pressure_grid"
-            ]
-        if temperature_grid_sizes_map is None:
-            temperature_grid_sizes_map = self._lines_loaded_opacities[
-                "temperature_grid_size"
-            ]
-        if pressure_grid_sizes_map is None:
-            pressure_grid_sizes_map = self._lines_loaded_opacities["pressure_grid_size"]
-        if opacity_grids is None:
-            opacity_grids = self._lines_loaded_opacities["opacity_grid"]
-
+        # Stores the combination of the Gauss weights for k-table mixing (normalized to add up
+        # to one) and their sum before normalization.
         (
             self._lines_loaded_opacities["ck_g_combination_weights"],
             self._lines_loaded_opacities["ck_g_combination_weights_sum"],
@@ -869,7 +893,11 @@ class Radtrans:
         )
 
         if n_line_species == 0:
+            # TODO Paul: add axes meanings here
             self._lines_loaded_opacities["temperature_pressure_grid_stacked"] = (
+                # For non-zero n_line_species this would be of shape
+                # (n_line_species, max_temperature_grid_size, max_pressure_grid_size, 2)
+                # see below.
                 jnp.zeros((0, 1, 1, 2), dtype=WORKING_JAX_DTYPE)
             )
             self._lines_loaded_opacities["temperature_grid_size_array"] = jnp.zeros(
@@ -879,6 +907,9 @@ class Radtrans:
                 0, dtype=jnp.int32
             )
             self._lines_loaded_opacities["opacity_grid_stacked"] = jnp.zeros(
+                # For non-zero n_line_species this would be of shape
+                # (n_line_species, n_g, self._frequencies.size, max_temperature_pressure_grid_size)
+                # see below.
                 (0, 1, self._frequencies.size, 1), dtype=WORKING_JAX_DTYPE
             )
             return
@@ -902,11 +933,11 @@ class Radtrans:
         )
         n_g = int(self._lines_loaded_opacities["g_gauss"].size)
 
-        temperature_pressure_grid_stacked = np.empty(
+        temperature_pressure_grid_stacked = np.zeros(
             (n_line_species, max_temperature_grid_size, max_pressure_grid_size, 2),
             dtype=np.asarray(self._pressures).dtype,
         )
-        opacity_grid_stacked = np.empty(
+        opacity_grid_stacked = np.zeros(
             (
                 n_line_species,
                 n_g,
@@ -927,16 +958,23 @@ class Radtrans:
             temperature_pressure_grid_stacked_species = (
                 temperature_pressure_grid_stacked[i_species]
             )
+            # Only fill those lower values of the grid that exist
             temperature_pressure_grid_stacked_species[
                 :temperature_grid_size, :pressure_grid_size, :
             ] = temperature_pressure_grid
             if pressure_grid_size < max_pressure_grid_size:
+                # fill values such that the highest P value is
+                # simply repeated in the grid, for all valid
+                # temperatures
                 temperature_pressure_grid_stacked_species[
                     :temperature_grid_size, pressure_grid_size:, :
                 ] = temperature_pressure_grid[
                     :, pressure_grid_size - 1 : pressure_grid_size, :
                 ]
             if temperature_grid_size < max_temperature_grid_size:
+                # fill values such that the highest T values is
+                # simply repeated, for all valid pressures, including
+                # the new regime where Pmax is simply repeated
                 temperature_pressure_grid_stacked_species[temperature_grid_size:, :, :] = (
                     temperature_pressure_grid_stacked_species[
                         temperature_grid_size - 1 : temperature_grid_size, :, :
@@ -944,11 +982,16 @@ class Radtrans:
                 )
 
             # Reshape the flat (T_act * P_act) opacity dimension to 2D (T_act, P_act),
-            # pad to (max_T, max_P), then flatten back so the stride equals max_P.
+            # pad to (max_T, max_P).
             opacity_grid_2d = opacity_grid.reshape(
                 n_g, self._frequencies.size, temperature_grid_size, pressure_grid_size
             )
 
+            # This will make a "view", not a copy of opacity_grid_stacked[i_species]
+            # the reshape does not hurt since this is how the elements are arranged
+            # in memory anyway. So everything being done to opacity_grid_stacked_species
+            # below will also be done to opacity_grid_stacked (they are identical, but
+            # opacity_grid_stacked_species only sees a subsection of opacity_grid_stacked.
             opacity_grid_stacked_species = opacity_grid_stacked[i_species].reshape(
                 n_g,
                 self._frequencies.size,
@@ -958,6 +1001,8 @@ class Radtrans:
             opacity_grid_stacked_species[
                 :, :, :temperature_grid_size, :pressure_grid_size
             ] = opacity_grid_2d
+            # Do the same for the opacity values that was done for the
+            # pressure temperature values.
             if pressure_grid_size < max_pressure_grid_size:
                 opacity_grid_stacked_species[
                     :, :, :temperature_grid_size, pressure_grid_size:
@@ -993,6 +1038,10 @@ class Radtrans:
         pressure_grid_sizes,
         opacity_grids,
     ):
+        '''
+        Empty the dictionaries that pRT classically used to store opacities.
+        Only fill them again if specifically requested for debugging / plotting.
+        '''
         self._lines_loaded_opacities["temperature_pressure_grid"].clear()
         self._lines_loaded_opacities["temperature_grid_size"].clear()
         self._lines_loaded_opacities["pressure_grid_size"].clear()
@@ -4475,7 +4524,7 @@ class Radtrans:
         # Load line opacities
         self.load_line_opacities(self._path_input_data)
 
-        # Read continuum opacities
+        # Read continuum opacities   # TODO Paul continue review from here
         # CIA
         if len(self._gas_continuum_contributors) > 0:
             self.load_cia_opacities(self._path_input_data)
@@ -4712,7 +4761,7 @@ class Radtrans:
                         ),
                         dtype=host_dtype,
                     )
-                elif self._line_opacity_mode == "lbl": # TODO Paul: continue here!
+                elif self._line_opacity_mode == "lbl":
                     opacity_grids[species] = load.load_hdf5_line_opacity_table(
                         file_path_hdf5=hdf5_file,
                         frequencies=self._frequencies,
