@@ -4645,145 +4645,6 @@ class Radtrans:
 
         print(" Successfully loaded all clouds opacities")
 
-    @classmethod
-    def load_hdf5_ktables(
-        cls,
-        file_path_hdf5,
-        frequencies,
-        g_size,
-        temperature_pressure_grid_size,
-        return_radtrans_opacities=True,
-        return_host_array=False,
-    ):
-        """Load k-coefficient tables in HDF5 format, based on the ExoMolOP setup."""
-        import h5py
-
-        with h5py.File(file_path_hdf5, "r") as f:
-            if not return_radtrans_opacities:
-                return (
-                    f["DOI"][()][0].decode("utf-8"),
-                    f["bin_centers"][:],
-                    f["bin_edges"][:],
-                    f["kcoeff"][:],
-                    f["mol_mass"][()][0],
-                    f["mol_name"][()][0].decode("utf-8"),
-                    f["p"][:],
-                    f["t"][:],
-                    f["samples"][:],
-                    f["weights"][:],
-                )
-
-            bin_centers = f["bin_centers"][:]
-            n_wavelengths = len(bin_centers)
-            host_dtype = np.dtype(WORKING_JAX_DTYPE)
-            _frequencies = cst.c * bin_centers[::-1]
-            n_temperatures = len(f["t"][:])
-            n_pressures = len(f["p"][:])
-
-            indices_opacities, indices_file = (
-                load.get_frequency_grids_intersection_indices(
-                    frequencies=frequencies,
-                    file_frequencies=_frequencies,
-                    tolerate_grid_misalignment=True,
-                )
-            )
-
-            if (
-                np.nonzero(indices_file)[0].size
-                != np.nonzero(indices_opacities)[0].size
-            ):
-                grid_misalignment: bool = False
-
-                if np.nonzero(indices_file)[0].size == frequencies.size - 1:
-                    indices_file = _handle_grid_misalignment(
-                        indices=indices_file,
-                        frequencies_reference=frequencies,
-                        frequencies_test=_frequencies,
-                    )
-                    grid_misalignment = True
-                elif (
-                    np.nonzero(indices_opacities)[0].size
-                    == np.nonzero(indices_file)[0].size - 1
-                ):
-                    indices_opacities = _handle_grid_misalignment(
-                        indices=indices_opacities,
-                        frequencies_reference=_frequencies,
-                        frequencies_test=frequencies,
-                    )
-                    grid_misalignment = True
-
-                if grid_misalignment:
-                    max_relative_difference = np.max(
-                        np.abs(
-                            frequencies[indices_opacities] / _frequencies[indices_file]
-                            - 1
-                        )
-                    )
-                    spectral_info = Opacity.split_species_spectral_info(
-                        os.path.basename(file_path_hdf5)
-                    )[1]
-                    resolving_power = Opacity.split_spectral_info(spectral_info)[0]
-                    resolving_power = Opacity.get_resolving_power_from_string(
-                        resolving_power
-                    )
-
-                    if (
-                        max_relative_difference
-                        > cls._frequency_grid_misalignment_tolerance / resolving_power
-                    ):
-                        raise ValueError(
-                            f"maximum frequency grid misalignment from file ({max_relative_difference}) "
-                            f"is larger than tolerated "
-                            f"({cls._frequency_grid_misalignment_tolerance / resolving_power}); "
-                            f"expect inaccuracies in spectral features location\n"
-                            f"To remove this warning, ensure that your correlated-k opacity files "
-                            f"have similar wavenumber grids"
-                        )
-
-            selected_file_indices = np.nonzero(indices_file)[0]
-            # Invert index order since frequency arrays were inverted above,
-            # but opacity file is still in its original order.
-            selection_start = n_wavelengths - int(selected_file_indices[-1]) - 1
-            selection_stop = n_wavelengths - int(selected_file_indices[0])
-            selected_wavelengths = selection_stop - selection_start
-
-            k_table = np.asarray(
-                f["kcoeff"][:, :, selection_start:selection_stop, :],
-                dtype=host_dtype,
-            )
-            # Reshape k-table to petitRADTRANS format while staying on the host.
-            k_table = np.swapaxes(k_table, 0, 1)
-            k_table = k_table.reshape(
-                (n_pressures * n_temperatures, selected_wavelengths, g_size)
-            )
-            k_table = np.swapaxes(k_table, 0, 2)
-            k_table = np.maximum(k_table[:, ::-1, :], 0.0)
-
-            # Divide by mass to convert cross-sections to opacities
-            mol_mass_inv = 1 / (f["mol_mass"][()] * cst.amu)
-
-        line_opacities_grid = k_table * mol_mass_inv
-
-        # So line opacities grid has shape (g_size, selected_wavelengths, n_pressures*n_temperatures)
-        # With wavelengths in ascending order.
-
-        if not (line_opacities_grid.shape[1] == frequencies.size and np.all(indices_opacities)):
-        #    line_opacities_grid = line_opacities_grid[:, :, np.newaxis, :]
-        # Only fill in those values where the data existed in the opacity
-        # input file:
-        # else:
-            opacities = np.zeros(
-                (g_size, frequencies.size, temperature_pressure_grid_size),
-                dtype=host_dtype,
-            )
-            opacities[:, indices_opacities, :] = line_opacities_grid
-            line_opacities_grid = opacities
-
-        if return_host_array:
-            return line_opacities_grid
-
-        return jnp.asarray(line_opacities_grid, dtype=WORKING_JAX_DTYPE)
-
     def load_line_opacities(self, path_input_data):
         """Load the line opacities for spectral calculation.
         The default pressure-temperature grid is a log-uniform (10, 13) grid.
@@ -4839,17 +4700,16 @@ class Radtrans:
 
                 if self._line_opacity_mode == "c-k":
                     opacity_grids[species] = np.asarray(
-                        self.load_hdf5_ktables(
+                        load.load_hdf5_ktables(
                             file_path_hdf5=hdf5_file,
                             frequencies=self._frequencies,
                             g_size=g_gauss.size,
                             temperature_pressure_grid_size=temperature_pressure_grids[
                                 species
                             ].shape[0],
-                            return_host_array=True,
-                        ), # [:, :, 0, :], # TODO discuss with Evert: no longer the third axis here
-                                           #    since it is no longer added in load_hdf5_ktables:
-                                           #    it was always added and then immediately removed.
+                            frequency_grid_misalignment_tolerance=self._frequency_grid_misalignment_tolerance,
+                            return_host_array=True
+                        ),
                         dtype=host_dtype,
                     )
                 elif self._line_opacity_mode == "lbl": # TODO Paul: continue here!
