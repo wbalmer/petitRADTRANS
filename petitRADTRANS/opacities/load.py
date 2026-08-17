@@ -34,8 +34,6 @@ def load_cia_opacity(file_path_hdf5, return_radtrans_opacities=True):
 
     Returns:
             """
-    host_dtype = np.dtype(WORKING_JAX_DTYPE)
-
     with h5py.File(file_path_hdf5, "r") as f:
         if not return_radtrans_opacities:
             return (
@@ -54,12 +52,12 @@ def load_cia_opacity(file_path_hdf5, return_radtrans_opacities=True):
 
         return (
             species,
-            np.prod(f["mol_mass"][:]).astype(host_dtype),  # weight
-            np.asarray(wavelengths, dtype=host_dtype),
-            np.asarray(f["t"][:], dtype=host_dtype),  # temperatures
-            np.asarray(
+            jnp.prod(f["mol_mass"][:], dtype=WORKING_JAX_DTYPE),  # weight
+            jnp.asarray(wavelengths, dtype=WORKING_JAX_DTYPE),
+            jnp.asarray(f["t"][:], dtype=WORKING_JAX_DTYPE),  # temperatures
+            jnp.asarray(
                 np.transpose(f["alpha"][:])[::-1, :],
-                dtype=host_dtype,
+                dtype=WORKING_JAX_DTYPE,
             ),  # alpha (wavelength, temperature), correct ordering
         )
 

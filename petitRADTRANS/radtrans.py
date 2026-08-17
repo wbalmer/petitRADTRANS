@@ -1449,6 +1449,7 @@ class Radtrans:
             "anisotropic_cloud_scattering",
             "compute_clear_opacities",
             "defer_clear_opacity_combination",
+            "ck_chunk_size"
         ]
     )
     def _calculate_opacities(
