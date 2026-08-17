@@ -3245,6 +3245,10 @@ class CloudOpacity(Opacity):
 
     @classmethod
     def get_aliases(cls, name: str) -> str:
+        """Tries to match requested cloud species with an existing cloud species
+        in the opacity directory.
+        """
+
         cloud_opacities_path = str(
             os.path.join(
                 petitradtrans_config_parser.get_input_data_path(),
@@ -3261,10 +3265,15 @@ class CloudOpacity(Opacity):
                 if f.is_dir()
             ]
 
+        # Fills spectral_info with, for example, R39_0.1-250mu ('' if not given by user)
         _name, spectral_info = cls.split_species_spectral_info(name)
+        # Fills method with, for example, DHS ('' if not given by user)
         _name, method = cls.split_species_source(_name)
+        # Fills cloud_info with, for example, (s)_crystalline_000 ('' if not given by user)
         _name, cloud_info = cls.split_species_cloud_info(_name)
 
+        # Return ('(s)', 'crystalline', '000') is input was '(s)_crystalline_000'
+        # This will fail if there is no ")" in cloud_info.
         matter_state, structure, space_group = cls.split_cloud_info(cloud_info)
 
         if (

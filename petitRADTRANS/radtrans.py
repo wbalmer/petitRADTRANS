@@ -4570,18 +4570,31 @@ class Radtrans:
         print(" Successfully loaded all CIA opacities")
 
     def load_cloud_opacities(self, path_input_data):
-        """Load the cloud opacities.
+        """Load the cloud opacities, given all species listed in
+        self._cloud_species.
 
         Args:
             path_input_data: path to petitRADTRANS input_data directory
+
+        Returns:
+            Nothing, but fills Radtrans's _clouds_loaded_opacities dictionary.
         """
+
+        # Will contain paths to input files for all cloud species
         hdf5_files = []
+        # For every species, this would reduce
+        # path/Al2-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+        # to crystalline_000, for example.
         internal_structures = []
+        # For every species, this will contain
+        # DHS or Mie
         scattering_methods = []
 
         for i in range(len(self._cloud_species)):
+            # Get the cloud species full name
             hdf5_file = CloudOpacity.get_aliases(self._cloud_species[i])
 
+            # Return the absolute path to the cloud species input data.
             hdf5_file = CloudOpacity.find(
                 path_input_data=path_input_data, species=hdf5_file
             )
@@ -4620,6 +4633,8 @@ class Radtrans:
 
             if i == 0:
                 # Initialize cloud arrays
+                # This means that all cloud species must share the same wavelength,
+                # and cloud particle radii!
                 cloud_wavelengths = _cloud_wavelengths
                 clouds_particle_radii_bins = _cloud_particle_radii_bins
                 clouds_particle_radii = _cloud_particle_radii
