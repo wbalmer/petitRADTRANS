@@ -4538,9 +4538,14 @@ class Radtrans:
 
     def load_cia_opacities(self, path_input_data):
         for collision in self._cias_loaded_opacities:
+            # Just checks if collision == 'H-' here.
+            # A bit overkill to handle it like this, since the
+            # hminus subpackage should only ever concern H-.
             if collision in hminus.get_non_cia_gas_continuum_contributions():
                 continue
 
+            # Checks for inversions (e.g. He--H2 instead of H2--He, both of
+            # which should be valid).
             hdf5_file = cia.get_cia_aliases(collision)
             hdf5_file = CIAOpacity.find(
                 path_input_data=path_input_data, species=hdf5_file

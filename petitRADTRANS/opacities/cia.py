@@ -19,16 +19,16 @@ _CIA_OPACITY_CUTOFF = jnp.finfo(WORKING_JAX_DTYPE).tiny
 def get_cia_aliases(name: str) -> str:
     # Try to match name with aliases
     cia_aliases = {
-        "H2--H2": ["H2H2", "H2-H2", "H2--H2"],
-        "H2--He": ["H2He", "H2-He", "H2--He", "HeH2", "He-H2", "He--H2"],
-        "H2O--H2O": ["H2OH2O", "H2O-H2O", "H2O--H2O"],
-        "H2O--N2": ["H2ON2", "H2O-N2", "H2O--N2", "N2H2O", "N2-H2O", "N2--H2O"],
-        "N2--H2": ["N2H2", "N2-H2", "N2--H2", "H2N2", "H2-N2", "H2--N2"],
-        "N2--He": ["N2He", "N2-He", "N2--He", "HeN2", "He-N2", "He--N2"],
-        "N2--N2": ["N2N2", "N2-N2", "N2--N2"],
-        "O2--O2": ["O2O2", "O2-O2", "O2--O2"],
-        "N2--O2": ["N2O2", "N2-O2", "N2--O2", "O2N2", "O2-N2", "O2--N2"],
-        "CO2--CO2": ["CO2CO2", "CO2-CO2", "CO2--CO2"],
+        "H2--H2": ["H2--H2"],
+        "H2--He": ["H2--He", "He--H2"],
+        "H2O--H2O": ["H2O--H2O"],
+        "H2O--N2": ["H2O--N2", "N2--H2O"],
+        "N2--H2": ["N2--H2", "H2--N2"],
+        "N2--He": ["N2--He", "He--N2"],
+        "N2--N2": ["N2--N2"],
+        "O2--O2": ["O2--O2"],
+        "N2--O2": ["N2--O2", "O2--N2"],
+        "CO2--CO2": ["CO2--CO2"],
     }
 
     for cia, aliases in cia_aliases.items():

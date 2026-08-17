@@ -23,7 +23,17 @@ _MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=WORKING_JAX_DTYPE)
 
 
 def load_cia_opacity(file_path_hdf5, return_radtrans_opacities=True):
-    """Load a CIA opacity file."""
+    """Load a CIA opacity file.
+
+    Args:
+        file_path_hdf5 (str):
+            Absolute file path to hdf5 CIA table.
+        return_radtrans_opacities (bool, optional):
+            True by default. If False, the arrays as
+            directly read from the HDF5 table are returned.
+
+    Returns:
+            """
     host_dtype = np.dtype(WORKING_JAX_DTYPE)
 
     with h5py.File(file_path_hdf5, "r") as f:
@@ -44,7 +54,7 @@ def load_cia_opacity(file_path_hdf5, return_radtrans_opacities=True):
 
         return (
             species,
-            np.prod(f["mol_mass"][:]).astype(host_dtype, copy=False),  # weight
+            np.prod(f["mol_mass"][:]).astype(host_dtype),  # weight
             np.asarray(wavelengths, dtype=host_dtype),
             np.asarray(f["t"][:], dtype=host_dtype),  # temperatures
             np.asarray(
