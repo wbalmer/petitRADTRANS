@@ -148,12 +148,12 @@ def interpolate_cia(
     Returns:
         A (wavelength, temperature) array containing the CIA opacities.
     """
-    weights = jnp.array(collision_dict["weight"], dtype=WORKING_JAX_DTYPE)
-    alphas = jnp.array(collision_dict["alpha"], dtype=WORKING_JAX_DTYPE)
-    binned_temperatures = jnp.array(
+    weights = jnp.asarray(collision_dict["weight"], dtype=WORKING_JAX_DTYPE)
+    alphas = jnp.asarray(collision_dict["alpha"], dtype=WORKING_JAX_DTYPE)
+    binned_temperatures = jnp.asarray(
         collision_dict["temperature"], dtype=WORKING_JAX_DTYPE
     )
-    binned_wavelengths = jnp.array(
+    binned_wavelengths = jnp.asarray(
         collision_dict["lambda"], dtype=WORKING_JAX_DTYPE
     )
 
