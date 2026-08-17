@@ -401,7 +401,9 @@ class Radtrans:
                 )
 
         # Load all opacities
-        self.load_all_opacities() # TODO: Paul continue review from within here
+        self.load_all_opacities()
+
+    # TODO: Paul continue review from here
 
     def __getattr__(self, name):
         """Override of the object base __getattr__ method, in order to hint towards
@@ -893,7 +895,6 @@ class Radtrans:
         )
 
         if n_line_species == 0:
-            # TODO Paul: add axes meanings here
             self._lines_loaded_opacities["temperature_pressure_grid_stacked"] = (
                 # For non-zero n_line_species this would be of shape
                 # (n_line_species, max_temperature_grid_size, max_pressure_grid_size, 2)
