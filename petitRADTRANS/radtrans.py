@@ -1343,6 +1343,15 @@ class Radtrans:
             "anisotropic_cloud_scattering",
             "compute_clear_opacities",
             "defer_clear_opacity_combination",
+            # MUST be static: it is forwarded to combine_ck_opacities and ends up
+            # as a static argument of _combine_ck_opacities_jax (it selects a
+            # chunk count, i.e. it changes the traced graph). Without this the
+            # value is traced here and the pure-JAX c-k path raises
+            # "Non-hashable static arguments are not supported ... int64[]".
+            # Only reachable on non-CPU backends, because _use_ck_mixing_ffi()
+            # routes CPU through the FFI kernel, which never takes this
+            # argument -- which is why CPU tests miss it and GPU runs die.
+            "ck_chunk_size",
         ]
     )
     def _calculate_opacities(

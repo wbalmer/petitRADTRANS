@@ -88,15 +88,6 @@ def _summaries(values: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
     )
 
 
-def _normalize_embedding(features: jnp.ndarray) -> jnp.ndarray:
-    """
-    Normalize a feature vector to have unit variance, which can
-    help with training stability and convergence in neural networks.
-    """
-    features = jnp.asarray(features, dtype=jnp.float32)
-    return features / jnp.sqrt(jnp.mean(jnp.square(features)) + 1e-6)
-
-
 def _merge_embedding_branches(*branches: jnp.ndarray) -> jnp.ndarray:
     return jnp.concatenate(
         [jnp.ravel(jnp.asarray(branch, dtype=jnp.float32)) for branch in branches],
@@ -191,6 +182,31 @@ def _resize_embedding(features: jnp.ndarray, embedding_dim: int) -> jnp.ndarray:
 
     padding = jnp.zeros((embedding_dim - features.shape[0],), dtype=jnp.float32)
     return jnp.concatenate((features, padding), axis=0)
+
+
+# Position of the standardised exact-summary vector inside a pre-stacked block
+# tuple; see ``PreStackedObservations`` for the full field order. Both vmapped
+# encode paths build the same layout so this index means the same thing in each.
+_EXACT_SUMMARY_FIELD_INDEX = 7
+
+
+def _fit_vector(values: Any, size: int) -> jnp.ndarray:
+    """Pad or truncate a 1-D vector to exactly ``size`` elements.
+
+    Unlike :func:`_resize_embedding` this never interpolates: the exact-summary
+    channel carries individually meaningful scalars, and blending neighbouring
+    entries would destroy the very precision the channel exists to preserve.
+    """
+    features = jnp.ravel(jnp.asarray(values, dtype=jnp.float32))
+    if size <= 0:
+        return jnp.zeros((0,), dtype=jnp.float32)
+    if features.shape[0] == size:
+        return features
+    if features.shape[0] > size:
+        return features[:size]
+    return jnp.concatenate(
+        (features, jnp.zeros((size - features.shape[0],), dtype=jnp.float32)), axis=0
+    )
 
 
 def _scalar_feature(value: Any) -> jnp.ndarray:
@@ -534,6 +550,27 @@ class SpectralConvolutionEncoder(eqx.Module):
         mask: jnp.ndarray,
         log_median_flux: jnp.ndarray | None,
     ) -> jnp.ndarray:
+        return self._forward_with_stages(
+            values, uncertainties, coordinates, mask, log_median_flux
+        )[0]
+
+    def _forward_with_stages(
+        self,
+        values: jnp.ndarray,
+        uncertainties: jnp.ndarray,
+        coordinates: jnp.ndarray,
+        mask: jnp.ndarray,
+        log_median_flux: jnp.ndarray | None,
+    ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+        """The forward pass, also returning each intermediate representation.
+
+        :meth:`_forward` delegates here, so an information audit of the stages
+        measures the tensors the trained encoder actually produces. Rebuilding
+        the forward pass separately to inspect it is how a previous audit
+        reported R^2 of exactly 0.00000 for three consecutive stages: the
+        reconstruction had computed the per-spectrum centre and scale itself and
+        handed the amplitude in at the wrong layer.
+        """
         valid = (~mask).astype(jnp.float32)
         center, scale = _robust_center_scale(values, valid)
 
@@ -561,18 +598,30 @@ class SpectralConvolutionEncoder(eqx.Module):
         weights = jnp.where(jnp.isfinite(weights), weights, 0.0)
         shape_embedding = jnp.sum(weights[:, None] * values_, axis=0)  # (channels,)
 
+        amplitude_features = _generic_amplitude_features(
+            values, uncertainties, valid, center, scale, log_median_flux
+        )
         amplitude_embedding = jax.nn.gelu(
-            self.amplitude_projection(
-                _generic_amplitude_features(
-                    values, uncertainties, valid, center, scale, log_median_flux
-                )
-            )
+            self.amplitude_projection(amplitude_features)
         )
 
         fused = self.fusion(
             _merge_embedding_branches(shape_embedding, amplitude_embedding)
         )
-        return self.norm(fused)
+        normalized = self.norm(fused)
+        stages = {
+            # In pipeline order, so the first stage whose R^2 drops is the one
+            # that discards the information.
+            "normalized_values": values * valid,
+            "shape_tensor": jnp.ravel(shape),
+            "conv_features": jnp.ravel(features),
+            "pooled_shape": shape_embedding,
+            "amplitude_features": amplitude_features,
+            "amplitude_embedding": amplitude_embedding,
+            "fused": fused,
+            "fused_layer_normed": normalized,
+        }
+        return normalized, stages
 
     def _pad_to_fixed(self, arr: jnp.ndarray) -> jnp.ndarray:
         n = arr.shape[0]
@@ -648,6 +697,23 @@ class SpectralConvolutionEncoder(eqx.Module):
             values, uncertainties, coordinates, mask, n
         )
         return self._forward(values, uncertainties, coordinates, mask, log_median_flux)
+
+    def stage_features_raw(
+        self,
+        values: jnp.ndarray,
+        uncertainties: jnp.ndarray,
+        coordinates: jnp.ndarray,
+        mask: jnp.ndarray,
+        log_median_flux: jnp.ndarray | None = None,
+    ) -> dict[str, jnp.ndarray]:
+        """Flattened intermediate representations for one block (vmappable)."""
+        n = values.shape[0]
+        values, uncertainties, coordinates, mask = self._prepare_arrays(
+            values, uncertainties, coordinates, mask, n
+        )
+        return self._forward_with_stages(
+            values, uncertainties, coordinates, mask, log_median_flux
+        )[1]
 
 
 class _ResidualDenseBlock(eqx.Module):
@@ -1006,17 +1072,36 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
     key:
         Optional JAX random key used to initialize all submodules.
 
+    exact_summary_dim:
+        Width of the *exact-summary channel* appended to the learned embedding
+        (0 disables it). These are analytically computed, high-precision
+        scalars — the log median transit depth / flux first — passed straight
+        through to the flow's conditioning vector, bypassing the network and
+        every per-observation normalization. See
+        :func:`~petitRADTRANS.experimental.sbi.preprocessing.exact_summary_feature_matrix`.
+
     Notes
     -----
     Spectrum and photometry blocks are handled by dedicated sub-encoders and
     then merged with a permutation-invariant aggregator. Unsupported modalities
     currently fall back to resized raw-value vectors.
+
+    The full conditioning vector is ``embedding_dim + exact_summary_dim`` wide
+    (:attr:`context_dim`), not ``embedding_dim``. The learned half is a summary
+    the network is free to compress; the exact half is not, because a
+    transmission spectrum determines ``log(median depth)`` — and hence
+    ``R_p + h`` — to a few parts in 10^5, while the trained encoder was measured
+    to recover it only to ~0.44 (R^2 0.67), a 200x degradation against a plain
+    median of its own input. Anything the conditioner has to *reconstruct* from
+    a learned representation is reconstructed at the representation's accuracy;
+    this channel hands over the constrained combination itself.
     """
 
     spectrum_encoder: eqx.Module
     photometry_encoder: PhotometryPointEncoder
     aggregator: DatasetSetAggregator
     embedding_dim: int = eqx.field(static=True)
+    exact_summary_dim: int = eqx.field(static=True)
 
     def __init__(
         self,
@@ -1026,6 +1111,7 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
         hidden_dim: int = 128,
         spectrum_encoder_type: str = "convolution",
         n_wavelengths: int = 233,
+        exact_summary_dim: int = 0,
         key: Array | None = None,
     ):
         if key is None:
@@ -1033,6 +1119,7 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
 
         spectrum_key, photometry_key, aggregator_key = random.split(key, 3)
         self.embedding_dim = int(embedding_dim)
+        self.exact_summary_dim = max(int(exact_summary_dim), 0)
 
         # In case we add more spectrum encoder types in the future, we dispatch on a string.
         if spectrum_encoder_type == "convolution":
@@ -1062,6 +1149,40 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
         self.aggregator = DatasetSetAggregator(
             self.embedding_dim, hidden_dim, aggregator_key
         )
+
+    @property
+    def context_dim(self) -> int:
+        """Width of the conditioning vector handed to the flow."""
+        return self.embedding_dim + self.exact_summary_dim
+
+    def _with_exact_summary(
+        self,
+        embedding: jnp.ndarray,
+        exact_features: list[jnp.ndarray],
+    ) -> jnp.ndarray:
+        """Concatenate the pooled exact-summary channel onto a learned embedding.
+
+        Pooling across spectral blocks is a mean, matching the
+        permutation-invariance of :class:`DatasetSetAggregator`; for the common
+        single-spectrum task it is the identity, so the scalars reach the flow
+        bit-for-bit as preprocessing computed them.
+        """
+        if self.exact_summary_dim <= 0:
+            return embedding
+        if not exact_features:
+            channel = jnp.zeros((self.exact_summary_dim,), dtype=jnp.float32)
+        else:
+            channel = jnp.mean(
+                jnp.stack(
+                    [
+                        _fit_vector(features, self.exact_summary_dim)
+                        for features in exact_features
+                    ],
+                    axis=0,
+                ),
+                axis=0,
+            )
+        return jnp.concatenate((embedding, channel), axis=0)
 
     def _encode_block(self, block: ObservationBlock) -> jnp.ndarray:
         """Encode one observation block with modality-aware dispatch.
@@ -1100,12 +1221,21 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
         """
         block_embeddings = [self._encode_block(block) for block in blocks]
         aggregated_embedding = self.aggregator.aggregate(block_embeddings)
-        # Normalise the fused embedding to unit RMS so the flow conditioner sees
-        # a consistently-scaled conditioning vector (the conv encoder never
-        # applied the _normalize_embedding it defines).
+        exact_features = [
+            _metadata_vector(block.metadata, "exact_summary", self.exact_summary_dim)
+            for block in blocks
+            if block.modality is ObservationModality.SPECTRUM
+        ]
+        # No post-hoc rescaling here: the flow is trained on the embeddings
+        # produced by ``encode_from_prestacked``/``encode_stacked_batch``, so
+        # this single-observation path must return the identical vector.
+        # Normalising it (e.g. to unit RMS) divides out the overall embedding
+        # scale, which is exactly where a spectrum's amplitude -- and hence the
+        # planet radius -- is encoded. See ``test_encode_paths_agree``.
         return EncodedObservation(
-            embedding=_normalize_embedding(
-                _resize_embedding(aggregated_embedding, self.embedding_dim)
+            embedding=self._with_exact_summary(
+                _resize_embedding(aggregated_embedding, self.embedding_dim),
+                exact_features,
             ),
             mask=None,
             metadata={
@@ -1132,18 +1262,18 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
         Returns
         -------
         jnp.ndarray
-            Float32 array of shape ``(n_samples, embedding_dim)``.
+            Float32 array of shape ``(n_samples, context_dim)``.
         """
         if not blocks_batch:
-            return jnp.zeros((0, self.embedding_dim), dtype=jnp.float32)
+            return jnp.zeros((0, self.context_dim), dtype=jnp.float32)
 
         first_blocks = blocks_batch[0]
         n_blocks = len(first_blocks)
         modalities = [block.modality for block in first_blocks]
 
-        # Stack pre-processed block arrays across the sample dimension.
-        # stacked_per_block[j] = (values_b, unc_b, coord_b, mask_b, lmf_b, av_b)
-        # where v/u/c/m/av have shape (n_samples, n_wl_j) and lmf has shape (n_samples,).
+        # Stack pre-processed block arrays across the sample dimension, in the
+        # field order documented by ``PreStackedObservations`` so that both
+        # vmapped encode paths index the same field with the same constant.
         stacked_per_block = []
         for j in range(n_blocks):
             v_list = [_as_vector(obs[j].values) for obs in blocks_batch]
@@ -1159,6 +1289,20 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
                 _spectral_auxiliary_vector(obs[j].metadata, n_wl)
                 for obs in blocks_batch
             ]
+            gsf_list = [
+                _scalar_feature(
+                    obs[j].metadata.get("global_spectrum_scale", 1.0)
+                    if isinstance(obs[j].metadata, dict)
+                    else 1.0
+                )[0]
+                for obs in blocks_batch
+            ]
+            es_list = [
+                _metadata_vector(
+                    obs[j].metadata, "exact_summary", max(self.exact_summary_dim, 1)
+                )
+                for obs in blocks_batch
+            ]
             stacked_per_block.append(
                 (
                     jnp.stack(v_list),
@@ -1167,6 +1311,8 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
                     jnp.stack(m_list),
                     jnp.array(lmf_list, dtype=jnp.float32),
                     jnp.stack(av_list),
+                    jnp.array(gsf_list, dtype=jnp.float32),
+                    jnp.stack(es_list),
                 )
             )
 
@@ -1177,6 +1323,7 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
 
         def _encode_one(*flat_arrays: jnp.ndarray) -> jnp.ndarray:
             block_embeddings = []
+            exact_features = []
             for j, modality in enumerate(modalities):
                 v = flat_arrays[n_fields_per_block * j]
                 u = flat_arrays[n_fields_per_block * j + 1]
@@ -1186,6 +1333,12 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
                 av = flat_arrays[n_fields_per_block * j + 5] if n_fields_per_block > 5 else jnp.zeros_like(v)
                 if modality is ObservationModality.SPECTRUM:
                     emb = encoder_self.spectrum_encoder._encode_block_raw(v, u, c, m, lmf, av)
+                    if n_fields_per_block > _EXACT_SUMMARY_FIELD_INDEX:
+                        exact_features.append(
+                            flat_arrays[
+                                n_fields_per_block * j + _EXACT_SUMMARY_FIELD_INDEX
+                            ]
+                        )
                 elif modality is ObservationModality.PHOTOMETRY:
                     emb = encoder_self.photometry_encoder._encode_block_raw(v, u, c, m)
                 else:
@@ -1194,13 +1347,16 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
                     _resize_embedding(emb, encoder_self.embedding_dim)
                 )
             aggregated = encoder_self.aggregator.aggregate(block_embeddings)
-            return _resize_embedding(aggregated, encoder_self.embedding_dim)
+            return encoder_self._with_exact_summary(
+                _resize_embedding(aggregated, encoder_self.embedding_dim),
+                exact_features,
+            )
 
         # Flatten all stacked arrays into positional args for vmap.
         flat_stacked = tuple(
             arr for block in stacked_per_block for arr in block
         )
-        return vmap(_encode_one)(*flat_stacked)  # (n_samples, embedding_dim)
+        return vmap(_encode_one)(*flat_stacked)  # (n_samples, context_dim)
 
     def encode_from_prestacked(self, obs: Any) -> jnp.ndarray:
         """Encode a batch of observations from pre-stacked arrays.
@@ -1223,7 +1379,7 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
         Returns
         -------
         jnp.ndarray
-            Float32 array of shape ``(batch_size, embedding_dim)``.
+            Float32 array of shape ``(batch_size, context_dim)``.
         """
         from .observation import ObservationModality
 
@@ -1233,6 +1389,7 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
 
         def _encode_one(*flat_arrays: jnp.ndarray) -> jnp.ndarray:
             block_embeddings = []
+            exact_features = []
             for j, modality in enumerate(modality_enums):
                 v = flat_arrays[n_fields * j]
                 u = flat_arrays[n_fields * j + 1]
@@ -1242,6 +1399,10 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
                 av = flat_arrays[n_fields * j + 5] if n_fields > 5 else jnp.zeros_like(v)
                 if modality is ObservationModality.SPECTRUM:
                     emb = encoder_self.spectrum_encoder._encode_block_raw(v, u, c, m, lmf, av)
+                    if n_fields > _EXACT_SUMMARY_FIELD_INDEX:
+                        exact_features.append(
+                            flat_arrays[n_fields * j + _EXACT_SUMMARY_FIELD_INDEX]
+                        )
                 elif modality is ObservationModality.PHOTOMETRY:
                     emb = encoder_self.photometry_encoder._encode_block_raw(v, u, c, m)
                 else:
@@ -1250,10 +1411,55 @@ class ObservationEncoder(eqx.Module, AbstractObservationEncoder):
                     _resize_embedding(emb, encoder_self.embedding_dim)
                 )
             aggregated = encoder_self.aggregator.aggregate(block_embeddings)
-            return _resize_embedding(aggregated, encoder_self.embedding_dim)
+            return encoder_self._with_exact_summary(
+                _resize_embedding(aggregated, encoder_self.embedding_dim),
+                exact_features,
+            )
 
         flat_stacked = tuple(arr for block in obs.stacked_blocks for arr in block)
-        return vmap(_encode_one)(*flat_stacked)  # (batch_size, embedding_dim)
+        return vmap(_encode_one)(*flat_stacked)  # (batch_size, context_dim)
+
+    def stage_features_from_prestacked(self, obs: Any) -> dict[str, jnp.ndarray]:
+        """Per-stage representations of the first spectral block, batched.
+
+        Returns one ``(batch_size, d)`` array per named stage of the spectral
+        encoder, in pipeline order, plus the block embedding it produces and the
+        full conditioning ``context`` the flow receives. Feeding each of these to
+        the same regression localises *where* an observable statistic stops
+        being recoverable — the question "the embedding lost it" cannot answer
+        on its own.
+
+        Returns an empty mapping for encoders that do not expose stages (only
+        :class:`SpectralConvolutionEncoder` does) or for observations with no
+        spectral block.
+        """
+        from .observation import ObservationModality
+
+        if not hasattr(self.spectrum_encoder, "stage_features_raw"):
+            return {}
+
+        modality_enums = [ObservationModality(m) for m in obs.modalities]
+        try:
+            block_index = modality_enums.index(ObservationModality.SPECTRUM)
+        except ValueError:
+            return {}
+
+        block = obs.stacked_blocks[block_index]
+        n_fields = len(block)
+        spectrum_encoder = self.spectrum_encoder
+
+        def _stages_one(*arrays: jnp.ndarray) -> dict[str, jnp.ndarray]:
+            v, u, c, m = arrays[0], arrays[1], arrays[2], arrays[3]
+            lmf = arrays[4] if n_fields > 4 else jnp.float32(0.0)
+            stages = dict(spectrum_encoder.stage_features_raw(v, u, c, m, lmf))
+            stages["block_embedding"] = _resize_embedding(
+                spectrum_encoder._encode_block_raw(v, u, c, m, lmf), self.embedding_dim
+            )
+            return stages
+
+        stages = vmap(_stages_one)(*block)
+        stages["context"] = self.encode_from_prestacked(obs)
+        return stages
 
 
 __all__ = [

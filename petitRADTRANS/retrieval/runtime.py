@@ -916,6 +916,19 @@ class RetrievalRuntime:
                         projected_model = vmap(project_epoch)(spectrum_model)
 
                 if _uses_mean_divided_time_series(observation):
+                    anchor_config = _mean_anchor_config(observation)
+                    if anchor_config is not None:
+                        # Absolute-flux anchor, evaluated on the SAME time mean
+                        # that mean division then divides out.
+                        additional_log_likelihood = (
+                            additional_log_likelihood
+                            + mean_anchor_log_likelihood(
+                                time_series_model_mean(
+                                    projected_model, mask=observation.mask
+                                ),
+                                anchor_config,
+                            )
+                        )
                     projected_model = mean_divide_time_series_model(
                         projected_model, mask=observation.mask
                     )
@@ -1118,6 +1131,12 @@ class RetrievalRuntime:
                     projected_model = vmap(project_epoch)(spectrum_model)
 
             if _uses_mean_divided_time_series(observation):
+                # NOTE: the absolute-flux anchor (mean_anchor) is deliberately
+                # NOT included here. This path returns one term per DATA point
+                # for PSIS-LOO, and its length must stay aligned with the
+                # observation grid; the anchor is a separate 1-D term over
+                # wavelength. A useful side effect is that per-datapoint chi2
+                # from this path is the pure time-variability misfit.
                 projected_model = mean_divide_time_series_model(
                     projected_model, mask=observation.mask
                 )
@@ -2349,6 +2368,48 @@ def _uses_mean_divided_time_series(observation: "ObservationState") -> bool:
     return bool(time_series_config.get("mean_divide", False))
 
 
+def _mean_anchor_config(observation: "ObservationState") -> dict | None:
+    """Return the absolute-flux anchor configuration, or None if disabled."""
+    time_series_config = (observation.metadata or {}).get("time_series_config") or {}
+    if not time_series_config.get("mean_anchor", False):
+        return None
+    if time_series_config.get("mean_spectrum") is None:
+        return None
+    return time_series_config
+
+
+def mean_anchor_log_likelihood(model_mean: Any, time_series_config: dict) -> Any:
+    """Absolute-flux anchor: score <M(lambda)>_t against <F(lambda)>_t.
+
+    Mean division cancels every static property of the model, so without this
+    term the absolute luminosity and spectral shape are entirely unconstrained
+    (a retrieval can, and did, settle on an atmosphere ~20x too bright while
+    fitting the relative variability well).
+
+    A per-wavelength multiplicative nuisance ``c(lambda) ~ Normal(1, s^2)``
+    represents the residual static model deficiency. For a Gaussian prior the
+    marginalisation over ``c`` is exact and closed-form -- ``c*<M>`` with
+    ``c ~ N(1, s^2)`` plus noise ``N(0, sigma^2)`` is just
+    ``N(<M>, sigma^2 + s^2 <M>^2)`` -- so the nuisance costs no sampled
+    parameters and simply widens the anchor's variance in quadrature.
+    """
+    observed_mean = jnp.asarray(time_series_config["mean_spectrum"], dtype=JAX_DTYPE)
+    observed_uncertainty = jnp.asarray(
+        time_series_config["mean_uncertainty"], dtype=JAX_DTYPE
+    )
+    scale_prior = jnp.asarray(
+        time_series_config.get("mean_anchor_scale_prior", 0.05), dtype=JAX_DTYPE
+    )
+
+    model_mean = jnp.asarray(model_mean, dtype=JAX_DTYPE)
+    variance = observed_uncertainty**2 + (scale_prior * model_mean) ** 2
+    residual = observed_mean - model_mean
+
+    return -0.5 * jnp.sum(
+        residual**2 / variance + jnp.log(2.0 * jnp.pi * variance)
+    )
+
+
 def mean_divide_time_series_model(projected_model: Any, mask: Any = None) -> Any:
     """Divide each wavelength column of ``projected_model`` by its time mean.
 
@@ -2357,15 +2418,24 @@ def mean_divide_time_series_model(projected_model: Any, mask: Any = None) -> Any
     only, so it matches the mean used to normalise the data.
     """
     projected_model = jnp.asarray(projected_model)
-    if mask is None:
-        model_mean = jnp.mean(projected_model, axis=0)
-    else:
-        valid = ~jnp.asarray(mask, dtype=bool)
-        weights = valid.astype(projected_model.dtype)
-        n_valid = jnp.maximum(jnp.sum(weights, axis=0), 1.0)
-        model_mean = jnp.sum(projected_model * weights, axis=0) / n_valid
+    model_mean = time_series_model_mean(projected_model, mask=mask)
     safe_mean = jnp.where(model_mean != 0.0, model_mean, 1.0)
     return projected_model / safe_mean
+
+
+def time_series_model_mean(projected_model: Any, mask: Any = None) -> Any:
+    """Per-wavelength time mean of the projected model, over valid epochs only.
+
+    This is both the mean-division denominator and the model counterpart of the
+    observed time-mean spectrum used by :func:`mean_anchor_log_likelihood`.
+    """
+    projected_model = jnp.asarray(projected_model)
+    if mask is None:
+        return jnp.mean(projected_model, axis=0)
+    valid = ~jnp.asarray(mask, dtype=bool)
+    weights = valid.astype(projected_model.dtype)
+    n_valid = jnp.maximum(jnp.sum(weights, axis=0), 1.0)
+    return jnp.sum(projected_model * weights, axis=0) / n_valid
 
 
 def compute_diagonal_observation_log_likelihood(

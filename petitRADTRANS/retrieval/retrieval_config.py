@@ -1279,6 +1279,8 @@ class RetrievalConfig:
         radtrans_object: object = None,
         covariance: ArrayLike | None = None,
         mean_divide: bool = False,
+        mean_anchor: bool = False,
+        mean_anchor_scale_prior: float = 0.05,
     ):
         """Create a :class:`TimeSeriesData` object for time-variable retrievals.
 
@@ -1341,6 +1343,30 @@ class RetrievalConfig:
                 time-variability signal is preserved against the *measured*
                 uncertainties -- no error inflation is involved. Requires inline
                 ``spectrum`` and ``uncertainties`` arrays.
+            mean_anchor : bool
+                Add an ABSOLUTE-FLUX anchor term to the likelihood (requires
+                ``mean_divide=True``). Mean division cancels every static,
+                wavelength-dependent property of the model -- including its
+                absolute luminosity and spectral shape -- so on its own it
+                leaves the absolute state completely unconstrained. The anchor
+                restores it by additionally scoring the observed time-mean
+                spectrum ``<F(lambda)>_t`` against the model's OWN time mean
+                ``<M(lambda)>_t`` (already computed as the mean-division
+                denominator, so it costs no extra radiative transfer, and it is
+                the correct quantity: the model is nonlinear, so the time mean
+                of the varying model is not the model at the mean parameters).
+            mean_anchor_scale_prior : float
+                Width ``s`` of a per-wavelength multiplicative nuisance
+                ``c(lambda) ~ Normal(1, s^2)`` on the anchor term, marginalised
+                ANALYTICALLY: for a Gaussian prior the marginal likelihood is
+                just ``<F> ~ Normal(<M>, sigma_mean^2 + s^2 <M>^2)``, i.e. the
+                nuisance adds ``s^2 <M>^2`` in quadrature and costs no sampled
+                parameters. It lets the anchor tolerate the few-percent static
+                model error that motivated mean division in the first place,
+                while remaining structurally unable to absorb a gross (order of
+                magnitude) flux error. NOTE this widening applies ONLY to the
+                anchor term; the time-variability term keeps the measured
+                uncertainties untouched.
         """
         if time_varying_parameters is None:
             time_varying_parameters = []
@@ -1378,6 +1404,19 @@ class RetrievalConfig:
                     "mean_divide=True: the per-wavelength time-mean spectrum "
                     "contains zeros; cannot normalise."
                 )
+            # Formal uncertainty of the time-mean spectrum, retained BEFORE the
+            # data are normalised: sqrt(sum sigma^2)/N over the valid epochs.
+            if mask is not None:
+                valid = ~np.asarray(mask, dtype=bool)
+                n_valid = np.maximum(valid.sum(axis=0), 1)
+                mean_uncertainty = (
+                    np.sqrt((uncertainties**2 * valid).sum(axis=0)) / n_valid
+                )
+            else:
+                mean_uncertainty = (
+                    np.sqrt((uncertainties**2).sum(axis=0)) / uncertainties.shape[0]
+                )
+
             spectrum = spectrum / mean_spectrum[None, :]
             uncertainties = uncertainties / np.abs(mean_spectrum)[None, :]
 
@@ -1406,11 +1445,26 @@ class RetrievalConfig:
 
         # Attach time-series configuration so the model function can read it
         # via ModelContext.model_metadata['time_series_config'].
+        if mean_anchor and not mean_divide:
+            raise ValueError("mean_anchor=True requires mean_divide=True.")
+        if mean_anchor and float(mean_anchor_scale_prior) < 0.0:
+            raise ValueError("mean_anchor_scale_prior must be >= 0.")
+
         data_object.time_series_config = {
             "n_model_timesteps": n_model_timesteps,
             "time_varying_parameters": list(time_varying_parameters),
             "sinusoidal_parameters": list(sinusoidal_parameters),
             "mean_divide": bool(mean_divide),
+            "mean_anchor": bool(mean_anchor),
+            "mean_anchor_scale_prior": float(mean_anchor_scale_prior),
+            # Retained pre-normalisation so the scorer can restore the absolute
+            # scale that mean division removes.
+            "mean_spectrum": (
+                np.asarray(mean_spectrum, dtype=float) if mean_anchor else None
+            ),
+            "mean_uncertainty": (
+                np.asarray(mean_uncertainty, dtype=float) if mean_anchor else None
+            ),
         }
 
         self.data[name] = data_object

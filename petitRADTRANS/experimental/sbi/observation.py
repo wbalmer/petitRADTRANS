@@ -196,11 +196,15 @@ class PreStackedObservations:
     ----------
     stacked_blocks:
         One ``(values, uncertainties, coordinates, mask, log_median_flux,
-        spectral_auxiliary_values, global_spectrum_scale)`` tuple per
-        observation block. ``values``, ``uncertainties``, ``coordinates``,
-        ``mask``, and ``spectral_auxiliary_values`` have shape ``(batch_size,
-        n_wl)``. ``log_median_flux`` and ``global_spectrum_scale`` have shape
-        ``(batch_size,)``.
+        spectral_auxiliary_values, global_spectrum_scale, exact_summary)``
+        tuple per observation block. ``values``, ``uncertainties``,
+        ``coordinates``, ``mask``, and ``spectral_auxiliary_values`` have shape
+        ``(batch_size, n_wl)``; ``log_median_flux`` and
+        ``global_spectrum_scale`` have shape ``(batch_size,)``; and
+        ``exact_summary`` has shape ``(batch_size, EXACT_SUMMARY_DIM)`` (see
+        :func:`~petitRADTRANS.experimental.sbi.preprocessing.exact_summary_feature_matrix`).
+        Trailing fields are optional: consumers read them by index and fall
+        back to zeros, so tuples written before a field existed still load.
     modalities:
         Modality value string for each block, e.g. ``'spectrum'``.
         Treated as static metadata by JAX (does not trigger retrace between

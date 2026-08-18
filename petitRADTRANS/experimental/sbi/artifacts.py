@@ -389,6 +389,13 @@ def write_run_manifest(
         'run_config': run_config,
     }
 
+    # A truncated round stores parameters in box-normalized cube coordinates,
+    # so the box is needed to interpret them -- and to compose the next round's
+    # box back into absolute cube coordinates.
+    truncation_box = dict(getattr(task, 'metadata', {}) or {}).get('truncation_box')
+    if truncation_box is not None:
+        manifest['truncation_box'] = truncation_box
+
     metadata_path = posterior_dir / 'metadata.json'
     if metadata_path.exists():
         metadata_payload = json.loads(metadata_path.read_text())

@@ -1298,7 +1298,9 @@ def _diagonal_inverse_mass_from_hessian(logdensity, map_position):
     return np.asarray(inv_mass, dtype=float)
 
 
-def _dense_inverse_mass_from_hessian(logdensity, map_position):
+def _dense_inverse_mass_from_hessian(
+    logdensity, map_position, eigenvalue_floor=1.0
+):
     """Dense inverse mass matrix from the MAP Hessian of the log-density.
 
     The dense analogue of :func:`_diagonal_inverse_mass_from_hessian`: the inverse
@@ -1330,7 +1332,29 @@ def _dense_inverse_mass_from_hessian(logdensity, map_position):
     hess = jnp.stack([_hessian_vector_product(eye[i]) for i in range(n)]).T
     precision = -0.5 * (hess + hess.T)  # symmetrised precision (= inverse covariance)
     eigvals, eigvecs = jnp.linalg.eigh(precision)
-    floor = 1e-8
+    # SADDLE-FREE preconditioning: use |eigenvalue|, not the signed value.
+    # At a saddle the negative-curvature directions are hyperbolic -- leapfrog
+    # trajectories grow like exp(sqrt(|lambda|) * t) there instead of
+    # oscillating -- so the metric must DAMP them in proportion to their own
+    # |curvature|. Treating them as flat (which flooring the signed value does)
+    # hands them the largest step in the metric and is the worst possible
+    # choice: measured on the v9 MAP, signed flooring left a preconditioned
+    # curvature of -251 and NUTS adapted its step size down to 2e-8, whereas
+    # |lambda| bounds the preconditioned spectrum to [-1, +1] and restores a
+    # step-size ceiling of order 1. For a positive-definite Hessian
+    # |lambda| == lambda, so this changes nothing in the well-behaved case.
+    # (Standard saddle-free Newton preconditioning, cf. Dauphin et al. 2014.)
+    eigvals = jnp.abs(eigvals)
+    # Floor the PRECISION at roughly the prior precision (1.0), not at ~0.
+    # The unconstrained priors have unit-ish scale (N(0,1) for affine-mapped
+    # parameters, logistic with std 1.81 for cube-mapped ones), so a precision
+    # floor of 1 caps the metric's widest direction at about the prior width.
+    # The old 1e-8 floor was harmless while warmup re-adapted the metric, but
+    # it is catastrophic once the metric is FROZEN (adapt_mass_matrix=False):
+    # at a saddle the indefinite directions would be handed a variance of 1e8,
+    # i.e. a step scale of 1e4 in unconstrained units against a prior width of
+    # ~1, and the sampler would leave prior support on its first trajectory.
+    floor = float(eigenvalue_floor)
     safe_eigvals = jnp.where(jnp.isfinite(eigvals) & (eigvals > floor), eigvals, floor)
     covariance = (eigvecs * (1.0 / safe_eigvals)) @ eigvecs.T
     covariance = 0.5 * (covariance + covariance.T)
@@ -1451,6 +1475,42 @@ class NumPyroSampler(Sampler):
             # device constants/workspaces) before the NUTS step function
             # compiles: leaving them cached filled the 36 GB arena on job
             # 1869202 and OOMed the first sampling step (2.61 GiB request).
+            clear_caches()
+
+        # Hessian metric seeding for the case where the caller supplied the
+        # initial position directly (e.g. a shared, pre-converged MAP file)
+        # instead of asking for an in-process optax warm-start. This used to
+        # live ONLY inside the optimize_init branch above, so any run that
+        # passed initial_position -- which is the entire multi-chain
+        # shared-MAP workflow -- silently ignored
+        # init_inverse_mass_matrix_from_hessian and fell back to NumPyro's
+        # IDENTITY metric. That is catastrophic here: with adapt_mass_matrix
+        # on, the identity is re-estimated from a barely-moving chain and
+        # collapses to the regularisation floor; with it off, the identity is
+        # frozen. Either way the posterior's ~1e7 curvature range is unmodelled
+        # and the step size collapses.
+        if init_imm_from_hessian and "inverse_mass_matrix" not in sampler_kwargs:
+            seed_position = sampler_kwargs.get("initial_position", initial_position)
+            seed_position = jnp.asarray(seed_position)
+            if seed_position.ndim > 1:
+                seed_position = seed_position[0]  # per-chain inits: expand about chain 0
+            if sampler_kwargs.get("is_mass_matrix_diagonal", True):
+                sampler_kwargs["inverse_mass_matrix"] = (
+                    _diagonal_inverse_mass_from_hessian(logdensity, seed_position)
+                )
+            else:
+                sampler_kwargs["inverse_mass_matrix"] = (
+                    _dense_inverse_mass_from_hessian(logdensity, seed_position)
+                )
+            _imm = sampler_kwargs["inverse_mass_matrix"]
+            _imm_diag = np.diag(_imm) if np.ndim(_imm) == 2 else _imm
+            print(
+                "Initialised NUTS "
+                f"{'dense' if np.ndim(_imm) == 2 else 'diagonal'} inverse mass "
+                "matrix from the Hessian at the supplied initial position "
+                f"(diagonal range {float(np.min(_imm_diag)):.3e} – "
+                f"{float(np.max(_imm_diag)):.3e})."
+            )
             clear_caches()
 
         num_chains = sampler_kwargs.pop("num_chains", 1)

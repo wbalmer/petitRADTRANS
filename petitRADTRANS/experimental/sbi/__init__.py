@@ -75,7 +75,14 @@ from .config import (
     SBIConfig,
     StabilityConfig,
     TrainingConfig,
+    TruncationConfig,
     build_conditional_flow_posterior,
+)
+from .truncation import (
+    TruncatedParameterLayout,
+    TruncationBox,
+    build_truncation_box,
+    truncation_box_report,
 )
 
 # End-to-end validation workflow
@@ -189,6 +196,11 @@ __all__ = [
     "RefinementConfig",
     "StabilityConfig",
     "TrainingConfig",
+    "TruncationConfig",
+    "TruncatedParameterLayout",
+    "TruncationBox",
+    "build_truncation_box",
+    "truncation_box_report",
     "SBIConfig",
     "build_conditional_flow_posterior",
     "run_sbi",

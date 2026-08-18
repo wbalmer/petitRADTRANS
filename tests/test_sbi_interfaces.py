@@ -11,7 +11,13 @@ import pytest
 
 try:
     import pymultinest as _real_pymultinest  # noqa: F401 – ensure the real module wins if installed
-except (ImportError, SystemExit):
+except Exception:  # noqa: BLE001 - deliberately broad, see below
+    # pymultinest initialises MPI at import, and outside a SLURM allocation
+    # mpi4py raises RuntimeError ("cannot load MPI library") rather than
+    # ImportError. Nothing in this suite uses pymultinest -- the import exists
+    # only so the real module wins where it is usable -- so any failure must
+    # fall through to the stub rather than make the whole SBI suite
+    # uncollectable on a login node.
     pass
 sys.modules.setdefault("pymultinest", SimpleNamespace())
 
@@ -68,9 +74,20 @@ from petitRADTRANS.experimental.sbi.flows import (
     ConditionalSplineFlow,
 )  # noqa: E402
 from petitRADTRANS.experimental.sbi.preprocessing import (
+    EXACT_SUMMARY_DIM,
+    EXACT_SUMMARY_FEATURE_NAMES,
     compute_block_normalization_stats,
+    exact_summary_feature_matrix,
+    standardize_exact_summary_features,
 )  # noqa: E402
-from petitRADTRANS.experimental.sbi.training import SBITrainer, TrainingSchemeConfig  # noqa: E402
+from petitRADTRANS.experimental.sbi.config import (
+    build_conditional_flow_posterior,
+)  # noqa: E402
+from petitRADTRANS.experimental.sbi.training import (  # noqa: E402
+    SBITrainer,
+    TrainingSchemeConfig,
+    _prestack_observation_blocks,
+)
 
 
 def _dummy_model(*args, **kwargs):
@@ -2227,3 +2244,1509 @@ def test_shuffled_split_policy_is_deterministic_for_same_seed(tmp_path):
     assert second.manifest.splits == {"train": 3, "test": 2}
     np.testing.assert_allclose(first_train["parameters"], second_train["parameters"])
     np.testing.assert_allclose(first_test["parameters"], second_test["parameters"])
+
+
+@pytest.mark.parametrize("spectrum_encoder_type", ["convolution", "resmlp"])
+@pytest.mark.parametrize("exact_summary_dim", [0, EXACT_SUMMARY_DIM])
+def test_encode_paths_agree(spectrum_encoder_type, exact_summary_dim):
+    """``encode`` must return exactly what the training path produces.
+
+    The flow is conditioned on embeddings built by ``encode_from_prestacked``
+    (training) and ``encode_stacked_batch`` (batched validation). The
+    single-observation ``encode`` path serves target inference, so any
+    discrepancy silently feeds the trained flow an out-of-distribution context.
+    A unit-RMS rescaling here previously destroyed the overall embedding
+    scale -- the amplitude information that pins the planet radius -- leaving
+    validation metrics healthy while the target posterior collapsed.
+    """
+    from petitRADTRANS.experimental.sbi.flows.objectives import batch_embeddings
+
+    n_wavelengths = 32
+    rng = np.random.default_rng(0)
+    coordinates = np.linspace(1.0, 3.0, n_wavelengths)
+    encoder = ObservationEncoder(
+        embedding_dim=16,
+        spectrum_embedding_dim=16,
+        hidden_dim=16,
+        spectrum_encoder_type=spectrum_encoder_type,
+        n_wavelengths=n_wavelengths,
+        exact_summary_dim=exact_summary_dim,
+        key=jax.random.PRNGKey(0),
+    )
+
+    # Two observations differing only by an overall amplitude factor: the
+    # embeddings must differ, and every path must agree on each of them.
+    blocks_batch = [
+        [
+            ObservationBlock(
+                name="obs",
+                modality=ObservationModality.SPECTRUM,
+                values=scale * (1.0 + 0.05 * rng.standard_normal(n_wavelengths)),
+                uncertainties=np.full(n_wavelengths, 0.01 * scale),
+                coordinates=coordinates,
+                # The exact-summary channel reaches the encoder through block
+                # metadata on the ``encode``/``encode_stacked_batch`` paths and
+                # through the pre-stacked field on the training path; all three
+                # must pick up the same vector.
+                metadata={
+                    "exact_summary": np.arange(EXACT_SUMMARY_DIM, dtype=float) + scale
+                },
+            )
+        ]
+        for scale in (1.0, 4.0)
+    ]
+
+    single = np.stack(
+        [np.asarray(encoder.encode(blocks).embedding) for blocks in blocks_batch]
+    )
+    stacked = np.asarray(encoder.encode_stacked_batch(blocks_batch))
+    prestacked = np.asarray(
+        batch_embeddings(
+            SimpleNamespace(encoder=encoder), _prestack_observation_blocks(blocks_batch)
+        )
+    )
+
+    width = 16 + exact_summary_dim
+    assert single.shape == stacked.shape == prestacked.shape == (2, width)
+    assert encoder.context_dim == width
+    np.testing.assert_allclose(single, stacked, rtol=0, atol=1e-5)
+    np.testing.assert_allclose(single, prestacked, rtol=0, atol=1e-5)
+    # Guard the property the bug removed: the embedding must respond to the
+    # observation's absolute scale, not just its shape.
+    assert np.max(np.abs(single[0] - single[1])) > 1e-3
+    if exact_summary_dim:
+        # The exact channel must arrive bit-for-bit, not merely close: its whole
+        # purpose is to deliver a statistic at a precision no learned layer can.
+        np.testing.assert_array_equal(
+            single[:, 16:],
+            np.stack(
+                [
+                    np.arange(EXACT_SUMMARY_DIM, dtype=np.float32) + scale
+                    for scale in (1.0, 4.0)
+                ]
+            ),
+        )
+
+
+def test_checkpoint_restore_reads_pre_move_module_paths(tmp_path):
+    """Checkpoints written before the package moved must still restore.
+
+    Trainer checkpoints pickle classes by dotted module path. Runs that
+    predate the ``petitRADTRANS.sbi`` -> ``petitRADTRANS.experimental.sbi``
+    move therefore reference the old path, which no longer imports; restoring
+    them is required to re-run inference on an already-trained posterior.
+    """
+    import importlib
+    import io
+
+    import dill
+
+    from petitRADTRANS.experimental.sbi.training import (
+        EquinoxCheckpointBackend,
+        _LegacyPathUnpickler,
+        TrainingSchemeConfig as _TrainingSchemeConfig,
+    )
+
+    # The old path must genuinely be gone -- no import alias was added.
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("petitRADTRANS.sbi.training")
+
+    resolved = _LegacyPathUnpickler(io.BytesIO(b"")).find_class(
+        "petitRADTRANS.sbi.training", "TrainingSchemeConfig"
+    )
+    assert resolved is _TrainingSchemeConfig
+
+    # ...and the restore path must actually route through the remapping
+    # unpickler, not plain ``dill.load``.
+    backend = EquinoxCheckpointBackend()
+    checkpoint_dir = tmp_path / "best"
+    backend.save({"scheme": _TrainingSchemeConfig()}, checkpoint_dir, {"epoch": 7})
+
+    looked_up: list[str] = []
+    original_find_class = _LegacyPathUnpickler.find_class
+
+    def _spy(self, module, name):
+        looked_up.append(module)
+        return original_find_class(self, module, name)
+
+    _LegacyPathUnpickler.find_class = _spy
+    try:
+        state, metadata = backend.restore(None, checkpoint_dir)
+    finally:
+        _LegacyPathUnpickler.find_class = original_find_class
+
+    assert metadata["epoch"] == 7
+    assert isinstance(state["scheme"], _TrainingSchemeConfig)
+    assert any(
+        module.startswith("petitRADTRANS.experimental.sbi") for module in looked_up
+    ), f"restore did not resolve classes through the remapping unpickler: {looked_up}"
+    assert dill is not None
+
+
+def test_refinement_verdict_rejects_the_failures_seen_in_production():
+    """The delivery gate must reject a collapsed or uncalibrated refinement.
+
+    Both benchmarks have shipped a repeated point estimate as "the posterior"
+    while the diagnostics naming the failure sat unread on disk. The numbers
+    below are the ones those runs actually produced.
+    """
+    from petitRADTRANS.experimental.sbi.config import RefinementConfig
+    from petitRADTRANS.experimental.sbi.workflow import (
+        _count_degenerate_marginals,
+        _refinement_verdict,
+    )
+
+    importance = RefinementConfig(method="importance_sampling")
+
+    # Emission run 20260729T121612Z: ESS 1.0 out of 16384 proposals.
+    collapsed = _refinement_verdict(
+        "importance_sampling",
+        importance,
+        {"effective_sample_size": 1.0, "sampling_efficiency": 6.103515625e-05},
+        None,
+    )
+    assert collapsed["accepted"] is False
+    assert collapsed["status"] == "rejected"
+    assert "effective sample size" in collapsed["reasons"][0]
+
+    healthy = _refinement_verdict(
+        "importance_sampling",
+        importance,
+        {"effective_sample_size": 4000.0, "sampling_efficiency": 0.25},
+        None,
+    )
+    assert healthy["accepted"] is True
+
+    # Transmission run 20260729T185922Z: held-out coverage 0.476 (nominal 0.90)
+    # and median chi2/N 11.55.
+    laplace = RefinementConfig(method="map_laplace", test_time_validation=True)
+    uncalibrated = _refinement_verdict(
+        "map_laplace",
+        laplace,
+        None,
+        {"overall_coverage_90": 0.4756944444444444, "median_chi2_per_n": 11.546550664885721},
+    )
+    assert uncalibrated["accepted"] is False
+    assert len(uncalibrated["reasons"]) == 2
+
+    calibrated = _refinement_verdict(
+        "map_laplace", laplace, None, {"overall_coverage_90": 0.88, "median_chi2_per_n": 1.2}
+    )
+    assert calibrated["accepted"] is True
+
+    # No refinement requested is not a rejection.
+    assert _refinement_verdict("none", importance, None, None)["status"] == "not_requested"
+
+    # A refinement with no diagnostics at all is delivered, but flagged.
+    assert (
+        _refinement_verdict("map_laplace", laplace, None, None)["status"]
+        == "accepted_without_validation"
+    )
+
+    # Degenerate-marginal counting: 4096 copies of one point vs real draws.
+    assert _count_degenerate_marginals(np.tile([1.0, 2.0, 3.0], (4096, 1))) == 3
+    assert _count_degenerate_marginals(np.random.default_rng(0).normal(size=(4096, 3))) == 0
+
+
+def test_truncation_box_construction_guards_and_composition():
+    """Truncation must be generous, verifiable, and chainable.
+
+    A box that drops posterior mass silently bakes round one's mistakes into
+    round two, so construction is deliberately conservative and the report
+    is what authorises the truncation, not the construction itself.
+    """
+    from petitRADTRANS.experimental.sbi.truncation import (
+        TruncationBox,
+        build_truncation_box,
+        truncation_box_report,
+    )
+
+    rng = np.random.default_rng(0)
+    names = ("sharp", "broad", "skewed")
+    # One tightly-constrained parameter, one at the prior, one skewed.
+    samples = np.column_stack(
+        [
+            np.clip(rng.normal(0.5, 0.01, 20000), 0, 1),
+            rng.uniform(0.0, 1.0, 20000),
+            np.clip(rng.beta(5.0, 2.0, 20000), 0, 1),
+        ]
+    )
+
+    box = build_truncation_box(samples, names, coverage=0.999, safety_factor=1.5)
+    assert box.parameter_names == names
+    # The sharp direction truncates hard; the uninformative one cannot.
+    assert box.widths[0] < 0.15
+    assert box.widths[1] > 0.9
+    assert 0.0 < box.volume_fraction < 1.0
+
+    report = truncation_box_report(box, samples)
+    assert report["safe"] is True
+    assert report["captured_fraction"] > 0.99
+
+    # A box that excludes the truth is refused, and says which parameter.
+    outside = truncation_box_report(
+        box, samples, truth_cube=np.array([0.99, 0.5, 0.5])
+    )
+    assert outside["safe"] is False
+    assert outside["truth_inside_box"] is False
+    assert "sharp" in outside["reasons"][0]
+
+    # A box that keeps too little round-one mass is refused too.
+    stingy = build_truncation_box(
+        samples, names, coverage=0.30, safety_factor=1.0, min_box_fraction=1e-3
+    )
+    assert truncation_box_report(stingy, samples)["safe"] is False
+
+    # min_box_fraction floors a marginal that round one over-sharpened.
+    floored = build_truncation_box(
+        samples, names, coverage=0.5, safety_factor=1.0, min_box_fraction=0.25
+    )
+    assert np.all(floored.widths >= 0.25 - 1e-12)
+
+    # Bounds always stay inside the unit cube, even pushed against an edge.
+    edge = build_truncation_box(
+        np.column_stack([np.full(500, 0.999), np.full(500, 0.001), np.full(500, 0.5)]),
+        names,
+        min_box_fraction=0.1,
+    )
+    assert np.all(edge.lower >= 0.0) and np.all(edge.upper <= 1.0)
+
+    # Round-two coordinates are relative to round one's box; composing yields
+    # the absolute cube box, and round counting follows.
+    inner = build_truncation_box(box.from_cube(samples[box.contains(samples)]), names)
+    composed = box.compose(inner)
+    assert np.all(composed.lower >= box.lower - 1e-12)
+    assert np.all(composed.upper <= box.upper + 1e-12)
+    assert composed.metadata["round"] == 2
+    with pytest.raises(ValueError):
+        box.compose(
+            TruncationBox(
+                lower=np.zeros(3), upper=np.ones(3),
+                parameter_names=("a", "b", "c"), metadata={},
+            )
+        )
+
+    # Round-trip through the payload and through the coordinate maps.
+    restored = TruncationBox.from_payload(box.to_payload())
+    np.testing.assert_allclose(restored.lower, box.lower)
+    np.testing.assert_allclose(box.to_cube(box.from_cube(samples)), samples, atol=1e-12)
+
+    # Degenerate boxes are rejected at construction, not at use.
+    with pytest.raises(ValueError):
+        TruncationBox(
+            lower=np.array([0.5]), upper=np.array([0.5]),
+            parameter_names=("x",), metadata={},
+        )
+
+
+def test_truncated_parameter_layout_restricts_simulation_and_refingerprints():
+    """Wrapping the layout is the entire truncation mechanism.
+
+    The simulator keeps drawing the unit cube exactly as before; the box turns
+    those draws into physical values inside the retained region. Because the
+    prior quantiles recorded in the task fingerprint go through the same
+    transform, a truncated round fingerprints differently and so cannot reuse
+    its parent round's simulation dataset.
+    """
+    from dataclasses import replace
+
+    from petitRADTRANS.experimental.sbi.truncation import (
+        TruncatedParameterLayout,
+        TruncationBox,
+    )
+
+    task = _build_runtime_task(retrieval_name="truncation_demo")
+    names = tuple(task.parameter_layout.free_parameter_names)
+    n_free = len(names)
+    index = names.index("amplitude")
+
+    lower = np.zeros(n_free)
+    upper = np.ones(n_free)
+    lower[index], upper[index] = 0.25, 0.35
+    box = TruncationBox(
+        lower=lower, upper=upper, parameter_names=names, metadata={"round": 1}
+    )
+    truncated = replace(
+        task,
+        parameter_layout=TruncatedParameterLayout(
+            base=task.parameter_layout, box=box
+        ),
+        metadata={**dict(task.metadata), "truncation_box": box.to_payload()},
+    )
+
+    assert task.task_fingerprint.digest != truncated.task_fingerprint.digest
+
+    cube = np.random.default_rng(0).uniform(0.0, 1.0, size=(512, n_free))
+    parent = np.asarray(task.parameter_layout.transform_cube_to_physical_batch(cube))
+    child = np.asarray(
+        truncated.parameter_layout.transform_cube_to_physical_batch(cube)
+    )
+
+    # The prior is the identity on the cube here, so the retained interval is
+    # exactly the box.
+    assert child[:, index].min() >= 0.25 - 1e-9
+    assert child[:, index].max() <= 0.35 + 1e-9
+    assert parent[:, index].min() < 0.25 and parent[:, index].max() > 0.35
+
+    untouched = [i for i in range(n_free) if i != index]
+    if untouched:
+        np.testing.assert_allclose(parent[:, untouched], child[:, untouched])
+
+    # Attributes unrelated to cube coordinates delegate to the base layout.
+    assert truncated.parameter_layout.n_free_parameters == n_free
+    assert tuple(truncated.parameter_layout.free_parameter_names) == names
+
+    # The box survives into the run manifest, which is how the next round
+    # composes back to absolute cube coordinates.
+    assert truncated.metadata["truncation_box"]["lower"][index] == 0.25
+
+    # Test-time refinement differentiates the forward model with respect to the
+    # cube position, so the layout is called with JAX tracers, not concrete
+    # arrays. Exercising it only on numpy arrays let a np.asarray on this path
+    # reach a GPU run, which died with TracerArrayConversionError after the
+    # round had already finished training.
+    layout = truncated.parameter_layout
+
+    def _mean_physical(position):
+        return jnp.sum(layout.transform_cube_to_physical_batch(position))
+
+    traced_input = jnp.full((1, n_free), 0.5)
+    jitted = jax.jit(_mean_physical)(traced_input)
+    assert np.isfinite(float(jitted))
+    gradient = jax.grad(_mean_physical)(traced_input)
+    assert np.all(np.isfinite(np.asarray(gradient)))
+    # d(physical)/d(box coordinate) is the box width for the identity prior.
+    np.testing.assert_allclose(
+        float(np.asarray(gradient)[0, index]), box.widths[index], rtol=1e-5
+    )
+
+    unconstrained = jax.jit(
+        lambda u: jnp.sum(layout.transform_unconstrained_batch(u))
+    )(jnp.zeros((1, n_free)))
+    assert np.isfinite(float(unconstrained))
+
+
+def test_sbi_config_carries_truncation_settings():
+    """A truncated round is configured through SBIConfig, not a stand-in.
+
+    Exercising the resolver with a hand-rolled object that merely quacks like a
+    config let a missing ``SBIConfig.truncation`` field reach the queue, where
+    it failed at construction after the job had already been scheduled.
+    """
+    from pathlib import Path
+
+    from petitRADTRANS.experimental.sbi import SBIConfig, TruncationConfig
+
+    configuration = SBIConfig(
+        retrieval_config=RetrievalConfig(retrieval_name="truncation_config_demo"),
+        output_root=Path("/tmp/prt_sbi_truncation_config_demo"),
+        truncation=TruncationConfig(enabled=True, source_run_label="round-one"),
+    )
+    assert configuration.truncation.enabled is True
+    assert configuration.truncation.source_run_label == "round-one"
+    # The setting is part of the run's provenance record.
+    assert configuration.to_run_config()["truncation"]["source_run_label"] == "round-one"
+
+    # Truncation stays off unless asked for.
+    default = SBIConfig(
+        retrieval_config=RetrievalConfig(retrieval_name="truncation_default_demo"),
+        output_root=Path("/tmp/prt_sbi_truncation_default_demo"),
+    )
+    assert default.truncation.enabled is False
+
+
+def test_embedding_information_report_separates_carried_from_discarded():
+    """The probe must distinguish 'the flow failed' from 'the encoder discarded'.
+
+    A broad posterior marginal is ambiguous on its own. This report regresses
+    the truth on the embedding, so a near-zero R^2 with agreeing linear and
+    nonlinear fits means the information is absent rather than merely hard to
+    decode -- the difference between an encoder problem and a flow problem, and
+    the measurement that was missing while a dozen runs chased the wrong one.
+    """
+    from petitRADTRANS.experimental.sbi.calibration import (
+        generate_embedding_information_report,
+    )
+
+    rng = np.random.default_rng(0)
+    n_cases, n_parameters, embedding_dim = 2048, 3, 8
+    cube = rng.uniform(0.0, 1.0, size=(n_cases, n_parameters))
+    # The embedding encodes parameter 0 exactly, parameter 1 only through a
+    # nonlinearity, and parameter 2 not at all.
+    sign = rng.choice([-1.0, 1.0], size=n_cases)
+    embeddings = np.zeros((n_cases, embedding_dim))
+    embeddings[:, 0] = cube[:, 0]
+    # Parameter 1 survives only as a product with a random sign, so recovering
+    # it needs the two embedding components multiplied together -- invisible to
+    # a linear fit, available to the random-feature one.
+    embeddings[:, 1] = cube[:, 1] * sign
+    embeddings[:, 2] = sign
+    embeddings[:, 3:] = rng.normal(size=(n_cases, embedding_dim - 3))
+
+    class _Batch:
+        def __init__(self, start, stop):
+            self.observations = list(range(start, stop))
+            self.parameters = cube[start:stop]
+
+    class _Reader:
+        def iter_batches(self, split=None, batch_size=256, shuffle=False, **kwargs):
+            for start in range(0, n_cases, batch_size):
+                yield _Batch(start, min(start + batch_size, n_cases))
+
+    class _Posterior:
+        def encode_observation(self, index):
+            return SimpleNamespace(embedding=embeddings[index])
+
+    report = generate_embedding_information_report(
+        _Posterior(), _Reader(), ("carried", "nonlinear_only", "discarded"),
+        max_cases=n_cases, batch_size=256,
+    )
+
+    assert report["n_cases"] == n_cases
+    # Carried linearly: both probes see it.
+    assert report["r2_linear"]["carried"] > 0.99
+    assert report["r2_nonlinear"]["carried"] > 0.99
+    # Carried nonlinearly: ridge cannot see it, the random-feature probe can.
+    # This is why the nonlinear probe exists -- without it, a parameter the
+    # encoder does carry would be misread as discarded.
+    assert report["r2_linear"]["nonlinear_only"] < 0.2
+    assert (
+        report["r2_nonlinear"]["nonlinear_only"]
+        > report["r2_linear"]["nonlinear_only"] + 0.1
+    )
+    # Discarded: both probes agree it is gone, and the implied scatter is the
+    # prior's own (a uniform prior on the cube has sd 1/sqrt(12) ~ 0.289).
+    assert report["r2_nonlinear"]["discarded"] < 0.05
+    assert abs(report["implied_residual_sd_fraction"]["discarded"] - 0.289) < 0.02
+    # A parameter the embedding pins has a much smaller implied scatter.
+    assert report["implied_residual_sd_fraction"]["carried"] < 0.03
+
+
+def test_run_sbi_end_to_end_on_an_analytic_task(tmp_path):
+    """Drive the whole ``run_sbi`` pipeline once, on a task that runs in seconds.
+
+    ``run_sbi`` is a long linear function whose stages share local state, and
+    the unit tests around it all exercise individual pieces. Three separate
+    changes have reached a GPU queue and failed there -- a config field that was
+    never added, a numpy call on a JAX tracer, and a local read before its
+    assignment -- none of which any unit test could see. This walks the real
+    entry point end to end so that ordering and wiring break here instead.
+
+    Deliberately tiny: an analytic forward model, a handful of wavelengths, and
+    the smallest budgets the workflow accepts. It asserts the pipeline's
+    contract, not inference quality.
+    """
+    from dataclasses import replace
+
+    import tensorflow_probability.substrates.jax as tfp
+
+    from petitRADTRANS.retrieval.runtime import ModelResult
+    from petitRADTRANS.experimental.sbi import (
+        EncoderConfig,
+        FlowConfig,
+        ObservationValueConstraint,
+        RefinementConfig,
+        SBIConfig,
+        TrainingConfig,
+        run_sbi,
+    )
+
+    distributions = tfp.distributions
+    wavelengths = np.linspace(1.0, 2.5, 6)
+    truth = {"amplitude": 1.3, "tilt": 0.2}
+
+    def analytic_model(model_context, physical_params, pt_plot_mode=False):
+        del model_context, pt_plot_mode
+        grid = jnp.asarray(wavelengths)
+        spectrum = physical_params["amplitude"] + physical_params["tilt"] * (grid - 1.75)
+        return ModelResult(kind="spectrum", wavelengths=grid, spectrum=spectrum)
+
+    setattr(analytic_model, "_prt_model_contract", "differentiable")
+
+    noiseless = np.asarray(
+        analytic_model(None, truth).spectrum, dtype=float
+    )
+    observed = noiseless + np.random.default_rng(0).normal(0.0, 0.05, noiseless.shape)
+
+    configuration = RetrievalConfig(retrieval_name="run_sbi_smoke")
+    configuration.add_parameter(
+        "amplitude", is_free_parameter=True, distribution=distributions.Uniform(0.5, 2.0)
+    )
+    configuration.add_parameter(
+        "tilt", is_free_parameter=True, distribution=distributions.Uniform(-0.5, 0.5)
+    )
+    configuration.add_data(
+        name="smoke",
+        path_to_observations=None,
+        model_generating_function=analytic_model,
+        radtrans_object=object(),
+        wavelengths=jnp.asarray(wavelengths),
+        spectrum=jnp.asarray(observed),
+        uncertainties=jnp.full(wavelengths.shape, 0.05),
+    )
+
+    configuration_obj = SBIConfig(
+            retrieval_config=configuration,
+            output_root=tmp_path,
+            n_simulations=512,
+            simulation_batch_size=128,
+            observation_value_constraint=ObservationValueConstraint(
+                min_value=0.0, min_inclusive=False
+            ),
+            flow=FlowConfig(family="spline", num_transforms=2, hidden_dim=16, num_spline_bins=4),
+            encoder=EncoderConfig(embedding_dim=8, spectrum_embedding_dim=8, hidden_dim=8),
+            training=TrainingConfig(
+                num_epochs=2, batch_size=32, learning_rate=1e-3, lr_schedule_total_epochs=2.0
+            ),
+            refinement=RefinementConfig(method="none"),
+            n_posterior_samples=64,
+            n_predictive_forward_model_samples=8,
+            validation_max_cases=4,
+            verbose_training_diagnostics=False,
+            save_checkpoint_guardrails=False,
+            truth_parameter_values=truth,
+    )
+    run_root = run_sbi(configuration_obj)
+    configuration = configuration_obj
+
+    summary = json.loads((run_root / "amortized_summary.json").read_text())
+    # The stages whose wiring has broken before, each asserted explicitly.
+    assert summary["delivered_posterior"] == "amortized"
+    assert summary["refinement_verdict"]["status"] == "not_requested"
+    assert summary["truncation_box"] is None
+    assert set(summary["posterior_summary"]) == {"amplitude", "tilt"}
+    assert (run_root / "target_posterior_samples.npy").exists()
+    assert (run_root / "refinement_verdict.json").exists()
+    # The embedding probe runs and reports both parameters, including the
+    # target-neighbourhood scatter that needs the target observation threaded
+    # through from much earlier in the pipeline.
+    probe = summary["embedding_information"]
+    assert probe is not None
+    assert set(probe["r2_nonlinear"]) == {"amplitude", "tilt"}
+    assert set(probe["target_neighbourhood_residual_sd_fraction"]) == {"amplitude", "tilt"}
+
+    # Resuming interrupted training reuses the run directory and its trainer
+    # checkpoints, and must still TRAIN rather than load a finished posterior.
+    # Walltime-limited jobs depend on this, and conflating it with the
+    # completed-model path sent a resubmitted 8M run straight to an assertion.
+    resumed_root = run_sbi(
+        replace(
+            configuration,
+            training=TrainingConfig(
+                num_epochs=3, batch_size=32, learning_rate=1e-3, lr_schedule_total_epochs=3.0
+            ),
+            resume_training=True,
+            run_label=run_root.name,
+        )
+    )
+    assert resumed_root == run_root
+    resumed = json.loads((resumed_root / "amortized_summary.json").read_text())
+    assert resumed["delivered_posterior"] == "amortized"
+
+    # The conditioning must carry the observation's amplitude exactly. This is
+    # the whole point of the exact-summary channel, and it is asserted here --
+    # on the real workflow -- rather than only at the encoder, because the
+    # constants travel from the preprocessing sidecar through the pre-stacked
+    # training arrays to the flow's context, and every one of those hops has to
+    # hold for the number to come out right.
+    statistic = probe["observation_statistic"]["log10_median_spectrum_scale"]
+    assert statistic["r2_linear"] > 0.999, statistic
+    stage_report = summary["encoder_stage_information"]
+    assert "error" not in stage_report
+    assert stage_report["stages"]["amplitude_features"]["r2_best"] > 0.99
+
+    # Reusing an existing dataset whose sidecar predates the channel must
+    # BACKFILL the constants, not silently emit zeros -- a disabled channel is
+    # indistinguishable from a working one from the outside. Strip them and
+    # rerun against the same dataset.
+    sidecar = next((tmp_path / "datasets").glob("*.preprocessing.json"))
+    payload = json.loads(sidecar.read_text())
+    for block in payload["blocks"].values():
+        block["exact_summary_center"] = None
+        block["exact_summary_scale"] = None
+    sidecar.write_text(json.dumps(payload))
+
+    # ... and in the same run, exercise the observation-conditioned parameter
+    # basis end to end: the fit reads the backfilled constants, the flow trains
+    # in the reparameterised coordinate, and every delivered sample is mapped
+    # back to prior cube coordinates before anything downstream sees it.
+    reparameterised_root = run_sbi(
+        replace(
+            configuration,
+            run_label=None,
+            amplitude_conditioned_parameter="amplitude",
+            seed=configuration.seed + 1,
+        )
+    )
+    refitted = TaskPreprocessingMetadata.from_payload(json.loads(sidecar.read_text()))
+    for stats in refitted.blocks.values():
+        assert stats.exact_summary_center is not None
+        assert len(stats.exact_summary_center) == EXACT_SUMMARY_DIM
+
+    reparameterised = json.loads(
+        (reparameterised_root / "amortized_summary.json").read_text()
+    )
+    fit_report = reparameterised["amplitude_reparameterization"]
+    assert fit_report["parameter"] == "amplitude"
+    assert fit_report["captured_fraction"] >= 0.995
+    # Delivered draws must lie in the prior cube, not the reparameterised one.
+    samples = np.load(reparameterised_root / "target_posterior_samples.npy")
+    assert samples.shape[1] == 2
+    assert np.all(np.isfinite(samples))
+    assert np.all(samples[:, 0] >= 0.5) and np.all(samples[:, 0] <= 2.0)
+
+
+@pytest.mark.parametrize("space", ["raw", "transit_radius"])
+def test_spectral_value_space_round_trips_and_paths_agree(space):
+    """The forward transform, its inverse, and the batched path must agree.
+
+    Every consumer needing raw physical units -- above all the likelihood used
+    by test-time refinement -- goes through ``denormalize_spectral_values``. A
+    second, restated inverse silently corrupted the target spectrum by ~100x
+    once before, so a new value space is only safe if the inverse and the
+    batched training path are pinned to the per-sample path here.
+    """
+    from petitRADTRANS.experimental.sbi.preprocessing import (
+        compute_block_normalization_stats,
+        denormalize_spectral_values,
+        from_spectral_value_space,
+        normalize_observation_block,
+        normalize_spectral_block_matrix,
+        to_spectral_value_space,
+    )
+
+    rng = np.random.default_rng(0)
+    n_wavelengths = 32
+    coordinates = np.linspace(1.0, 3.0, n_wavelengths)
+    # Transmission physics: the atmosphere adds an annulus to the radius,
+    # R_p(lambda) = R0 + h(lambda), with h a few scale heights. The scale
+    # height depends on temperature and gravity, not on R0 -- log g is a free
+    # parameter here, independent of the radius -- so h does not scale with R0.
+    # Depth then squares that sum, which is exactly how the radius becomes
+    # entangled with the feature amplitude.
+    radii = rng.uniform(0.6, 2.0, 64)
+    scale_heights = rng.uniform(0.004, 0.010, 64)
+    annulus = scale_heights[:, None] * rng.standard_normal((64, n_wavelengths))
+    depths = ((radii[:, None] + annulus) * 0.1027 / 1.0) ** 2
+    uncertainties = 5.3e-6 * np.ones_like(depths)
+
+    # 1. The transform itself round-trips, values and uncertainties alike.
+    forward_values, forward_uncertainties = to_spectral_value_space(
+        depths, uncertainties, space
+    )
+    back_values, back_uncertainties = from_spectral_value_space(
+        forward_values, forward_uncertainties, space
+    )
+    np.testing.assert_allclose(back_values, depths, rtol=1e-12)
+    np.testing.assert_allclose(back_uncertainties, uncertainties, rtol=1e-12)
+
+    blocks = [
+        ObservationBlock(
+            name="spec",
+            modality=ObservationModality.SPECTRUM,
+            values=depths[i],
+            uncertainties=uncertainties[i],
+            coordinates=coordinates,
+        )
+        for i in range(depths.shape[0])
+    ]
+    stats = compute_block_normalization_stats(blocks, spectral_value_space=space)["spec"]
+    assert stats.spectral_value_space == space
+
+    # 2. The batched path equals the per-sample path bit-for-bit; training uses
+    # the batched one whenever noise is resampled.
+    batched = normalize_spectral_block_matrix(depths, uncertainties, None, stats)
+    metadata = TaskPreprocessingMetadata(version="0.6.0", blocks={"spec": stats})
+    per_sample = np.stack(
+        [np.asarray(normalize_observation_block(block, metadata).values) for block in blocks]
+    )
+    np.testing.assert_allclose(batched["values"], per_sample, rtol=0, atol=1e-12)
+
+    # 3. Normalization inverts back to raw physical units.
+    recovered, recovered_uncertainties = denormalize_spectral_values(
+        batched["values"], batched["uncertainties"], stats
+    )
+    np.testing.assert_allclose(recovered, depths, rtol=1e-6)
+    np.testing.assert_allclose(recovered_uncertainties, uncertainties, rtol=1e-5)
+
+    # 4. The point of the transit-radius space: after per-spectrum
+    # standardization the feature amplitude must no longer scale with radius.
+    centered = per_sample - np.median(per_sample, axis=1, keepdims=True)
+    spread = np.std(centered, axis=1)
+    correlation = float(np.corrcoef(radii, spread)[0, 1])
+    if space == "raw":
+        # Depth space: the same atmosphere looks different at every radius.
+        assert abs(correlation) > 0.5, (
+            "depth space is expected to entangle radius with feature amplitude, "
+            f"got correlation {correlation:.3f}"
+        )
+    else:
+        assert abs(correlation) < 0.35, (
+            "transit-radius space should decouple feature amplitude from radius, "
+            f"got correlation {correlation:.3f}"
+        )
+
+
+def test_noise_level_conditioning_randomises_error_bars():
+    """Training-time error-bar scaling, and the fixed-noise path unchanged.
+
+    The encoder already ingests sigma per wavelength and as an amplitude
+    feature, so noise-level conditioning needs no architecture change -- only
+    that training sees a range of error-bar scales, with the reported
+    uncertainties matching the noise that was actually added.
+    """
+    from petitRADTRANS.experimental.sbi.preprocessing import (
+        compute_block_normalization_stats,
+    )
+    from petitRADTRANS.experimental.sbi.training import _noisy_prestacked_observations
+
+    rng_data = np.random.default_rng(0)
+    n_samples, n_wavelengths = 256, 16
+    deterministic = 0.0106 * (1.0 + 0.01 * rng_data.standard_normal((n_samples, n_wavelengths)))
+    uncertainties = np.full((n_samples, n_wavelengths), 5.3e-6)
+    coordinates = np.linspace(1.0, 3.0, n_wavelengths)
+
+    stats = compute_block_normalization_stats(
+        [
+            ObservationBlock(
+                name="spec",
+                modality=ObservationModality.SPECTRUM,
+                values=deterministic[i],
+                uncertainties=uncertainties[i],
+                coordinates=coordinates,
+            )
+            for i in range(n_samples)
+        ]
+    )
+    metadata = TaskPreprocessingMetadata(version="0.6.0", blocks=stats)
+    raw_blocks = [
+        {
+            "name": "spec",
+            "modality": "spectrum",
+            "deterministic": deterministic.astype(np.float32),
+            "uncertainties": uncertainties.astype(np.float32),
+            "coordinates": np.tile(coordinates, (n_samples, 1)).astype(np.float32),
+            "mask": np.ones((n_samples, n_wavelengths), dtype=bool),
+        }
+    ]
+    indices = np.arange(n_samples)
+
+    # Disabled: the reported uncertainties are exactly the stored ones.
+    fixed = _noisy_prestacked_observations(
+        raw_blocks, indices, np.random.default_rng(1), metadata
+    )
+    # Enabled: scales span the requested decade and differ between samples.
+    conditioned = _noisy_prestacked_observations(
+        raw_blocks,
+        indices,
+        np.random.default_rng(1),
+        metadata,
+        noise_level_log10_range=(-0.5, 0.5),
+    )
+    fixed_unc = np.asarray(fixed.stacked_blocks[0][1])
+    conditioned_unc = np.asarray(conditioned.stacked_blocks[0][1])
+    assert fixed_unc.shape == conditioned_unc.shape
+
+    # The fixed path gives every sample the same normalized uncertainty level;
+    # the conditioned path spreads it over roughly a decade.
+    fixed_levels = np.median(fixed_unc, axis=1)
+    conditioned_levels = np.median(conditioned_unc, axis=1)
+    fixed_spread = fixed_levels.max() / max(fixed_levels.min(), 1e-30)
+    conditioned_spread = conditioned_levels.max() / max(conditioned_levels.min(), 1e-30)
+    assert fixed_spread < 1.5, f"fixed-noise levels should not vary, got {fixed_spread:.2f}"
+    assert conditioned_spread > 3.0, (
+        f"conditioned levels should span ~10x, got {conditioned_spread:.2f}"
+    )
+
+
+def test_map_likelihood_ranked_starts_beat_the_posterior_mean():
+    """Starting from the best-scoring draw must beat starting from the mean.
+
+    Held-out MAP refinement failed on 6 of 16 cases (chi2/N of 11 to 131),
+    dragging interval coverage to 0.611 against a nominal 0.90 -- and
+    1 - 6/16 accounts for almost exactly that shortfall. The cause is the
+    initialisation: the mean of a posterior that is near-prior in most
+    dimensions is a low-likelihood point between the modes.
+    """
+    from petitRADTRANS.experimental.sbi.flows.refinement import _chunked_forward_chi2
+
+    # A bimodal amortized posterior: the mean sits in the empty middle.
+    draws = jnp.asarray(
+        np.concatenate(
+            [
+                np.random.default_rng(0).normal(0.2, 0.02, (256, 1)),
+                np.random.default_rng(1).normal(0.8, 0.02, (256, 1)),
+            ]
+        )
+    )
+    truth = 0.8
+
+    def residual(cube):
+        return (cube - truth) / 0.01
+
+    chi2, batch_used = _chunked_forward_chi2(draws, residual, forward_batch_size=64)
+    assert chi2.shape == (512,)
+    assert batch_used == 64
+
+    mean_start = float(jnp.mean(draws))
+    best_start = float(draws[int(np.argmin(chi2))][0])
+    mean_chi2 = float(((mean_start - truth) / 0.01) ** 2)
+    best_chi2 = float(np.min(chi2))
+
+    # The mean lands in the gap; the best draw lands on the correct mode.
+    assert abs(mean_start - truth) > 0.2
+    assert abs(best_start - truth) < 0.1
+    assert best_chi2 < mean_chi2 / 100.0
+
+    # Ranking is what the MAP path consumes: the ordering must put the draw
+    # nearest the truth first, so the optimiser starts on the right mode.
+    ranking = np.argsort(chi2)
+    assert abs(float(draws[int(ranking[0])][0]) - truth) < 0.1
+    assert abs(float(draws[int(ranking[-1])][0]) - truth) > 0.4
+
+
+def _amplitude_spanning_blocks(n_cases=240, n_wavelengths=48, seed=0):
+    """Transmission-like spectra spanning the benchmark's amplitude range."""
+    wavelengths = np.linspace(1.0, 5.0, n_wavelengths)
+    blocks = []
+    log_depths = []
+    for index in range(n_cases):
+        generator = np.random.default_rng(seed + index)
+        log_depth = -2.17 + 0.32 * generator.standard_normal()
+        depth = 10.0**log_depth
+        feature = 1.6e-3 * np.exp(-0.5 * ((wavelengths - 2.7) / 0.25) ** 2)
+        values = depth * (1.0 + feature * generator.uniform(0.5, 1.5))
+        uncertainties = np.full(n_wavelengths, depth * 2.6e-4)
+        values = values + uncertainties * generator.standard_normal(n_wavelengths)
+        blocks.append(
+            [
+                ObservationBlock(
+                    name="spectrum",
+                    modality=ObservationModality.SPECTRUM,
+                    values=values,
+                    uncertainties=uncertainties,
+                    coordinates=wavelengths,
+                    mask=np.zeros(n_wavelengths, dtype=bool),
+                )
+            ]
+        )
+        log_depths.append(log_depth)
+    return blocks, np.asarray(log_depths)
+
+
+def test_exact_summary_channel_delivers_log_amplitude_at_data_precision():
+    """The conditioning vector must carry log median depth, not approximate it.
+
+    This is the property the whole channel exists for. A transmission spectrum
+    determines log10(median depth) to a few parts in 10^5; the trained
+    convolution encoder was measured to deliver it with a residual of 0.085 dex
+    against a prior spread of 0.32. The exact channel is a fixed affine map of
+    the statistic itself, so a linear readout of the context must recover it to
+    numerical precision -- and must do so far better than the learned half of
+    the same vector.
+    """
+    from petitRADTRANS.experimental.sbi.preprocessing import (
+        fit_task_preprocessing,
+        normalize_observation_blocks,
+    )
+
+    raw_blocks, truth = _amplitude_spanning_blocks()
+    n_wavelengths = len(raw_blocks[0][0].values)
+    preprocessing = fit_task_preprocessing(raw_blocks[:180])
+    stats = preprocessing.blocks["spectrum"]
+
+    # The fitted constants are the only thing standing between the raw scalar
+    # and the flow, and they must come from the training split, not the batch.
+    assert stats.exact_summary_center is not None
+    assert len(stats.exact_summary_center) == EXACT_SUMMARY_DIM
+    assert all(value > 0.0 for value in stats.exact_summary_scale)
+
+    normalized = [
+        normalize_observation_blocks(blocks, preprocessing) for blocks in raw_blocks
+    ]
+    encoder = ObservationEncoder(
+        embedding_dim=32,
+        spectrum_embedding_dim=16,
+        hidden_dim=16,
+        n_wavelengths=n_wavelengths,
+        exact_summary_dim=EXACT_SUMMARY_DIM,
+        key=jax.random.PRNGKey(0),
+    )
+    context = np.stack(
+        [np.asarray(encoder.encode(blocks).embedding) for blocks in normalized]
+    )
+
+    def _held_out_residual(features):
+        n_train = 180
+        centre = features[:n_train].mean(axis=0)
+        spread = features[:n_train].std(axis=0) + 1e-8
+        design = np.c_[(features - centre) / spread, np.ones(features.shape[0])]
+        weights = np.linalg.solve(
+            design[:n_train].T @ design[:n_train]
+            + 1e-8 * np.eye(design.shape[1]),
+            design[:n_train].T @ truth[:n_train],
+        )
+        return float(np.std(design[n_train:] @ weights - truth[n_train:]))
+
+    exact_residual = _held_out_residual(context[:, 32:])
+    learned_residual = _held_out_residual(context[:, :32])
+
+    assert exact_residual < 1e-3, exact_residual
+    assert learned_residual > 10.0 * exact_residual, (learned_residual, exact_residual)
+
+
+def test_exact_summary_features_are_standardised_by_fixed_constants():
+    """A per-batch rescaling here would remove the amplitude it must carry.
+
+    The deleted ``_normalize_embedding`` failed exactly this way. Splitting one
+    batch in two must not change any observation's exact-summary vector.
+    """
+    from petitRADTRANS.experimental.sbi.preprocessing import fit_task_preprocessing
+
+    raw_blocks, _ = _amplitude_spanning_blocks(n_cases=64, n_wavelengths=32, seed=7)
+    preprocessing = fit_task_preprocessing(raw_blocks)
+    stats = preprocessing.blocks["spectrum"]
+
+    values = np.stack([np.asarray(blocks[0].values) for blocks in raw_blocks])
+    uncertainties = np.stack(
+        [np.asarray(blocks[0].uncertainties) for blocks in raw_blocks]
+    )
+    log_scale = np.log10(np.median(np.abs(values), axis=1))
+
+    whole = standardize_exact_summary_features(
+        exact_summary_feature_matrix(values, uncertainties, None, log_scale), stats
+    )
+    halves = np.concatenate(
+        [
+            standardize_exact_summary_features(
+                exact_summary_feature_matrix(
+                    values[start:stop],
+                    uncertainties[start:stop],
+                    None,
+                    log_scale[start:stop],
+                ),
+                stats,
+            )
+            for start, stop in ((0, 17), (17, 64))
+        ]
+    )
+    np.testing.assert_allclose(whole, halves, rtol=0, atol=0)
+
+    # The first feature is the raw log amplitude, so it must be an exactly
+    # affine function of it -- recoverable, not merely correlated.
+    assert EXACT_SUMMARY_FEATURE_NAMES[0] == "log_spectrum_scale"
+    recovered = (
+        whole[:, 0] * stats.exact_summary_scale[0] + stats.exact_summary_center[0]
+    )
+    np.testing.assert_allclose(recovered, log_scale, rtol=0, atol=1e-9)
+
+
+def test_missing_exact_summary_constants_disable_the_channel():
+    """Preprocessing sidecars written before the channel existed must still load."""
+    from petitRADTRANS.experimental.sbi.preprocessing import (
+        BlockNormalizationStats,
+        TaskPreprocessingMetadata,
+    )
+
+    legacy_payload = {
+        "version": "0.5.0",
+        "blocks": {
+            "spectrum": {
+                "name": "spectrum",
+                "modality": "spectrum",
+                "value_mean": 0.0,
+                "value_std": 1.0,
+            }
+        },
+        "metadata": {},
+    }
+    metadata = TaskPreprocessingMetadata.from_payload(legacy_payload)
+    stats = metadata.blocks["spectrum"]
+    assert isinstance(stats, BlockNormalizationStats)
+    assert stats.exact_summary_center is None
+    zeros = standardize_exact_summary_features(np.ones((3, EXACT_SUMMARY_DIM)), stats)
+    np.testing.assert_array_equal(zeros, np.zeros((3, EXACT_SUMMARY_DIM)))
+
+
+def test_encoder_stage_audit_runs_through_the_real_forward_pass():
+    """The stage audit must instrument the encoder, not a re-implementation.
+
+    A previous audit rebuilt the forward pass to inspect it and reported R^2 of
+    exactly 0.00000 for three consecutive stages, because the reconstruction fed
+    the amplitude in at the wrong layer. Here the stages come from the same
+    ``_forward_with_stages`` call that produces the embedding, so the audited
+    tensors are the ones the encoder actually computes.
+    """
+    from petitRADTRANS.experimental.sbi.calibration import (
+        generate_encoder_stage_information_report,
+    )
+    from petitRADTRANS.experimental.sbi.preprocessing import (
+        fit_task_preprocessing,
+        normalize_observation_blocks,
+    )
+
+    raw_blocks, _ = _amplitude_spanning_blocks(n_cases=160, n_wavelengths=32, seed=3)
+    n_wavelengths = 32
+    preprocessing = fit_task_preprocessing(raw_blocks)
+    normalized = [
+        normalize_observation_blocks(blocks, preprocessing) for blocks in raw_blocks
+    ]
+    encoder = ObservationEncoder(
+        embedding_dim=16,
+        spectrum_embedding_dim=16,
+        hidden_dim=16,
+        n_wavelengths=n_wavelengths,
+        exact_summary_dim=EXACT_SUMMARY_DIM,
+        key=jax.random.PRNGKey(1),
+    )
+
+    # The instrumented pass must agree with the plain one exactly.
+    prestacked = _prestack_observation_blocks(normalized[:8])
+    stages = encoder.stage_features_from_prestacked(prestacked)
+    np.testing.assert_allclose(
+        np.asarray(stages["context"]),
+        np.asarray(encoder.encode_from_prestacked(prestacked)),
+        rtol=0,
+        atol=0,
+    )
+
+    class _Batch:
+        def __init__(self, observations):
+            self.observations = observations
+            self.parameters = np.zeros((len(observations), 1))
+
+    class _Reader:
+        preprocessing_metadata = preprocessing
+
+        def iter_batches(self, split=None, batch_size=64, shuffle=False, **kwargs):
+            for start in range(0, len(normalized), batch_size):
+                yield _Batch(normalized[start:start + batch_size])
+
+    report = generate_encoder_stage_information_report(
+        SimpleNamespace(model=SimpleNamespace(encoder=encoder)),
+        _Reader(),
+        max_cases=160,
+        batch_size=64,
+    )
+    assert "error" not in report
+    assert report["target"] == "log10_median_spectrum_scale"
+    # The raw amplitude features hold the statistic exactly; the audit is only
+    # meaningful if it can see that.
+    assert report["stages"]["amplitude_features"]["r2_best"] > 0.999
+    for stage in report["stages"].values():
+        assert stage["r2_best"] >= min(stage["r2_linear"], stage["r2_nonlinear"])
+
+
+def test_map_covariance_keeps_the_residual_curvature_term():
+    """``hessian`` must widen a curved fit relative to Gauss-Newton.
+
+    Gauss-Newton drops ``sum_i r_i d^2 r_i / du^2``. With a converged but
+    imperfect fit that term is not negligible, and dropping it makes the
+    posterior too narrow -- the measured failure (coverage 0.52 against a
+    nominal 0.90 at chi2/N 1.28). This builds a residual with real curvature and
+    a non-zero optimum and checks the two methods disagree in that direction.
+    """
+    from petitRADTRANS.experimental.sbi.flows.refinement import (
+        map_laplace_posterior_on_observation,
+    )
+
+    param_dim = 3
+
+    def residual(cube):
+        # The first coordinate carries a large, irreducible, concave residual:
+        # a linear term pins it near zero, where ``1 - 10 c^2`` stays close to 1
+        # with second derivative -20. The dropped Gauss-Newton term is then
+        # r * d^2r/dc^2 ~ -20, comparable to and opposing J^T J -- the regime
+        # where linearising makes the posterior too narrow. The other
+        # coordinates are linear, so they must be untouched.
+        centred = cube - 0.5
+        return jnp.stack(
+            [
+                1.0 - 10.0 * centred[0] ** 2,
+                6.0 * centred[0],
+                4.0 * centred[1] - 0.4,
+                3.0 * centred[2] - 0.3,
+            ]
+        )
+
+    posterior = build_conditional_flow_posterior(
+        parameter_dim=param_dim, n_wavelengths=8, seed=0
+    )
+    observation = _prestack_observation_blocks(
+        [
+            [
+                ObservationBlock(
+                    name="obs",
+                    modality=ObservationModality.SPECTRUM,
+                    values=np.ones(8),
+                    uncertainties=np.full(8, 0.1),
+                    coordinates=np.linspace(1.0, 2.0, 8),
+                )
+            ]
+        ]
+    )
+
+    widths = {}
+    diagnostics = {}
+    for method in ("laplace", "hessian"):
+        refined = map_laplace_posterior_on_observation(
+            posterior,
+            observation,
+            residual,
+            num_steps=250,
+            n_posterior_samples=512,
+            covariance_method=method,
+            seed=0,
+            verbose=False,
+        )
+        widths[method] = np.std(np.asarray(refined._fixed_cube_samples), axis=0)
+        diagnostics[method] = refined._map_diagnostics
+
+    assert diagnostics["hessian"]["covariance_method"] == "hessian"
+    assert diagnostics["laplace"]["covariance_width_ratio_vs_gauss_newton"] == pytest.approx(
+        1.0, abs=1e-4
+    )
+    # The curvature term must actually change the answer, and in the widening
+    # direction on the curved coordinate.
+    assert diagnostics["hessian"]["covariance_width_ratio_vs_gauss_newton"] > 1.05
+    assert widths["hessian"][0] > 1.05 * widths["laplace"][0]
+    # ... and only there: the linear coordinates have no curvature term.
+    np.testing.assert_allclose(
+        widths["hessian"][1:], widths["laplace"][1:], rtol=0.02
+    )
+    # Both must still report the misfit factor, applied or not.
+    assert diagnostics["hessian"]["chi2_inflation_applied"] is False
+    assert diagnostics["hessian"]["chi2_inflation_factor"] >= 1.0
+
+
+def test_map_covariance_rejects_an_unknown_method():
+    """A typo in the covariance method must fail loudly, not fall back."""
+    from petitRADTRANS.experimental.sbi.flows.refinement import (
+        map_laplace_posterior_on_observation,
+    )
+
+    posterior = build_conditional_flow_posterior(
+        parameter_dim=2, n_wavelengths=4, seed=0
+    )
+    observation = _prestack_observation_blocks(
+        [
+            [
+                ObservationBlock(
+                    name="obs",
+                    modality=ObservationModality.SPECTRUM,
+                    values=np.ones(4),
+                    uncertainties=np.full(4, 0.1),
+                    coordinates=np.linspace(1.0, 2.0, 4),
+                )
+            ]
+        ]
+    )
+    with pytest.raises(ValueError, match="covariance_method"):
+        map_laplace_posterior_on_observation(
+            posterior,
+            observation,
+            lambda cube: jnp.asarray([cube[0] - 0.5, cube[1] - 0.5]),
+            num_steps=5,
+            n_posterior_samples=8,
+            covariance_method="gauss_newton",
+            verbose=False,
+        )
+
+
+def _fitted_amplitude_reparameterization(n=2000, seed=0):
+    """A radius/annulus setup with the benchmark's amplitude spread."""
+    from petitRADTRANS.experimental.sbi.flows import (
+        fit_amplitude_conditioned_parameter,
+    )
+
+    rng = np.random.default_rng(seed)
+    log_amplitude = -2.17 + 0.32 * rng.standard_normal(n)
+    # depth = (R_p + h)^2 / R_s^2, so the total radius goes as sqrt(amplitude);
+    # the planet radius is that less a positive atmospheric annulus.
+    total_radius = 100.0 * 10.0 ** (0.5 * log_amplitude)
+    radius = total_radius * rng.uniform(0.6, 0.999, n)
+    reparameterization, report = fit_amplitude_conditioned_parameter(
+        parameter_name="planet_radius",
+        parameter_index=2,
+        physical_values=radius,
+        log_amplitudes=log_amplitude,
+        prior_lower=float(radius.min() * 0.8),
+        prior_upper=float(radius.max() * 1.2),
+        context_index=8,
+        amplitude_center=-2.17,
+        amplitude_scale=0.32,
+    )
+    return reparameterization, report, radius, log_amplitude
+
+
+def test_amplitude_conditioned_basis_round_trips_and_touches_one_coordinate():
+    """The coordinate change must be exactly invertible and strictly local.
+
+    Every delivered posterior passes back through ``to_prior_cube``; an
+    inaccurate inverse would corrupt the radius marginal of every run while
+    leaving training metrics healthy -- the shape of the amplitude bug that
+    started this campaign.
+    """
+    reparameterization, report, radius, log_amplitude = (
+        _fitted_amplitude_reparameterization()
+    )
+    assert report["captured_fraction"] == 1.0
+    # The point of the basis: the coordinate the flow must resolve is far
+    # narrower than the raw prior range in the same units.
+    assert report["compression_vs_prior"] > 3.0
+
+    n = radius.shape[0]
+    cube = np.zeros((n, 4))
+    cube[:, 2] = (radius - reparameterization.prior_lower) / (
+        reparameterization.prior_upper - reparameterization.prior_lower
+    )
+    context = np.zeros((n, 12))
+    context[:, 8] = (log_amplitude + 2.17) / 0.32
+
+    flow_cube = np.asarray(reparameterization.to_flow_cube(cube, context))
+    recovered = np.asarray(reparameterization.to_prior_cube(flow_cube, context))
+
+    np.testing.assert_allclose(recovered[:, 2], cube[:, 2], rtol=0, atol=1e-5)
+    np.testing.assert_array_equal(flow_cube[:, [0, 1, 3]], cube[:, [0, 1, 3]])
+    # The log amplitude must come back out of the context exactly -- it is a
+    # fixed affine map of it, not an estimate.
+    np.testing.assert_allclose(
+        np.asarray(reparameterization.log_amplitude(context)),
+        log_amplitude,
+        rtol=0,
+        atol=1e-5,
+    )
+
+
+def test_amplitude_conditioned_basis_moves_the_radius_with_the_observed_depth():
+    """The sharp direction must be handled by the formula, not by the network.
+
+    Two observations whose only difference is the measured amplitude must yield
+    posterior radii scaled by exactly ``10^(exponent * delta log amplitude)``,
+    for an untrained flow. That is the property no amount of training can supply
+    at the required four-and-a-half significant digits, and it is what the whole
+    reparameterisation buys.
+    """
+    reparameterization, _, _, _ = _fitted_amplitude_reparameterization()
+    n_samples = 512
+    flow_cube = np.tile(
+        np.linspace(0.05, 0.95, n_samples)[:, None], (1, 4)
+    )  # identical draws under both observations
+
+    delta = 1.0  # one standard-deviation step in the standardised coordinate
+    contexts = []
+    for offset in (0.0, delta):
+        context = np.zeros((n_samples, 12))
+        context[:, 8] = offset
+        contexts.append(context)
+
+    radii = []
+    for context in contexts:
+        prior_cube = np.asarray(reparameterization.to_prior_cube(flow_cube, context))
+        radii.append(
+            reparameterization.prior_lower
+            + prior_cube[:, 2]
+            * (reparameterization.prior_upper - reparameterization.prior_lower)
+        )
+
+    expected_ratio = 10.0 ** (
+        reparameterization.amplitude_exponent * reparameterization.amplitude_scale * delta
+    )
+    np.testing.assert_allclose(radii[1] / radii[0], expected_ratio, rtol=1e-4)
+
+
+def test_amplitude_conditioned_basis_serializes_with_the_posterior(tmp_path):
+    """A reparameterised model must reload with the identical coordinate.
+
+    The constants are not recoverable from the weights, so losing them on reload
+    would silently reinterpret every sample.
+    """
+    from petitRADTRANS.experimental.sbi.flows import (
+        AmplitudeConditionedParameter,
+        load_posterior_estimator,
+    )
+
+    reparameterization, _, _, _ = _fitted_amplitude_reparameterization()
+    posterior = build_conditional_flow_posterior(
+        parameter_dim=4,
+        n_wavelengths=8,
+        seed=0,
+        reparameterization=reparameterization,
+    )
+    assert posterior.model.reparameterization is reparameterization
+
+    payload = reparameterization.to_payload()
+    restored = AmplitudeConditionedParameter.from_payload(payload)
+    assert restored == reparameterization
+    assert AmplitudeConditionedParameter.from_payload(None) is None
+
+    config = posterior._build_estimator_config()
+    assert config["reparameterization"] == payload
+    rebuilt = AmplitudeConditionedParameter.from_payload(config["reparameterization"])
+    assert rebuilt == reparameterization
+    del tmp_path, load_posterior_estimator
+
+
+def test_amplitude_conditioned_basis_rejects_an_ill_posed_configuration():
+    """Bad bounds must fail at construction, not produce silent NaNs."""
+    from petitRADTRANS.experimental.sbi.flows import (
+        AmplitudeConditionedParameter,
+        fit_amplitude_conditioned_parameter,
+    )
+
+    kwargs = dict(
+        parameter_name="planet_radius",
+        parameter_index=0,
+        context_index=1,
+        amplitude_center=0.0,
+        amplitude_scale=1.0,
+        ratio_lower=-1.0,
+        ratio_upper=1.0,
+    )
+    # A log ratio needs a strictly positive lower bound.
+    with pytest.raises(ValueError, match="positive prior lower bound"):
+        AmplitudeConditionedParameter(prior_lower=0.0, prior_upper=2.0, **kwargs)
+    with pytest.raises(ValueError, match="prior_upper must exceed"):
+        AmplitudeConditionedParameter(prior_lower=2.0, prior_upper=1.0, **kwargs)
+    with pytest.raises(ValueError, match="ratio_upper must exceed"):
+        AmplitudeConditionedParameter(
+            **{**kwargs, "ratio_lower": 1.0, "ratio_upper": -1.0},
+            prior_lower=1.0,
+            prior_upper=2.0,
+        )
+    with pytest.raises(ValueError, match="at least 16"):
+        fit_amplitude_conditioned_parameter(
+            parameter_name="r",
+            parameter_index=0,
+            physical_values=np.ones(4),
+            log_amplitudes=np.zeros(4),
+            prior_lower=0.5,
+            prior_upper=2.0,
+            context_index=1,
+            amplitude_center=0.0,
+            amplitude_scale=1.0,
+        )
+
+
+def test_reparameterised_log_prob_stays_a_density_in_the_original_cube():
+    """The change of variables must be accounted for, not dropped.
+
+    A validation loss that omitted the Jacobian would not be comparable with a
+    run that did not reparameterise, and checkpoint selection reads that loss.
+    """
+    from petitRADTRANS.experimental.sbi.flows.cube import _parameter_space_log_prob
+
+    reparameterization, _, _, _ = _fitted_amplitude_reparameterization()
+    posterior = build_conditional_flow_posterior(
+        parameter_dim=4, n_wavelengths=8, seed=0
+    )
+    flow = posterior.model.flow
+    context_dim = posterior.context_dim
+
+    rng = np.random.default_rng(1)
+    cube = jnp.asarray(rng.uniform(0.2, 0.8, size=(16, 4)), dtype=jnp.float32)
+    embeddings = jnp.zeros((16, context_dim), dtype=jnp.float32)
+
+    plain = np.asarray(_parameter_space_log_prob(flow, cube, embeddings, "cube"))
+    reparameterised = np.asarray(
+        _parameter_space_log_prob(
+            flow, cube, embeddings, "cube", reparameterization=reparameterization
+        )
+    )
+    assert np.all(np.isfinite(reparameterised))
+    # The Jacobian term is a real contribution, not a no-op.
+    assert not np.allclose(plain, reparameterised)
+
+    # Numerically: the reparameterised density in cube coordinates must equal
+    # the flow density in its own coordinates times |d(flow cube)/d(cube)|.
+    flow_cube = reparameterization.to_flow_cube(cube, embeddings)
+    without_jacobian = np.asarray(
+        _parameter_space_log_prob(flow, flow_cube, embeddings, "cube")
+    )
+    jacobian = np.asarray(
+        reparameterization.log_abs_det_jacobian(cube, embeddings)
+    )
+    np.testing.assert_allclose(
+        reparameterised, without_jacobian + jacobian, rtol=1e-4, atol=1e-3
+    )
+
+
+def test_broadcast_spectral_mask_matches_the_reader_convention():
+    """A per-spectrum flag must mark one wavelength, not the whole spectrum.
+
+    Masks arrive in four shapes and ``np.broadcast_to`` handles only one: an
+    HDF5 dataset stores one flag per spectrum, ``(batch,)``, which numpy aligns
+    against the trailing wavelength axis and rejects. That killed a submitted
+    24M-dataset run at the sidecar-backfill step.
+
+    The convention is set by ``NormalizedObservationDatasetReader`` (dataset.py:
+    ``mask[:, 0] = stored_mask`` for a 1-D stored mask) and mirrors the
+    per-sample path, which pads a short mask with ``False``. Statistics fitted
+    on a different valid set than the encoder sees would be quietly wrong, so
+    this pins the two together.
+    """
+    from petitRADTRANS.experimental.sbi.preprocessing import broadcast_spectral_mask
+
+    n_samples, n_wavelengths = 4, 6
+
+    # None and scalars.
+    np.testing.assert_array_equal(
+        broadcast_spectral_mask(None, (n_samples, n_wavelengths)),
+        np.zeros((n_samples, n_wavelengths), dtype=bool),
+    )
+    scalar = broadcast_spectral_mask(True, (n_samples, n_wavelengths))
+    assert scalar[:, 0].all() and not scalar[:, 1:].any()
+
+    # One flag per spectrum -> first wavelength only. This is the shape that
+    # crashed, and marking the whole spectrum invalid would throw away 220
+    # points per flagged row instead of 1.
+    per_spectrum = np.array([True, False, True, False])
+    expanded = broadcast_spectral_mask(per_spectrum, (n_samples, n_wavelengths))
+    np.testing.assert_array_equal(expanded[:, 0], per_spectrum)
+    assert not expanded[:, 1:].any()
+
+    # Exactly what the reader produces for the same input, byte for byte.
+    reader_equivalent = np.zeros((n_samples, n_wavelengths), dtype=bool)
+    reader_equivalent[:, 0] = per_spectrum
+    np.testing.assert_array_equal(expanded, reader_equivalent)
+
+    # Per wavelength, shared across the batch.
+    per_wavelength = np.array([False, True, False, False, True, False])
+    shared = broadcast_spectral_mask(per_wavelength, (n_samples, n_wavelengths))
+    for row in range(n_samples):
+        np.testing.assert_array_equal(shared[row], per_wavelength)
+
+    # A single observation: a length-n_wavelengths mask is per wavelength, not
+    # per spectrum. This is the target-spectrum path.
+    single = broadcast_spectral_mask(per_wavelength, (1, n_wavelengths))
+    np.testing.assert_array_equal(single[0], per_wavelength)
+
+    # Already per wavelength per spectrum: returned unchanged.
+    full = np.zeros((n_samples, n_wavelengths), dtype=bool)
+    full[2, 3] = True
+    np.testing.assert_array_equal(
+        broadcast_spectral_mask(full, (n_samples, n_wavelengths)), full
+    )
+
+
+def test_exact_summary_features_accept_a_per_spectrum_mask():
+    """The statistic must be computable from a stored dataset mask directly.
+
+    The failing job read masks straight from HDF5 and handed them to
+    ``exact_summary_feature_matrix``; a shape it cannot take is a crash at the
+    only point in the pipeline that touches an 8M dataset.
+    """
+    rng = np.random.default_rng(0)
+    values = rng.normal(size=(32, 20))
+    uncertainties = np.full((32, 20), 0.1)
+    log_scale = rng.normal(size=32)
+
+    per_spectrum = np.zeros(32, dtype=bool)
+    per_spectrum[::7] = True
+    features = exact_summary_feature_matrix(
+        values, uncertainties, per_spectrum, log_scale
+    )
+    assert features.shape == (32, EXACT_SUMMARY_DIM)
+    assert np.all(np.isfinite(features))
+    # The first feature is the supplied log amplitude, untouched by masking.
+    np.testing.assert_allclose(features[:, 0], log_scale, rtol=0, atol=0)
