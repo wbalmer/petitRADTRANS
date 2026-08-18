@@ -15,7 +15,7 @@ relative_tolerance = 1e-4  # relative tolerance when comparing with older result
 
 # Initializations
 def init_radtrans_downsampled_line_by_line(
-    retain_line_opacities_for_plotting=False,
+    retain_unstacked_line_opacities_for_plotting=False,
 ):
     atmosphere = petitRADTRANS.radtrans.Radtrans(
         pressures=test_parameters["pressures"],
@@ -33,7 +33,7 @@ def init_radtrans_downsampled_line_by_line(
             "line_by_line_opacity_sampling"
         ],
         line_opacity_mode="lbl",
-        retain_line_opacities_for_plotting=retain_line_opacities_for_plotting,
+        retain_unstacked_line_opacities_for_plotting=retain_unstacked_line_opacities_for_plotting,
         scattering_in_emission=False,
     )
 
@@ -112,7 +112,7 @@ def test_plot_radtrans_opacities_works_without_debug_layout():
 
 def test_line_opacity_debug_data_retained_on_request():
     atmosphere = init_radtrans_downsampled_line_by_line(
-        retain_line_opacities_for_plotting=True,
+        retain_unstacked_line_opacities_for_plotting=True,
     )
 
     assert set(atmosphere.lines_loaded_opacities["opacity_grid"]) == set(

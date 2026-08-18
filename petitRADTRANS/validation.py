@@ -69,7 +69,7 @@ def _check_anisotropic_cloud_scattering(mode: Union[str, bool]):
     """
     if mode not in ["auto", True, False]:
         raise ValueError(
-            f"anisotropic cloud scattering must be 'auto'|True|False, but was '{mode}'"
+            f"anisotropic_cloud_scattering must be 'auto'|True|False, but was '{mode}'"
         )
 
 
@@ -80,7 +80,7 @@ def _check_line_opacity_mode(mode: str):
         mode: The line opacity mode.
     """
     if mode not in ["c-k", "lbl"]:
-        raise ValueError(f"opacity mode must be 'c-k'|'lbl', but was '{mode}'")
+        raise ValueError(f"line_opacity_mode must be 'c-k'|'lbl', but was '{mode}'")
 
 
 def _check_input_data_file_existence(path: str):
@@ -229,14 +229,15 @@ def _sanitize_frequency_surface_input(
     if jnp.ndim(values) == 0:
         return values * jnp.ones_like(frequencies, dtype=WORKING_JAX_DTYPE)
 
-    def _check_input_size(_values, _frequencies):
-        if jnp.size(_values) != _frequencies.size:
-            raise ValueError(
-                f"{quantity_name} must be a scalar or of the same size than frequencies "
-                f"({_frequencies.size}), but is of size {jnp.size(_values)}"
-            )
-
-    debug.callback(_check_input_size, values, frequencies)
+    # In the past a debug.callback was used here.
+    # But since _sanitize is called before the kernels, in the non-jitted part,
+    # this error raising will always only happen at compile time,
+    # since if the emissivity shape is changed a new compile is triggered.
+    if jnp.size(_values) != _frequencies.size:
+        raise ValueError(
+            f"{quantity_name} must be a scalar or of the same size than frequencies "
+            f"({_frequencies.size}), but is of size {jnp.size(_values)}"
+        )
 
     return values
 
@@ -377,7 +378,7 @@ def _sanitize_flux_opacity_inputs(
     cloud_species,
     missing_float,
     missing_neg_inf,
-    noop_opacity_fn: Callable,
+    additional_opacities_placeholder_fn: Callable,
 ):
     if cloud_f_sed is None:
         cloud_f_sed_norm = {}
@@ -462,12 +463,12 @@ def _sanitize_flux_opacity_inputs(
         "additional_absorption_opacities_function": (
             additional_absorption_opacities_function
             if additional_absorption_opacities_function is not None
-            else noop_opacity_fn
+            else additional_opacities_placeholder_fn
         ),
         "additional_scattering_opacities_function": (
             additional_scattering_opacities_function
             if additional_scattering_opacities_function is not None
-            else noop_opacity_fn
+            else additional_opacities_placeholder_fn
         ),
         "target_particle_radii": (
             None

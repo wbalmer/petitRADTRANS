@@ -179,7 +179,7 @@ def test_additional_opacity_function_is_accepted_and_cached():
     atmosphere_ck.calculate_flux(
         **_flux_arguments(
             additional_absorption_opacities_function=(
-                petitRADTRANS.radtrans._noop_opacity_fn
+                petitRADTRANS.radtrans._additional_opacities_placeholder_fn
             )
         )
     )  # warm-up compile with the callback as a static argument
@@ -188,7 +188,7 @@ def test_additional_opacity_function_is_accepted_and_cached():
         atmosphere_ck.calculate_flux(
             **_flux_arguments(
                 additional_absorption_opacities_function=(
-                    petitRADTRANS.radtrans._noop_opacity_fn
+                    petitRADTRANS.radtrans._additional_opacities_placeholder_fn
                 )
             )
         )

@@ -4,7 +4,7 @@ import copy
 import warnings
 
 import jax.numpy as jnp
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 from petitRADTRANS.opacities.opacities import CloudOpacity
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.chemistry.vapour_pressures import (
@@ -540,7 +540,7 @@ def calculate_cloud_base_pressure(
     warnings.warn(
         f"The cloud {name} is not currently implemented, defaulting to top of atmosphere."
     )
-    return press[0].astype(JAX_DTYPE)
+    return press[0].astype(FEAUTRIER_JAX_DTYPE)
 
 
 def calculate_cloud_base_pressure_free(name, press, temp, mfrac, mmw=2.33):

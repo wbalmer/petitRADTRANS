@@ -52,44 +52,69 @@ from petitRADTRANS.validation import (
     _warn_partial_cloud_coverage_without_patchy_clouds,
 )
 
+# pRT does its computation at single precision, where possible,
+# achieving a higher speed and smaller memory footprint
+# (WORKING_JAX_DTYPE). FEAUTRIER_JAX_DTYPE is jnp.float64
+# if config.jax_enable_x64 is True. In general JAX_DTYPE = FEAUTRIER_JAX_DTYPE
 from petitRADTRANS.jax_dtype import (
     FEAUTRIER_JAX_DTYPE,
-    JAX_DTYPE,
     WORKING_JAX_DTYPE,
 )
 
-# JAX-friendly sentinels and helpers for optional inputs
+# JAX functions below may have "sanitized inputs", ensuring that
+# the inputs into traced functions always looks the same
+# (especially important for keyword arguments
+# that may sometimes be None and sometimes be something else). Empty keyword
+# values use these _MISSING_X variables to fill optional keyword arguments
+# with something JAX can easily handle.
 _MISSING_FLOAT = jnp.array(-1.0, dtype=WORKING_JAX_DTYPE)
 _MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=WORKING_JAX_DTYPE)
 
 
-def _as_kernel_scalar(value):
+def _convert_scalar_to_strong_type(value):
     """Normalize an optional numeric scalar to a strongly-typed jnp array.
-
-    Python floats/ints and numpy scalars produce weak/strong avals that differ
-    between call sites, splitting the jit cache. None passes through unchanged
-    (kernels branch on it eagerly).
+    Some nominal values for optional keyword arguments of functions are defined as weakly typed
+    Python floats, say. Depending on what kind of scalar the user gives to the function
+    (Python weakly typed, strongly typed, different precision, etc.) this may cause a recompilation.
+    Converting all scalars to strongly typed (length 1) JAX arrays before passing them
+    to the jit compiled kernel inside a function circumvents this issue.
+    None passes through unchanged (this is taken care of in the sanitizing functions
+    inside the kernels).
     """
+
+    # TODO for the future:
+    #     According to Claude repeated calls of this functions in every model call (say ~10 times, and
+    #     outside of jit, which is what happens in the functions below) may add up to 0.5 ms.
+    #     So we may start feeling this in our fastest forward models on the GPU.
+
     if value is None:
         return None
 
-    return jnp.asarray(value, dtype=JAX_DTYPE)
+    return jnp.asarray(value, dtype=FEAUTRIER_JAX_DTYPE)
 
 
 def _handle_invalid_reference_gravity(reference_gravity):
+    '''Raises an error if the reference gravity is negative.
+    '''
+    # Such a check raising an error can only work outside the jitted function
+    # and is therefore not done in the actually jitted function kernels.
+    # (debug.callbacks are an option, but these are slow.)
     if reference_gravity <= 0:
         raise ValueError(
             f"reference gravity must be > 0, but was {reference_gravity}"
         )
 
 
-def _noop_opacity_fn(wavelengths, pressures):
-    """Return zero opacity matrix with shape (n_wavelengths, n_pressures)."""
+def _additional_opacities_placeholder_fn(wavelengths, pressures):
+    """Returns a zero opacity matrix with shape (n_wavelengths, n_pressures).
+    This is needed for the input normalization (in functions _sanitize_*)
+    in the case that a user does not specify an additional_absorption_opacities_function
+    or additional_scattering_opacities_function."""
     return jnp.zeros((wavelengths.size, pressures.size), dtype=WORKING_JAX_DTYPE)
 
 
 def _interpolate_linear_sorted(x_grid, y_grid, x_query):
-    """Linearly interpolate ``y(x)`` on a sorted 1D grid for a scalar query."""
+    """Linearly interpolate ``y(x)`` on a sorted 1D grid for to evaluate estimate y(x_query)."""
     upper_index = jnp.clip(
         jnp.searchsorted(x_grid, x_query, side="left"),
         1,
@@ -102,9 +127,9 @@ def _interpolate_linear_sorted(x_grid, y_grid, x_query):
     y0 = y_grid[lower_index]
     y1 = y_grid[upper_index]
 
-    slope = jnp.where(x1 == x0, 0.0, (x_query - x0) / (x1 - x0))
+    slope = jnp.where(x1 == x0, 0.0, (y1 - y0) / (x1 - x0))
 
-    return y0 + slope * (y1 - y0)
+    return y0 + slope * (x_query - x0)
 
 
 class Radtrans:
@@ -131,42 +156,43 @@ class Radtrans:
             correlated-k assumption. if equal to ``'lbl'``: use high-resolution mode, at
             :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line treatment.
         line_by_line_opacity_sampling (Optional[int]):
-            If ``mode = 'lbl'``, then this will only load every line_by_line_opacity_sampling-nth point of the
-            high-resolution opacities. This can be used to save time and RAM.
-            The user should verify whether this leads to solutions which are identical to the results of the
-            non down-sampled :math:`10^6` resolution.
+            If ``line_opacity_mode = 'lbl'``, then this will only load every line_by_line_opacity_sampling-nth point of the
+            high-resolution opacities. This can be used to save computation time and RAM.
+            The user should verify whether this leads to spectra which are sufficiently close to the results of the
+            calculation at full :math:`\\lambda/\\Delta \\lambda = 10^6` resolution when binned down.
         scattering_in_emission (Optional[bool]):
             Will be ``False`` by default.
             If ``True`` scattering will be included in the emission spectral calculations. Note that this increases
             the runtime of pRT!
         emission_angle_grid (Optional):
             Array defining the cosines of the angle grid to be used for the emission spectrum calculations,
-            and their weights. The array is of shape (2, n_angles), with emission_angle_grid[0] being the cosines of
-            the angles, and emission_angle_grid[1] being the weights.
-            A dictionary of array with keys 'cos_angles' and 'weights' can also be used.
-            If None, a default set of values and weights are used.
+            and their quadrature weights for angle integrations. This is the cosine of the angle between a
+            ray of light and the atmospheric normal vector, which can have values between 0 and 1.
+            The array is of shape (2, n_angles), with emission_angle_grid[0] being the cosines of
+            the angles, and emission_angle_grid[1] being the quadrature weights. By default pRT
+            uses 3-point Gaussian quadrature grid. A dictionary of array with keys 'cos_angles' and 'weights'
+            can also be used. If None, a default set of values and weights are used.
         anisotropic_cloud_scattering (Optional[bool, str]):
-            If True, anisotropic cloud scattering opacities are used for the spectral calculations.
-            If False, isotropic cloud scattering opacities are used for the spectral calculations.
+            If True, the anisotropic cloud scattering approximation is used for the spectral calculations.
+            This is done by multiplying the scattering opacity by (1-g), where g is the scattering anisotropy.
+            If False, isotropic cloud scattering opacities are used.
             If 'auto' (recommended), anisotropic_cloud_scattering is set to True for emission spectrum
             calculations, and to False for transmission spectrum calculations.
-        retain_line_opacities_for_plotting (Optional[bool]):
-            If True, keep per-species unstacked line opacity tables after the
+        retain_unstacked_line_opacities_for_plotting (Optional[bool]):
+            To simplify the implementation of the opacity handling (P-T interpolation)
+            in the spectral calculations kernels, all opacities in pRT (even if they have different
+            P-T grids) are combined into one big matrix of fixed size per species.
+            For species with smaller grids, unnecessary matrix values are set to 0.
+            This avoids looping over species in the jitted version of the code.
+            The danger is that one finely resolved (in P-T) species can balloon memory usage.
+            TODO Paul: check if implementation of interpolation is done correctly.
+            If retain_unstacked_line_opacities_for_plotting is True,
+            keep per-species unstacked line opacity tables after the
             stacked runtime layout has been built. This is intended for plotting
             and debugging only and increases memory usage.
         path_input_data (Optional[str]):
             Path to the input_data folder, containing the files to be loaded by petitRADTRANS.
     """
-
-    __dat_opacity_files_warning_message = (
-        "loading opacities from .dat files is discouraged, the HDF5 format offer better performances at for a lower "
-        "memory usage\n\n"
-        "Converting petitRADTRANS .dat opacity files into HDF5 can be done by executing:\n"
-        ">>> from petitRADTRANS.opacities.file_conversion import convert_all\n"
-        ">>> convert_all()\n\n"
-        "Alternatively, the petitRADTRANS HDF5 files can be downloaded "
-        "(see https://petitradtrans.readthedocs.io/en/latest/content/available_opacities.html)"
-    )
 
     __line_opacity_property_setting_warning_message = (
         "setting a Radtrans line opacity property should be avoided\n"
@@ -196,7 +222,7 @@ class Radtrans:
         scattering_in_emission: bool = True,
         emission_angle_grid: ArrayLike = None,
         anisotropic_cloud_scattering: bool = "auto",  # NOTE: Probably doesn't need to be a main parameter
-        retain_line_opacities_for_plotting: bool = False,
+        retain_unstacked_line_opacities_for_plotting: bool = False,
         path_input_data: str = None,
     ):
         # Inputs checks
@@ -205,7 +231,7 @@ class Radtrans:
 
         # Initialize properties
         if pressures is None:
-            debug.print("pressure was not set, initializing one layer at 1 bar")
+            warnings.warn("pressure was not set, initializing one layer at 1 bar")
             pressures = jnp.array([1.0], dtype=FEAUTRIER_JAX_DTYPE)  # bar
 
         self._pressures = (
@@ -221,7 +247,7 @@ class Radtrans:
         self._line_opacity_mode = line_opacity_mode
         self._line_by_line_opacity_sampling = line_by_line_opacity_sampling
         self._scattering_in_emission = scattering_in_emission
-        self._retain_line_opacities_for_plotting = retain_line_opacities_for_plotting
+        self._retain_unstacked_line_opacities_for_plotting = retain_unstacked_line_opacities_for_plotting
 
         if wavelength_boundaries is None:
             self._wavelength_boundaries = jnp.array(
@@ -235,8 +261,11 @@ class Radtrans:
 
         self._anisotropic_cloud_scattering = anisotropic_cloud_scattering
 
-        # Pre-resolve derived config used by the emission flux kernels
-        # so that the method does not read mutable instance state at call time.
+        # Pre-resolve whether opacities of species can be summed in the first
+        # column such that kernel methods do not read mutable instance states at call time.
+        # TODO Paul: check if self._sum_opacities_emission is really needed. _set_sum_opacities() is used
+        #   in other functions below, but self._sum_opacities_emission is only used once,
+        #   in calculate_flux_autodiff, which Evert said should not still be there.
         self._sum_opacities_emission: bool = self._set_sum_opacities(
             emission=True,
             line_opacity_mode=self._line_opacity_mode,
@@ -261,6 +290,9 @@ class Radtrans:
         )
 
         # Initialize line parameters
+        # TODO: only c-k species allow user to request a wavelength grid that is larger
+        #   than the opacity file range. For line-by-line, CIA and cloud it crashes.
+        #   Look into a fix!
         self._frequencies, self._frequency_bins_edges = self._init_frequency_grid()
 
         # Initialize loaded line opacities variables
@@ -327,11 +359,12 @@ class Radtrans:
         )
 
         if emission_angle_grid is None:
+            # 3-point Gaussian quadrature grid for mu, which is ranging from 0 to 1.
             self._emission_angle_grid["cos_angles"] = jnp.array(
                 [0.1127016654, 0.5, 0.8872983346],
                 dtype=WORKING_JAX_DTYPE,
             )
-
+            # Corresponding weights of the same grid.
             self._emission_angle_grid["weights"] = jnp.array(
                 [0.2777777778, 0.4444444444, 0.2777777778],
                 dtype=WORKING_JAX_DTYPE,
@@ -368,7 +401,7 @@ class Radtrans:
                 )
 
         # Load all opacities
-        self.load_all_opacities()
+        self.load_all_opacities() # TODO: Paul continue review from within here
 
     def __getattr__(self, name):
         """Override of the object base __getattr__ method, in order to hint towards
@@ -730,6 +763,14 @@ class Radtrans:
     ):
         """Initializations and checks common to calculate_flux and calculate_transit_radii."""
 
+        # TODO check why this debug.callback is needed, since the _init_spectra_function
+        #   is nominally not run in jitted mode.
+        # Caution, this can be slow if running in a jitted environment on a GPU
+        # since GPU<->host communication has to happen at every step.
+        # Claude suggests a validate_inputs=False flag that turns off all
+        # such checks if specifically requested (could also be used for
+        # _convert_scalar_to_strong_type, sanitizing operations (with a different
+        # flag though...)
         if isinstance(reference_gravity, jax_core.Tracer):
             debug.callback(_handle_invalid_reference_gravity, reference_gravity)
         else:
@@ -957,7 +998,7 @@ class Radtrans:
         self._lines_loaded_opacities["pressure_grid_size"].clear()
         self._lines_loaded_opacities["opacity_grid"].clear()
 
-        if not self._retain_line_opacities_for_plotting:
+        if not self._retain_unstacked_line_opacities_for_plotting:
             return
 
         self._lines_loaded_opacities["temperature_pressure_grid"].update(
@@ -971,7 +1012,23 @@ class Radtrans:
 
     @staticmethod
     def _set_sum_opacities(emission, line_opacity_mode, scattering_in_emission):
+        """Determine whether opacities / optical depths (depends on line_opacity_mode)
+        can be treated in a "combined into one species" way (either corr-k mixing or
+        line-by-line adding).
+
+        Args:
+            emission (bool):
+                Whether pRT is used to calculate an emission spectrum or not
+            line_opacity_mode ([string]):
+                Defines if pRT is in correlated-k ("c-k") or line-by-line ("lbl") opacity mode.
+            scattering_in_emission (bool):
+                Defines if pRT is considering scattering in emission (default).
+
+        Return:
+            Whether opacities will be treated in a combined mode, for all species.
+        """
         sum_opacities = False  # False in c-k emission if no scattering, and always False in c-k transmission
+                               #
         if line_opacity_mode == "c-k":
             if emission and scattering_in_emission:
                 sum_opacities = True
@@ -1294,7 +1351,7 @@ class Radtrans:
         optical_depths = jnp.asarray(optical_depths, dtype=WORKING_JAX_DTYPE)
         radius_hydrostatic_equilibrium = jnp.asarray(
             radius_hydrostatic_equilibrium,
-            dtype=JAX_DTYPE,
+            dtype=FEAUTRIER_JAX_DTYPE,
         )
         tau_target = jnp.asarray(2.0 / 3.0, dtype=WORKING_JAX_DTYPE)
         tau_profiles = jnp.sum(
@@ -1330,7 +1387,7 @@ class Radtrans:
                 'radius" at tau = 2/3. Returning the radius at maximum pressure instead!'
             )
 
-        return jnp.asarray(photosphere_radius, dtype=JAX_DTYPE)
+        return jnp.asarray(photosphere_radius, dtype=FEAUTRIER_JAX_DTYPE)
 
     @jit(
         static_argnames=[
@@ -1838,7 +1895,7 @@ class Radtrans:
             transmission_contribution)``.
         """
         transmission_contribution = jnp.zeros(
-            (jnp.size(pressures), self._frequencies.size), dtype=JAX_DTYPE
+            (jnp.size(pressures), self._frequencies.size), dtype=FEAUTRIER_JAX_DTYPE
         )
 
         # Calculate the transmission spectrum
@@ -1903,7 +1960,7 @@ class Radtrans:
             1. lines,
             2. CIA,
             3. clouds.
-        If not opacities are provided, the mean of the wavelength boundaries is used. The frequency grid in that case
+        If no opacities are provided, the mean of the wavelength boundaries is used. The frequency grid in that case
         has only 1 element.
 
         Returns:
@@ -1915,8 +1972,8 @@ class Radtrans:
         """
         if len(self._line_species) > 0:
             frequencies, frequency_bins_edges = self._init_frequency_grid_from_lines()
-        elif len(self._gas_continuum_contributors) > 0:
-            hdf5_file = cia.get_cia_aliases(self._gas_continuum_contributors[0])
+        elif len(cia.get_cia_contributors(self._gas_continuum_contributors)) > 0:
+            hdf5_file = cia.get_cia_aliases(cia.get_cia_contributors(self._gas_continuum_contributors)[0])
             hdf5_file = CIAOpacity.find(
                 path_input_data=self._path_input_data, species=hdf5_file
             )
@@ -1967,6 +2024,22 @@ class Radtrans:
     def _init_frequency_grid_from_frequency_grid(
         frequency_grid, wavelength_boundaries, sampling=1
     ):
+        """Returns that subsection of a frequency grid that falls between (inclusive) the
+        to wavelength boundaries given (which will be converted to frequencies), accounting
+        for opacity downsampling at high resolution.
+
+        Args:
+            frequency_grid (jnp arrary of floats):
+                frequency grid to be used for constructing the pRT official frequency grid.
+            wavelength_boundaries (tuple of floats):
+                Wavelength boundaries requested by the user, in microns.
+            sampling (integer):
+                Whether a frequency sampling is to be applied.
+                E.g., sampling = 4 only keeps every 4th frequency point.
+
+        Returns:
+            Array of frequencies and the frequency bin edges of said array.
+        """
         # Get frequency boundaries
         frequency_min = um2hz(wavelength_boundaries[1])
         frequency_max = um2hz(wavelength_boundaries[0])
@@ -2019,6 +2092,13 @@ class Radtrans:
         return frequencies, frequency_bins_edges
 
     def _init_frequency_grid_from_lines(self):
+        """Loads opacity files from the first requested line species to define the frequency grid within the
+        requested wavelength range. The species wavelength range is expanded if smaller than the user request,
+        and cut down if smaller.
+
+        Returns:
+            Frequencies and frequency bin edges of the defined array.
+        """
         import h5py
 
         if self._line_opacity_mode == "c-k":  # correlated-k
@@ -2107,6 +2187,8 @@ class Radtrans:
             )
 
             # Get the corresponding frequencies bin edges, +2 is to catch the upper bin edge
+            # +1 because there's N+1 edges to N frequency points, and another
+            # +1 to be larger than larger boundary wavelength, actually.
             frequency_bins_edges = jnp.array(
                 frequency_bins_edges[
                     indices_within_boundaries[0] : indices_within_boundaries[-1] + 2
@@ -2158,7 +2240,7 @@ class Radtrans:
             "line_by_line_opacity_sampling": self._line_by_line_opacity_sampling,
             "scattering_in_emission": self._scattering_in_emission,
             "anisotropic_cloud_scattering": self._anisotropic_cloud_scattering,
-            "retain_line_opacities_for_plotting": self._retain_line_opacities_for_plotting,
+            "retain_unstacked_line_opacities_for_plotting": self._retain_unstacked_line_opacities_for_plotting,
             "path_input_data": self._path_input_data,
             "cia_collision_names": tuple(self._cias_loaded_opacities.keys()),
             "cia_collision_molecules": tuple(
@@ -2221,8 +2303,8 @@ class Radtrans:
         instance._anisotropic_cloud_scattering = aux_data[
             "anisotropic_cloud_scattering"
         ]
-        instance._retain_line_opacities_for_plotting = aux_data[
-            "retain_line_opacities_for_plotting"
+        instance._retain_unstacked_line_opacities_for_plotting = aux_data[
+            "retain_unstacked_line_opacities_for_plotting"
         ]
         instance._path_input_data = aux_data["path_input_data"]
         instance._Radtrans__scattering_in_transmission = aux_data[
@@ -2397,7 +2479,7 @@ class Radtrans:
                         if _default_mass_fractions is None:
                             _default_mass_fractions = {
                                 species: jnp.zeros(
-                                    self._pressures.size, dtype=JAX_DTYPE
+                                    self._pressures.size, dtype=FEAUTRIER_JAX_DTYPE
                                 )
                             }
 
@@ -2791,9 +2873,9 @@ class Radtrans:
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=_as_kernel_scalar(reference_gravity),
-            planet_radius=_as_kernel_scalar(planet_radius),
-            opaque_cloud_top_pressure=_as_kernel_scalar(opaque_cloud_top_pressure),
+            reference_gravity=_convert_scalar_to_strong_type(reference_gravity),
+            planet_radius=_convert_scalar_to_strong_type(planet_radius),
+            opaque_cloud_top_pressure=_convert_scalar_to_strong_type(opaque_cloud_top_pressure),
             cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_particle_radius_distribution=cloud_particle_radius_distribution,
@@ -2803,20 +2885,20 @@ class Radtrans:
             clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-            haze_factor=_as_kernel_scalar(haze_factor),
-            power_law_opacity_350nm=_as_kernel_scalar(power_law_opacity_350nm),
-            power_law_opacity_coefficient=_as_kernel_scalar(power_law_opacity_coefficient),
-            gray_opacity=_as_kernel_scalar(gray_opacity),
+            haze_factor=_convert_scalar_to_strong_type(haze_factor),
+            power_law_opacity_350nm=_convert_scalar_to_strong_type(power_law_opacity_350nm),
+            power_law_opacity_coefficient=_convert_scalar_to_strong_type(power_law_opacity_coefficient),
+            gray_opacity=_convert_scalar_to_strong_type(gray_opacity),
             cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
-            cloud_photosphere_median_optical_depth=_as_kernel_scalar(cloud_photosphere_median_optical_depth),
-            cloud_fraction=_as_kernel_scalar(cloud_fraction),
+            cloud_photosphere_median_optical_depth=_convert_scalar_to_strong_type(cloud_photosphere_median_optical_depth),
+            cloud_fraction=_convert_scalar_to_strong_type(cloud_fraction),
             patchy_clouds=patchy_clouds,
             irradiation_geometry=irradiation_geometry,
             stellar_intensities=stellar_intensities,
-            star_effective_temperature=_as_kernel_scalar(star_effective_temperature),
-            star_radius=_as_kernel_scalar(star_radius),
-            orbit_semi_major_axis=_as_kernel_scalar(orbit_semi_major_axis),
-            star_irradiation_angle=_as_kernel_scalar(star_irradiation_angle),
+            star_effective_temperature=_convert_scalar_to_strong_type(star_effective_temperature),
+            star_radius=_convert_scalar_to_strong_type(star_radius),
+            orbit_semi_major_axis=_convert_scalar_to_strong_type(orbit_semi_major_axis),
+            star_irradiation_angle=_convert_scalar_to_strong_type(star_irradiation_angle),
             reflectances=reflectances,
             emissivities=emissivities,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
@@ -2967,7 +3049,7 @@ class Radtrans:
             cloud_species=self._cloud_species,
             missing_float=_MISSING_FLOAT,
             missing_neg_inf=_MISSING_NEG_INF,
-            noop_opacity_fn=_noop_opacity_fn,
+            additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]
@@ -3235,7 +3317,7 @@ class Radtrans:
                 )
             else:
                 additional_outputs["photosphere_radius"] = jnp.zeros(
-                    self._frequencies.size, dtype=JAX_DTYPE
+                    self._frequencies.size, dtype=FEAUTRIER_JAX_DTYPE
                 )
 
         if return_cloud_contribution and len(self._cloud_species) > 0:
@@ -3391,7 +3473,7 @@ class Radtrans:
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=_as_kernel_scalar(reference_gravity),
+            reference_gravity=_convert_scalar_to_strong_type(reference_gravity),
             irradiation_geometry=irradiation_geometry,
             stellar_intensities=stellar_intensities,
             star_irradiation_angle=star_irradiation_angle,
@@ -3500,7 +3582,7 @@ class Radtrans:
                 radius_hydrostatic_equilibrium=radius_hydrostatic_equilibrium,
             )
 
-        return jnp.zeros(self._frequencies.size, dtype=JAX_DTYPE)
+        return jnp.zeros(self._frequencies.size, dtype=FEAUTRIER_JAX_DTYPE)
 
     def calculate_rosseland_planck_opacities(
         self,
@@ -3627,7 +3709,7 @@ class Radtrans:
             cloud_species=self._cloud_species,
             missing_float=_MISSING_FLOAT,
             missing_neg_inf=_MISSING_NEG_INF,
-            noop_opacity_fn=_noop_opacity_fn,
+            additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
 
         # No photospheric cloud in Rosseland or Planck opacities
@@ -3929,11 +4011,11 @@ class Radtrans:
             temperatures=temperatures,
             mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
-            reference_gravity=_as_kernel_scalar(reference_gravity),
-            reference_pressure=_as_kernel_scalar(reference_pressure),
-            planet_radius=_as_kernel_scalar(planet_radius),
+            reference_gravity=_convert_scalar_to_strong_type(reference_gravity),
+            reference_pressure=_convert_scalar_to_strong_type(reference_pressure),
+            planet_radius=_convert_scalar_to_strong_type(planet_radius),
             variable_gravity=variable_gravity,
-            opaque_cloud_top_pressure=_as_kernel_scalar(opaque_cloud_top_pressure),
+            opaque_cloud_top_pressure=_convert_scalar_to_strong_type(opaque_cloud_top_pressure),
             cloud_particle_mean_radii=cloud_particle_mean_radii,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_particle_radius_distribution=cloud_particle_radius_distribution,
@@ -3943,11 +4025,11 @@ class Radtrans:
             clouds_particle_porosity_factor=clouds_particle_porosity_factor,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-            haze_factor=_as_kernel_scalar(haze_factor),
-            power_law_opacity_350nm=_as_kernel_scalar(power_law_opacity_350nm),
-            power_law_opacity_coefficient=_as_kernel_scalar(power_law_opacity_coefficient),
-            gray_opacity=_as_kernel_scalar(gray_opacity),
-            cloud_fraction=_as_kernel_scalar(cloud_fraction),
+            haze_factor=_convert_scalar_to_strong_type(haze_factor),
+            power_law_opacity_350nm=_convert_scalar_to_strong_type(power_law_opacity_350nm),
+            power_law_opacity_coefficient=_convert_scalar_to_strong_type(power_law_opacity_coefficient),
+            gray_opacity=_convert_scalar_to_strong_type(gray_opacity),
+            cloud_fraction=_convert_scalar_to_strong_type(cloud_fraction),
             patchy_clouds=patchy_clouds,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function,
@@ -4056,7 +4138,7 @@ class Radtrans:
             cloud_species=self._cloud_species,
             missing_float=_MISSING_FLOAT,
             missing_neg_inf=_MISSING_NEG_INF,
-            noop_opacity_fn=_noop_opacity_fn,
+            additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]
@@ -4582,7 +4664,7 @@ class Radtrans:
         return_radtrans_opacities=True,
         return_host_array=False,
     ):
-        """Load k-coefficient tables in HDF5 format, based on the ExoMol setup."""
+        """Load k-coefficient tables in HDF5 format, based on the ExoMolOP setup."""
         import h5py
 
         with h5py.File(file_path_hdf5, "r") as f:
@@ -4658,7 +4740,7 @@ class Radtrans:
                         max_relative_difference
                         > cls._frequency_grid_misalignment_tolerance / resolving_power
                     ):
-                        debug.print(
+                        raise ValueError(
                             f"maximum frequency grid misalignment from file ({max_relative_difference}) "
                             f"is larger than tolerated "
                             f"({cls._frequency_grid_misalignment_tolerance / resolving_power}); "
@@ -4668,6 +4750,8 @@ class Radtrans:
                         )
 
             selected_file_indices = np.nonzero(indices_file)[0]
+            # Invert index order since frequency arrays were inverted above,
+            # but opacity file is still in its original order.
             selection_start = n_wavelengths - int(selected_file_indices[-1]) - 1
             selection_stop = n_wavelengths - int(selected_file_indices[0])
             selected_wavelengths = selection_stop - selection_start
@@ -4689,14 +4773,19 @@ class Radtrans:
 
         line_opacities_grid = k_table * mol_mass_inv
 
-        if line_opacities_grid.shape[1] == frequencies.size and np.all(indices_opacities):
-            line_opacities_grid = line_opacities_grid[:, :, np.newaxis, :]
-        else:
+        # So line opacities grid has shape (g_size, selected_wavelengths, n_pressures*n_temperatures)
+        # With wavelengths in ascending order.
+
+        if not (line_opacities_grid.shape[1] == frequencies.size and np.all(indices_opacities)):
+        #    line_opacities_grid = line_opacities_grid[:, :, np.newaxis, :]
+        # Only fill in those values where the data existed in the opacity
+        # input file:
+        # else:
             opacities = np.zeros(
-                (g_size, frequencies.size, 1, temperature_pressure_grid_size),
+                (g_size, frequencies.size, temperature_pressure_grid_size),
                 dtype=host_dtype,
             )
-            opacities[:, indices_opacities, 0, :] = line_opacities_grid
+            opacities[:, indices_opacities, :] = line_opacities_grid
             line_opacities_grid = opacities
 
         if return_host_array:
@@ -4767,10 +4856,12 @@ class Radtrans:
                                 species
                             ].shape[0],
                             return_host_array=True,
-                        )[:, :, 0, :],
+                        ), # [:, :, 0, :], # TODO discuss with Evert: no longer the third axis here
+                                           #    since it is no longer added in load_hdf5_ktables:
+                                           #    it was always added and then immediately removed.
                         dtype=host_dtype,
                     )
-                elif self._line_opacity_mode == "lbl":
+                elif self._line_opacity_mode == "lbl": # TODO Paul: continue here!
                     opacity_grids[species] = load.load_hdf5_line_opacity_table(
                         file_path_hdf5=hdf5_file,
                         frequencies=self._frequencies,

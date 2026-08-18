@@ -66,7 +66,7 @@ from petitRADTRANS.utils import list_str2str
 
 # noinspection PyUnresolvedReferences
 
-from petitRADTRANS.jax_dtype import JAX_DTYPE
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 
 _SAMPLER_CLASS_NAMES: dict[str, str] = {
     "pymultinest": "PymultinestSampler",
@@ -2603,7 +2603,7 @@ class Retrieval:
 
         batched_physical_params = vmap(
             parameter_layout.physical_params_from_free_values
-        )(jnp.asarray(ordered_sample_matrix, dtype=JAX_DTYPE))
+        )(jnp.asarray(ordered_sample_matrix, dtype=FEAUTRIER_JAX_DTYPE))
 
         try:
             batched_model_results = vmap(
@@ -2740,7 +2740,7 @@ class Retrieval:
                 for chunk_start in range(0, samples.shape[0], batch_size):
                     chunk = jnp.asarray(
                         samples[chunk_start:chunk_start + batch_size],
-                        dtype=JAX_DTYPE,
+                        dtype=FEAUTRIER_JAX_DTYPE,
                     )
                     chunk_results.append(
                         {
@@ -2761,7 +2761,7 @@ class Retrieval:
                 {
                     data_name: np.asarray(values)[np.newaxis, :]
                     for data_name, values in evaluate_single(
-                        jnp.asarray(sample, dtype=JAX_DTYPE)
+                        jnp.asarray(sample, dtype=FEAUTRIER_JAX_DTYPE)
                     ).items()
                 }
                 for sample in samples
@@ -5118,7 +5118,7 @@ class Retrieval:
             ) + log_jacobian_single(unconstrained_position)
 
         initial_position = jnp.zeros(
-            parameter_layout.n_free_parameters, dtype=JAX_DTYPE
+            parameter_layout.n_free_parameters, dtype=FEAUTRIER_JAX_DTYPE
         )
 
         return (
