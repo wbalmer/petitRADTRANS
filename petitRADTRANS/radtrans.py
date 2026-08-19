@@ -46,7 +46,7 @@ from petitRADTRANS.validation import (
     _check_return_clear_spectrum_relevance,
     _sanitize_emission_surface_inputs,
     _sanitize_flux_opacity_inputs,
-    _warn_scattering_in_emission_without_cloud_species,
+    _warn_scattering_in_emission_without_scattering_species,
     _check_wavelength_boundaries,
     _handle_grid_misalignment,
     _warn_partial_cloud_coverage_without_patchy_clouds,
@@ -249,6 +249,12 @@ class Radtrans:
         self._scattering_in_emission = scattering_in_emission
         self._retain_unstacked_line_opacities_for_plotting = retain_unstacked_line_opacities_for_plotting
 
+        _warn_scattering_in_emission_without_scattering_species(
+            self._scattering_in_emission,
+            self._cloud_species,
+            self._rayleigh_species
+        )
+
         if wavelength_boundaries is None:
             self._wavelength_boundaries = jnp.array(
                 [0.05, 300.0], dtype=WORKING_JAX_DTYPE
@@ -401,25 +407,7 @@ class Radtrans:
                 )
 
         # Load all opacities
-        self.load_all_opacities() # TODO: Paul continue review from within here
-
-    def __getattr__(self, name):
-        """Override of the object base __getattr__ method, in order to hint towards
-        pRT3 names when pRT2 names are used."""
-        # TODO remove in version 4.0.0
-        base_message = f"'{self.__class__.__name__}' object has no attribute '{name}'"
-
-        def _handle_deprecated_attributes(suggested_name):
-            raise AttributeError(f"{base_message}. Maybe you meant {suggested_name}?")
-
-        if name == "calc_flux":
-            _handle_deprecated_attributes(suggested_name=self.calculate_flux.__name__)
-        elif name == "calc_transm":
-            _handle_deprecated_attributes(
-                suggested_name=self.calculate_transit_radii.__name__
-            )
-
-        return super().__getattribute__(name)
+        self.load_all_opacities()
 
     @property
     def anisotropic_cloud_scattering(self):
@@ -427,7 +415,7 @@ class Radtrans:
 
     @anisotropic_cloud_scattering.setter
     def anisotropic_cloud_scattering(self, mode: str):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         _check_anisotropic_cloud_scattering(mode)
         self._anisotropic_cloud_scattering = mode
 
@@ -437,8 +425,8 @@ class Radtrans:
 
     @cias_loaded_opacities.setter
     def cias_loaded_opacities(self, dictionary: dict[str, dict[str, ArrayLike]]):
-        debug.print(
-            "setting the Radtrans CIA opacity property should be avoided\n"
+        warnings.warn(
+            "setting the Radtrans CIA opacity manuallyshould be avoided\n"
             "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
             "(they need to be updated for consistency)\n"
             "It is recommended to create a new Radtrans instance instead"
@@ -453,7 +441,7 @@ class Radtrans:
 
     @clouds_loaded_opacities.setter
     def clouds_loaded_opacities(self, dictionary: dict[str, ArrayLike]):
-        debug.print(
+        warnings.warn(
             "setting the Radtrans cloud opacity property should be avoided\n"
             "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
             "(they need to be updated for consistency)\n"
@@ -468,7 +456,12 @@ class Radtrans:
 
     @cloud_species.setter
     def cloud_species(self, species: list):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
+        _warn_scattering_in_emission_without_scattering_species(
+            scattering_in_emission=value,
+            cloud_species=self._cloud_species,
+            rayleigh_species=self._rayleigh_species
+        )
         self._cloud_species = species
 
     @property
@@ -477,7 +470,7 @@ class Radtrans:
 
     @emission_angle_grid.setter
     def emission_angle_grid(self, dictionary: dict[str, ArrayLike]):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
 
         for key, value in dictionary.items():
             self._emission_angle_grid[key] = value
@@ -488,7 +481,7 @@ class Radtrans:
 
     @frequencies.setter
     def frequencies(self, array: ArrayLike):
-        debug.print(
+        warnings.warn(
             "setting frequencies directly should be avoided\n"
             "This property is loaded from the opacity data in the input_data directory "
             "and is inter-dependent with other line opacities parameters, that also need to be updated\n"
@@ -502,7 +495,7 @@ class Radtrans:
 
     @frequency_bins_edges.setter
     def frequency_bins_edges(self, array: ArrayLike):
-        debug.print(self.__line_opacity_property_setting_warning_message)
+        warnings.warn(self.__line_opacity_property_setting_warning_message)
         self._frequency_bins_edges = array
 
     @property
@@ -511,7 +504,7 @@ class Radtrans:
 
     @gas_continuum_contributors.setter
     def gas_continuum_contributors(self, species: list[str]):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         self._gas_continuum_contributors = species
 
     @property
@@ -520,7 +513,7 @@ class Radtrans:
 
     @line_by_line_opacity_sampling.setter
     def line_by_line_opacity_sampling(self, value: int):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         self._line_by_line_opacity_sampling = value
 
     @property
@@ -529,7 +522,7 @@ class Radtrans:
 
     @lines_loaded_opacities.setter
     def lines_loaded_opacities(self, dictionary: dict[str, ArrayLike]):
-        debug.print(self.__line_opacity_property_setting_warning_message)
+        warnings.warn(self.__line_opacity_property_setting_warning_message)
 
         for key, value in dictionary.items():
             self._lines_loaded_opacities[key] = value
@@ -540,7 +533,7 @@ class Radtrans:
 
     @line_opacity_mode.setter
     def line_opacity_mode(self, mode):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         _check_line_opacity_mode(mode)
         self._line_opacity_mode = mode
 
@@ -550,7 +543,7 @@ class Radtrans:
 
     @line_species.setter
     def line_species(self, species: list | tuple):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         self._line_species = tuple(species)
 
     @property
@@ -559,18 +552,17 @@ class Radtrans:
 
     @path_input_data.setter
     def path_input_data(self, path: str):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         _check_path_input_data(path)
         self._path_input_data = path
 
     @property
     def pressures(self) -> ArrayLike:
-        # TODO pressures doesn't need to be a property
         return self._pressures
 
     @pressures.setter
     def pressures(self, array):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         _check_pressures(array)
         self._pressures = array
 
@@ -580,7 +572,12 @@ class Radtrans:
 
     @rayleigh_species.setter
     def rayleigh_species(self, species: list):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
+        _warn_scattering_in_emission_without_scattering_species(
+            scattering_in_emission=value,
+            cloud_species=self._cloud_species,
+            rayleigh_species=self._rayleigh_species
+        )
         self._rayleigh_species = species
 
     @property
@@ -589,10 +586,11 @@ class Radtrans:
 
     @scattering_in_emission.setter
     def scattering_in_emission(self, value: bool):
-        debug.print(self.__property_setting_warning_message)
-        _warn_scattering_in_emission_without_cloud_species(
+        warnings.warn(self.__property_setting_warning_message)
+        _warn_scattering_in_emission_without_scattering_species(
             scattering_in_emission=value,
             cloud_species=self._cloud_species,
+            rayleigh_species=self._rayleigh_species
         )
         self._scattering_in_emission = value
 
@@ -602,7 +600,7 @@ class Radtrans:
 
     @wavelength_boundaries.setter
     def wavelength_boundaries(self, array: ArrayLike):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         _check_wavelength_boundaries(array)
         self._wavelength_boundaries = array
 
@@ -841,26 +839,50 @@ class Radtrans:
 
     def _stack_loaded_line_opacities(
         self,
-        temperature_pressure_grids=None,
-        temperature_grid_sizes_map=None,
-        pressure_grid_sizes_map=None,
-        opacity_grids=None,
+        temperature_pressure_grids,
+        temperature_grid_sizes_map,
+        pressure_grid_sizes_map,
+        opacity_grids,
     ):
+        '''Takes in the read line opacities, each on their own T-P grid,
+        and enters them all into one big matrix of shape
+        (n_line_species, n_g, self._frequencies.size, max_temperature_pressure_grid_size)
+        which is easier for jax functions to consume in the following.
+        The max_temperature_pressure_grid_size is defined by the species with the largest
+        T, P grids (T and P largest grids can come from different species).
+        Interestingly: since .reshape()ing opacities into a 2-d T-P grid (after they were serial
+        before) does not change the memory layout of the arrays, these operations are essentially
+        free and are done below to help with readability.
+        The T, P and opacity grids of all species with smaller
+        P-T grids will be padded like shown in the ASCII art below.
+        What is more, in the end the P-T interpolation will be done per species in pRT4,
+        so there's no underlying assumption of species sharing P-T grids whatsoever.
+        At least this is my current interpretation.
+        # TODO paul: this is my current assumption, also after asking
+        #   Claude quickly about it. Confirm this during the code review later.
+        The original P-T grid sizes of all species are retained.
+        So the padding works like this (note that it would be more conventional
+        to have T on the y and P on the x axis, but I was too lazy to change that
+        now from my first draft):
+                                      T  -->
+                 |-----------------------|-----------------------|
+                 |          P0           |          P0           |
+                 |                       |                       |
+                 |  T0            Tact   |  Tact           Tact  |
+                 |                       |                       |
+             P   |         Pact          |         Pact          |
+             |   |-----------------------|-----------------------|
+             v   |         Pact          |         Pact          |
+                 |                       |                       |
+                 |  T0            Tact   |  Tact           Tact  |
+                 |                       |                       |
+                 |         Pact          |         Pact          |
+                 |-----------------------|-----------------------|
+        '''
         n_line_species = len(self._line_species)
 
-        if temperature_pressure_grids is None:
-            temperature_pressure_grids = self._lines_loaded_opacities[
-                "temperature_pressure_grid"
-            ]
-        if temperature_grid_sizes_map is None:
-            temperature_grid_sizes_map = self._lines_loaded_opacities[
-                "temperature_grid_size"
-            ]
-        if pressure_grid_sizes_map is None:
-            pressure_grid_sizes_map = self._lines_loaded_opacities["pressure_grid_size"]
-        if opacity_grids is None:
-            opacity_grids = self._lines_loaded_opacities["opacity_grid"]
-
+        # Stores the combination of the Gauss weights for k-table mixing (normalized to add up
+        # to one) and their sum before normalization.
         (
             self._lines_loaded_opacities["ck_g_combination_weights"],
             self._lines_loaded_opacities["ck_g_combination_weights_sum"],
@@ -870,6 +892,9 @@ class Radtrans:
 
         if n_line_species == 0:
             self._lines_loaded_opacities["temperature_pressure_grid_stacked"] = (
+                # For non-zero n_line_species this would be of shape
+                # (n_line_species, max_temperature_grid_size, max_pressure_grid_size, 2)
+                # see below.
                 jnp.zeros((0, 1, 1, 2), dtype=WORKING_JAX_DTYPE)
             )
             self._lines_loaded_opacities["temperature_grid_size_array"] = jnp.zeros(
@@ -879,6 +904,9 @@ class Radtrans:
                 0, dtype=jnp.int32
             )
             self._lines_loaded_opacities["opacity_grid_stacked"] = jnp.zeros(
+                # For non-zero n_line_species this would be of shape
+                # (n_line_species, n_g, self._frequencies.size, max_temperature_pressure_grid_size)
+                # see below.
                 (0, 1, self._frequencies.size, 1), dtype=WORKING_JAX_DTYPE
             )
             return
@@ -902,11 +930,11 @@ class Radtrans:
         )
         n_g = int(self._lines_loaded_opacities["g_gauss"].size)
 
-        temperature_pressure_grid_stacked = np.empty(
+        temperature_pressure_grid_stacked = np.zeros(
             (n_line_species, max_temperature_grid_size, max_pressure_grid_size, 2),
             dtype=np.asarray(self._pressures).dtype,
         )
-        opacity_grid_stacked = np.empty(
+        opacity_grid_stacked = np.zeros(
             (
                 n_line_species,
                 n_g,
@@ -927,16 +955,23 @@ class Radtrans:
             temperature_pressure_grid_stacked_species = (
                 temperature_pressure_grid_stacked[i_species]
             )
+            # Only fill those lower values of the grid that exist
             temperature_pressure_grid_stacked_species[
                 :temperature_grid_size, :pressure_grid_size, :
             ] = temperature_pressure_grid
             if pressure_grid_size < max_pressure_grid_size:
+                # fill values such that the highest P value is
+                # simply repeated in the grid, for all valid
+                # temperatures
                 temperature_pressure_grid_stacked_species[
                     :temperature_grid_size, pressure_grid_size:, :
                 ] = temperature_pressure_grid[
                     :, pressure_grid_size - 1 : pressure_grid_size, :
                 ]
             if temperature_grid_size < max_temperature_grid_size:
+                # fill values such that the highest T values is
+                # simply repeated, for all valid pressures, including
+                # the new regime where Pmax is simply repeated
                 temperature_pressure_grid_stacked_species[temperature_grid_size:, :, :] = (
                     temperature_pressure_grid_stacked_species[
                         temperature_grid_size - 1 : temperature_grid_size, :, :
@@ -944,11 +979,16 @@ class Radtrans:
                 )
 
             # Reshape the flat (T_act * P_act) opacity dimension to 2D (T_act, P_act),
-            # pad to (max_T, max_P), then flatten back so the stride equals max_P.
+            # pad to (max_T, max_P).
             opacity_grid_2d = opacity_grid.reshape(
                 n_g, self._frequencies.size, temperature_grid_size, pressure_grid_size
             )
 
+            # This will make a "view", not a copy of opacity_grid_stacked[i_species]
+            # the reshape does not hurt since this is how the elements are arranged
+            # in memory anyway. So everything being done to opacity_grid_stacked_species
+            # below will also be done to opacity_grid_stacked (they are identical, but
+            # opacity_grid_stacked_species only sees a subsection of opacity_grid_stacked.
             opacity_grid_stacked_species = opacity_grid_stacked[i_species].reshape(
                 n_g,
                 self._frequencies.size,
@@ -958,6 +998,8 @@ class Radtrans:
             opacity_grid_stacked_species[
                 :, :, :temperature_grid_size, :pressure_grid_size
             ] = opacity_grid_2d
+            # Do the same for the opacity values that was done for the
+            # pressure temperature values.
             if pressure_grid_size < max_pressure_grid_size:
                 opacity_grid_stacked_species[
                     :, :, :temperature_grid_size, pressure_grid_size:
@@ -993,6 +1035,10 @@ class Radtrans:
         pressure_grid_sizes,
         opacity_grids,
     ):
+        '''
+        Empty the dictionaries that pRT classically used to store opacities.
+        Only fill them again if specifically requested for debugging / plotting.
+        '''
         self._lines_loaded_opacities["temperature_pressure_grid"].clear()
         self._lines_loaded_opacities["temperature_grid_size"].clear()
         self._lines_loaded_opacities["pressure_grid_size"].clear()
@@ -1400,6 +1446,7 @@ class Radtrans:
             "anisotropic_cloud_scattering",
             "compute_clear_opacities",
             "defer_clear_opacity_combination",
+            "ck_chunk_size"
         ]
     )
     def _calculate_opacities(
@@ -2419,7 +2466,7 @@ class Radtrans:
             else:
                 spectral_parameters[key] = copy.deepcopy(value)
 
-        opacity_contributions["Total"] = self.__getattr__(spectral_function)(
+        opacity_contributions["Total"] = self.__getattribute__(spectral_function)(
             **spectral_parameters
         )
 
@@ -2523,7 +2570,7 @@ class Radtrans:
                                             )
                                             del _value[_user_cloud_species]
 
-                        opacity_contributions[opacity][species] = _radtrans.__getattr__(
+                        opacity_contributions[opacity][species] = _radtrans.__getattribute__(
                             spectral_function
                         )(**spectral_parameters)
 
@@ -2574,7 +2621,7 @@ class Radtrans:
                         else:  # non-opacity spectral parameters
                             spectral_parameters[key] = copy.deepcopy(value)
 
-                    opacity_contributions[opacity] = _default_radtrans.__getattr__(
+                    opacity_contributions[opacity] = _default_radtrans.__getattribute__(
                         spectral_function
                     )(**spectral_parameters)
 
@@ -4475,7 +4522,7 @@ class Radtrans:
         # Load line opacities
         self.load_line_opacities(self._path_input_data)
 
-        # Read continuum opacities
+        # Read continuum opacities   # TODO Paul continue review from here
         # CIA
         if len(self._gas_continuum_contributors) > 0:
             self.load_cia_opacities(self._path_input_data)
@@ -4489,9 +4536,14 @@ class Radtrans:
 
     def load_cia_opacities(self, path_input_data):
         for collision in self._cias_loaded_opacities:
+            # Just checks if collision == 'H-' here.
+            # A bit overkill to handle it like this, since the
+            # hminus subpackage should only ever concern H-.
             if collision in hminus.get_non_cia_gas_continuum_contributions():
                 continue
 
+            # Checks for inversions (e.g. He--H2 instead of H2--He, both of
+            # which should be valid).
             hdf5_file = cia.get_cia_aliases(collision)
             hdf5_file = CIAOpacity.find(
                 path_input_data=path_input_data, species=hdf5_file
@@ -4515,18 +4567,31 @@ class Radtrans:
         print(" Successfully loaded all CIA opacities")
 
     def load_cloud_opacities(self, path_input_data):
-        """Load the cloud opacities.
+        """Load the cloud opacities, given all species listed in
+        self._cloud_species.
 
         Args:
             path_input_data: path to petitRADTRANS input_data directory
+
+        Returns:
+            Nothing, but fills Radtrans's _clouds_loaded_opacities dictionary.
         """
+
+        # Will contain paths to input files for all cloud species
         hdf5_files = []
+        # For every species, this would reduce
+        # path/Al2-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+        # to crystalline_000, for example.
         internal_structures = []
+        # For every species, this will contain
+        # DHS or Mie
         scattering_methods = []
 
         for i in range(len(self._cloud_species)):
+            # Get the cloud species full name
             hdf5_file = CloudOpacity.get_aliases(self._cloud_species[i])
 
+            # Return the absolute path to the cloud species input data.
             hdf5_file = CloudOpacity.find(
                 path_input_data=path_input_data, species=hdf5_file
             )
@@ -4565,6 +4630,8 @@ class Radtrans:
 
             if i == 0:
                 # Initialize cloud arrays
+                # This means that all cloud species must share the same wavelength,
+                # and cloud particle radii!
                 cloud_wavelengths = _cloud_wavelengths
                 clouds_particle_radii_bins = _cloud_particle_radii_bins
                 clouds_particle_radii = _cloud_particle_radii
@@ -4645,145 +4712,6 @@ class Radtrans:
 
         print(" Successfully loaded all clouds opacities")
 
-    @classmethod
-    def load_hdf5_ktables(
-        cls,
-        file_path_hdf5,
-        frequencies,
-        g_size,
-        temperature_pressure_grid_size,
-        return_radtrans_opacities=True,
-        return_host_array=False,
-    ):
-        """Load k-coefficient tables in HDF5 format, based on the ExoMolOP setup."""
-        import h5py
-
-        with h5py.File(file_path_hdf5, "r") as f:
-            if not return_radtrans_opacities:
-                return (
-                    f["DOI"][()][0].decode("utf-8"),
-                    f["bin_centers"][:],
-                    f["bin_edges"][:],
-                    f["kcoeff"][:],
-                    f["mol_mass"][()][0],
-                    f["mol_name"][()][0].decode("utf-8"),
-                    f["p"][:],
-                    f["t"][:],
-                    f["samples"][:],
-                    f["weights"][:],
-                )
-
-            bin_centers = f["bin_centers"][:]
-            n_wavelengths = len(bin_centers)
-            host_dtype = np.dtype(WORKING_JAX_DTYPE)
-            _frequencies = cst.c * bin_centers[::-1]
-            n_temperatures = len(f["t"][:])
-            n_pressures = len(f["p"][:])
-
-            indices_opacities, indices_file = (
-                load.get_frequency_grids_intersection_indices(
-                    frequencies=frequencies,
-                    file_frequencies=_frequencies,
-                    tolerate_grid_misalignment=True,
-                )
-            )
-
-            if (
-                np.nonzero(indices_file)[0].size
-                != np.nonzero(indices_opacities)[0].size
-            ):
-                grid_misalignment: bool = False
-
-                if np.nonzero(indices_file)[0].size == frequencies.size - 1:
-                    indices_file = _handle_grid_misalignment(
-                        indices=indices_file,
-                        frequencies_reference=frequencies,
-                        frequencies_test=_frequencies,
-                    )
-                    grid_misalignment = True
-                elif (
-                    np.nonzero(indices_opacities)[0].size
-                    == np.nonzero(indices_file)[0].size - 1
-                ):
-                    indices_opacities = _handle_grid_misalignment(
-                        indices=indices_opacities,
-                        frequencies_reference=_frequencies,
-                        frequencies_test=frequencies,
-                    )
-                    grid_misalignment = True
-
-                if grid_misalignment:
-                    max_relative_difference = np.max(
-                        np.abs(
-                            frequencies[indices_opacities] / _frequencies[indices_file]
-                            - 1
-                        )
-                    )
-                    spectral_info = Opacity.split_species_spectral_info(
-                        os.path.basename(file_path_hdf5)
-                    )[1]
-                    resolving_power = Opacity.split_spectral_info(spectral_info)[0]
-                    resolving_power = Opacity.get_resolving_power_from_string(
-                        resolving_power
-                    )
-
-                    if (
-                        max_relative_difference
-                        > cls._frequency_grid_misalignment_tolerance / resolving_power
-                    ):
-                        raise ValueError(
-                            f"maximum frequency grid misalignment from file ({max_relative_difference}) "
-                            f"is larger than tolerated "
-                            f"({cls._frequency_grid_misalignment_tolerance / resolving_power}); "
-                            f"expect inaccuracies in spectral features location\n"
-                            f"To remove this warning, ensure that your correlated-k opacity files "
-                            f"have similar wavenumber grids"
-                        )
-
-            selected_file_indices = np.nonzero(indices_file)[0]
-            # Invert index order since frequency arrays were inverted above,
-            # but opacity file is still in its original order.
-            selection_start = n_wavelengths - int(selected_file_indices[-1]) - 1
-            selection_stop = n_wavelengths - int(selected_file_indices[0])
-            selected_wavelengths = selection_stop - selection_start
-
-            k_table = np.asarray(
-                f["kcoeff"][:, :, selection_start:selection_stop, :],
-                dtype=host_dtype,
-            )
-            # Reshape k-table to petitRADTRANS format while staying on the host.
-            k_table = np.swapaxes(k_table, 0, 1)
-            k_table = k_table.reshape(
-                (n_pressures * n_temperatures, selected_wavelengths, g_size)
-            )
-            k_table = np.swapaxes(k_table, 0, 2)
-            k_table = np.maximum(k_table[:, ::-1, :], 0.0)
-
-            # Divide by mass to convert cross-sections to opacities
-            mol_mass_inv = 1 / (f["mol_mass"][()] * cst.amu)
-
-        line_opacities_grid = k_table * mol_mass_inv
-
-        # So line opacities grid has shape (g_size, selected_wavelengths, n_pressures*n_temperatures)
-        # With wavelengths in ascending order.
-
-        if not (line_opacities_grid.shape[1] == frequencies.size and np.all(indices_opacities)):
-        #    line_opacities_grid = line_opacities_grid[:, :, np.newaxis, :]
-        # Only fill in those values where the data existed in the opacity
-        # input file:
-        # else:
-            opacities = np.zeros(
-                (g_size, frequencies.size, temperature_pressure_grid_size),
-                dtype=host_dtype,
-            )
-            opacities[:, indices_opacities, :] = line_opacities_grid
-            line_opacities_grid = opacities
-
-        if return_host_array:
-            return line_opacities_grid
-
-        return jnp.asarray(line_opacities_grid, dtype=WORKING_JAX_DTYPE)
-
     def load_line_opacities(self, path_input_data):
         """Load the line opacities for spectral calculation.
         The default pressure-temperature grid is a log-uniform (10, 13) grid.
@@ -4839,20 +4767,19 @@ class Radtrans:
 
                 if self._line_opacity_mode == "c-k":
                     opacity_grids[species] = np.asarray(
-                        self.load_hdf5_ktables(
+                        load.load_hdf5_ktables(
                             file_path_hdf5=hdf5_file,
                             frequencies=self._frequencies,
                             g_size=g_gauss.size,
                             temperature_pressure_grid_size=temperature_pressure_grids[
                                 species
                             ].shape[0],
-                            return_host_array=True,
-                        ), # [:, :, 0, :], # TODO discuss with Evert: no longer the third axis here
-                                           #    since it is no longer added in load_hdf5_ktables:
-                                           #    it was always added and then immediately removed.
+                            frequency_grid_misalignment_tolerance=self._frequency_grid_misalignment_tolerance,
+                            return_host_array=True
+                        ),
                         dtype=host_dtype,
                     )
-                elif self._line_opacity_mode == "lbl": # TODO Paul: continue here!
+                elif self._line_opacity_mode == "lbl":
                     opacity_grids[species] = load.load_hdf5_line_opacity_table(
                         file_path_hdf5=hdf5_file,
                         frequencies=self._frequencies,
