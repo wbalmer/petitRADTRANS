@@ -46,7 +46,7 @@ from petitRADTRANS.validation import (
     _check_return_clear_spectrum_relevance,
     _sanitize_emission_surface_inputs,
     _sanitize_flux_opacity_inputs,
-    _warn_scattering_in_emission_without_cloud_species,
+    _warn_scattering_in_emission_without_scattering_species,
     _check_wavelength_boundaries,
     _handle_grid_misalignment,
     _warn_partial_cloud_coverage_without_patchy_clouds,
@@ -249,6 +249,12 @@ class Radtrans:
         self._scattering_in_emission = scattering_in_emission
         self._retain_unstacked_line_opacities_for_plotting = retain_unstacked_line_opacities_for_plotting
 
+        _warn_scattering_in_emission_without_scattering_species(
+            self._scattering_in_emission,
+            self._cloud_species,
+            self._rayleigh_species
+        )
+
         if wavelength_boundaries is None:
             self._wavelength_boundaries = jnp.array(
                 [0.05, 300.0], dtype=WORKING_JAX_DTYPE
@@ -403,33 +409,13 @@ class Radtrans:
         # Load all opacities
         self.load_all_opacities()
 
-    # TODO: Paul continue review from here
-
-    def __getattr__(self, name):
-        """Override of the object base __getattr__ method, in order to hint towards
-        pRT3 names when pRT2 names are used."""
-        # TODO remove in version 4.0.0
-        base_message = f"'{self.__class__.__name__}' object has no attribute '{name}'"
-
-        def _handle_deprecated_attributes(suggested_name):
-            raise AttributeError(f"{base_message}. Maybe you meant {suggested_name}?")
-
-        if name == "calc_flux":
-            _handle_deprecated_attributes(suggested_name=self.calculate_flux.__name__)
-        elif name == "calc_transm":
-            _handle_deprecated_attributes(
-                suggested_name=self.calculate_transit_radii.__name__
-            )
-
-        return super().__getattribute__(name)
-
     @property
     def anisotropic_cloud_scattering(self):
         return self._anisotropic_cloud_scattering
 
     @anisotropic_cloud_scattering.setter
     def anisotropic_cloud_scattering(self, mode: str):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         _check_anisotropic_cloud_scattering(mode)
         self._anisotropic_cloud_scattering = mode
 
@@ -439,8 +425,8 @@ class Radtrans:
 
     @cias_loaded_opacities.setter
     def cias_loaded_opacities(self, dictionary: dict[str, dict[str, ArrayLike]]):
-        debug.print(
-            "setting the Radtrans CIA opacity property should be avoided\n"
+        warnings.warn(
+            "setting the Radtrans CIA opacity manuallyshould be avoided\n"
             "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
             "(they need to be updated for consistency)\n"
             "It is recommended to create a new Radtrans instance instead"
@@ -455,7 +441,7 @@ class Radtrans:
 
     @clouds_loaded_opacities.setter
     def clouds_loaded_opacities(self, dictionary: dict[str, ArrayLike]):
-        debug.print(
+        warnings.warn(
             "setting the Radtrans cloud opacity property should be avoided\n"
             "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
             "(they need to be updated for consistency)\n"
@@ -470,7 +456,12 @@ class Radtrans:
 
     @cloud_species.setter
     def cloud_species(self, species: list):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
+        _warn_scattering_in_emission_without_scattering_species(
+            scattering_in_emission=value,
+            cloud_species=self._cloud_species,
+            rayleigh_species=self._rayleigh_species
+        )
         self._cloud_species = species
 
     @property
@@ -479,7 +470,7 @@ class Radtrans:
 
     @emission_angle_grid.setter
     def emission_angle_grid(self, dictionary: dict[str, ArrayLike]):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
 
         for key, value in dictionary.items():
             self._emission_angle_grid[key] = value
@@ -490,7 +481,7 @@ class Radtrans:
 
     @frequencies.setter
     def frequencies(self, array: ArrayLike):
-        debug.print(
+        warnings.warn(
             "setting frequencies directly should be avoided\n"
             "This property is loaded from the opacity data in the input_data directory "
             "and is inter-dependent with other line opacities parameters, that also need to be updated\n"
@@ -504,7 +495,7 @@ class Radtrans:
 
     @frequency_bins_edges.setter
     def frequency_bins_edges(self, array: ArrayLike):
-        debug.print(self.__line_opacity_property_setting_warning_message)
+        warnings.warn(self.__line_opacity_property_setting_warning_message)
         self._frequency_bins_edges = array
 
     @property
@@ -513,7 +504,7 @@ class Radtrans:
 
     @gas_continuum_contributors.setter
     def gas_continuum_contributors(self, species: list[str]):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         self._gas_continuum_contributors = species
 
     @property
@@ -522,7 +513,7 @@ class Radtrans:
 
     @line_by_line_opacity_sampling.setter
     def line_by_line_opacity_sampling(self, value: int):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         self._line_by_line_opacity_sampling = value
 
     @property
@@ -531,7 +522,7 @@ class Radtrans:
 
     @lines_loaded_opacities.setter
     def lines_loaded_opacities(self, dictionary: dict[str, ArrayLike]):
-        debug.print(self.__line_opacity_property_setting_warning_message)
+        warnings.warn(self.__line_opacity_property_setting_warning_message)
 
         for key, value in dictionary.items():
             self._lines_loaded_opacities[key] = value
@@ -542,7 +533,7 @@ class Radtrans:
 
     @line_opacity_mode.setter
     def line_opacity_mode(self, mode):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         _check_line_opacity_mode(mode)
         self._line_opacity_mode = mode
 
@@ -552,7 +543,7 @@ class Radtrans:
 
     @line_species.setter
     def line_species(self, species: list | tuple):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         self._line_species = tuple(species)
 
     @property
@@ -561,18 +552,17 @@ class Radtrans:
 
     @path_input_data.setter
     def path_input_data(self, path: str):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         _check_path_input_data(path)
         self._path_input_data = path
 
     @property
     def pressures(self) -> ArrayLike:
-        # TODO pressures doesn't need to be a property
         return self._pressures
 
     @pressures.setter
     def pressures(self, array):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         _check_pressures(array)
         self._pressures = array
 
@@ -582,7 +572,12 @@ class Radtrans:
 
     @rayleigh_species.setter
     def rayleigh_species(self, species: list):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
+        _warn_scattering_in_emission_without_scattering_species(
+            scattering_in_emission=value,
+            cloud_species=self._cloud_species,
+            rayleigh_species=self._rayleigh_species
+        )
         self._rayleigh_species = species
 
     @property
@@ -591,10 +586,11 @@ class Radtrans:
 
     @scattering_in_emission.setter
     def scattering_in_emission(self, value: bool):
-        debug.print(self.__property_setting_warning_message)
-        _warn_scattering_in_emission_without_cloud_species(
+        warnings.warn(self.__property_setting_warning_message)
+        _warn_scattering_in_emission_without_scattering_species(
             scattering_in_emission=value,
             cloud_species=self._cloud_species,
+            rayleigh_species=self._rayleigh_species
         )
         self._scattering_in_emission = value
 
@@ -604,7 +600,7 @@ class Radtrans:
 
     @wavelength_boundaries.setter
     def wavelength_boundaries(self, array: ArrayLike):
-        debug.print(self.__property_setting_warning_message)
+        warnings.warn(self.__property_setting_warning_message)
         _check_wavelength_boundaries(array)
         self._wavelength_boundaries = array
 
@@ -2470,7 +2466,7 @@ class Radtrans:
             else:
                 spectral_parameters[key] = copy.deepcopy(value)
 
-        opacity_contributions["Total"] = self.__getattr__(spectral_function)(
+        opacity_contributions["Total"] = self.__getattribute__(spectral_function)(
             **spectral_parameters
         )
 
@@ -2574,7 +2570,7 @@ class Radtrans:
                                             )
                                             del _value[_user_cloud_species]
 
-                        opacity_contributions[opacity][species] = _radtrans.__getattr__(
+                        opacity_contributions[opacity][species] = _radtrans.__getattribute__(
                             spectral_function
                         )(**spectral_parameters)
 
@@ -2625,7 +2621,7 @@ class Radtrans:
                         else:  # non-opacity spectral parameters
                             spectral_parameters[key] = copy.deepcopy(value)
 
-                    opacity_contributions[opacity] = _default_radtrans.__getattr__(
+                    opacity_contributions[opacity] = _default_radtrans.__getattribute__(
                         spectral_function
                     )(**spectral_parameters)
 
