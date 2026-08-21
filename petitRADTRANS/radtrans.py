@@ -1340,6 +1340,29 @@ class Radtrans:
         reference_gravity,
         planet_radius,
     ):
+        """
+        Calculate the atmospheric radius profile assuming hydrostatic equilibrium.
+
+        Computes the atmospheric mass density at each pressure level from the
+        ideal gas law (using the mean molecular mass and temperature at that
+        level), then integrates the hydrostatic equilibrium equation to
+        obtain the radius as a function of pressure. The last pressure level
+         is used as the reference pressure, anchored to 'planet_radius'.
+
+        Args:
+            pressures (ArrayLike): Pressure at each atmospheric level.
+            temperatures (ArrayLike): Temperature at each atmospheric level.
+            mean_molar_masses (ArrayLike): Mean molecular mass at each
+                atmospheric level.
+            reference_gravity (float or ArrayLike): Gravitational acceleration
+                used in the hydrostatic equilibrium calculation.
+            planet_radius (float): Planet radius in cm, defining the radius at
+                the reference pressure.
+
+        Returns:
+            ArrayLike: Radius at each atmospheric pressure level, consistent
+            with hydrostatic equilibrium.
+        """
         atmospheric_densities = (
             pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
         )
