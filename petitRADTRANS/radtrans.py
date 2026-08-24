@@ -43,7 +43,6 @@ from petitRADTRANS.validation import (
     _check_line_opacity_mode,
     _check_path_input_data,
     _check_pressures,
-    _check_return_clear_spectrum_relevance,
     _sanitize_emission_surface_inputs,
     _sanitize_flux_opacity_inputs,
     _warn_scattering_in_emission_without_scattering_species,
@@ -604,21 +603,6 @@ class Radtrans:
         _check_wavelength_boundaries(array)
         self._wavelength_boundaries = array
 
-    def _clouds_have_effect(self, mass_fractions, cloud_fraction):
-        """Check if the clouds have any effect, i.e. if any cloud species MMR is greater than 0.
-
-        Args:
-            mass_fractions: atmospheric mass mixing ratios
-            cloud_fraction: cloud coverage fraction
-        """
-        has_effect = False
-
-        for cloud_species in self._cloud_species:
-            has_effect = jnp.logical_or(
-                has_effect, jnp.any(mass_fractions[cloud_species] > 0)
-            )
-
-        return jnp.logical_and(jnp.not_equal(cloud_fraction, 0), has_effect)
 
     @staticmethod
     def _has_partial_coverage_background_cloud(
@@ -788,23 +772,6 @@ class Radtrans:
         )
 
         spectrum_clear = None
-
-        def clouds_have_effect_fn():
-            return jnp.logical_or(
-                self._clouds_have_effect(mass_fractions, cloud_fraction),
-                jnp.logical_and(
-                    has_partial_coverage_background_cloud,
-                    jnp.not_equal(cloud_fraction, 0),
-                ),
-            )
-
-        # Sanity checking and debugging messaging
-        _check_return_clear_spectrum_relevance(
-            return_clear_spectrum=return_clear_spectrum,
-            clouds_have_effect_fn=clouds_have_effect_fn,
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-            cloud_fraction=cloud_fraction,
-        )
 
         sum_opacities = self._set_sum_opacities(
             emission=is_emission,
