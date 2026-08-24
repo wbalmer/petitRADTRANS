@@ -603,14 +603,15 @@ class Radtrans:
         _check_wavelength_boundaries(array)
         self._wavelength_boundaries = array
 
-
     @staticmethod
     def _has_partial_coverage_background_cloud(
         opaque_cloud_top_pressure=None,
         power_law_opacity_350nm=None,
         power_law_opacity_coefficient=None,
     ):
-        """Check whether runtime-only cloud opacities should participate in cloud_fraction mixing."""
+        """Check whether analytical cloud options are requested and
+         should participate in cloud_fraction mixing."""
+
         return opaque_cloud_top_pressure is not None or (
             power_law_opacity_350nm is not None
             and power_law_opacity_coefficient is not None
@@ -2724,7 +2725,7 @@ class Radtrans:
                 By default, assume a full cloud cover.
             patchy_clouds:
                 List of cloud species affected by ``cloud_fraction``.
-                Runtime-only cloud sources such as power-law clouds and opaque
+                Analytic cloud sources such as power-law clouds and opaque
                 cloud decks are always mixed by ``cloud_fraction``.
             complete_coverage_clouds:
                 Deprecated alias for the complement of ``patchy_clouds``.
@@ -3056,6 +3057,8 @@ class Radtrans:
             missing_neg_inf=_MISSING_NEG_INF,
             additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
+        # Todo:
+        #   Comment here what is gonna be in here and why this is OK
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]
         )
@@ -3077,7 +3080,7 @@ class Radtrans:
             len(partial_coverage_cloud_species) > 0
             or has_partial_coverage_background_cloud
         ):
-            should_compute_clear_opacities = True
+            should_compute_clear_opacities = True # todo naming?
         else:
             should_compute_clear_opacities = False
 
@@ -3098,7 +3101,7 @@ class Radtrans:
             cloud_opacities,
             cloud_particle_mean_radii,
             cloud_scattering_in_transmission,
-            clear_opacities,
+            clear_opacities, # todo better name here based on discussion
             clear_continuum_opacities_scattering,
             clear_cloud_anisotropic_scattering_opacities,
             clear_cloud_absorption_opacities,
@@ -3188,7 +3191,7 @@ class Radtrans:
         if should_compute_clear_opacities:
             if return_clear_spectrum:
                 # Always compute clear flux when the caller requested it.
-                flux_clear, _, _, _, _ = self._calculate_flux(
+                flux_clear, _, _, _, _ = self._calculate_flux( # TODO return "less cloudy spectrum"
                     pressures=pressures,
                     temperatures=temperatures,
                     reference_gravity=reference_gravity,
