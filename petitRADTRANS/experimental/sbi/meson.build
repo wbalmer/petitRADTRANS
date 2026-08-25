@@ -13,6 +13,7 @@ py.install_sources([
     'simulator.py',
     'task.py',
     'training.py',
+    'truncation.py',
     'validation.py',
     'workflow.py',
     ],

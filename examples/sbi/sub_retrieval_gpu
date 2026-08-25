@@ -1,0 +1,61 @@
+#!/bin/bash -l
+# Standard output and error:
+#SBATCH -o ./out/job.out.%j
+#SBATCH -e ./out/job.err.%j
+
+# Initial working directory:
+#SBATCH -D ./
+
+# Job name
+#SBATCH -J sampler_test
+#
+#SBATCH --ntasks=1
+#SBATCH --partition=p.gpu
+# #SBATCH --partition=p.vera
+
+# #SBATCH --nodes=1
+# #SBATCH --tasks-per-node=1
+# #SBATCH --cpus-per-task=8
+
+# #--- default case: use a single GPU on a shared node ---
+#SBATCH --gres=gpu:a100:4
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=450000
+
+#SBATCH --time=24:00:00
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=nasedkinevert@gmail.com
+
+
+export PYTHONPATH=/u/nnas/packages/:$PYTHONPATH
+export PYTHONPATH=/u/nnas/packages/species/:$PYTHONPATH
+export PYTHONPATH=/u/nnas/packages/petitRADTRANS/:$PYTHONPATH
+
+
+export LD_LIBRARY_PATH=/mpcdf/soft/SLE_15/packages/x86_64/gcc/11.2.0/lib64/:$LD_LIBRARY_PATH
+#export LD_LIBRARY_PATH=/mpcdf/soft/SLE_15/packages/x86_64/gcc/11.2.0/lib/:$LD_LIBRARY_PATH
+
+#export LD_LIBRARY_PATH=/u/nnas/packages/MultiNest/lib:$LD_LIBRARY_PATH
+#export LD_LIBRARY_PATH=/mpcdf/soft/SLE_15/packages/x86_64/anaconda/3/2023.03/lib:$LD_LIBRARY_PATH
+#/mpcdf/soft/SLE_15/packages/x86_64/anaconda/3/2021.11/lib/libgfortran.so.4
+#export LD_LIBRARY_PATH=/mpcdf/soft/SLE_15/packages/x86_64/multinest/anaconda_3_2021.11-2021.11/20210831/lib:$LD_LIBRARY_PATH
+module purge
+module load gcc/11
+module load impi/2021.5
+module load anaconda/3/2021.11
+#module load mkl
+
+
+export OMP_NUM_THREADS=1
+# Suppress benign XLA hwloc CPU-binding warnings
+export GLOG_minloglevel=2
+module load multinest-mpi/20210831
+module load mpi4py
+
+module load cuda/12.1
+
+conda activate jaxprtgpu
+#srun python -u hr8799e_runtime_native_real_data.py
+#srun python -u hr8799e_runtime_native_real_data_autoregressive.py # WORKS!
+srun python -u hr8799e_runtime_native_real_data_neural_autoregressive.py
+echo "done"

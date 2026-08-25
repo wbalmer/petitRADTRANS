@@ -46,6 +46,10 @@ from .posterior import (
     ConditionalSplineFlowPosterior,
 )
 from .matching import FlowMatchingPosterior
+from .reparameterization import (
+    AmplitudeConditionedParameter,
+    fit_amplitude_conditioned_parameter,
+)
 
 __all__ = [
     *_transforms_all,
@@ -68,4 +72,7 @@ __all__ = [
     "ConditionalNeuralAutoregressiveFlowPosterior",
     "ConditionalSplineFlowPosterior",
     "FlowMatchingPosterior",
+    # observation-conditioned parameter basis
+    "AmplitudeConditionedParameter",
+    "fit_amplitude_conditioned_parameter",
 ]

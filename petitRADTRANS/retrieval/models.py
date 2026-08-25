@@ -98,23 +98,19 @@ _SINUSOIDAL_SUFFIXES = (
     "_sin_amplitude",
 )
 _SINUSOIDAL_REQUIRED_SUFFIXES = ("_amplitude", "_phase", "_offset")
-# Cartesian (phase-free) sinusoid alternative:
+# Sinusoid:
 #   P(t) = offset + a*cos(2*pi*t/period) + b*sin(2*pi*t/period)
-# with a = {base}_cos_amplitude and b = {base}_sin_amplitude. Equivalent to the
-# polar form via (a, b) = (A*sin(phi), A*cos(phi)), but without the A >= 0
-# boundary and the phase wrap, so gradient samplers see a nearly Gaussian
-# geometry.
+# with a = {base}_cos_amplitude and b = {base}_sin_amplitude.
+
 _CARTESIAN_REQUIRED_SUFFIXES = ("_cos_amplitude", "_sin_amplitude", "_offset")
-# Optional SECOND-HARMONIC coefficients for the Cartesian form. When both are
-# present the base additionally carries a component at twice the rotation
-# frequency (i.e. period/2):
-#   P(t) = offset + a1*cos(w t) + b1*sin(w t) + a2*cos(2 w t) + b2*sin(2 w t)
-# Rotational light curves of variable brown dwarfs are generally NOT pure
-# sinusoids -- a fundamental-only model leaves coherent residuals when the two
-# hemispheres are not identical. Both harmonic coefficients must be supplied
-# together; supplying neither reduces exactly to the fundamental-only form.
-_CARTESIAN_HARMONIC_SUFFIXES = ("_cos_amplitude_h2", "_sin_amplitude_h2")
-_SHARED_PERIOD_KEY = "period"
+# HARMONIC SERIES of arbitrary order for the Cartesian form. Order k >= 2 is
+# carried by the suffix pair ``_cos_amplitude_h{k}`` / ``_sin_amplitude_h{k}``;
+# the FUNDAMENTAL (k = 1) keeps the bare ``_cos_amplitude`` / ``_sin_amplitude``
+# names, so existing configurations, saved MAPs and seeds are unaffected:
+
+_CARTESIAN_AMPLITUDE_PATTERN = re.compile(
+    r"^(?P<base>.+)_(?P<trig>cos|sin)_amplitude(?:_h(?P<order>[2-9][0-9]*))?$"
+)
 
 
 def _as_structural_int(value, parameter_name: str) -> int:
@@ -919,6 +915,48 @@ def gradient_profile_emission(
     return calculate_emission_spectrum_runtime(model_context, model_inputs)
 
 
+def _cartesian_harmonic_orders(base: str, all_keys) -> tuple[int, ...]:
+    """Discover the harmonic orders declared for ``base``, validated and sorted.
+
+    Returns ``()`` when the base does not declare the Cartesian fundamental.
+    The result is a tuple of Python ints, i.e. a compile-time constant: it sets
+    the number of terms in the sum and must not become a traced value.
+    """
+    seen: dict[int, set] = {}
+    for key in all_keys:
+        match = _CARTESIAN_AMPLITUDE_PATTERN.match(key)
+        if match is None or match.group("base") != base:
+            continue
+        order = int(match.group("order") or 1)
+        seen.setdefault(order, set()).add(match.group("trig"))
+
+    if 1 not in seen:
+        return ()
+
+    incomplete = sorted(k for k, trig in seen.items() if trig != {"cos", "sin"})
+    if incomplete:
+        missing = [
+            f"{base}_{'sin' if 'cos' in seen[k] else 'cos'}_amplitude"
+            + ("" if k == 1 else f"_h{k}")
+            for k in incomplete
+        ]
+        raise ValueError(
+            f"Time-series parameter '{base}' declares only one Cartesian "
+            f"component for harmonic order(s) {incomplete}; missing {missing}. "
+            "Supply both cos and sin for every order, or neither."
+        )
+
+    orders = tuple(sorted(seen))
+    expected = tuple(range(1, len(orders) + 1))
+    if orders != expected:
+        raise ValueError(
+            f"Time-series parameter '{base}' declares harmonic orders {orders}, "
+            f"which are not contiguous from 1 (expected {expected}). A gap is "
+            "almost always a typo; declare every order up to the highest one."
+        )
+    return orders
+_SHARED_PERIOD_KEY = "period"
+
 def _build_timestep_params(physical_params, t_idx, t_value):
     """Build a :class:`PhysicalParams` snapshot for a single model timestep.
 
@@ -961,6 +999,10 @@ def _build_timestep_params(physical_params, t_idx, t_value):
         for suf in _SINUSOIDAL_SUFFIXES:
             if key.endswith(suf):
                 candidate_bases.add(key[: -len(suf)])
+        # Cartesian amplitudes of any harmonic order (``..._cos_amplitude_h3``)
+        harmonic_match = _CARTESIAN_AMPLITUDE_PATTERN.match(key)
+        if harmonic_match is not None:
+            candidate_bases.add(harmonic_match.group("base"))
     for base in candidate_bases:
         if not base or base in time_varying_bases:
             continue  # per-timestep keys take precedence
@@ -978,6 +1020,23 @@ def _build_timestep_params(physical_params, t_idx, t_value):
                 "use exactly one."
             )
         if not (has_polar or has_cartesian):
+            # A base carrying SOME Cartesian amplitude but not the full
+            # fundamental trio would otherwise be skipped silently, leaving the
+            # model with no value for `base` at all. Pre-refactor this was a
+            # silent no-op; make it explicit.
+            partial = sorted(
+                k for k in all_keys
+                if (m := _CARTESIAN_AMPLITUDE_PATTERN.match(k)) is not None
+                and m.group("base") == base
+            )
+            if partial and f"{base}_offset" in all_keys:
+                raise ValueError(
+                    f"Time-series parameter '{base}' declares {partial} but not "
+                    f"the complete Cartesian fundamental "
+                    f"({base}_cos_amplitude, {base}_sin_amplitude, "
+                    f"{base}_offset). Supply all three, or remove them to make "
+                    f"'{base}' static."
+                )
             continue
         has_period = (f"{base}_period" in all_keys) or shared_period_available
         if not has_period:
@@ -985,33 +1044,34 @@ def _build_timestep_params(physical_params, t_idx, t_value):
         required_suffixes = (
             _SINUSOIDAL_REQUIRED_SUFFIXES if has_polar else _CARTESIAN_REQUIRED_SUFFIXES
         )
-        harmonic_present = [
-            f"{base}{suf}" in all_keys for suf in _CARTESIAN_HARMONIC_SUFFIXES
-        ]
-        if any(harmonic_present):
-            if has_polar:
+        if has_polar:
+            stray = sorted(
+                k for k in all_keys
+                if (m := _CARTESIAN_AMPLITUDE_PATTERN.match(k)) is not None
+                and m.group("base") == base
+                and m.group("order") is not None
+            )
+            if stray:
                 raise ValueError(
-                    f"Time-series parameter '{base}' declares second-harmonic "
-                    "coefficients, which are only supported by the Cartesian "
-                    f"form; use {base}_cos_amplitude/{base}_sin_amplitude."
+                    f"Time-series parameter '{base}' declares harmonic "
+                    f"coefficients {stray}, which are only supported by the "
+                    f"Cartesian form; use {base}_cos_amplitude/"
+                    f"{base}_sin_amplitude instead of amplitude/phase."
                 )
-            if not all(harmonic_present):
-                raise ValueError(
-                    f"Time-series parameter '{base}' declares only one of "
-                    f"{base}_cos_amplitude_h2 / {base}_sin_amplitude_h2; "
-                    "supply both or neither."
-                )
-        has_harmonic = all(harmonic_present) and not has_polar
-        sinusoidal_bases[base] = (
-            "polar"
-            if has_polar
-            else ("cartesian_h2" if has_harmonic else "cartesian")
-        )
+            orders: tuple[int, ...] = ()
+        else:
+            # Python ints, resolved once at trace time -- they set the number of
+            # terms in the harmonic sum and must stay compile-time constants.
+            orders = _cartesian_harmonic_orders(base, all_keys)
+
+        sinusoidal_bases[base] = ("polar", ()) if has_polar else ("cartesian", orders)
         for suf in required_suffixes:
             sin_keys.add(f"{base}{suf}")
-        if has_harmonic:
-            for suf in _CARTESIAN_HARMONIC_SUFFIXES:
-                sin_keys.add(f"{base}{suf}")
+        for order in orders:
+            if order == 1:
+                continue
+            sin_keys.add(f"{base}_cos_amplitude_h{order}")
+            sin_keys.add(f"{base}_sin_amplitude_h{order}")
         if f"{base}_period" in all_keys:
             sin_keys.add(f"{base}_period")
 
@@ -1033,7 +1093,7 @@ def _build_timestep_params(physical_params, t_idx, t_value):
         base_dict[base] = physical_params[f"{base}_t_{t_idx}"]
 
     # Evaluate sinusoidal values
-    for base, form in sinusoidal_bases.items():
+    for base, (form, orders) in sinusoidal_bases.items():
         if f"{base}_period" in all_keys:
             period = physical_params[f"{base}_period"]
         else:
@@ -1045,16 +1105,15 @@ def _build_timestep_params(physical_params, t_idx, t_value):
             phase = physical_params[f"{base}_phase"]
             base_dict[base] = offset + amp * jnp.sin(angle + phase)
         else:
-            cos_amp = physical_params[f"{base}_cos_amplitude"]
-            sin_amp = physical_params[f"{base}_sin_amplitude"]
-            value = offset + cos_amp * jnp.cos(angle) + sin_amp * jnp.sin(angle)
-            if form == "cartesian_h2":
-                cos_amp_h2 = physical_params[f"{base}_cos_amplitude_h2"]
-                sin_amp_h2 = physical_params[f"{base}_sin_amplitude_h2"]
+            value = offset
+            for order in orders:
+                suffix = "" if order == 1 else f"_h{order}"
+                cos_amp = physical_params[f"{base}_cos_amplitude{suffix}"]
+                sin_amp = physical_params[f"{base}_sin_amplitude{suffix}"]
                 value = (
                     value
-                    + cos_amp_h2 * jnp.cos(2.0 * angle)
-                    + sin_amp_h2 * jnp.sin(2.0 * angle)
+                    + cos_amp * jnp.cos(order * angle)
+                    + sin_amp * jnp.sin(order * angle)
                 )
             base_dict[base] = value
 
@@ -1310,8 +1369,8 @@ def guillot_transmission(
 
     This model computes a transmission spectrum based on the Guillot p-T profile
     (default is global p-T profile; redistribution_coefficient=0.25)
-    Either free or (dis)equilibrium chemistry can be used. 
-    Abundances are resolved for the resulting P-T profile. 
+    Either free or (dis)equilibrium chemistry can be used.
+    Abundances are resolved for the resulting P-T profile.
     When running in pt_plot_mode, that result is returned immediately
     without computing clouds/hazes or the transmission spectrum.
 
@@ -1321,7 +1380,7 @@ def guillot_transmission(
     parameters and abundance state.
 
     Args:
-        model_context: Runtime context holding the radiative transfer object, 
+        model_context: Runtime context holding the radiative transfer object,
             parameter units, and other shared model state.
         physical_params: Dictionary-like mapping of physical parameters for
             the model.
@@ -1527,8 +1586,8 @@ def madhusudhan_seager_transmission(
     Transmission Model, Mahdusudhan-Seager p-T profile
 
     This model computes a transmission spectrum based on the Madhusudhan-Seager p-T profile
-    Either free or (dis)equilibrium chemistry can be used. 
-    Abundances are resolved for the resulting P-T profile. 
+    Either free or (dis)equilibrium chemistry can be used.
+    Abundances are resolved for the resulting P-T profile.
     When running in pt_plot_mode, that result is returned immediately
     without computing clouds/hazes or the transmission spectrum.
 
@@ -1538,7 +1597,7 @@ def madhusudhan_seager_transmission(
     parameters and abundance state.
 
     Args:
-        model_context: Runtime context holding the radiative transfer object, 
+        model_context: Runtime context holding the radiative transfer object,
             parameter units, and other shared model state.
         physical_params: Dictionary-like mapping of physical parameters for
             the model.
@@ -1694,8 +1753,8 @@ def isothermal_transmission(
     Transmission Model, isothermal p-T profile
 
     This model computes a transmission spectrum based on the isothermal p-T profile
-    Either free or (dis)equilibrium chemistry can be used. 
-    Abundances are resolved for the resulting P-T profile. 
+    Either free or (dis)equilibrium chemistry can be used.
+    Abundances are resolved for the resulting P-T profile.
     When running in pt_plot_mode, that result is returned immediately
     without computing clouds/hazes or the transmission spectrum.
 
@@ -1705,7 +1764,7 @@ def isothermal_transmission(
     parameters and abundance state.
 
     Args:
-        model_context: Runtime context holding the radiative transfer object, 
+        model_context: Runtime context holding the radiative transfer object,
             parameter units, and other shared model state.
         physical_params: Dictionary-like mapping of physical parameters for
             the model.
@@ -1757,7 +1816,7 @@ def isothermal_transmission(
                 `calculate_transit_radii` (e.g. contribution functions,
                 abundances, opacities), wrapped via `_as_auxiliary_outputs`.
     """
-    
+
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
 
     reference_pressure = 100.0
@@ -1820,8 +1879,8 @@ def power_law_profile_transmission(
     Transmission Model, power-law p-T profile
 
     This model computes a transmission spectrum based on the power-law p-T profile
-    Either free or (dis)equilibrium chemistry can be used. 
-    Abundances are resolved for the resulting P-T profile. 
+    Either free or (dis)equilibrium chemistry can be used.
+    Abundances are resolved for the resulting P-T profile.
     When running in pt_plot_mode, that result is returned immediately
     without computing clouds/hazes or the transmission spectrum.
 
@@ -1831,7 +1890,7 @@ def power_law_profile_transmission(
     parameters and abundance state.
 
     Args:
-        model_context: Runtime context holding the radiative transfer object, 
+        model_context: Runtime context holding the radiative transfer object,
             parameter units, and other shared model state.
         physical_params: Dictionary-like mapping of physical parameters for
             the model.
@@ -1885,7 +1944,7 @@ def power_law_profile_transmission(
                 abundances, opacities), wrapped via `_as_auxiliary_outputs`.
 
     """
-     
+
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(
         physical_params, model_context.parameter_units
@@ -4266,8 +4325,8 @@ def _resolve_runtime_abundance_state(
             calculation.
         temperatures: Temperatures corresponding to `p_use`.
         temperature_builder: Callable that computes temperatures for a given
-            pressure grid. Required when `model_context.adaptive_mesh_refinement` 
-            is True, since temperatures must be recomputed after the pressure grid 
+            pressure grid. Required when `model_context.adaptive_mesh_refinement`
+            is True, since temperatures must be recomputed after the pressure grid
             is refined.
         pt_plot_mode: If True, return only the resolved pressure-temperature
             profile without computing abundances. Defaults to False.
@@ -4284,7 +4343,7 @@ def _resolve_runtime_abundance_state(
               resolved atmospheric state for downstream use (e.g. cloud
               setup and spectrum calculation).
     """
-        
+
     del p_global
 
     pressures = p_use
@@ -4431,7 +4490,7 @@ def _build_runtime_transmission_model_inputs(
             `"mean_molar_masses"`.
         gravity: Gravitational acceleration at each pressure level.
         planet_radius: Planet radius in cm.
-        reference_pressure: Pressure at which `planet_radius` is defined. 
+        reference_pressure: Pressure at which `planet_radius` is defined.
             Default set to 0.1 bar.
         opaque_cloud_top_pressure: Pressure where an opaque grey cloud deck
             is placed.

@@ -358,7 +358,14 @@ def test_calculate_flux_emission_auxiliaries_are_opt_in():
     ].shape
 
 
-def test_calculate_flux_autodiff_matches_calculate_flux_scattering():
+def test_calculate_flux_grouped_cloud_parameters_scattering():
+    """Splatting a grouped cloud-parameter dict must match passing it flat.
+
+    calculate_flux_autodiff used to accept the grouping as a single
+    'cloud_parameters' argument; it was removed, so callers splat the dict into
+    calculate_flux instead. This pins that the two spellings agree and that the
+    result stays differentiable.
+    """
     flux_inputs = _build_flux_inputs()
     base_temperatures = jnp.array(temperature_guillot_2010)
 
@@ -367,31 +374,35 @@ def test_calculate_flux_autodiff_matches_calculate_flux_scattering():
         mass_fractions=flux_inputs["mass_fractions"],
         mean_molar_masses=flux_inputs["mean_molar_masses"],
         reference_gravity=flux_inputs["reference_gravity"],
+        cloud_f_sed=flux_inputs["cloud_parameters"]["cloud_f_sed"],
+        eddy_diffusion_coefficients=flux_inputs["cloud_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
+        cloud_particle_radius_distribution_std=flux_inputs["cloud_parameters"][
+            "cloud_particle_radius_distribution_std"
+        ],
+        frequencies_to_wavelengths=False,
+    )
+    grouped_frequencies, grouped_flux, _ = atmosphere_ck_scattering.calculate_flux(
+        temperatures=base_temperatures,
+        mass_fractions=flux_inputs["mass_fractions"],
+        mean_molar_masses=flux_inputs["mean_molar_masses"],
+        reference_gravity=flux_inputs["reference_gravity"],
         **flux_inputs["cloud_parameters"],
         frequencies_to_wavelengths=False,
     )
-    autodiff_frequencies, autodiff_flux, _ = (
-        atmosphere_ck_scattering.calculate_flux_autodiff(
-            temperatures=base_temperatures,
-            mass_fractions=flux_inputs["mass_fractions"],
-            mean_molar_masses=flux_inputs["mean_molar_masses"],
-            reference_gravity=flux_inputs["reference_gravity"],
-            cloud_parameters=flux_inputs["cloud_parameters"],
-            frequencies_to_wavelengths=False,
-        )
-    )
 
-    assert np.allclose(np.asarray(autodiff_frequencies), np.asarray(simple_frequencies))
-    assert np.allclose(np.asarray(autodiff_flux), np.asarray(simple_flux))
+    assert np.allclose(np.asarray(grouped_frequencies), np.asarray(simple_frequencies))
+    assert np.allclose(np.asarray(grouped_flux), np.asarray(simple_flux))
 
     gradients = jax.grad(
         lambda temperatures: jnp.sum(
-            atmosphere_ck_scattering.calculate_flux_autodiff(
+            atmosphere_ck_scattering.calculate_flux(
                 temperatures=temperatures,
                 mass_fractions=flux_inputs["mass_fractions"],
                 mean_molar_masses=flux_inputs["mean_molar_masses"],
                 reference_gravity=flux_inputs["reference_gravity"],
-                cloud_parameters=flux_inputs["cloud_parameters"],
+                **flux_inputs["cloud_parameters"],
                 frequencies_to_wavelengths=False,
             )[1]
         )
@@ -424,7 +435,13 @@ def test_calculate_transit_radii_grad_correlated_k_scattering():
     assert np.isfinite(np.asarray(gradients)).all()
 
 
-def test_calculate_transit_radii_autodiff_matches_calculate_transit_radii_scattering():
+def test_calculate_transit_radii_grouped_cloud_parameters_scattering():
+    """Splatting a grouped cloud-parameter dict must match passing it flat.
+
+    Transmission counterpart of
+    test_calculate_flux_grouped_cloud_parameters_scattering, replacing the removed
+    calculate_transit_radii_autodiff.
+    """
     transit_inputs = _build_transit_inputs()
     base_temperatures = jnp.array(temperature_guillot_2010)
 
@@ -436,40 +453,46 @@ def test_calculate_transit_radii_autodiff_matches_calculate_transit_radii_scatte
             reference_gravity=transit_inputs["reference_gravity"],
             reference_pressure=transit_inputs["reference_pressure"],
             planet_radius=transit_inputs["planet_radius"],
-            **transit_inputs["cloud_parameters"],
+            cloud_f_sed=transit_inputs["cloud_parameters"]["cloud_f_sed"],
+            eddy_diffusion_coefficients=transit_inputs["cloud_parameters"][
+                "eddy_diffusion_coefficients"
+            ],
+            cloud_particle_radius_distribution_std=transit_inputs["cloud_parameters"][
+                "cloud_particle_radius_distribution_std"
+            ],
             frequencies_to_wavelengths=False,
         )
     )
-    autodiff_frequencies, autodiff_transit_radii, _ = (
-        atmosphere_ck_scattering.calculate_transit_radii_autodiff(
+    grouped_frequencies, grouped_transit_radii, _ = (
+        atmosphere_ck_scattering.calculate_transit_radii(
             temperatures=base_temperatures,
             mass_fractions=transit_inputs["mass_fractions"],
             mean_molar_masses=transit_inputs["mean_molar_masses"],
             reference_gravity=transit_inputs["reference_gravity"],
             reference_pressure=transit_inputs["reference_pressure"],
             planet_radius=transit_inputs["planet_radius"],
-            cloud_parameters=transit_inputs["cloud_parameters"],
+            **transit_inputs["cloud_parameters"],
             frequencies_to_wavelengths=False,
         )
     )
 
     assert np.allclose(
-        np.asarray(autodiff_frequencies), np.asarray(reference_frequencies)
+        np.asarray(grouped_frequencies), np.asarray(reference_frequencies)
     )
     assert np.allclose(
-        np.asarray(autodiff_transit_radii), np.asarray(reference_transit_radii)
+        np.asarray(grouped_transit_radii), np.asarray(reference_transit_radii)
     )
 
     gradients = jax.grad(
         lambda temperatures: jnp.sum(
-            atmosphere_ck_scattering.calculate_transit_radii_autodiff(
+            atmosphere_ck_scattering.calculate_transit_radii(
                 temperatures=temperatures,
                 mass_fractions=transit_inputs["mass_fractions"],
                 mean_molar_masses=transit_inputs["mean_molar_masses"],
                 reference_gravity=transit_inputs["reference_gravity"],
                 reference_pressure=transit_inputs["reference_pressure"],
                 planet_radius=transit_inputs["planet_radius"],
-                cloud_parameters=transit_inputs["cloud_parameters"],
+                **transit_inputs["cloud_parameters"],
                 frequencies_to_wavelengths=False,
             )[1]
         )
