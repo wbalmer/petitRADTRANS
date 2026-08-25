@@ -6,9 +6,6 @@ Import ``FEAUTRIER_JAX_DTYPE`` for the Feautrier radiative transfer solver and
 other numerically sensitive functions that need double precision to work.
 """
 
-
-import os
-
 from jax import config
 import jax.numpy as jnp
 
