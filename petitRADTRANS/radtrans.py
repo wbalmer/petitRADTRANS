@@ -272,7 +272,7 @@ def _compile_spectral_function(static_argnames):
                     complete_coverage_clouds=arguments.get("complete_coverage_clouds"),
                 ),
                 has_partial_coverage_background_cloud=(
-                    self._has_partial_coverage_background_cloud(
+                    self._has_partial_coverage_analytical_cloud(
                         opaque_cloud_top_pressure=arguments.get(
                             "opaque_cloud_top_pressure"
                         ),
@@ -791,13 +791,14 @@ class Radtrans:
         self._wavelength_boundaries = array
 
     @staticmethod
-    def _has_partial_coverage_background_cloud(
+    def _has_partial_coverage_analytical_cloud(
         opaque_cloud_top_pressure=None,
         power_law_opacity_350nm=None,
         power_law_opacity_coefficient=None,
     ):
         """Check whether analytical cloud options are requested and
-         should participate in cloud_fraction mixing."""
+         do therefore participate in cloud_fraction mixing (since
+         this is pRT's standard treatment)."""
 
         return opaque_cloud_top_pressure is not None or (
             power_law_opacity_350nm is not None
@@ -807,6 +808,16 @@ class Radtrans:
     def _normalize_patchy_clouds(
         self, patchy_clouds=None, complete_coverage_clouds=None
     ):
+        """Make sure that patchy_clouds is always normalized to be a tuple,
+        to be consumed by the jitted radiative transfer kernels.
+        What is more, all clouds are patchy by default, but the default coverage
+        (cloud_fraction) is 1. That means one can change the coverage and it will
+        affect all clouds, without having to worry about specifying patchy
+        clouds. In case that a given cloud species should be homogeneous, so
+        not participate in the mixing, this is achieved by handing a patchy_clouds
+        list or tuple to the calculate_flux function contains the species that
+        should be patchy, but omits the one that should not be patchy.
+        """
         if complete_coverage_clouds is not None:
             warnings.warn(
                 "The 'complete_coverage_clouds' argument is deprecated; use 'patchy_clouds' instead.",
@@ -844,9 +855,15 @@ class Radtrans:
         )
 
     def _get_complete_coverage_cloud_species(self, patchy_clouds):
-        if patchy_clouds is None:
-            return ()
+        """Return the tuple of non-patchy cloud species.
+        """
 
+        if patchy_clouds is None:
+            return tuple()
+
+        # convert the tuple to a set because the
+        # if species not in patchy_cloud_species
+        # is then much cheaper, somehow (it is O(1), not O(N)).
         patchy_cloud_species = set(patchy_clouds)
 
         return tuple(
@@ -856,12 +873,16 @@ class Radtrans:
         )
 
     def _get_partial_coverage_cloud_species(self, patchy_clouds):
+        """Return the tuple of patchy cloud species.
+        """
         if patchy_clouds is None:
             return tuple(self._cloud_species)
 
         return tuple(
             species for species in self._cloud_species if species in patchy_clouds
         )
+
+    # Paul continue from here
 
     @staticmethod
     def _compute_additional_continuum_opacities(
@@ -3016,7 +3037,7 @@ class Radtrans:
         if ck_chunk_size is None:
             ck_chunk_size = radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE
         has_partial_coverage_background_cloud = (
-            self._has_partial_coverage_background_cloud(
+            self._has_partial_coverage_analytical_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
@@ -3233,13 +3254,11 @@ class Radtrans:
             missing_neg_inf=_MISSING_NEG_INF,
             additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
-        # Todo:
-        #   Comment here what is gonna be in here and why this is OK
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]
         )
         has_partial_coverage_background_cloud = (
-            self._has_partial_coverage_background_cloud(
+            self._has_partial_coverage_analytical_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
@@ -4051,7 +4070,7 @@ class Radtrans:
                     retrievals or if you've already checked the inputs.
         """
         has_partial_coverage_background_cloud = (
-            self._has_partial_coverage_background_cloud(
+            self._has_partial_coverage_analytical_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
@@ -4217,7 +4236,7 @@ class Radtrans:
             sanitized_inputs["patchy_clouds"]
         )
         has_partial_coverage_background_cloud = (
-            self._has_partial_coverage_background_cloud(
+            self._has_partial_coverage_analytical_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
