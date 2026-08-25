@@ -1,6 +1,8 @@
 """Stores the Radtrans object."""
 
 import copy
+import functools
+import inspect
 import os
 import warnings
 from typing import Any, Callable
@@ -43,6 +45,8 @@ from petitRADTRANS.validation import (
     _check_line_opacity_mode,
     _check_path_input_data,
     _check_pressures,
+    _check_clouds_particle_porosity_factors,
+    _check_power_law_opacity_completeness,
     _sanitize_emission_surface_inputs,
     _sanitize_flux_opacity_inputs,
     _warn_scattering_in_emission_without_scattering_species,
@@ -129,6 +133,189 @@ def _interpolate_linear_sorted(x_grid, y_grid, x_query):
     slope = jnp.where(x1 == x0, 0.0, (y1 - y0) / (x1 - x0))
 
     return y0 + slope * (x_query - x0)
+
+
+# Arguments of calculate_flux and calculate_transit_radii cannot be traced. They are
+# either unhashable-by-nature Python objects (strings, callables, tuples), they
+# select which graph is traced (the return_* flags, the solver chunking controls),
+# or they drive a host-side lookup that needs a concrete value: the stellar
+# parameters below reach phoenix.compute_star_spectrum, which indexes the PHOENIX
+# table with star_effective_temperature.
+#
+# Everything *not* listed is traced, which is what makes the physical inputs
+# (temperatures, mass fractions, gravity, radii, the whole cloud parameter group,
+# ...) differentiable through the public functions.
+_SPECTRAL_STATIC_ARGNAMES_COMMON = (
+    "cloud_particle_radius_distribution",
+    "patchy_clouds",
+    "complete_coverage_clouds",
+    "additional_absorption_opacities_function",
+    "additional_scattering_opacities_function",
+    "frequencies_to_wavelengths",
+    "validate_inputs",
+    "return_contribution",
+    "return_clear_spectrum",
+    "return_cloud_contribution",
+    "return_opacities",
+    "return_abundances",
+    "return_particle_radii_bins",
+    "return_particle_radii",
+)
+
+_FLUX_STATIC_ARGNAMES = _SPECTRAL_STATIC_ARGNAMES_COMMON + (
+    "irradiation_geometry",
+    "star_effective_temperature",
+    "star_radius",
+    "orbit_semi_major_axis",
+    "adaptive_feautrier_iterations",
+    "chunk_feautrier",
+    "feautrier_chunk_size",
+    "thomas_min_batch",
+    "ck_chunk_size",
+    "return_photosphere_radius",
+    "return_rosseland_optical_depths",
+    "return_stellar_intensities",
+    "return_angle_dependent_intensities",
+)
+
+_TRANSIT_RADII_STATIC_ARGNAMES = _SPECTRAL_STATIC_ARGNAMES_COMMON + (
+    "variable_gravity",
+    "return_radius_hydrostatic_equilibrium",
+    "return_particle_densities",
+)
+
+_CLOUD_SPECIES_SEQUENCE_ARGNAMES = ("patchy_clouds", "complete_coverage_clouds")
+
+# Traced scalar arguments, normalized to strongly-typed JAX arrays *before* the
+# compiled call. This must happen outside the jit boundary: otherwise a Python
+# float, a numpy float64 and a jnp float32 spelling of the same value produce
+# different avals and each triggers its own compilation.
+_SPECTRAL_SCALAR_ARGNAMES = (
+    "reference_gravity",
+    "reference_pressure",
+    "planet_radius",
+    "opaque_cloud_top_pressure",
+    "haze_factor",
+    "power_law_opacity_350nm",
+    "power_law_opacity_coefficient",
+    "gray_opacity",
+    "cloud_photosphere_median_optical_depth",
+    "cloud_fraction",
+    "star_irradiation_angle",
+)
+
+
+def _normalize_cloud_species_sequence(value):
+    """Make a cloud-species selection hashable so it can be a static argument."""
+    if value is None or isinstance(value, tuple):
+        return value
+
+    if isinstance(value, (str, bytes)):
+        return (value,)
+
+    return tuple(value)
+
+
+def _compile_spectral_function(static_argnames):
+    """Compile the calculate_flux or calculate_transit_radii method.
+
+    The wrapped function becomes a single compiled call instead of many
+    separately-jitted kernels. A thin wrapper remains because a
+    few checks cannot run under tracing:
+
+    - the cloud porosity range check needs concrete floats (it skips tracers);
+    - the power-law completeness check needs to see ``None``;
+    - the partial-cloud-coverage warning converts ``cloud_fraction`` with
+      ``float()``, which fails on a tracer;
+    - the reference-gravity check must raise a plain ``ValueError``. Left to the
+      compiled body it would only be reachable through a ``debug.callback``,
+      which wraps it in a ``JaxRuntimeError`` and costs a host round-trip on
+      every evaluation.
+
+    The shell also normalizes arguments whose *representation* would otherwise
+    split the compilation cache (scalar dtypes, cloud-species sequences).
+    """
+
+    def decorate(method):
+        # The signature links the arguments to their names
+        signature = inspect.signature(method)
+
+        # This is the actual compiled function.
+        compiled_method = jit(method, static_argnames=static_argnames)
+
+        # We wrap the compiled function in a thin shell
+        # to perform the normalizations.
+        @functools.wraps(method)
+        def wrapper(*args, **kwargs):
+            bound_arguments = signature.bind(*args, **kwargs)
+            bound_arguments.apply_defaults()
+            arguments = bound_arguments.arguments
+            self = arguments.pop("self")
+
+            for argname in _CLOUD_SPECIES_SEQUENCE_ARGNAMES:
+                if argname in arguments:
+                    arguments[argname] = _normalize_cloud_species_sequence(
+                        arguments[argname]
+                    )
+
+            _check_clouds_particle_porosity_factors(
+                arguments.get("clouds_particle_porosity_factor")
+            )
+            _check_power_law_opacity_completeness(
+                arguments.get("power_law_opacity_350nm"),
+                arguments.get("power_law_opacity_coefficient"),
+            )
+            _warn_partial_cloud_coverage_without_patchy_clouds(
+                cloud_fraction=arguments.get("cloud_fraction", 1.0),
+                patchy_clouds=self._normalize_patchy_clouds(
+                    patchy_clouds=arguments.get("patchy_clouds"),
+                    complete_coverage_clouds=arguments.get("complete_coverage_clouds"),
+                ),
+                has_partial_coverage_background_cloud=(
+                    self._has_partial_coverage_background_cloud(
+                        opaque_cloud_top_pressure=arguments.get(
+                            "opaque_cloud_top_pressure"
+                        ),
+                        power_law_opacity_350nm=arguments.get(
+                            "power_law_opacity_350nm"
+                        ),
+                        power_law_opacity_coefficient=arguments.get(
+                            "power_law_opacity_coefficient"
+                        ),
+                    )
+                ),
+            )
+
+            # Validate the reference gravity here while it is still concrete, so
+            # the caller gets a plain ValueError. Only a gravity that the caller
+            # is itself tracing has to fall through to the callback inside the
+            # compiled body, so tell the body to skip the check otherwise.
+            reference_gravity = arguments.get("reference_gravity")
+
+            if arguments.get("validate_inputs", True) and not isinstance(
+                reference_gravity, jax_core.Tracer
+            ):
+                _handle_invalid_reference_gravity(float(reference_gravity))
+                arguments["validate_inputs"] = False
+
+            # Must happen outside the compiled call: see _SPECTRAL_SCALAR_ARGNAMES.
+            for argname in _SPECTRAL_SCALAR_ARGNAMES:
+                if argname in arguments:
+                    arguments[argname] = _convert_scalar_to_strong_type(
+                        arguments[argname]
+                    )
+
+            return compiled_method(self, **arguments)
+
+        # Exposed so callers (and tests) can inspect the compilation, e.g.
+        # Radtrans.calculate_flux.compiled_function._cache_size() to check that
+        # repeated calls are not recompiling.
+        wrapper.compiled_function = compiled_method
+        wrapper.static_argnames = tuple(static_argnames)
+
+        return wrapper
+
+    return decorate
 
 
 class Radtrans:
@@ -743,21 +930,17 @@ class Radtrans:
         has_partial_coverage_background_cloud=False,
         patchy_clouds=None,
         complete_coverage_clouds=None,
+        validate_inputs=True,
     ):
         """Initializations and checks common to calculate_flux and calculate_transit_radii."""
 
-        # TODO check why this debug.callback is needed, since the _init_spectra_function
-        #   is nominally not run in jitted mode.
-        # Caution, this can be slow if running in a jitted environment on a GPU
-        # since GPU<->host communication has to happen at every step.
-        # Claude suggests a validate_inputs=False flag that turns off all
-        # such checks if specifically requested (could also be used for
-        # _convert_scalar_to_strong_type, sanitizing operations (with a different
-        # flag though...)
-        if isinstance(reference_gravity, jax_core.Tracer):
-            debug.callback(_handle_invalid_reference_gravity, reference_gravity)
-        else:
-            _handle_invalid_reference_gravity(float(reference_gravity))
+        # Reference gravity is a *value* check, so unlike the shape and None
+        # checks elsewhere it cannot be resolved while tracing.
+        if validate_inputs:
+            if isinstance(reference_gravity, jax_core.Tracer):
+                debug.callback(_handle_invalid_reference_gravity, reference_gravity)
+            else:
+                _handle_invalid_reference_gravity(float(reference_gravity))
 
         patchy_clouds = self._normalize_patchy_clouds(
             patchy_clouds=patchy_clouds,
@@ -1190,10 +1373,6 @@ class Radtrans:
                         self._emission_angle_grid["weights"],
                         dtype=FEAUTRIER_JAX_DTYPE,
                     ),
-                    # Pass the large optical-depth and photon-destruction arrays
-                    # in the compact WORKING (float32) dtype. The Feautrier solver
-                    # upcasts each frequency chunk to FEAUTRIER_JAX_DTYPE internally,
-                    # so the full-resolution float64 copies are never materialised.
                     optical_depths_in=jnp.asarray(
                         optical_depths[:, :, 0, :], dtype=WORKING_JAX_DTYPE
                     ),
@@ -1285,21 +1464,6 @@ class Radtrans:
             optical_depths=optical_depths,
         )
 
-        return self.calculate_photosphere_radius(
-            temperatures=temperatures,
-            mean_molar_masses=mean_molar_masses,
-            reference_gravity=reference_gravity,
-            planet_radius=planet_radius,
-            opacities=opacities,
-            continuum_opacities_scattering=continuum_opacities_scattering,
-            cloud_f_sed=cloud_f_sed,
-            cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
-            cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
-            cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
-            cloud_absorption_opacities=cloud_absorption_opacities,
-            optical_depths=optical_depths,
-        )
-
     def _calculate_radius_hydrostatic_equilibrium(
         self,
         pressures,
@@ -1308,6 +1472,29 @@ class Radtrans:
         reference_gravity,
         planet_radius,
     ):
+        """
+        Calculate the atmospheric radius profile assuming hydrostatic equilibrium.
+
+        Computes the atmospheric mass density at each pressure level from the
+        ideal gas law (using the mean molecular mass and temperature at that
+        level), then integrates the hydrostatic equilibrium equation to
+        obtain the radius as a function of pressure. The last pressure level
+         is used as the reference pressure, anchored to 'planet_radius'.
+
+        Args:
+            pressures (ArrayLike): Pressure at each atmospheric level.
+            temperatures (ArrayLike): Temperature at each atmospheric level.
+            mean_molar_masses (ArrayLike): Mean molecular mass at each
+                atmospheric level.
+            reference_gravity (float or ArrayLike): Gravitational acceleration
+                used in the hydrostatic equilibrium calculation.
+            planet_radius (float): Planet radius in cm, defining the radius at
+                the reference pressure.
+
+        Returns:
+            ArrayLike: Radius at each atmospheric pressure level, consistent
+            with hydrostatic equilibrium.
+        """
         atmospheric_densities = (
             pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
         )
@@ -1414,7 +1601,7 @@ class Radtrans:
             "anisotropic_cloud_scattering",
             "compute_clear_opacities",
             "defer_clear_opacity_combination",
-            "ck_chunk_size"
+            "ck_chunk_size",
         ]
     )
     def _calculate_opacities(
@@ -1540,9 +1727,6 @@ class Radtrans:
             patchy_clouds = tuple(self._cloud_species)
         else:
             patchy_clouds = tuple(patchy_clouds)
-
-        # if sum_opacities is None:
-        #     sum_opacities = self.__sum_opacities
 
         if anisotropic_cloud_scattering is None:
             anisotropic_cloud_scattering = self._anisotropic_cloud_scattering
@@ -1749,12 +1933,6 @@ class Radtrans:
                 + clear_cloud_continuum_opacities_scattering
             )
             if defer_clear_opacity_combination:
-                # Package the combination inputs instead of combining now.
-                # The caller runs the combination inside its
-                # ``cloud_fraction < 1`` branch, so full-coverage spectra
-                # never pay for the clear-column correlated-k mixing (values
-                # computed here would be lax.cond operands and therefore
-                # evaluated unconditionally).
                 clear_opacities = (
                     line_opacities,
                     clear_continuum_opacities,
@@ -1807,11 +1985,6 @@ class Radtrans:
     ):
         """Run the clear-column opacity combination deferred by
         ``_calculate_opacities(defer_clear_opacity_combination=True)``.
-
-        Intended to be called inside the ``cloud_fraction < 1`` lax.cond
-        branch of the spectrum kernels, so the (expensive, for correlated-k
-        emission with scattering) combination only executes when a clear
-        column actually contributes to the blended spectrum.
 
         Args:
             deferred_clear_opacity_inputs:
@@ -1946,11 +2119,6 @@ class Radtrans:
                     reference_pressure=reference_pressure,
                     planet_radius=planet_radius,
                     weights_gauss=self._lines_loaded_opacities["weights_gauss"],
-                    # The main transit radii above include
-                    # continuum_opacities_scattering unconditionally (the array
-                    # is zero when nothing scatters), so the contribution must
-                    # too. self.__scattering_in_transmission is stale here: it
-                    # is only updated by the photospheric-radius path.
                     scattering_in_transmission=True,
                     continuum_opacities_scattering=continuum_opacities_scattering,
                     variable_gravity=variable_gravity,
@@ -2595,6 +2763,7 @@ class Radtrans:
 
         return opacity_contributions
 
+    @_compile_spectral_function(_FLUX_STATIC_ARGNAMES)
     def calculate_flux(
         self,
         temperatures: ArrayLike,
@@ -2651,6 +2820,7 @@ class Radtrans:
         target_particle_radii: ArrayLike = None,
         pressures: ArrayLike = None,
         target_pressure: ArrayLike = None,
+        validate_inputs: bool = True,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's emitted flux (emission spectrum).
 
@@ -2829,6 +2999,11 @@ class Radtrans:
             target_pressure (Optional[ArrayLike]:
                 Pressure to target for selective bin disabling. Pressure bin closest to
                 the input value will be disabled.
+            validate_inputs (Optional[bool]):
+                If True (default), check the reference gravity is positive. Under
+                ``jax.jit`` this check needs a device-to-host callback on every
+                evaluation, which is costly for GPU performance. Set to False
+                for retrievals or if you're sure inputs have already been checked.
         """
         chunk_feautrier, feautrier_chunk_size = (
             radiative_transfer_core.resolve_feautrier_chunking(
@@ -2866,6 +3041,7 @@ class Radtrans:
             has_partial_coverage_background_cloud=(
                 has_partial_coverage_background_cloud
             ),
+            validate_inputs=validate_inputs,
         )
 
         if return_rosseland_optical_depths:
@@ -3071,11 +3247,6 @@ class Radtrans:
         )
 
         # Determine whether clear opacities are needed.
-        # len(partial_coverage_cloud_species) and return_clear_spectrum are static;
-        # cloud_fraction is traced.  compute_clear_opacities must be a static
-        # Python bool so that the clear branch is never compiled when unneeded.
-        # When partial-coverage species exist, we always compile the clear
-        # branch; the actual blending is gated by lax.cond on cloud_fraction.
         if (
             len(partial_coverage_cloud_species) > 0
             or has_partial_coverage_background_cloud
@@ -3086,9 +3257,6 @@ class Radtrans:
 
         # Unless the clear spectrum is explicitly requested, defer the
         # clear-column opacity combination to the cloud_fraction < 1 branch
-        # below, so full-coverage spectra skip its cost (for correlated-k
-        # emission with scattering this is a second full c-k g-grid mixing).
-        # return_clear_spectrum is static, so this is a Python bool.
         defer_clear_opacity_combination = (
             should_compute_clear_opacities and not return_clear_spectrum
         )
@@ -3216,10 +3384,24 @@ class Radtrans:
                     feautrier_chunk_size=feautrier_chunk_size,
                     thomas_min_batch=thomas_min_batch,
                 )
+
+                def _blend_flux(args):
+                    flux, flux_clear, cloud_fraction = args
+                    # Cast back to the cloudy-flux dtype: a cloud_fraction of a
+                    # wider dtype would otherwise promote this branch only, and
+                    # lax.cond requires both branches to agree.
+                    return (
+                        cloud_fraction * flux + (1 - cloud_fraction) * flux_clear
+                    ).astype(flux.dtype)
+
+                def _pass_through_flux(args):
+                    return args[0]
+
                 flux = lax.cond(
                     jnp.less(cloud_fraction, 1),
-                    lambda op: op[2] * op[0] + (1 - op[2]) * op[1],
-                    lambda op: op[0],
+
+                    _blend_flux,
+                    _pass_through_flux,
                     (flux, flux_clear, cloud_fraction),
                 )
             else:
@@ -3258,14 +3440,18 @@ class Radtrans:
                         feautrier_chunk_size=feautrier_chunk_size,
                         thomas_min_batch=thomas_min_batch,
                     )
+
                     return (
                         cloud_fraction * cloudy_flux + (1 - cloud_fraction) * clear_flux
-                    )
+                    ).astype(cloudy_flux.dtype)
+
+                def _pass_through_cloudy_flux(flux):
+                    return flux
 
                 flux = lax.cond(
                     jnp.less(cloud_fraction, 1),
                     _blend_partial_cloud_flux,
-                    lambda cloudy_flux: cloudy_flux,
+                    _pass_through_cloudy_flux,
                     flux,
                 )
 
@@ -3369,135 +3555,6 @@ class Radtrans:
             )
         else:
             return self._frequencies, flux, additional_outputs
-
-    def calculate_flux_autodiff(
-        self,
-        temperatures: ArrayLike,
-        mass_fractions: dict[str, ArrayLike],
-        mean_molar_masses: ArrayLike,
-        reference_gravity: float,
-        *,
-        pressures: ArrayLike = None,
-        cloud_parameters: dict[str, Any] | None = None,
-        irradiation_geometry: str = "dayside_ave",
-        stellar_intensities: ArrayLike = None,
-        star_irradiation_angle: float = 0.0,
-        reflectances: ArrayLike = None,
-        emissivities: ArrayLike = None,
-        additional_absorption_opacities_function: Callable = None,
-        additional_scattering_opacities_function: Callable = None,
-        chunk_feautrier: bool = None,
-        feautrier_chunk_size: int = None,
-        thomas_min_batch: int = None,
-        ck_chunk_size: int = None,
-        frequencies_to_wavelengths: bool = True,
-    ) -> tuple[ArrayLike, ArrayLike, dict[str, any]]:
-        r"""Autodiff-oriented emission-spectrum API with grouped cloud controls.
-
-        The method uses the same pure JAX kernel as calculate_flux, but collapses the
-        cloud-configuration surface into a single keyword argument and only accepts direct
-        stellar intensities on the irradiation side.
-
-        Example:
-            >>> cloud_parameters = {
-            ...     'cloud_f_sed': cloud_f_sed,
-            ...     'eddy_diffusion_coefficients': eddy_diffusion_coefficients,
-            ...     'cloud_particle_radius_distribution_std': 1.05,
-            ... }
-            >>> _, flux, _ = atmosphere.calculate_flux_autodiff(
-            ...     temperatures=temperatures,
-            ...     mass_fractions=mass_fractions,
-            ...     mean_molar_masses=mean_molar_masses,
-            ...     reference_gravity=reference_gravity,
-            ...     cloud_parameters=cloud_parameters,
-            ...     frequencies_to_wavelengths=False,
-            ... )
-            >>> temperature_gradient = jax.grad(
-            ...     lambda t: jnp.sum(
-            ...         atmosphere.calculate_flux_autodiff(
-            ...             temperatures=t,
-            ...             mass_fractions=mass_fractions,
-            ...             mean_molar_masses=mean_molar_masses,
-            ...             reference_gravity=reference_gravity,
-            ...             cloud_parameters=cloud_parameters,
-            ...             frequencies_to_wavelengths=False,
-            ...         )[1]
-            ...     )
-            ... )(temperatures)
-        """
-        allowed_cloud_parameters = {
-            "planet_radius",
-            "opaque_cloud_top_pressure",
-            "cloud_particle_mean_radii",
-            "cloud_particle_radius_distribution_std",
-            "cloud_particle_radius_distribution",
-            "cloud_hansen_a",
-            "cloud_hansen_b",
-            "clouds_particle_porosity_factor",
-            "cloud_f_sed",
-            "eddy_diffusion_coefficients",
-            "haze_factor",
-            "power_law_opacity_350nm",
-            "power_law_opacity_coefficient",
-            "gray_opacity",
-            "cloud_photosphere_wavelength_boundaries",
-            "cloud_photosphere_median_optical_depth",
-            "cloud_fraction",
-            "patchy_clouds",
-            "complete_coverage_clouds",
-            "adaptive_feautrier_iterations",
-        }
-        cloud_parameters = {} if cloud_parameters is None else dict(cloud_parameters)
-        unsupported_cloud_parameters = sorted(
-            set(cloud_parameters) - allowed_cloud_parameters
-        )
-
-        if unsupported_cloud_parameters:
-            raise ValueError(
-                "unsupported calculate_flux_autodiff cloud parameters: "
-                f"{', '.join(unsupported_cloud_parameters)}"
-            )
-
-        cloud_parameters["patchy_clouds"] = self._normalize_patchy_clouds(
-            patchy_clouds=cloud_parameters.pop("patchy_clouds", None),
-            complete_coverage_clouds=cloud_parameters.pop(
-                "complete_coverage_clouds", None
-            ),
-        )
-        solver_pressures = self._resolve_solver_pressures(pressures)
-        chunk_feautrier, feautrier_chunk_size = (
-            radiative_transfer_core.resolve_feautrier_chunking(
-                chunk_feautrier=chunk_feautrier,
-                feautrier_chunk_size=feautrier_chunk_size,
-            )
-        )
-        if thomas_min_batch is None:
-            thomas_min_batch = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH
-        if ck_chunk_size is None:
-            ck_chunk_size = radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE
-
-        return self._calculate_flux_kernel(
-            pressures=solver_pressures,
-            temperatures=temperatures,
-            mass_fractions=mass_fractions,
-            mean_molar_masses=mean_molar_masses,
-            reference_gravity=_convert_scalar_to_strong_type(reference_gravity),
-            irradiation_geometry=irradiation_geometry,
-            stellar_intensities=stellar_intensities,
-            star_irradiation_angle=star_irradiation_angle,
-            reflectances=reflectances,
-            emissivities=emissivities,
-            additional_absorption_opacities_function=additional_absorption_opacities_function,
-            additional_scattering_opacities_function=additional_scattering_opacities_function,
-            chunk_feautrier=chunk_feautrier,
-            feautrier_chunk_size=feautrier_chunk_size,
-            thomas_min_batch=thomas_min_batch,
-            ck_chunk_size=ck_chunk_size,
-            frequencies_to_wavelengths=frequencies_to_wavelengths,
-            sum_opacities=self._sum_opacities_emission,
-            anisotropic_cloud_scattering=self._anisotropic_cloud_scattering_emission,
-            **cloud_parameters,
-        )
 
     def calculate_photosphere_radius(
         self,
@@ -3803,6 +3860,7 @@ class Radtrans:
 
         return opacities_rosseland, opacities_planck, cloud_particle_mean_radii
 
+    @_compile_spectral_function(_TRANSIT_RADII_STATIC_ARGNAMES)
     def calculate_transit_radii(
         self,
         temperatures: ArrayLike,
@@ -3844,6 +3902,7 @@ class Radtrans:
         target_particle_radii: ArrayLike = None,
         pressures: ArrayLike = None,
         target_pressure: ArrayLike = None,
+        validate_inputs: bool = True,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's transmission radius
         (for the transmission spectrum).
@@ -3985,6 +4044,11 @@ class Radtrans:
                 target_pressure (Optional[ArrayLike]:
                     Pressure to target for selective bin disabling. Pressure bin closest to
                     the input value will be disabled.
+                validate_inputs (Optional[bool]):
+                    If True (default), check the reference gravity is positive.
+                    Under ``jax.jit`` this check needs a device-to-host callback
+                    on every evaluation, which is costly on GPU). Set to False in
+                    retrievals or if you've already checked the inputs.
         """
         has_partial_coverage_background_cloud = (
             self._has_partial_coverage_background_cloud(
@@ -4012,6 +4076,7 @@ class Radtrans:
             has_partial_coverage_background_cloud=(
                 has_partial_coverage_background_cloud
             ),
+            validate_inputs=validate_inputs,
         )
 
         return self._calculate_transit_radii_full_kernel(
@@ -4160,8 +4225,6 @@ class Radtrans:
         )
 
         # Determine whether clear opacities are needed.
-        # compute_clear_opacities must be a static Python bool so that the
-        # clear branch is never compiled when unneeded.
         if (
             len(partial_coverage_cloud_species) > 0
             or has_partial_coverage_background_cloud
@@ -4172,8 +4235,6 @@ class Radtrans:
 
         # Unless the clear spectrum is explicitly requested, defer the
         # clear-column opacity combination to the cloud_fraction < 1 branch
-        # below, so full-coverage spectra skip its cost.
-        # return_clear_spectrum is static, so this is a Python bool.
         defer_clear_opacity_combination = (
             should_compute_clear_opacities and not return_clear_spectrum
         )
@@ -4274,10 +4335,17 @@ class Radtrans:
                     sum_opacities=sum_opacities,
                     return_contributions=False,
                 )
+
+                def _blend_partial_cloud_transit(args):
+                    return args[2] * args[0] + (1 - args[2]) * args[1]
+
+                def _pass_through_radii(args):
+                    return args[0]
+
                 transit_radii = lax.cond(
                     jnp.less(cloud_fraction, 1),
-                    lambda op: op[2] * op[0] + (1 - op[2]) * op[1],
-                    lambda op: op[0],
+                    _blend_partial_cloud_transit,
+                    _pass_through_radii,
                     (transit_radii, transit_radii_clear, cloud_fraction),
                 )
             else:
@@ -4309,10 +4377,13 @@ class Radtrans:
                         + (1 - cloud_fraction) * clear_radii
                     )
 
+                def _pass_through_cloud_radii(radii):
+                    return radii
+
                 transit_radii = lax.cond(
                     jnp.less(cloud_fraction, 1),
                     _blend_partial_cloud_transit,
-                    lambda cloudy_radii: cloudy_radii,
+                    _pass_through_cloud_radii,
                     transit_radii,
                 )
 
@@ -4383,103 +4454,6 @@ class Radtrans:
             )
         else:
             return self._frequencies, transit_radii, additional_outputs
-
-    def calculate_transit_radii_autodiff(
-        self,
-        temperatures: ArrayLike,
-        mass_fractions: dict[str, ArrayLike],
-        mean_molar_masses: ArrayLike,
-        reference_gravity: float,
-        reference_pressure: float,
-        planet_radius: float,
-        *,
-        pressures: ArrayLike = None,
-        variable_gravity: bool = True,
-        cloud_parameters: dict[str, Any] | None = None,
-        additional_absorption_opacities_function: Callable = None,
-        additional_scattering_opacities_function: Callable = None,
-        frequencies_to_wavelengths: bool = True,
-    ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
-        r"""Autodiff-oriented transmission-spectrum API with grouped cloud controls.
-
-        The method mirrors calculate_transit_radii while collapsing cloud controls into a
-        single keyword argument and keeping the differentiated call surface small.
-
-        Example:
-            >>> cloud_parameters = {
-            ...     'cloud_f_sed': cloud_f_sed,
-            ...     'eddy_diffusion_coefficients': eddy_diffusion_coefficients,
-            ...     'cloud_particle_radius_distribution_std': 1.05,
-            ... }
-            >>> _, transit_radii, _ = atmosphere.calculate_transit_radii_autodiff(
-            ...     temperatures=temperatures,
-            ...     mass_fractions=mass_fractions,
-            ...     mean_molar_masses=mean_molar_masses,
-            ...     reference_gravity=reference_gravity,
-            ...     reference_pressure=reference_pressure,
-            ...     planet_radius=planet_radius,
-            ...     cloud_parameters=cloud_parameters,
-            ...     frequencies_to_wavelengths=False,
-            ... )
-            >>> temperature_gradient = jax.grad(
-            ...     lambda t: jnp.sum(
-            ...         atmosphere.calculate_transit_radii_autodiff(
-            ...             temperatures=t,
-            ...             mass_fractions=mass_fractions,
-            ...             mean_molar_masses=mean_molar_masses,
-            ...             reference_gravity=reference_gravity,
-            ...             reference_pressure=reference_pressure,
-            ...             planet_radius=planet_radius,
-            ...             cloud_parameters=cloud_parameters,
-            ...             frequencies_to_wavelengths=False,
-            ...         )[1]
-            ...     )
-            ... )(temperatures)
-        """
-        allowed_cloud_parameters = {
-            "opaque_cloud_top_pressure",
-            "cloud_particle_mean_radii",
-            "cloud_particle_radius_distribution_std",
-            "cloud_particle_radius_distribution",
-            "cloud_hansen_a",
-            "cloud_hansen_b",
-            "cloud_particle_number_density_grid",
-            "clouds_particle_porosity_factor",
-            "cloud_f_sed",
-            "eddy_diffusion_coefficients",
-            "haze_factor",
-            "power_law_opacity_350nm",
-            "power_law_opacity_coefficient",
-            "gray_opacity",
-            "cloud_fraction",
-            "patchy_clouds",
-            "complete_coverage_clouds",
-        }
-        cloud_parameters = {} if cloud_parameters is None else dict(cloud_parameters)
-        unsupported_cloud_parameters = sorted(
-            set(cloud_parameters) - allowed_cloud_parameters
-        )
-
-        if unsupported_cloud_parameters:
-            raise ValueError(
-                "unsupported calculate_transit_radii_autodiff cloud parameters: "
-                f"{', '.join(unsupported_cloud_parameters)}"
-            )
-
-        return self.calculate_transit_radii(
-            pressures=pressures,
-            temperatures=temperatures,
-            mass_fractions=mass_fractions,
-            mean_molar_masses=mean_molar_masses,
-            reference_gravity=reference_gravity,
-            reference_pressure=reference_pressure,
-            planet_radius=planet_radius,
-            variable_gravity=variable_gravity,
-            additional_absorption_opacities_function=additional_absorption_opacities_function,
-            additional_scattering_opacities_function=additional_scattering_opacities_function,
-            frequencies_to_wavelengths=frequencies_to_wavelengths,
-            **cloud_parameters,
-        )
 
     def get_wavelengths(self):
         """Convert the frequency grid into wavelengths in centimeter."""

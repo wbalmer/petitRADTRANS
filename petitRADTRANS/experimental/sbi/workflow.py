@@ -12,6 +12,8 @@ non-default knobs) is supplied through a single :class:`SBIConfig`.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
+import dataclasses
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +34,10 @@ from .artifacts import (
     write_run_manifest,
 )
 from .calibration import (
+    _block_log_spectrum_scale,
     classify_posterior_informativeness,
+    generate_embedding_information_report,
+    generate_encoder_stage_information_report,
     generate_posterior_predictive_report,
     generate_sbc_report,
     serialize_ood_diagnostic,
@@ -276,6 +281,378 @@ def _build_residual_fn_factory(task: SBITask):
     return make_residual
 
 
+def _refinement_verdict(
+    method: str,
+    refinement_config: Any,
+    importance_sampling_diagnostics: Mapping[str, Any] | None,
+    test_time_validation_report: Mapping[str, Any] | None,
+    interval_level: float = 0.9,
+) -> dict[str, Any]:
+    """Decide whether a refined posterior is fit to be delivered.
+
+    Refinement is a per-observation optimisation against the exact likelihood,
+    and it can fail in ways that still produce a confident-looking artifact:
+    importance sampling can put all the weight on one particle, and a MAP point
+    can carry a Laplace covariance that is far too narrow. Both have shipped
+    here as "the posterior" -- 18 of 18 and 19 of 19 zero-width marginals --
+    while the diagnostics that named the failure sat unread on disk.
+
+    Returns a verdict mapping with ``accepted`` plus the numbers behind the
+    decision, so the summary records why a run delivered what it delivered.
+    """
+    verdict: dict[str, Any] = {
+        "method": method,
+        "accepted": True,
+        "reasons": [],
+        "diagnostics": {},
+    }
+    if method == "none":
+        verdict["status"] = "not_requested"
+        return verdict
+
+    if method == "importance_sampling":
+        if not importance_sampling_diagnostics:
+            verdict["status"] = "accepted_without_diagnostics"
+            return verdict
+        ess = float(importance_sampling_diagnostics.get("effective_sample_size", 0.0))
+        efficiency = float(
+            importance_sampling_diagnostics.get("sampling_efficiency", 0.0)
+        )
+        minimum = float(refinement_config.min_effective_sample_size)
+        verdict["diagnostics"] = {
+            "effective_sample_size": ess,
+            "sampling_efficiency": efficiency,
+            "min_effective_sample_size": minimum,
+        }
+        if ess < minimum:
+            verdict["accepted"] = False
+            verdict["reasons"].append(
+                f"effective sample size {ess:.1f} is below the required "
+                f"{minimum:.0f}: the importance weights collapsed onto too few "
+                "proposal draws to describe a distribution"
+            )
+
+    elif method == "map_laplace":
+        if not test_time_validation_report:
+            # Without held-out validation there is nothing to test the delivered
+            # method against; deliver it but say so.
+            verdict["status"] = "accepted_without_validation"
+            return verdict
+        coverage = test_time_validation_report.get("overall_coverage_90")
+        median_chi2 = test_time_validation_report.get("median_chi2_per_n")
+        max_coverage_error = float(refinement_config.max_test_time_coverage_error)
+        max_chi2 = float(refinement_config.max_test_time_median_chi2_per_n)
+        verdict["diagnostics"] = {
+            "overall_coverage": coverage,
+            "nominal_coverage": interval_level,
+            "median_chi2_per_n": median_chi2,
+            "max_test_time_coverage_error": max_coverage_error,
+            "max_test_time_median_chi2_per_n": max_chi2,
+        }
+        if coverage is not None:
+            coverage_error = abs(float(coverage) - interval_level)
+            verdict["diagnostics"]["coverage_error"] = coverage_error
+            if coverage_error > max_coverage_error:
+                verdict["accepted"] = False
+                verdict["reasons"].append(
+                    f"held-out interval coverage {float(coverage):.3f} misses the "
+                    f"nominal {interval_level:.2f} by {coverage_error:.3f}: the "
+                    "refined covariance is not calibrated"
+                )
+        if median_chi2 is not None and float(median_chi2) > max_chi2:
+            verdict["accepted"] = False
+            verdict["reasons"].append(
+                f"median chi2/N over held-out cases is {float(median_chi2):.2f} "
+                f"(limit {max_chi2:.1f}): the refinement optimizer is not "
+                "converging case-to-case"
+            )
+
+    verdict["status"] = "accepted" if verdict["accepted"] else "rejected"
+    return verdict
+
+
+def _predictive_crps(result: Any) -> float | None:
+    """Mean CRPS across observation blocks of a target inference result.
+
+    CRPS is a *proper* scoring rule, which is why the delivery comparison uses
+    it rather than the mean absolute error or the interval width on their own.
+    A posterior can win on MAE by collapsing to a biased point, and win on
+    coverage by inflating until it contains everything; CRPS penalises both
+    directions at once, so "better CRPS" cannot be bought by mis-stating the
+    uncertainty. Returns ``None`` when no predictive was computed.
+    """
+    predictive = getattr(result, "posterior_predictive", None)
+    if predictive is None:
+        return None
+    scores = [
+        float(value)
+        for value in getattr(predictive, "crps", {}).values()
+        if np.isfinite(float(value))
+    ]
+    if not scores:
+        return None
+    return float(np.mean(scores))
+
+
+def _refinement_predictive_comparison(
+    refined_result: Any,
+    amortized_result: Any,
+    max_crps_ratio: float,
+) -> dict[str, Any]:
+    """Compare a refined target predictive against the amortized one.
+
+    The threshold gate in :func:`_refinement_verdict` asks whether a refinement
+    is bad in absolute terms. It never asked the question that actually decides
+    what to ship: *is it better than what it replaces?* On run
+    20260821T162601Z the refinement passed every threshold (held-out coverage
+    error 0.164 < 0.25, median chi2/N 1.12 < 10) and was delivered, while being
+    measurably worse than the amortized posterior it displaced -- CRPS
+    8.65e-06 against 3.65e-06, MAE 1.74 sigma against 0.83, and a predictive
+    interval 28.5 sigma wide against 6.8. The run shipped the worse of the two
+    artifacts it had computed.
+
+    Returns the numbers behind the comparison and whether the refinement earns
+    delivery.
+    """
+    refined_crps = _predictive_crps(refined_result)
+    amortized_crps = _predictive_crps(amortized_result)
+    comparison: dict[str, Any] = {
+        "criterion": "mean predictive CRPS (proper scoring rule; lower is better)",
+        "refined_crps": refined_crps,
+        "amortized_crps": amortized_crps,
+        "max_crps_ratio": float(max_crps_ratio),
+    }
+    if refined_crps is None or amortized_crps is None or amortized_crps <= 0.0:
+        # Nothing to compare against: keep the threshold gate's decision rather
+        # than inventing one.
+        comparison["refined_is_better"] = True
+        comparison["note"] = "no predictive available on one side; comparison skipped"
+        return comparison
+
+    ratio = refined_crps / amortized_crps
+    comparison["crps_ratio"] = float(ratio)
+    comparison["refined_is_better"] = bool(ratio <= float(max_crps_ratio))
+    return comparison
+
+
+def _resolve_truncation(
+    config: Any,
+    task: Any,
+    output_root: Path,
+    raw_observation_blocks: Any,
+) -> tuple[Any, dict[str, Any], Path]:
+    """Build and verify the truncation box for a sequential round.
+
+    Loads the source round's posterior, samples it at the target observation,
+    and derives a box in absolute cube coordinates -- composing with the source
+    round's own box when that round was itself truncated, so boxes never drift
+    into relative coordinates.
+
+    Raises ``RuntimeError`` if the box is not safe to truncate with. That check
+    is the whole safety argument for the method: mass the box cuts away cannot
+    be recovered by any later round, so an unsafe box must stop the run rather
+    than quietly produce a confident wrong answer.
+
+    Returns
+    -------
+    tuple
+        The box, its verification report, and the source run root.
+    """
+    from .artifacts import resolve_latest_posterior_run, resolve_posterior_dir
+    from .flows.base import load_posterior_estimator
+    from .preprocessing import TaskPreprocessingMetadata, normalize_observation_blocks
+    from .truncation import build_truncation_box, truncation_box_report
+
+    truncation = config.truncation
+    if truncation.box_from_run_label is not None:
+        # Reuse a completed round's box exactly. Deriving it again could give a
+        # slightly different box, hence a different task fingerprint, hence a
+        # regenerated dataset -- the whole point of resuming is to avoid that.
+        from .truncation import TruncationBox
+
+        reuse_root = (output_root / "runs" / truncation.box_from_run_label).resolve()
+        reuse_manifest = resolve_run_manifest(reuse_root)
+        payload = reuse_manifest.get("truncation_box")
+        if not payload:
+            raise RuntimeError(
+                f"Run {truncation.box_from_run_label} has no stored truncation box, "
+                "so its round cannot be reproduced. Check the run label."
+            )
+        box = TruncationBox.from_payload(payload)
+        print(f"Truncated round: reusing the stored box from {reuse_root.name}")
+        report = {
+            "reused_box_from_run": reuse_root.name,
+            "safe": True,
+            "reasons": [],
+            "round": int(box.metadata.get("round", 1)),
+            "volume_fraction": box.volume_fraction,
+        }
+        return box, report, reuse_root
+
+    if truncation.source_run_label is not None:
+        source_run_root = (output_root / "runs" / truncation.source_run_label).resolve()
+        source_manifest = resolve_run_manifest(source_run_root)
+    else:
+        source_run_root, source_manifest = resolve_latest_posterior_run(output_root)
+    source_posterior_dir = resolve_posterior_dir(source_run_root, source_manifest)
+
+    print(f"Truncated round: deriving the box from {source_run_root.name}")
+    source_posterior = load_posterior_estimator(Path(source_posterior_dir).as_posix())
+    source_metadata = json.loads(
+        (Path(source_posterior_dir) / "metadata.json").read_text()
+    )
+    source_preprocessing = TaskPreprocessingMetadata.from_payload(
+        source_metadata["preprocessing_metadata_payload"]
+    )
+
+    normalized = normalize_observation_blocks(
+        raw_observation_blocks, source_preprocessing
+    )
+    encoded = source_posterior.encode_observation(normalized)
+    # Seeded: the box determines the task fingerprint, so re-deriving it must
+    # reproduce it exactly. An unseeded draw would give a slightly different
+    # box on a resume, and with it a different fingerprint -- which reads as a
+    # cache miss and silently regenerates the round's dataset.
+    cube_samples = np.asarray(
+        source_posterior.sample_posterior(
+            encoded,
+            n_samples=max(int(config.n_posterior_samples), 20000),
+            seed=int(config.seed) + 17,
+        ).samples
+    )
+
+    parameter_names = tuple(task.parameter_layout.free_parameter_names)
+    box = build_truncation_box(
+        cube_samples,
+        parameter_names,
+        coverage=truncation.coverage,
+        safety_factor=truncation.safety_factor,
+        min_box_fraction=truncation.min_box_fraction,
+        source=source_run_root.name,
+    )
+
+    # Verify in the source round's own coordinates, then lift to absolute cube
+    # coordinates if that round was itself truncated.
+    report = truncation_box_report(
+        box,
+        cube_samples,
+        truth_cube=None,
+        min_captured_fraction=truncation.min_captured_fraction,
+    )
+    parent_payload = source_manifest.get("truncation_box")
+    if parent_payload:
+        from .truncation import TruncationBox
+
+        box = TruncationBox.from_payload(parent_payload).compose(box)
+        report["composed_with_source_box"] = True
+    report["round"] = int(box.metadata.get("round", 1))
+    report["source_run"] = source_run_root.name
+
+    # Check any known truths in physical units. Each parameter's cube-to-physical
+    # map is monotone, so the box corners map to the endpoints of the retained
+    # physical interval -- no inverse prior transform is needed.
+    truths = dict(config.truth_parameter_values or {})
+    if truths:
+        corners = np.asarray(
+            task.parameter_layout.transform_cube_to_physical_batch(
+                np.stack([box.lower, box.upper])
+            ),
+            dtype=float,
+        )
+        physical_lower = np.minimum(corners[0], corners[1])
+        physical_upper = np.maximum(corners[0], corners[1])
+        excluded = []
+        retained = {}
+        for index, name in enumerate(parameter_names):
+            if name not in truths:
+                continue
+            truth_value = float(truths[name])
+            low, high = float(physical_lower[index]), float(physical_upper[index])
+            retained[name] = [low, high]
+            if not low <= truth_value <= high:
+                excluded.append(
+                    f"{name} (truth {truth_value:.6g} outside [{low:.6g}, {high:.6g}])"
+                )
+        report["retained_physical_intervals"] = retained
+        report["truth_inside_box"] = not excluded
+        if excluded:
+            report["reasons"].append(
+                "the box excludes the known truth for: " + ", ".join(excluded)
+            )
+            if truncation.require_truth_inside_box:
+                report["safe"] = False
+
+    print(
+        f"  box retains {report['captured_fraction']:.5f} of the source posterior "
+        f"mass; prior volume fraction {box.volume_fraction:.4e} (round "
+        f"{report['round']})"
+    )
+    if not report["safe"]:
+        raise RuntimeError(
+            "Refusing to truncate: "
+            + "; ".join(report["reasons"])
+            + ". Widen the box (raise truncation.coverage or safety_factor) or "
+            "improve the source posterior before running a truncated round."
+        )
+    return box, report, source_run_root
+
+
+def _count_degenerate_marginals(posterior_samples: Any) -> int:
+    """Number of parameters whose delivered marginal has zero width.
+
+    A duplicated point estimate serialises exactly like a posterior: same
+    shape, same file names, plausible-looking medians. Counting the collapsed
+    marginals puts the distinction in the summary where a reader will see it.
+    """
+    samples = np.asarray(posterior_samples, dtype=float)
+    if samples.ndim != 2 or samples.shape[0] < 2:
+        return 0
+    spread = np.nanmax(samples, axis=0) - np.nanmin(samples, axis=0)
+    return int(np.count_nonzero(spread <= 0.0))
+
+
+def _save_rejected_refinement_samples(
+    *,
+    run_root: Path,
+    posterior,
+    task,
+    raw_observation_blocks,
+    preprocessing_metadata,
+    n_posterior_samples: int,
+    seed: int,
+) -> None:
+    """Write a rejected refinement's draws aside for inspection.
+
+    Stored in physical units, matching the delivered posterior's samples, so
+    the two can be compared directly; posteriors sample in cube coordinates and
+    an archive left in that space cannot be read against the truth values.
+
+    Only the parameter samples are stored: the posterior-predictive step runs
+    the forward model and is reserved for the posterior actually delivered.
+    Never raises -- failing to archive a rejected artifact must not fail a run
+    that has already produced a good one.
+    """
+    from .preprocessing import normalize_observation_blocks
+
+    try:
+        normalized = normalize_observation_blocks(
+            raw_observation_blocks, preprocessing_metadata
+        )
+        encoded = posterior.encode_observation(normalized)
+        cube_samples = np.asarray(
+            posterior.sample_posterior(
+                encoded, n_samples=n_posterior_samples, seed=seed
+            ).samples
+        )
+        samples = np.asarray(
+            task.parameter_layout.transform_cube_to_physical_batch(cube_samples),
+            dtype=float,
+        )
+        np.save(run_root / "rejected_refined_posterior_samples.npy", samples)
+    except Exception as error:  # pragma: no cover - diagnostics must not break a run
+        print(f"  (could not archive the rejected refinement samples: {error})")
+
+
 def _generate_test_time_validation_report(
     posterior,
     reader,
@@ -337,7 +714,13 @@ def _generate_test_time_validation_report(
     block_name = next(iter(reader.dataset.manifest.observation_schema["modalities"]))
     rank_fraction = np.zeros((n_cases, param_dim))      # P(sample < true)
     inside_90 = np.zeros((n_cases, param_dim), dtype=bool)
+    # Standardized error of the truth under the delivered posterior. Coverage
+    # alone cannot say *why* it falls short; (truth - mean) / sd separates a
+    # displaced posterior from a too-narrow one, and those call for opposite
+    # fixes.
+    z_score = np.zeros((n_cases, param_dim))
     chi2_per_n = np.zeros(n_cases)
+    map_diagnostics: list[dict] = []
     n_wavelengths = None
 
     for case_index in range(n_cases):
@@ -374,6 +757,12 @@ def _generate_test_time_validation_report(
         lo = np.percentile(samples, 5.0, axis=0)
         hi = np.percentile(samples, 95.0, axis=0)
         inside_90[case_index] = (truth >= lo) & (truth <= hi)
+        z_score[case_index] = (truth - samples.mean(axis=0)) / np.maximum(
+            samples.std(axis=0), 1e-12
+        )
+        case_diagnostics = getattr(refined, "_map_diagnostics", None)
+        if isinstance(case_diagnostics, dict):
+            map_diagnostics.append(case_diagnostics)
         print(
             f"  test-time case {case_index + 1}/{n_cases}: "
             f"chi2/N(MAP) {chi2_per_n[case_index]:.2f}",
@@ -395,13 +784,275 @@ def _generate_test_time_validation_report(
             parameter_names[i]: float(mean_rank[i]) for i in range(param_dim)
         },
     }
+
+    # Bias/width decomposition of the coverage shortfall. For a calibrated
+    # Gaussian posterior z has mean 0 and standard deviation 1 per parameter, so
+    # z_bias near 0 with z_spread of k says the widths are k times too narrow,
+    # while z_spread near 1 with a large z_bias says the location is wrong and
+    # widening would be the wrong fix. ``implied_width_inflation`` is the factor
+    # the reported standard deviations would have to be multiplied by.
+    z_bias = z_score.mean(axis=0)
+    z_spread = z_score.std(axis=0)
+    rms_z = np.sqrt(np.mean(z_score**2, axis=0))
+    report.update(
+        {
+            "overall_rms_z": float(np.sqrt(np.mean(z_score**2))),
+            "overall_mean_abs_z_bias": float(np.mean(np.abs(z_bias))),
+            "overall_mean_z_spread": float(np.mean(z_spread)),
+            "implied_width_inflation": float(np.median(rms_z)),
+            "per_parameter_z_bias": {
+                parameter_names[i]: float(z_bias[i]) for i in range(param_dim)
+            },
+            "per_parameter_z_spread": {
+                parameter_names[i]: float(z_spread[i]) for i in range(param_dim)
+            },
+        }
+    )
+    if map_diagnostics:
+        def _median_of(key: str) -> float | None:
+            values = [
+                float(entry[key])
+                for entry in map_diagnostics
+                if entry.get(key) is not None
+            ]
+            return float(np.median(values)) if values else None
+
+        report["map_covariance_method"] = str(
+            map_diagnostics[0].get("covariance_method", "")
+        )
+        report["median_covariance_width_ratio_vs_gauss_newton"] = _median_of(
+            "covariance_width_ratio_vs_gauss_newton"
+        )
+        report["median_chi2_inflation_factor"] = _median_of("chi2_inflation_factor")
     print(
         f"Test-time (MAP+Laplace) validation over {n_cases} held-out cases: "
         f"mean chi2/N(MAP) {report['mean_chi2_per_n']:.2f} | "
         f"median {report['median_chi2_per_n']:.2f} | "
         f"mean 90% coverage {report['overall_coverage_90']:.2f} (target 0.90)"
     )
+    print(
+        f"  calibration decomposition: mean |z bias| "
+        f"{report['overall_mean_abs_z_bias']:.2f} | mean z spread "
+        f"{report['overall_mean_z_spread']:.2f} (target 1.00) | widths would "
+        f"need x{report['implied_width_inflation']:.2f}"
+    )
     return report
+
+
+def _resolve_amplitude_reparameterization(
+    config: Any,
+    task: SBITask,
+    reader: Any,
+    preprocessing_metadata: Any,
+    parameter_names: Any,
+    embedding_dim: int,
+    seed: int,
+) -> tuple[Any, Any]:
+    """Fit the observation-conditioned coordinate for one amplitude-driven parameter.
+
+    Returns ``(reparameterization, report)``, both ``None`` when the feature is
+    off or cannot be fitted. Refuses rather than degrades when the prerequisites
+    are missing: the coordinate reads the exact log-amplitude out of a known slot
+    in the conditioning vector, so it is meaningless without the exact-summary
+    channel, and the fitted ratio box has to contain essentially every training
+    draw or the flow will pile mass on a cube edge.
+    """
+    from .flows.reparameterization import fit_amplitude_conditioned_parameter
+
+    parameter_name = getattr(config, "amplitude_conditioned_parameter", None)
+    if not parameter_name:
+        return None, None
+    if not config.encoder.exact_summary_channel:
+        raise ValueError(
+            "amplitude_conditioned_parameter requires encoder.exact_summary_channel: "
+            "the coordinate is defined by the exact log-amplitude scalar that "
+            "channel puts in the conditioning vector."
+        )
+    names = list(parameter_names)
+    if parameter_name not in names:
+        raise ValueError(
+            f"amplitude_conditioned_parameter {parameter_name!r} is not a free "
+            f"parameter of this task; available: {names}"
+        )
+    parameter_index = names.index(parameter_name)
+
+    block_name = next(iter(reader.dataset.manifest.observation_schema["modalities"]))
+    stats = preprocessing_metadata.blocks[block_name]
+    if stats.exact_summary_center is None:
+        raise ValueError(
+            "The preprocessing sidecar carries no exact-summary constants; refit "
+            "preprocessing before enabling amplitude_conditioned_parameter."
+        )
+
+    # Physical prior bounds, from the cube corners of a monotone prior transform.
+    corners = np.asarray(
+        task.parameter_layout.transform_cube_to_physical_batch(
+            np.stack(
+                [
+                    np.full(len(names), 1e-6),
+                    np.full(len(names), 1.0 - 1e-6),
+                ]
+            )
+        ),
+        dtype=float,
+    )
+    prior_lower = float(min(corners[0, parameter_index], corners[1, parameter_index]))
+    prior_upper = float(max(corners[0, parameter_index], corners[1, parameter_index]))
+
+    # A contiguous leading chunk, not a shuffled sample: the split assignment is
+    # already randomised at generation time, so the first rows are an unbiased
+    # draw, and a shuffled read of a 24M-row split means scattered HDF5 indexing
+    # for no statistical gain.
+    del seed
+    batch = next(
+        iter(
+            reader.iter_batches(
+                split=DatasetSplit.TRAIN,
+                batch_size=8192,
+                shuffle=False,
+                parameter_space="physical",
+            )
+        )
+    )
+    physical_values = np.asarray(batch.parameters, dtype=float)[:, parameter_index]
+    log_amplitudes = np.asarray(
+        [_block_log_spectrum_scale(blocks) for blocks in batch.observations],
+        dtype=float,
+    )
+
+    reparameterization, report = fit_amplitude_conditioned_parameter(
+        parameter_name=parameter_name,
+        parameter_index=parameter_index,
+        physical_values=physical_values,
+        log_amplitudes=log_amplitudes,
+        prior_lower=prior_lower,
+        prior_upper=prior_upper,
+        # The exact-summary channel is appended after the learned embedding, and
+        # the log amplitude is its first entry.
+        context_index=int(embedding_dim),
+        amplitude_center=float(stats.exact_summary_center[0]),
+        amplitude_scale=float(stats.exact_summary_scale[0]),
+        amplitude_exponent=float(config.amplitude_conditioned_exponent),
+    )
+    if report["captured_fraction"] < 0.995:
+        raise ValueError(
+            "The amplitude-conditioned ratio box captures only "
+            f"{report['captured_fraction']:.4f} of training draws; a coordinate "
+            "that clips this often piles posterior mass on a cube edge."
+        )
+    print(
+        f"Amplitude-conditioned coordinate for {parameter_name}: ratio in "
+        f"[{report['ratio_lower']:.4f}, {report['ratio_upper']:.4f}] "
+        f"(sd {report['ratio_sd']:.4f}, captured {report['captured_fraction']:.4f}, "
+        f"{report['compression_vs_prior']:.2f}x narrower than the log prior range)"
+    )
+    return reparameterization, report
+
+
+def _ensure_exact_summary_constants(
+    task: SBITask,
+    dataset: Any,
+    preprocessing_metadata: Any,
+    sidecar_path: Path,
+    max_samples: int = 262144,
+) -> Any:
+    """Fill in the exact-summary constants of a sidecar written before they existed.
+
+    Only the new constants are fitted; every pre-existing statistic is left
+    byte-for-byte alone, so a dataset keeps the normalization its earlier runs
+    used and results stay comparable. Refitting the whole sidecar would reread
+    the entire training split -- 42 GB at 24M simulations -- and would perturb
+    the per-wavelength transform for no reason.
+
+    Without this the channel would silently emit zeros for every existing
+    dataset: the constants default to ``None``, and a disabled channel looks
+    exactly like a working one from the outside.
+    """
+    from .preprocessing import (
+        _apply_per_wavelength_value_transform,
+        _fit_exact_summary_constants,
+        _per_wavelength_stats_arrays,
+        _positive_scale,
+        exact_summary_feature_matrix,
+    )
+
+    missing = [
+        name
+        for name, stats in preprocessing_metadata.blocks.items()
+        if stats.modality == "spectrum" and stats.exact_summary_center is None
+    ]
+    if not missing:
+        return preprocessing_metadata
+
+    print(
+        "Fitting exact-summary constants for existing preprocessing sidecar "
+        f"({', '.join(missing)}) from up to {max_samples} training rows..."
+    )
+    collected: dict[str, list[np.ndarray]] = {name: [] for name in missing}
+    n_rows = 0
+    for chunk in dataset.iter_split_chunks(
+        split=DatasetSplit.TRAIN, chunk_size=8192
+    ):
+        for name in missing:
+            payload = chunk["observations"][name]
+            values = np.asarray(payload["values"], dtype=float)
+            uncertainties = payload.get("uncertainties")
+            stats = preprocessing_metadata.blocks[name]
+            per_wavelength = _per_wavelength_stats_arrays(stats, values.shape[-1])
+            if per_wavelength is None:
+                raise RuntimeError(
+                    f"Block {name!r} has no per-wavelength statistics; the "
+                    "exact-summary constants cannot be fitted against a "
+                    "normalization that does not exist."
+                )
+            centre_wl, scale_wl = per_wavelength
+            normalized, normalized_uncertainties = (
+                _apply_per_wavelength_value_transform(
+                    values,
+                    None if uncertainties is None else np.asarray(uncertainties, dtype=float),
+                    centre_wl,
+                    scale_wl,
+                )
+            )
+            with np.errstate(all="ignore"):
+                sample_scale = np.nanmedian(np.abs(np.where(np.isfinite(values), values, np.nan)), axis=1)
+            sample_scale = np.where(
+                np.isfinite(sample_scale) & (sample_scale > 0.0),
+                sample_scale,
+                _positive_scale(stats.value_median, stats.value_mean, default=1.0),
+            )
+            collected[name].append(
+                exact_summary_feature_matrix(
+                    normalized,
+                    normalized_uncertainties,
+                    payload.get("mask"),
+                    np.log10(sample_scale),
+                )
+            )
+        n_rows += int(np.asarray(chunk["parameters"]).shape[0])
+        if n_rows >= max_samples:
+            break
+
+    updated_blocks = dict(preprocessing_metadata.blocks)
+    for name in missing:
+        centre, scale = _fit_exact_summary_constants(
+            np.concatenate(collected[name], axis=0)[:max_samples]
+        )
+        updated_blocks[name] = dataclasses.replace(
+            updated_blocks[name],
+            exact_summary_center=centre,
+            exact_summary_scale=scale,
+        )
+        print(
+            f"  {name}: centre {np.round(centre, 4).tolist()} "
+            f"scale {np.round(scale, 4).tolist()} (from {n_rows} rows)"
+        )
+
+    preprocessing_metadata = dataclasses.replace(
+        preprocessing_metadata, blocks=updated_blocks
+    )
+    write_json(sidecar_path, preprocessing_metadata.to_payload())
+    return preprocessing_metadata
 
 
 def _refit_preprocessing(task: SBITask, dataset: Any, sidecar_path: Path) -> Any:
@@ -419,6 +1070,7 @@ def _refit_preprocessing(task: SBITask, dataset: Any, sidecar_path: Path) -> Any
             "task_fingerprint": task.task_fingerprint.digest,
             "split_policy": dataset.manifest.metadata.get("split_policy", "shuffled"),
         },
+        spectral_value_space=config.spectral_value_space,
     )
     write_json(sidecar_path, preprocessing_metadata.to_payload())
     return preprocessing_metadata
@@ -686,6 +1338,30 @@ def run_sbi(config: SBIConfig) -> Path:
         metadata={"preprocessing_version": config.preprocessing_version},
     )
 
+    # Sequential (truncated) round: re-express the cube over a box around the
+    # source round's posterior. Wrapping the parameter layout is the whole
+    # mechanism -- the simulator draws the unit cube exactly as before, and
+    # every consumer that turns a cube coordinate into a physical value now
+    # goes through the box. The prior quantiles the fingerprint records change
+    # with it, so a truncated round cannot reuse its parent's dataset.
+    truncation_box = None
+    truncation_report = None
+    if config.truncation.enabled:
+        from dataclasses import replace as _dataclass_replace
+
+        from .truncation import TruncatedParameterLayout
+
+        truncation_box, truncation_report, _truncation_source = _resolve_truncation(
+            config, task, output_root, build_raw_observation_blocks(retrieval_config)
+        )
+        task = _dataclass_replace(
+            task,
+            parameter_layout=TruncatedParameterLayout(
+                base=task.parameter_layout, box=truncation_box
+            ),
+            metadata={**dict(task.metadata), "truncation_box": truncation_box.to_payload()},
+        )
+
     split_counts = infer_split_counts(config.n_simulations)
     dataset_dir = output_root / "datasets"
     dataset_dir.mkdir(parents=True, exist_ok=True)
@@ -707,14 +1383,23 @@ def run_sbi(config: SBIConfig) -> Path:
             source_run_root, source_manifest = resolve_latest_posterior_run(output_root)
         source_run_label = str(source_manifest.get("run_label") or source_run_root.name)
 
+    # Resuming training reuses the run directory too: the trainer's own
+    # checkpoints live there, and a walltime-limited run must be able to pick
+    # up where it stopped rather than start a fresh 8M-simulation training.
+    resume_training_run = bool(config.resume_training and config.run_label is not None)
     reuse_existing_run = bool(
         config.load_completed_model
         and source_run_root is not None
         and source_manifest is not None
         and source_run_label is not None
         and config.resume_predictive_checkpoints
-    )
-    if reuse_existing_run:
+    ) or resume_training_run
+    if resume_training_run and source_run_root is None:
+        run_label = str(config.run_label)
+        run_root = (output_root / "runs" / run_label).resolve()
+        run_root.mkdir(parents=True, exist_ok=True)
+        print(f"Resuming training in existing run directory: {run_root}")
+    elif reuse_existing_run:
         assert source_run_root is not None and source_run_label is not None
         run_label = source_run_label
         run_root = source_run_root
@@ -847,6 +1532,10 @@ def run_sbi(config: SBIConfig) -> Path:
             preprocessing_metadata = _refit_preprocessing(
                 task, dataset, preprocessing_sidecar
             )
+        if config.encoder.exact_summary_channel:
+            preprocessing_metadata = _ensure_exact_summary_constants(
+                task, dataset, preprocessing_metadata, preprocessing_sidecar
+            )
         print("Reusing existing simulation dataset:", dataset_path)
     else:
         print("Generating simulation dataset...")
@@ -898,9 +1587,24 @@ def run_sbi(config: SBIConfig) -> Path:
         focal_target_log10_median=focal_target_log10_median,
     )
 
+    amplitude_reparameterization, amplitude_reparameterization_report = (
+        _resolve_amplitude_reparameterization(
+            config,
+            task,
+            reader,
+            preprocessing_metadata,
+            parameter_names,
+            embedding_dim=int(config.encoder.embedding_dim),
+            seed=config.seed + 23,
+        )
+    )
+
     posterior: Any
     elbo_log_likelihood_fn = None  # built lazily for ELBO training / refinement
-    if config.load_completed_model or reuse_existing_run:
+    # Keyed on load_completed_model alone: reuse_existing_run is also set when
+    # only the run DIRECTORY is being reused (resuming interrupted training),
+    # which must still train rather than load a finished posterior.
+    if config.load_completed_model:
         print("Loading previously trained posterior and skipping training...")
         assert source_manifest is not None
         posterior = load_posterior_estimator(saved_posterior_dir.as_posix())
@@ -936,9 +1640,11 @@ def run_sbi(config: SBIConfig) -> Path:
             stability=config.stability,
             seed=config.seed,
             checkpoint_directory=checkpoint_dir.as_posix(),
+            resume_from_checkpoint=config.resume_training,
             verbose_diagnostics=config.verbose_training_diagnostics,
             diagnostics_output_directory=run_root.as_posix(),
             diagnostics_plot_interval=config.training_diagnostics_plot_interval,
+            reparameterization=amplitude_reparameterization,
         )
         if config.training.training_objective == "elbo":
             import warnings
@@ -999,6 +1705,8 @@ def run_sbi(config: SBIConfig) -> Path:
         status="validating",
     )
 
+    from .preprocessing import normalize_observation_blocks
+
     print("Computing validation reports on held-out simulations...")
     validation_sbc_report = generate_sbc_report(
         posterior,
@@ -1009,6 +1717,76 @@ def run_sbi(config: SBIConfig) -> Path:
         max_cases=config.validation_max_cases,
         seed=config.seed + 1,
     )
+    # What does the embedding actually know? A broad posterior marginal is
+    # ambiguous on its own -- it can mean the flow failed to decode the
+    # embedding, or that the encoder never carried the information. Only the
+    # second is an encoder problem, and the two call for opposite fixes.
+    try:
+        embedding_information_report = generate_embedding_information_report(
+            posterior,
+            reader,
+            parameter_names,
+            split=DatasetSplit.TEST,
+            max_cases=8192,
+            batch_size=train_batch_size,
+            seed=config.seed + 5,
+            # Also measure the scatter over held-out spectra resembling the
+            # target, which is the only figure comparable with a reference
+            # retrieval's width for this observation.
+            target_normalized_values=np.ravel(
+                np.asarray(
+                    normalize_observation_blocks(
+                        raw_observation_blocks, preprocessing_metadata
+                    )[0].values,
+                    dtype=float,
+                )
+            ),
+        )
+        uninformative = sorted(
+            name
+            for name, value in embedding_information_report["r2_nonlinear"].items()
+            if value < 0.05
+        )
+        if uninformative:
+            print(
+                f"  embedding carries no usable information on {len(uninformative)}/"
+                f"{len(parameter_names)} parameters: {', '.join(uninformative)}"
+            )
+        statistic = embedding_information_report.get("observation_statistic", {}).get(
+            "log10_median_spectrum_scale"
+        )
+        if statistic is not None:
+            print(
+                "  conditioning recovers log10(median depth) at R2 "
+                f"{statistic['r2_nonlinear']:.6f} "
+                f"(residual {statistic['residual_sd']:.5f} of a prior spread "
+                f"{statistic['prior_sd']:.4f})"
+            )
+    except Exception as error:  # pragma: no cover - a probe must not fail a run
+        print(f"  (embedding information probe skipped: {error})")
+        embedding_information_report = None
+
+    # Where, layer by layer, does that statistic stop being recoverable? This
+    # separates "the encoder never had it" from "a specific layer removed it",
+    # and only the second names something to change.
+    try:
+        encoder_stage_report = generate_encoder_stage_information_report(
+            posterior,
+            reader,
+            split=DatasetSplit.TEST,
+            max_cases=2048,
+            batch_size=train_batch_size,
+            seed=config.seed + 6,
+        )
+        for stage_name, stage in encoder_stage_report.get("stages", {}).items():
+            print(
+                f"  stage {stage_name:<22s} width {stage['width']:>6d} | "
+                f"R2 {stage['r2_best']:.6f} | residual {stage['residual_sd']:.5f}"
+            )
+    except Exception as error:  # pragma: no cover - a probe must not fail a run
+        print(f"  (encoder stage audit skipped: {error})")
+        encoder_stage_report = None
+
     validation_predictive_report = generate_posterior_predictive_report(
         task,
         posterior,
@@ -1037,6 +1815,8 @@ def run_sbi(config: SBIConfig) -> Path:
     # MAP+Laplace step enforces exact data consistency for the delivered fit.
     target_posterior = posterior
     refinement = config.refinement
+    is_diagnostics = None
+    test_time_validation_report = None
     if refinement.method != "none":
         from .preprocessing import normalize_observation_blocks
         from .training import _prestack_observation_blocks
@@ -1072,10 +1852,19 @@ def run_sbi(config: SBIConfig) -> Path:
                 beta_start=refinement.map_beta_start,
                 beta_anneal_fraction=refinement.map_beta_anneal_fraction,
                 covariance_method=refinement.map_covariance_method,
+                covariance_chi2_inflation=refinement.map_covariance_chi2_inflation,
                 vi_num_steps=refinement.map_vi_num_steps,
                 vi_learning_rate=refinement.map_vi_learning_rate,
                 vi_num_samples=refinement.map_vi_num_samples,
                 num_starts=refinement.map_num_starts,
+                start_selection=refinement.map_start_selection,
+                num_scored_starts=refinement.map_num_scored_starts,
+                start_forward_batch_size=int(
+                    refinement.is_forward_batch_size
+                    if refinement.is_forward_batch_size is not None
+                    else config.simulation_batch_size
+                ),
+                convergence_chi2_per_n=refinement.map_convergence_chi2_per_n,
             )
             if refinement.test_time_validation:
                 print(
@@ -1164,15 +1953,109 @@ def run_sbi(config: SBIConfig) -> Path:
                 seed=config.seed + 7,
             )
 
-    print("Running amortized inference on the target spectrum...")
-    result = AmortizedRetrieval(task=task, posterior_estimator=target_posterior).infer(
-        raw_observation_blocks,
-        n_posterior_samples=config.n_posterior_samples,
-        include_posterior_predictive=True,
-        posterior_predictive_interval_level=0.9,
-        n_predictive_forward_model_samples=config.n_predictive_forward_model_samples,
-        seed=config.seed + 3,
+    # Gate the delivered posterior on the refinement's own diagnostics. A
+    # refinement that collapsed onto a single particle, or whose covariance is
+    # uncalibrated on held-out cases, is written aside rather than shipped as
+    # the answer.
+    refinement_verdict = _refinement_verdict(
+        refinement.method,
+        refinement,
+        is_diagnostics,
+        test_time_validation_report,
     )
+    if not refinement_verdict["accepted"]:
+        for reason in refinement_verdict["reasons"]:
+            print(f"  REFINEMENT REJECTED ({refinement.method}): {reason}")
+        print(
+            "  Delivering the amortized posterior instead; the refined result is "
+            "kept as rejected_refined_posterior_samples.npy for inspection."
+        )
+        rejected_posterior = target_posterior
+        target_posterior = posterior
+        _save_rejected_refinement_samples(
+            run_root=run_root,
+            posterior=rejected_posterior,
+            task=task,
+            raw_observation_blocks=raw_observation_blocks,
+            preprocessing_metadata=preprocessing_metadata,
+            n_posterior_samples=config.n_posterior_samples,
+            seed=config.seed + 3,
+        )
+    write_json(run_root / "refinement_verdict.json", refinement_verdict)
+    if truncation_box is not None:
+        write_json(run_root / "truncation_box.json", truncation_box.to_payload())
+        write_json(run_root / "truncation_report.json", truncation_report)
+
+    def _infer_target(estimator: Any) -> Any:
+        """Target inference + predictive for one candidate posterior.
+
+        Both delivery candidates go through this same call -- same sample
+        counts, same seed, same interval level -- so the CRPS comparison below
+        is like-for-like and not an artefact of differing settings.
+        """
+        return AmortizedRetrieval(task=task, posterior_estimator=estimator).infer(
+            raw_observation_blocks,
+            n_posterior_samples=config.n_posterior_samples,
+            include_posterior_predictive=True,
+            posterior_predictive_interval_level=0.9,
+            n_predictive_forward_model_samples=config.n_predictive_forward_model_samples,
+            seed=config.seed + 3,
+        )
+
+    print("Running amortized inference on the target spectrum...")
+    result = _infer_target(target_posterior)
+
+    # Comparative delivery test. The thresholds above ask whether the refinement
+    # is bad in absolute terms; this asks whether it beats the amortized
+    # posterior it would replace. Only runs when a refinement actually survived
+    # the thresholds, so a "none" or already-rejected refinement costs nothing
+    # extra.
+    if (
+        refinement.method != "none"
+        and refinement_verdict["accepted"]
+        and target_posterior is not posterior
+    ):
+        print(
+            "  Comparing the refined target predictive against the amortized one "
+            "(proper scoring rule: CRPS)..."
+        )
+        amortized_result = _infer_target(posterior)
+        comparison = _refinement_predictive_comparison(
+            result,
+            amortized_result,
+            max_crps_ratio=float(refinement.max_refinement_crps_ratio),
+        )
+        refinement_verdict["predictive_comparison"] = comparison
+        if not comparison["refined_is_better"]:
+            refinement_verdict["accepted"] = False
+            refinement_verdict["status"] = "rejected"
+            reason = (
+                f"the refined predictive scores worse than the amortized one: "
+                f"CRPS {comparison['refined_crps']:.4g} vs "
+                f"{comparison['amortized_crps']:.4g} "
+                f"(ratio {comparison['crps_ratio']:.2f} > "
+                f"{comparison['max_crps_ratio']:.2f}) -- delivering the "
+                "refinement would ship the worse of the two artifacts computed"
+            )
+            refinement_verdict["reasons"].append(reason)
+            print(f"  REFINEMENT REJECTED ({refinement.method}): {reason}")
+            _save_rejected_refinement_samples(
+                run_root=run_root,
+                posterior=target_posterior,
+                task=task,
+                raw_observation_blocks=raw_observation_blocks,
+                preprocessing_metadata=preprocessing_metadata,
+                n_posterior_samples=config.n_posterior_samples,
+                seed=config.seed + 3,
+            )
+            target_posterior = posterior
+            result = amortized_result
+        else:
+            print(
+                f"  refinement accepted: CRPS {comparison['refined_crps']:.4g} vs "
+                f"amortized {comparison['amortized_crps']:.4g}"
+            )
+        write_json(run_root / "refinement_verdict.json", refinement_verdict)
     if result.metadata.get("parameter_space") != "physical":
         raise RuntimeError(
             "AmortizedRetrieval is expected to return posterior samples in physical "
@@ -1180,6 +2063,14 @@ def run_sbi(config: SBIConfig) -> Path:
         )
 
     posterior_samples = np.asarray(result.posterior.samples, dtype=float)
+    degenerate_marginals = _count_degenerate_marginals(posterior_samples)
+    if degenerate_marginals:
+        print(
+            f"  WARNING: {degenerate_marginals}/{posterior_samples.shape[-1]} "
+            "delivered marginals have zero width -- the delivered artifact is a "
+            "repeated point estimate, not a distribution. Treat every credible "
+            "interval below as meaningless."
+        )
     np.save(run_root / "target_posterior_samples.npy", posterior_samples)
     np.save(
         run_root / "target_posterior_log_probabilities.npy",
@@ -1310,6 +2201,22 @@ def run_sbi(config: SBIConfig) -> Path:
         "training_diagnostics": summarize_training_diagnostics(posterior),
         "posterior_summary": summarize_posterior_samples(
             posterior_samples, parameter_names, config.truth_parameter_values
+        ),
+        "truncation_box": (
+            None if truncation_box is None else truncation_box.to_payload()
+        ),
+        "truncation_report": truncation_report,
+        "embedding_information": embedding_information_report,
+        "encoder_stage_information": encoder_stage_report,
+        "amplitude_reparameterization": amplitude_reparameterization_report,
+        "refinement_verdict": refinement_verdict,
+        "delivered_posterior": (
+            "amortized"
+            if refinement.method == "none" or not refinement_verdict["accepted"]
+            else f"refined_{refinement.method}"
+        ),
+        "delivered_posterior_degenerate_marginals": _count_degenerate_marginals(
+            posterior_samples
         ),
         "posterior_contraction": posterior_contraction,
         "n_parameters_constrained": int(n_constrained),

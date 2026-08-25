@@ -4,18 +4,23 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [Unreleased]
+## [4.0.0b2] - 2026-08-25
 ### Changed
-- **Moved the simulation-based inference package from `petitRADTRANS.sbi` to
-  `petitRADTRANS.experimental.sbi`.** The new `petitRADTRANS.experimental`
-  namespace marks features that are under active development: they are not
-  covered by the usual deprecation policy, and their public API, saved-artifact
-  formats (datasets, posteriors, run manifests), and numerical behaviour may
-  change in any release. Importing anything from `petitRADTRANS.experimental`
-  emits a `UserWarning` to that effect. Update imports from
-  `from petitRADTRANS.sbi import ...` to
-  `from petitRADTRANS.experimental.sbi import ...`; no compatibility shim is
-  provided at the old path.
+- `calculate_flux` and `calculate_transit_radii` now fully JIT compiled for
+  improved performance (about 30% faster).
+- Time-series retrieval model now can be used to N-order harmonics rather than
+  hard-coded first and second order.
+- Moved SBI module to `experimental`. SBI now works for both emission and transmission.
+  Recommended setup is to use a neural autoregressive flow for both, with more details
+  in README.
+
+### Fixed
+- Removed `debug.callbacks` from opacities and validation.
+- dtype mismatch in patchy cloud opacity conditional.
+- lambda functions in JIT compiled functions which results in extra compilations.
+
+### Removed
+- autodiff versions of `calculate_flux` and `calculate_transit_radii`
 
 ## [4.0.0b1] - 2026-07-30
 ### Summary

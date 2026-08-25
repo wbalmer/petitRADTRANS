@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .flows import ConditionalFlowPosterior
+from .preprocessing import EXACT_SUMMARY_DIM
 
 
 @dataclass
@@ -184,6 +185,19 @@ class EncoderConfig:
         Intermediate embedding size of the photometric sub-encoder.
     hidden_dim:
         Hidden width of the encoder networks.
+    exact_summary_channel:
+        Append the analytically computed exact-summary scalars (log median
+        transit depth / flux, the normalized median, the within-spectrum scatter
+        and the noise level) directly to the flow's conditioning vector,
+        bypassing the encoder network and every per-observation normalization.
+
+        On the transmission benchmark the trained 256-dimensional embedding
+        recovered ``log(median depth)`` at R^2 0.67 (residual 0.436) where a
+        plain median of the encoder's own input reaches R^2 0.999992 (residual
+        0.0022) -- so the network was destroying, not merely failing to sharpen,
+        the statistic that pins ``R_p + h``. Enabled by default; the estimator's
+        own default is off so that models saved before the channel existed
+        reload with their original context width.
     """
 
     spectrum_encoder_type: str = "convolution"
@@ -191,6 +205,7 @@ class EncoderConfig:
     spectrum_embedding_dim: int = 64
     photometry_embedding_dim: int = 32
     hidden_dim: int = 128
+    exact_summary_channel: bool = True
 
 
 @dataclass
@@ -291,6 +306,13 @@ class TrainingConfig:
     focal_reweighting: bool = False
     focal_weight_peak: float = 50.0
     focal_bandwidth_dex: float = 0.15
+    # Noise-level conditioning: per-sample error-bar scale drawn as
+    # 10**U(low, high) during training, with the scaled uncertainties reported
+    # to the encoder alongside the matching noise, so the posterior is learned
+    # as a function of the assumed noise instead of memorising one error-bar
+    # scale. None keeps a single fixed level. Not in the task fingerprint, so
+    # switching it reuses the simulation dataset.
+    noise_level_log10_range: tuple[float, float] | None = None
     # 'cube' (uniform prior) or 'unconstrained'. ELBO requires 'cube'.
     parameter_space: str = "cube"
     # ELBO-objective knobs (ignored when training_objective='npe').
@@ -378,9 +400,23 @@ class RefinementConfig:
     map_beta_anneal_fraction:
         Fraction of MAP steps over which the temperature anneals to 1.
     map_covariance_method:
-        How the posterior covariance is estimated around the MAP point:
-        ``"laplace"`` (Hessian/Gauss-Newton) or ``"gaussian_vi"`` (Gaussian
-        variational fit).
+        How the posterior covariance is estimated around the MAP point.
+        ``"hessian"`` (default) uses the exact Hessian of the negative log
+        posterior -- the Laplace approximation as defined. ``"laplace"`` keeps
+        the historical Gauss-Newton approximation ``J^T J``, which drops the
+        residual-curvature term ``sum_i r_i d^2 r_i / du^2``; that term only
+        vanishes for a perfect fit, and dropping it makes the posterior too
+        narrow, which is the observed failure (held-out coverage 0.52 against a
+        nominal 0.90 with the optimizer already converged at chi2/N 1.28).
+        ``"gaussian_vi"`` runs a short mean-field Gaussian variational fit;
+        being mean-field and reverse-KL it targets conditional rather than
+        marginal widths, so expect it to be narrower, not wider.
+    map_covariance_chi2_inflation:
+        Scale the MAP covariance by ``chi2/dof`` when the fit is worse than its
+        degrees of freedom -- the textbook correction for optimistic error bars.
+        Off by default: the factor is reported in the run diagnostics either
+        way, and applying it before the curvature term is understood would
+        paper over whatever else is wrong.
     map_vi_num_steps, map_vi_learning_rate, map_vi_num_samples:
         Controls for the ``"gaussian_vi"`` covariance estimate (steps, learning
         rate, reparameterized samples per step).
@@ -404,6 +440,39 @@ class RefinementConfig:
     elbo_beta_anneal_fraction:
         Fraction of refinement steps over which the likelihood temperature anneals
         (``beta_start`` is taken from :attr:`TrainingConfig.elbo_beta_start`).
+    min_effective_sample_size:
+        Smallest importance-sampling effective sample size accepted for
+        delivery. Below this the refined "posterior" is a handful of duplicated
+        particles rather than a distribution, so the workflow delivers the
+        amortized posterior instead and records the rejection. Both benchmarks
+        have returned an effective sample size of exactly 1 from 16384
+        proposals: a proposal much broader than the true posterior has
+        essentially no overlap with it in 18 dimensions, and one particle takes
+        all the weight.
+    max_test_time_coverage_error:
+        Largest |measured - nominal| central-interval coverage accepted from the
+        held-out test-time validation of ``map_laplace``. A MAP point with a
+        too-narrow Laplace covariance fits the target while being badly
+        overconfident; measured coverage of 0.48 against a nominal 0.90 is a
+        rejection, not a detail.
+    max_refinement_crps_ratio:
+        Largest ratio of refined-to-amortized predictive CRPS accepted for
+        delivery. The other thresholds ask whether a refinement is bad in
+        absolute terms; this one asks whether it is better than the amortized
+        posterior it would replace, which is the question that decides what
+        ships. On run 20260821T162601Z a refinement passed every absolute
+        threshold and was delivered while being 2.4x worse by CRPS (8.65e-06 vs
+        3.65e-06), 2.1x worse by MAE and 4.2x wider -- the run shipped the worse
+        of the two artifacts it had already computed. CRPS is used because it is
+        a proper scoring rule: a posterior cannot improve it by collapsing to a
+        biased point (which flatters MAE) or by inflating until it contains
+        everything (which flatters coverage). ``1.0`` requires the refinement to
+        be at least as good; raise it to tolerate a small regression, or set it
+        to ``float("inf")`` to restore the old threshold-only behaviour.
+    max_test_time_median_chi2_per_n:
+        Largest median chi2/N accepted across the held-out test-time cases.
+        Values far above 1 mean the refinement optimizer is not converging
+        case-to-case, whatever it managed on the target.
     """
 
     method: str = "none"  # "none" | "map_laplace" | "importance_sampling" | "elbo"
@@ -414,11 +483,23 @@ class RefinementConfig:
     map_learning_rate: float = 5e-2
     map_beta_start: float = 1e-3
     map_beta_anneal_fraction: float = 0.5
-    map_covariance_method: str = "laplace"  # "laplace" | "gaussian_vi"
+    map_covariance_method: str = "hessian"  # "hessian" | "laplace" | "gaussian_vi"
+    map_covariance_chi2_inflation: bool = False
     # Independent MAP starts (1 = amortized mean only; >1 adds individual
     # amortized draws). Guards against the logit-boundary saturation trap when
     # the amortized init is biased; best final objective wins.
-    map_num_starts: int = 4
+    map_num_starts: int = 8
+    # Where MAP starts come from. "likelihood_ranked" scores amortized draws
+    # with one batched forward-model pass and starts from the best; the
+    # default "amortized_mean" starts from the posterior mean, which for a
+    # near-prior posterior is a low-likelihood point and left 6 of 16 held-out
+    # cases at chi2/N of 11-131.
+    map_start_selection: str = "likelihood_ranked"
+    map_num_scored_starts: int = 512
+    # chi2/N above which a MAP solve is recorded as non-converged. The Laplace
+    # covariance around a non-converged optimum is meaningless, so those cases
+    # are counted rather than averaged in.
+    map_convergence_chi2_per_n: float = 5.0
     map_vi_num_steps: int = 300
     map_vi_learning_rate: float = 1e-2
     map_vi_num_samples: int = 32
@@ -432,6 +513,89 @@ class RefinementConfig:
     elbo_learning_rate: float = 1e-4
     elbo_num_samples: int = 32
     elbo_beta_anneal_fraction: float = 0.5
+    # Acceptance gate on the delivered target posterior. A refinement that
+    # fails these is written as a secondary artifact and the amortized
+    # posterior is delivered instead; see _refinement_verdict in workflow.py.
+    min_effective_sample_size: float = 50.0
+    max_test_time_coverage_error: float = 0.25
+    max_test_time_median_chi2_per_n: float = 10.0
+    max_refinement_crps_ratio: float = 1.0
+
+
+@dataclass(frozen=True)
+class TruncationConfig:
+    """Truncated second round (TSNPE) around a first-round posterior.
+
+    Round one trains on the full prior, which for a sharp posterior means
+    almost every simulation lands somewhere the posterior has no mass, and the
+    flow must resolve a density feature finer than a single spline layer can
+    represent. Round two simulates only inside a box around the round-one
+    posterior and trains on box-normalized coordinates, so the same
+    architecture spends its whole support where the mass is.
+
+    The box comes from the posterior at the target observation, so a round-two
+    posterior is amortized only over observations near that target. That is the
+    price of the sharpness.
+
+    Attributes
+    ----------
+    enabled:
+        Run the truncated second round.
+    coverage:
+        Central round-one posterior mass each per-parameter interval spans
+        before the safety margin.
+    safety_factor:
+        Multiplier on each interval's half-width. Round one is measurably
+        off-centre on the transmission benchmark, so the box is deliberately
+        generous.
+    min_box_fraction:
+        Floor on any interval's width as a fraction of the prior, so an
+        over-sharpened round-one marginal cannot truncate a parameter to a
+        sliver.
+    min_captured_fraction:
+        Round-one posterior mass the box must retain, else the run stops. Mass
+        cut away here cannot be recovered by round two.
+    require_truth_inside_box:
+        When truth values are configured, abort if the box excludes any of
+        them. Only meaningful for synthetic benchmarks, where it is the
+        sharpest available check that truncation has not gone wrong.
+    source_run_label:
+        Run whose posterior defines the box. ``None`` uses the most recent
+        completed run under the same output root. When that run was itself
+        truncated, its box is composed with the new one so the result is always
+        in absolute cube coordinates.
+    n_simulations:
+        Round simulation budget. ``None`` keeps :attr:`SBIConfig.n_simulations`.
+    num_epochs:
+        Round training epochs. ``None`` keeps :attr:`TrainingConfig.num_epochs`.
+
+    Notes
+    -----
+    Each round trains a fresh flow rather than continuing the previous one.
+    Rescaling the cube to the box changes the parameterisation the flow is
+    conditioned on, so the previous weights describe a different coordinate
+    system and continuing from them would not mean what it appears to mean.
+
+    One round is limited by how informative the previous posterior is. On the
+    transmission benchmark the first box retains 0.43 of the prior volume,
+    because 17 of 18 marginals are still near-prior -- so this is used as a
+    sequence of modest, individually verified rounds, not a single cut.
+    """
+
+    enabled: bool = False
+    coverage: float = 0.9999
+    safety_factor: float = 1.5
+    min_box_fraction: float = 0.02
+    min_captured_fraction: float = 0.99
+    require_truth_inside_box: bool = True
+    source_run_label: str | None = None
+    # Reuse a completed round's stored box verbatim instead of deriving one.
+    # The box determines the task fingerprint, so a resume that re-derives it
+    # risks a different box, a different fingerprint, and a silently
+    # regenerated dataset.
+    box_from_run_label: str | None = None
+    n_simulations: int | None = None
+    num_epochs: int | None = None
 
 
 def build_conditional_flow_posterior(
@@ -450,6 +614,7 @@ def build_conditional_flow_posterior(
     diagnostics_output_directory: str | None = None,
     diagnostics_plot_interval: int = 1,
     task_metadata: Mapping[str, Any] | None = None,
+    reparameterization: Any = None,
 ) -> ConditionalFlowPosterior:
     """Build a :class:`ConditionalFlowPosterior` from grouped config dataclasses.
 
@@ -484,6 +649,12 @@ def build_conditional_flow_posterior(
     task_metadata:
         Optional metadata persisted alongside the trained model (e.g. the task
         name).
+    reparameterization:
+        Optional
+        :class:`~petitRADTRANS.experimental.sbi.flows.reparameterization.AmplitudeConditionedParameter`
+        replacing one parameter's cube coordinate by its observation-conditioned
+        ratio. Built by the workflow from
+        :attr:`SBIConfig.amplitude_conditioned_parameter`.
 
     Returns
     -------
@@ -504,6 +675,10 @@ def build_conditional_flow_posterior(
         spectrum_embedding_dim=int(encoder.spectrum_embedding_dim),
         photometry_embedding_dim=int(encoder.photometry_embedding_dim),
         encoder_hidden_dim=int(encoder.hidden_dim),
+        exact_summary_dim=(
+            EXACT_SUMMARY_DIM if bool(encoder.exact_summary_channel) else 0
+        ),
+        reparameterization=reparameterization,
         # flow
         flow_family=str(flow.family),
         num_coupling_layers=int(flow.num_transforms),
@@ -551,6 +726,7 @@ def build_conditional_flow_posterior(
         focal_reweighting=bool(training.focal_reweighting),
         focal_weight_peak=float(training.focal_weight_peak),
         focal_bandwidth_dex=float(training.focal_bandwidth_dex),
+        noise_level_log10_range=training.noise_level_log10_range,
         weight_decay=float(training.weight_decay),
         gradient_clip_norm=training.gradient_clip_norm,
         early_stopping_patience=training.early_stopping_patience,
@@ -668,6 +844,7 @@ class SBIConfig:
     training: TrainingConfig = field(default_factory=TrainingConfig)
     stability: StabilityConfig = field(default_factory=StabilityConfig)
     refinement: RefinementConfig = field(default_factory=RefinementConfig)
+    truncation: TruncationConfig = field(default_factory=TruncationConfig)
 
     # Simulation + workflow.
     n_simulations: int = 1_000_000
@@ -679,6 +856,11 @@ class SBIConfig:
     run_label: str | None = None
     load_completed_model: bool = False
     resume_predictive_checkpoints: bool = False
+    # Continue training from the trainer checkpoints in an existing run
+    # directory (requires ``run_label``). For walltime-limited jobs: the
+    # trainer checkpoints every epoch, so a timed-out run resumes instead of
+    # repeating the whole schedule.
+    resume_training: bool = False
     generate_plots: bool = True
     plot_dpi: int = 160
     save_checkpoint_guardrails: bool = True
@@ -696,6 +878,22 @@ class SBIConfig:
     # into the dataset. Frozen noise lets the network overfit that realization
     # and collapse the posterior; set False only to reproduce legacy runs.
     noise_resample_during_training: bool = True
+    # Space the spectral value transform works in: "raw" (the observable) or
+    # "transit_radius" (sqrt of transit depth). Not part of the task
+    # fingerprint -- the stored simulations are unchanged, only their
+    # read-time representation -- so switching it reuses the dataset.
+    spectral_value_space: str = "raw"
+    # Name of a free parameter to infer in an observation-conditioned basis: the
+    # flow is given log10(theta) - exponent * log10(observed amplitude) instead
+    # of theta's cube coordinate, so the sharp, data-determined direction is
+    # handled by an exact formula rather than learned. For a transmission
+    # retrieval this turns "infer the planet radius" into "infer the atmospheric
+    # annulus", which is the part the spectrum leaves genuinely uncertain.
+    # Requires encoder.exact_summary_channel. None disables it.
+    amplitude_conditioned_parameter: str | None = None
+    # d log10(theta) / d log10(amplitude): 0.5 for a radius against a transit
+    # depth or a flux, both of which go as the square of the radius.
+    amplitude_conditioned_exponent: float = 0.5
 
     # Presentation (predictive-spectrum plot axis labels) + optional known truths.
     # spectrum_y_label=None auto-derives from the retrieval config: emission flux
@@ -725,6 +923,10 @@ class SBIConfig:
             "training": asdict(self.training),
             "stability": asdict(self.stability),
             "refinement": asdict(self.refinement),
+            "truncation": asdict(self.truncation),
+            "spectral_value_space": self.spectral_value_space,
+            "amplitude_conditioned_parameter": self.amplitude_conditioned_parameter,
+            "amplitude_conditioned_exponent": self.amplitude_conditioned_exponent,
         }
 
 

@@ -2437,6 +2437,8 @@ __all__ = [
     "SimulationBasedCalibrationReport",
     "central_credible_interval",
     "empirical_interval_coverage",
+    "generate_embedding_information_report",
+    "generate_encoder_stage_information_report",
     "generate_local_sensitivity_report",
     "generate_posterior_predictive_report",
     "generate_sbc_report",
@@ -2449,3 +2451,397 @@ __all__ = [
     "summarize_predictive_report",
     "summarize_training_diagnostics",
 ]
+
+
+def _block_log_spectrum_scale(blocks: Any) -> float:
+    """Per-observation ``log10`` median transit depth / flux, or NaN.
+
+    Read from the preprocessing metadata of the first spectral block, i.e. the
+    exact statistic the encoder is supposed to preserve.
+    """
+    try:
+        for block in blocks:
+            modality = getattr(block.modality, "value", block.modality)
+            if str(modality) != "spectrum":
+                continue
+            metadata = block.metadata if isinstance(block.metadata, Mapping) else {}
+            scale = metadata.get("log_spectrum_scale", metadata.get("log_median_flux"))
+            if scale is not None and np.isfinite(float(scale)):
+                return float(scale)
+    except (AttributeError, TypeError, ValueError):
+        return float("nan")
+    return float("nan")
+
+
+def _ridge_r2(
+    design_train: np.ndarray,
+    design_test: np.ndarray,
+    y_train: np.ndarray,
+    y_test: np.ndarray,
+    ridge: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Out-of-sample ``R^2`` and residual standard deviation of a ridge fit."""
+    weights = np.linalg.solve(
+        design_train.T @ design_train + ridge * np.eye(design_train.shape[1]),
+        design_train.T @ y_train,
+    )
+    residual = design_test @ weights - y_test
+    r_squared = 1.0 - np.sum(residual**2, axis=0) / np.maximum(
+        np.sum((y_test - y_test.mean(axis=0)) ** 2, axis=0), 1e-30
+    )
+    return r_squared, residual.std(axis=0)
+
+
+def generate_encoder_stage_information_report(
+    posterior: Any,
+    dataset_reader: NormalizedObservationDatasetReader,
+    split: DatasetSplit = DatasetSplit.TEST,
+    max_cases: int = 2048,
+    batch_size: int = 256,
+    train_fraction: float = 0.7,
+    projection_dim: int = 256,
+    n_random_features: int = 256,
+    ridge: float = 1e-2,
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Localise where the encoder stops carrying ``log10`` median depth.
+
+    Runs the same held-out regression as
+    :func:`generate_embedding_information_report`, but against every
+    intermediate representation of the spectral encoder rather than only its
+    output, and against a target that is a closed-form statistic of the input:
+    the per-spectrum ``log10`` median transit depth (or flux).
+
+    Because the target is computable from the raw values by ``np.median``, the
+    first stage must score ``R^2`` of essentially 1. Any stage where the score
+    drops is discarding it, and the drop names the layer to change — a
+    normalization that divides out the per-sample scale removes exactly this
+    statistic, so a fall at ``fused_layer_normed`` and not before indicts the
+    ``LayerNorm``, while a fall at ``pooled_shape`` indicts the attention
+    pooling.
+
+    Stages wider than ``projection_dim`` are randomly projected to that width
+    with a fixed seed, so all stages are compared at equal capacity. A random
+    projection can only lose information, so a high score is always real; a low
+    score on a very wide stage is the one result that would need rechecking at a
+    larger ``projection_dim``.
+    """
+    from .training import _prestack_observation_blocks
+
+    encoder = getattr(getattr(posterior, "model", None), "encoder", None)
+    if encoder is None or not hasattr(encoder, "stage_features_from_prestacked"):
+        return {"error": "posterior has no stage-instrumented encoder"}
+
+    generator = np.random.default_rng(seed)
+    projections: dict[str, np.ndarray] = {}
+    stage_batches: dict[str, list[np.ndarray]] = {}
+    targets: list[np.ndarray] = []
+    collected = 0
+
+    for batch in dataset_reader.iter_batches(
+        split=split, batch_size=batch_size, shuffle=False, parameter_space="cube"
+    ):
+        observations = batch.observations
+        target = np.asarray(
+            [_block_log_spectrum_scale(blocks) for blocks in observations],
+            dtype=np.float64,
+        )
+        if not hasattr(observations, "stacked_blocks"):
+            observations = _prestack_observation_blocks(observations)
+        if observations is None or not hasattr(observations, "stacked_blocks"):
+            return {"error": "observations could not be pre-stacked for the audit"}
+
+        stages = encoder.stage_features_from_prestacked(observations)
+        if not stages:
+            return {"error": "encoder exposes no stages (only the convolution encoder does)"}
+
+        for name, values in stages.items():
+            array = np.asarray(values, dtype=np.float64)
+            array = array.reshape(array.shape[0], -1)
+            if array.shape[1] > projection_dim:
+                if name not in projections:
+                    projections[name] = generator.normal(
+                        size=(array.shape[1], projection_dim)
+                    ) / np.sqrt(array.shape[1])
+                array = array @ projections[name]
+            stage_batches.setdefault(name, []).append(array)
+        targets.append(target)
+        collected += target.shape[0]
+        if collected >= max_cases:
+            break
+
+    if not targets:
+        return {"error": "no held-out cases available for the stage audit"}
+
+    target = np.concatenate(targets)[:max_cases]
+    finite = np.isfinite(target)
+    target = target[finite][:, None]
+    n_cases = target.shape[0]
+    n_train = max(int(train_fraction * n_cases), 1)
+    if n_cases - n_train < 2:
+        return {"error": f"too few held-out cases ({n_cases}) for the stage audit"}
+
+    report: dict[str, Any] = {
+        "n_cases": int(n_cases),
+        "target": "log10_median_spectrum_scale",
+        "target_sd": float(target.std()),
+        "projection_dim": int(projection_dim),
+        "stages": {},
+    }
+
+    for name, chunks in stage_batches.items():
+        features = np.concatenate(chunks, axis=0)[:max_cases][finite]
+        mean = features[:n_train].mean(axis=0)
+        scale = features[:n_train].std(axis=0) + 1e-8
+        design = np.c_[(features - mean) / scale, np.ones(n_cases)]
+        design_train, design_test = design[:n_train], design[n_train:]
+        y_train, y_test = target[:n_train], target[n_train:]
+
+        r2_linear, sd_linear = _ridge_r2(
+            design_train, design_test, y_train, y_test, ridge
+        )
+        projection = generator.normal(
+            size=(design.shape[1], n_random_features)
+        ) / np.sqrt(design.shape[1])
+        hidden_train = np.tanh(design_train @ projection)
+        hidden_test = np.tanh(design_test @ projection)
+        r2_nonlinear, sd_nonlinear = _ridge_r2(
+            hidden_train, hidden_test, y_train, y_test, ridge
+        )
+        report["stages"][name] = {
+            "width": int(features.shape[1]),
+            "r2_linear": float(r2_linear[0]),
+            "r2_nonlinear": float(r2_nonlinear[0]),
+            # The random-feature fit is unreliable on the widest stages (a
+            # tanh of a random projection can fit worse than the linear model
+            # it is built from), so the reported figure is the better of the
+            # two: both are lower bounds on what the stage carries.
+            "r2_best": float(max(r2_linear[0], r2_nonlinear[0])),
+            "residual_sd": float(min(sd_linear[0], sd_nonlinear[0])),
+        }
+
+    return report
+
+
+def generate_embedding_information_report(
+    posterior: Any,
+    dataset_reader: NormalizedObservationDatasetReader,
+    parameter_names: Sequence[str],
+    split: DatasetSplit = DatasetSplit.TEST,
+    max_cases: int = 8192,
+    batch_size: int = 512,
+    train_fraction: float = 0.7,
+    n_random_features: int = 512,
+    ridge: float = 1e-2,
+    seed: int = 0,
+    target_normalized_values: Any | None = None,
+    neighbourhood_fraction: float = 0.05,
+) -> dict[str, Any]:
+    """Measure what the trained embedding actually knows about each parameter.
+
+    Regresses the true cube parameters on the observation embedding for
+    held-out simulations and reports the out-of-sample coefficient of
+    determination, both from a ridge fit and from a random-feature nonlinear
+    fit. This asks a question the posterior width cannot answer on its own: a
+    broad marginal may mean the flow failed to decode the embedding, or it may
+    mean the encoder never carried the information. Only the second is fixed by
+    changing the encoder.
+
+    Interpretation:
+
+    * ``r2`` near 1 -- the embedding pins the parameter; a broad posterior
+      marginal then indicts the flow or the training schedule.
+    * ``r2`` near 0 with ``r2_linear`` and ``r2_nonlinear`` in agreement -- the
+      information is absent in any decodable form, and no flow capacity,
+      simulation budget, or prior truncation will recover it.
+    * ``implied_residual_sd_fraction`` -- the residual scatter as a fraction of
+      the prior width, i.e. the narrowest marginal this embedding could support.
+      Compare it against a reference retrieval's width to size the gap.
+
+    When ``target_normalized_values`` is supplied, the same residual scatter is
+    also reported over the held-out cases whose spectra most resemble the
+    target (``target_neighbourhood_residual_sd_fraction``). This distinction
+    matters: R^2 over the whole prior conflates "the encoder discarded the
+    information" with "the physics does not constrain this parameter for most
+    prior draws". Most transmission draws are cloudy or low-abundance, where a
+    molecular abundance genuinely is unconstrained, so a low population R^2 is
+    partly correct behaviour. A reference retrieval's width applies to one
+    favourable observation, and only the neighbourhood number is comparable
+    with it.
+
+    Returns
+    -------
+    dict
+        Per-parameter ``r2_linear``, ``r2_nonlinear``, and
+        ``implied_residual_sd_fraction``, plus the case count used.
+    """
+    embeddings: list[np.ndarray] = []
+    cubes: list[np.ndarray] = []
+    observation_values: list[np.ndarray] = []
+    log_depths: list[np.ndarray] = []
+    collected = 0
+    has_batch_encode = hasattr(posterior, "batch_encode_observation")
+    # Cube space keeps every parameter on a common [0, 1] scale, so the
+    # reported R^2 and the residual scatter are comparable across parameters
+    # and against a prior width.
+    for batch in dataset_reader.iter_batches(
+        split=split, batch_size=batch_size, shuffle=False, parameter_space="cube"
+    ):
+        if batch.parameters is None:
+            raise RuntimeError(
+                "The dataset reader yielded no parameters for the embedding probe."
+            )
+        if has_batch_encode:
+            encoded_batch = posterior.batch_encode_observation(batch.observations)
+        else:
+            encoded_batch = [
+                posterior.encode_observation(obs) for obs in batch.observations
+            ]
+        embeddings.append(
+            np.asarray(
+                [np.asarray(item.embedding) for item in encoded_batch],
+                dtype=np.float64,
+            )
+        )
+        cubes.append(np.asarray(batch.parameters, dtype=np.float64))
+        log_depths.append(
+            np.asarray(
+                [_block_log_spectrum_scale(blocks) for blocks in batch.observations],
+                dtype=np.float64,
+            )
+        )
+        try:
+            observation_values.append(
+                np.asarray(
+                    [
+                        np.ravel(np.asarray(blocks[0].values, dtype=np.float64))
+                        for blocks in batch.observations
+                    ]
+                )
+            )
+        except Exception:  # pragma: no cover - neighbourhood selection is optional
+            observation_values.append(np.zeros((len(batch.observations), 0)))
+        collected += embeddings[-1].shape[0]
+        if collected >= max_cases:
+            break
+    if not embeddings:
+        raise RuntimeError("No held-out cases available for the embedding probe.")
+
+    features = np.concatenate(embeddings, axis=0)[:max_cases]
+    targets = np.concatenate(cubes, axis=0)[:max_cases]
+    n_cases = features.shape[0]
+    n_train = max(int(train_fraction * n_cases), 1)
+    if n_cases - n_train < 2:
+        raise RuntimeError(
+            f"Too few held-out cases ({n_cases}) to split for the embedding probe."
+        )
+
+    mean = features[:n_train].mean(axis=0)
+    scale = features[:n_train].std(axis=0) + 1e-8
+    design_train = np.c_[
+        (features[:n_train] - mean) / scale, np.ones(n_train)
+    ]
+    design_test = np.c_[
+        (features[n_train:] - mean) / scale, np.ones(n_cases - n_train)
+    ]
+    y_train, y_test = targets[:n_train], targets[n_train:]
+
+    def _r_squared(prediction: np.ndarray) -> np.ndarray:
+        residual = np.sum((prediction - y_test) ** 2, axis=0)
+        total = np.sum((y_test - y_test.mean(axis=0)) ** 2, axis=0)
+        return 1.0 - residual / np.maximum(total, 1e-30)
+
+    n_features = design_train.shape[1]
+    weights = np.linalg.solve(
+        design_train.T @ design_train + ridge * np.eye(n_features),
+        design_train.T @ y_train,
+    )
+    r2_linear = _r_squared(design_test @ weights)
+
+    # Random tanh features: a cheap universal approximator, so agreement with
+    # the linear fit means the information is genuinely absent rather than
+    # merely nonlinear.
+    generator = np.random.default_rng(seed)
+    projection = generator.normal(size=(n_features, n_random_features)) / np.sqrt(
+        n_features
+    )
+    hidden_train = np.tanh(design_train @ projection)
+    hidden_test = np.tanh(design_test @ projection)
+    weights_nonlinear = np.linalg.solve(
+        hidden_train.T @ hidden_train + ridge * np.eye(n_random_features),
+        hidden_train.T @ y_train,
+    )
+    r2_nonlinear = _r_squared(hidden_test @ weights_nonlinear)
+
+    # A uniform prior on the cube has standard deviation 1/sqrt(12); the
+    # residual scatter is that times sqrt(1 - R^2).
+    best_r2 = np.maximum(r2_linear, r2_nonlinear)
+    implied = np.sqrt(np.maximum(1.0 - best_r2, 0.0)) / np.sqrt(12.0)
+
+    names = [str(name) for name in parameter_names]
+    result: dict[str, Any] = {
+        "n_cases": int(n_cases),
+        "n_train": int(n_train),
+        "r2_linear": {
+            name: float(r2_linear[i]) for i, name in enumerate(names)
+        },
+        "r2_nonlinear": {
+            name: float(r2_nonlinear[i]) for i, name in enumerate(names)
+        },
+        "implied_residual_sd_fraction": {
+            name: float(implied[i]) for i, name in enumerate(names)
+        },
+    }
+
+    # The same fit against a closed-form statistic of the observation. Unlike a
+    # physical parameter this has no excuse for being unrecoverable: it is a
+    # median of the encoder's own input, so anything below R^2 = 1 is
+    # information the conditioning vector threw away rather than never had.
+    statistic = np.concatenate(log_depths)[:max_cases]
+    if statistic.shape[0] == n_cases and np.all(np.isfinite(statistic)):
+        statistic = statistic[:, None]
+        r2_statistic_linear, sd_statistic_linear = _ridge_r2(
+            design_train, design_test, statistic[:n_train], statistic[n_train:], ridge
+        )
+        r2_statistic_nonlinear, sd_statistic_nonlinear = _ridge_r2(
+            hidden_train, hidden_test, statistic[:n_train], statistic[n_train:], ridge
+        )
+        result["observation_statistic"] = {
+            "log10_median_spectrum_scale": {
+                "prior_sd": float(statistic.std()),
+                "r2_linear": float(r2_statistic_linear[0]),
+                "r2_nonlinear": float(r2_statistic_nonlinear[0]),
+                "residual_sd": float(
+                    min(sd_statistic_linear[0], sd_statistic_nonlinear[0])
+                ),
+            }
+        }
+
+    if target_normalized_values is not None:
+        # Residual scatter restricted to held-out spectra that look like the
+        # target. Distances are taken in normalized observation space rather
+        # than embedding space, so the selection does not depend on the thing
+        # being measured.
+        target = np.ravel(np.asarray(target_normalized_values, dtype=np.float64))
+        held_out_values = np.concatenate(
+            [np.asarray(block, dtype=np.float64) for block in observation_values],
+            axis=0,
+        )[:max_cases][n_train:]
+        if held_out_values.shape[-1] == target.shape[0]:
+            distances = np.linalg.norm(held_out_values - target[None, :], axis=1)
+            n_near = max(int(neighbourhood_fraction * distances.shape[0]), 32)
+            near = np.argsort(distances)[:n_near]
+            prediction = hidden_test @ weights_nonlinear
+            residual = prediction[near] - y_test[near]
+            scatter = residual.std(axis=0)
+            result["target_neighbourhood_n_cases"] = int(n_near)
+            result["target_neighbourhood_residual_sd_fraction"] = {
+                name: float(scatter[i]) for i, name in enumerate(names)
+            }
+        else:
+            result["target_neighbourhood_error"] = (
+                f"target has {target.shape[0]} values but held-out spectra have "
+                f"{held_out_values.shape[-1]}"
+            )
+
+    return result

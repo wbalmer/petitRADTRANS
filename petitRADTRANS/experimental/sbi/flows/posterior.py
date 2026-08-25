@@ -29,6 +29,7 @@ from .base import (
 )
 from ..training import EarlyStoppingConfig, SBITrainer, TrainingSchemeConfig
 from . import refinement
+from .reparameterization import AmplitudeConditionedParameter
 from .cube import (
     _clip_cube_support,
     _cube_log_abs_det_jacobian,
@@ -287,6 +288,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         focal_reweighting: bool = False,
         focal_weight_peak: float = 50.0,
         focal_bandwidth_dex: float = 0.15,
+        noise_level_log10_range: tuple[float, float] | None = None,
         spline_small_bin_regularization_weight: float | None = None,
         spline_min_bin_ratio_target: float = 0.2,
         spline_entropy_regularization_weight: float = 0.0,
@@ -312,6 +314,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         spectrum_embedding_dim: int = 64,
         photometry_embedding_dim: int = 64,
         encoder_hidden_dim: int | None = None,
+        exact_summary_dim: int = 0,
+        reparameterization: Any = None,
         seed: int = 0,
         task_metadata: Mapping[str, Any] | None = None,
         verbose_diagnostics: bool = False,
@@ -406,6 +410,10 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.focal_reweighting = bool(focal_reweighting)
         self.focal_weight_peak = float(focal_weight_peak)
         self.focal_bandwidth_dex = float(focal_bandwidth_dex)
+        self.noise_level_log10_range = (
+            None if noise_level_log10_range is None
+            else (float(noise_level_log10_range[0]), float(noise_level_log10_range[1]))
+        )
         self.weight_decay = float(weight_decay)
         self.use_cosine_schedule = bool(use_cosine_schedule)
         self.warmup_fraction = float(warmup_fraction)
@@ -442,6 +450,8 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         self.n_wavelengths = int(n_wavelengths)
         self.spectrum_embedding_dim = int(spectrum_embedding_dim)
         self.photometry_embedding_dim = int(photometry_embedding_dim)
+        self.exact_summary_dim = max(int(exact_summary_dim), 0)
+        self.reparameterization = reparameterization
         self.encoder_hidden_dim = (
             int(encoder_hidden_dim) if encoder_hidden_dim is not None else self.hidden_dim
         )
@@ -529,11 +539,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 hidden_dim=self.encoder_hidden_dim,
                 spectrum_encoder_type=self.spectrum_encoder_type,
                 n_wavelengths=self.n_wavelengths,
+                exact_summary_dim=self.exact_summary_dim,
                 key=encoder_key,
             ),
             flow=self._build_flow(flow_key),
             scale_head=eqx.nn.Linear(
-                self.embedding_dim,
+                self.context_dim,
                 1,
                 key=scale_key,
                 dtype=jnp.float32,
@@ -547,14 +558,26 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             invertibility_loss_weight=self.invertibility_loss_weight,
             invertibility_loss_n_samples=self.invertibility_loss_n_samples,
             bnpe_balance_loss_weight=self.bnpe_balance_loss_weight,
+            reparameterization=self.reparameterization,
         )
+
+    @property
+    def context_dim(self) -> int:
+        """Width of the flow's conditioning vector.
+
+        ``embedding_dim`` is the learned part only; the encoder also appends the
+        exact-summary channel (see
+        :class:`~petitRADTRANS.experimental.sbi.encoders.ObservationEncoder`), so
+        the flow and the auxiliary scale head must both be built for the sum.
+        """
+        return self.embedding_dim + self.exact_summary_dim
 
     def _build_flow(self, key: Array) -> Any:
         if self.flow_family == "affine":
             self.effective_flow_family = "affine"
             return ConditionalAffineFlow(
                 parameter_dim=self.parameter_dim,
-                context_dim=self.embedding_dim,
+                context_dim=self.context_dim,
                 num_layers=self.num_coupling_layers,
                 hidden_dim=self.hidden_dim,
                 conditioner_depth=self.conditioner_depth,
@@ -564,7 +587,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             self.effective_flow_family = "autoregressive"
             return ConditionalAutoregressiveFlow(
                 parameter_dim=self.parameter_dim,
-                context_dim=self.embedding_dim,
+                context_dim=self.context_dim,
                 num_layers=self.num_coupling_layers,
                 hidden_dim=self.hidden_dim,
                 conditioner_depth=self.conditioner_depth,
@@ -574,7 +597,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             self.effective_flow_family = "neural_autoregressive"
             return ConditionalNeuralAutoregressiveFlow(
                 parameter_dim=self.parameter_dim,
-                context_dim=self.embedding_dim,
+                context_dim=self.context_dim,
                 num_layers=self.num_coupling_layers,
                 hidden_dim=self.hidden_dim,
                 conditioner_depth=self.conditioner_depth,
@@ -588,7 +611,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             self.effective_flow_family = "spline"
             return ConditionalSplineFlow(
                 parameter_dim=self.parameter_dim,
-                context_dim=self.embedding_dim,
+                context_dim=self.context_dim,
                 num_layers=self.num_coupling_layers,
                 hidden_dim=self.hidden_dim,
                 conditioner_depth=self.conditioner_depth,
@@ -732,6 +755,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 focal_reweighting=self.focal_reweighting,
                 focal_weight_peak=self.focal_weight_peak,
                 focal_bandwidth_dex=self.focal_bandwidth_dex,
+                noise_level_log10_range=self.noise_level_log10_range,
                 checkpoint_directory=self.checkpoint_directory,
                 checkpoint_backend=self.checkpoint_backend,
                 resume_from_checkpoint=self.resume_from_checkpoint,
@@ -954,6 +978,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "focal_reweighting": self.focal_reweighting,
             "focal_weight_peak": self.focal_weight_peak,
             "focal_bandwidth_dex": self.focal_bandwidth_dex,
+            "noise_level_log10_range": self.noise_level_log10_range,
             "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
             "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
             "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -983,6 +1008,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "spectrum_embedding_dim": self.spectrum_embedding_dim,
             "photometry_embedding_dim": self.photometry_embedding_dim,
             "encoder_hidden_dim": self.encoder_hidden_dim,
+            "exact_summary_dim": self.exact_summary_dim,
+            "reparameterization": (
+                None
+                if self.reparameterization is None
+                else self.reparameterization.to_payload()
+            ),
             "verbose_diagnostics": self.verbose_diagnostics,
             "diagnostics_output_directory": self.diagnostics_output_directory,
             "diagnostics_plot_interval": self.diagnostics_plot_interval,
@@ -1026,6 +1057,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "focal_reweighting": self.focal_reweighting,
                 "focal_weight_peak": self.focal_weight_peak,
                 "focal_bandwidth_dex": self.focal_bandwidth_dex,
+                "noise_level_log10_range": self.noise_level_log10_range,
                 "spline_small_bin_regularization_weight": self.spline_small_bin_regularization_weight,
                 "spline_min_bin_ratio_target": self.spline_min_bin_ratio_target,
                 "spline_entropy_regularization_weight": self.spline_entropy_regularization_weight,
@@ -1054,6 +1086,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                 "n_wavelengths": self.n_wavelengths,
                 "spectrum_embedding_dim": self.spectrum_embedding_dim,
                 "photometry_embedding_dim": self.photometry_embedding_dim,
+                "exact_summary_dim": self.exact_summary_dim,
+                "reparameterization": (
+                    None
+                    if self.reparameterization is None
+                    else self.reparameterization.to_payload()
+                ),
                 "encoder_hidden_dim": self.encoder_hidden_dim,
                 "verbose_diagnostics": self.verbose_diagnostics,
                 "diagnostics_output_directory": self.diagnostics_output_directory,
@@ -1120,6 +1158,7 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             "focal_reweighting": metadata.get("focal_reweighting", False),
             "focal_weight_peak": metadata.get("focal_weight_peak", 50.0),
             "focal_bandwidth_dex": metadata.get("focal_bandwidth_dex", 0.15),
+            "noise_level_log10_range": metadata.get("noise_level_log10_range"),
             "invertibility_loss_n_samples": metadata.get(
                 "invertibility_loss_n_samples", 64
             ),
@@ -1307,6 +1346,12 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
             spectrum_embedding_dim=int(estimator_config.get("spectrum_embedding_dim", 64)),
             photometry_embedding_dim=int(estimator_config.get("photometry_embedding_dim", 64)),
             encoder_hidden_dim=estimator_config.get("encoder_hidden_dim"),
+            # Absent for models trained before the exact-summary channel existed;
+            # defaulting to 0 keeps their context width (and weights) valid.
+            exact_summary_dim=int(estimator_config.get("exact_summary_dim", 0)),
+            reparameterization=AmplitudeConditionedParameter.from_payload(
+                estimator_config.get("reparameterization")
+            ),
             verbose_diagnostics=bool(estimator_config.get("verbose_diagnostics", False)),
             diagnostics_output_directory=estimator_config.get("diagnostics_output_directory"),
             diagnostics_plot_interval=int(estimator_config.get("diagnostics_plot_interval", 1)),
@@ -1398,13 +1443,19 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
                     fixed_cube_samples[indices], nan=0.0, posinf=1e6, neginf=-1e6
                 )
             )
+        context = jnp.asarray(observation.embedding, dtype=jnp.float32)
         samples = self.model.flow.sample(
-            context=jnp.asarray(observation.embedding, dtype=jnp.float32),
+            context=context,
             n_samples=n_samples,
             key=random.PRNGKey(sample_seed),
         )
         if self.parameter_space == "cube":
             samples = _clip_cube_support(nn.sigmoid(samples))
+            if self.reparameterization is not None:
+                # Undo the observation-conditioned coordinate so everything
+                # downstream -- SBC, coverage, the predictive, the physical-space
+                # transform -- keeps seeing prior cube coordinates.
+                samples = self.reparameterization.to_prior_cube(samples, context)
         return PosteriorSamples(
             samples=np.nan_to_num(np.asarray(samples), nan=0.0, posinf=1e6, neginf=-1e6)
         )
@@ -1444,6 +1495,11 @@ class ConditionalFlowPosterior(PersistentPosteriorEstimator):
         samples = _jit_batch_sample(self.model.flow, contexts, n_samples, keys)
         if self.parameter_space == "cube":
             samples = _clip_cube_support(nn.sigmoid(samples))
+            if self.reparameterization is not None:
+                # (batch, samples, dim) against a per-observation context.
+                samples = self.reparameterization.to_prior_cube(
+                    samples, contexts[:, None, :]
+                )
         return np.nan_to_num(np.asarray(samples), nan=0.0, posinf=1e6, neginf=-1e6)
 
     def log_prob(self, observation: EncodedObservation, parameters: Any) -> Any:

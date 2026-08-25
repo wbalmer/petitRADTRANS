@@ -210,6 +210,29 @@ def _spectral_auxiliary_values_from_metadata(
     )
 
 
+def _exact_summary_from_metadata(metadata: object) -> np.ndarray:
+    """Read a block's standardised exact-summary vector from its metadata.
+
+    Written by :func:`~petitRADTRANS.experimental.sbi.preprocessing.normalize_observation_block`.
+    Returns zeros when absent, which disables the channel for datasets whose
+    preprocessing sidecar predates it.
+    """
+    from .preprocessing import EXACT_SUMMARY_DIM
+
+    zeros = np.zeros(EXACT_SUMMARY_DIM, dtype=np.float32)
+    if not isinstance(metadata, dict) or "exact_summary" not in metadata:
+        return zeros
+
+    features = np.ravel(np.asarray(metadata.get("exact_summary"), dtype=np.float32))
+    if features.shape[0] == EXACT_SUMMARY_DIM:
+        return features
+    if features.shape[0] > EXACT_SUMMARY_DIM:
+        return features[:EXACT_SUMMARY_DIM]
+    return np.concatenate(
+        [features, np.zeros(EXACT_SUMMARY_DIM - features.shape[0], dtype=np.float32)]
+    )
+
+
 def _global_scale_from_metadata(metadata: object) -> float:
     """Read a block's positive global flux scale (``global_spectrum_scale`` or
     ``spectrum_scale``) from metadata, defaulting to ``1.0``."""
@@ -262,7 +285,9 @@ def _prestack_observation_blocks(blocks_batch: Any) -> Any:
 
     stacked = []
     for j in range(len(first_blocks)):
-        v_list, u_list, c_list, m_list, lmf_list, av_list, gsf_list = [], [], [], [], [], [], []
+        v_list, u_list, c_list, m_list, lmf_list, av_list, gsf_list, es_list = (
+            [], [], [], [], [], [], [], []
+        )
         for sample_blocks in blocks_batch:
             block = sample_blocks[j]
             v = np.ravel(np.asarray(block.values, dtype=np.float32))
@@ -299,6 +324,7 @@ def _prestack_observation_blocks(blocks_batch: Any) -> Any:
             lmf_list.append(np.float32(lmf))
             av_list.append(_spectral_auxiliary_values_from_metadata(block.metadata, n_wl))
             gsf_list.append(np.float32(_global_scale_from_metadata(block.metadata)))
+            es_list.append(_exact_summary_from_metadata(block.metadata))
         stacked.append((
             np.stack(v_list),
             np.stack(u_list),
@@ -307,6 +333,7 @@ def _prestack_observation_blocks(blocks_batch: Any) -> Any:
             np.array(lmf_list, dtype=np.float32),
             np.stack(av_list),
             np.array(gsf_list, dtype=np.float32),
+            np.stack(es_list),
         ))
 
     return PreStackedObservations(stacked_blocks=tuple(stacked), modalities=modalities)
@@ -340,6 +367,7 @@ def _noisy_prestacked_observations(
     indices: np.ndarray,
     rng: np.random.Generator,
     preprocessing_metadata: Any,
+    noise_level_log10_range: tuple[float, float] | None = None,
 ) -> Any:
     """Build a PreStackedObservations batch with a freshly drawn noise realization.
 
@@ -357,6 +385,21 @@ def _noisy_prestacked_observations(
     for raw_block in raw_blocks:
         deterministic = raw_block["deterministic"][indices]
         uncertainties = raw_block["uncertainties"][indices]
+        if noise_level_log10_range is not None:
+            # Noise-level conditioning: draw a per-sample error-bar scale and
+            # report the scaled uncertainties alongside the matching noise, so
+            # the encoder -- which already ingests sigma per wavelength and as
+            # an amplitude feature -- learns the posterior as a function of the
+            # assumed noise rather than memorising one error-bar scale. Also
+            # guards against noise misspecification at inference, whose
+            # signature (a vanishing importance-sampling efficiency) matches
+            # what the transmission benchmark produces.
+            low, high = noise_level_log10_range
+            factors = np.power(
+                10.0,
+                rng.uniform(low, high, size=(deterministic.shape[0], 1)),
+            ).astype(np.float32)
+            uncertainties = uncertainties * factors
         noisy_values = deterministic + (
             rng.standard_normal(deterministic.shape, dtype=np.float32) * uncertainties
         )
@@ -375,6 +418,7 @@ def _noisy_prestacked_observations(
             normalized["log_spectrum_scale"].astype(np.float32),
             normalized["relative_values"].astype(np.float32),
             normalized["global_spectrum_scale"].astype(np.float32),
+            normalized["exact_summary"].astype(np.float32),
         ))
         modalities.append(raw_block["modality"])
 
@@ -484,6 +528,9 @@ class TrainingSchemeConfig:
     warmup_fraction: float = 0.02
     warmup_epochs: float | None = None
     min_learning_rate: float = 1e-6
+    # Per-sample error-bar scale range (log10) for noise-level conditioning.
+    # None keeps the stored uncertainties, i.e. a single fixed noise level.
+    noise_level_log10_range: tuple[float, float] | None = None
     lr_schedule_total_epochs: float | None = None
     verbose_diagnostics: bool = False
     diagnostics_output_directory: str | None = None
@@ -754,6 +801,29 @@ class CheckpointBackend(abc.ABC):
         """
 
 
+_LEGACY_MODULE_PREFIX = 'petitRADTRANS.sbi'
+_CURRENT_MODULE_PREFIX = 'petitRADTRANS.experimental.sbi'
+
+
+class _LegacyPathUnpickler(dill.Unpickler):
+    """Unpickler that reads checkpoints written before the package moved.
+
+    Checkpoints pickle classes by dotted module path, so those written while
+    this package lived at ``petitRADTRANS.sbi`` cannot be loaded from
+    ``petitRADTRANS.experimental.sbi``. Rewriting the prefix during class
+    lookup keeps stored artifacts readable without registering an importable
+    alias at the old path -- the move is meant to be visible to user code.
+    """
+
+    def find_class(self, module: str, name: str) -> Any:
+        """Resolve a pickled class, remapping the pre-move module prefix."""
+        if module == _LEGACY_MODULE_PREFIX or module.startswith(
+            _LEGACY_MODULE_PREFIX + '.'
+        ):
+            module = _CURRENT_MODULE_PREFIX + module[len(_LEGACY_MODULE_PREFIX):]
+        return super().find_class(module, name)
+
+
 class EquinoxCheckpointBackend(CheckpointBackend):
     """Checkpoint backend backed by Equinox tree serialization."""
 
@@ -771,7 +841,7 @@ class EquinoxCheckpointBackend(CheckpointBackend):
         del template_state
         metadata = json.loads((output_directory / 'metadata.json').read_text())
         with (output_directory / 'state.pkl').open('rb') as stream:
-            state = dill.load(stream)
+            state = _LegacyPathUnpickler(stream).load()
         return state, metadata
 
 
@@ -917,16 +987,6 @@ class SBITrainer:
             else None
         )
         self._checkpoint_backend_fallback_reason: str | None = None
-
-    @property
-    def _latest_checkpoint_directory(self) -> Path | None:
-        """Path of the ``latest`` (resume) checkpoint, or ``None`` if disabled."""
-        return self._checkpoint_directory_for_kind('latest')
-
-    @property
-    def _best_checkpoint_directory(self) -> Path | None:
-        """Path of the ``best`` (deployed-model) checkpoint, or ``None`` if disabled."""
-        return self._checkpoint_directory_for_kind('best')
 
     def _checkpoint_directory_for_kind(self, checkpoint_kind: str) -> Path | None:
         """Resolve the subdirectory for one checkpoint kind, or ``None`` when no
@@ -1748,6 +1808,7 @@ class SBITrainer:
                         _idx,
                         _noise_rng,
                         dataset.preprocessing_metadata,
+                        noise_level_log10_range=self.config.noise_level_log10_range,
                     )
                     if mesh is not None:
                         _bp, _bo, _bw = _maybe_pad_and_shard(_bp, _bo, _bw)

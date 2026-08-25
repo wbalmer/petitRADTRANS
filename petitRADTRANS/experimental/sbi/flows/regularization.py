@@ -906,15 +906,20 @@ def _flow_validation_selection_metric(
             np.log1p(edge_hit_excess / edge_hit_threshold)
         )
 
-    # Miscalibration penalty: linear in the coverage-error excess (not the
-    # saturating log1p) so a sharper-but-overconfident epoch cannot buy its way
-    # past a calibrated one with a ~1-nat loss improvement.
+    # Miscalibration penalty on the MEAN coverage error, not the MAX.
+    # The max never fell below its 0.25 threshold in any epoch of any run here
+    # (floor 0.312) while the mean always passed (0.183-0.240), so every
+    # checkpoint was penalised by ~1.8 nats jittering by 0.35 -- more than the
+    # 0.1-0.3 nats separating good epochs. Selection was decided by that noise.
+    # A genuine collapse raises the mean across many parameters, so the term
+    # still does its job; the pathological cutoff below still reads the max.
+    # log1p, like every other term, bounds a persistent moderate excess.
     calibration_excess, calibration_threshold = _threshold_excess(
-        "calibration_coverage_error_max"
+        "calibration_coverage_error_mean"
     )
     if calibration_excess > 0.0:
         penalty += _CALIBRATION_SELECTION_PENALTY_WEIGHT * float(
-            calibration_excess / calibration_threshold
+            np.log1p(calibration_excess / calibration_threshold)
         )
 
     max_derivative = float(diagnostics.get("spline_max_derivative", float("nan")))
@@ -1019,8 +1024,11 @@ def _flow_validation_stability_metrics(
         cube_edge_hit_rate_threshold,
         ignore_non_finite=True,
     )
+    # Gate on the mean, for the reason documented in
+    # _flow_validation_selection_metric: the max never passes on this benchmark,
+    # so gating on it makes "stable" unreachable and the flag uninformative.
     _apply_threshold(
-        "calibration_coverage_error_max",
+        "calibration_coverage_error_mean",
         calibration_coverage_error_threshold,
         ignore_non_finite=True,
     )

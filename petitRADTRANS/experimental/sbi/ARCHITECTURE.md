@@ -182,15 +182,30 @@ embedding vector for the flow's conditioning input.
   so the network can never collapse to an amplitude-only summary — the failure
   mode that previously left composition/temperature/cloud marginals stuck at the
   prior.
-- **`SpectralConv1DEncoder`** — 1D-convolution encoder retaining positional info.
-- **`SpectralPatchEncoder`** — patch-summary + MLP-pool encoder.
+- **`SpectralResMLPEncoder`** (`spectrum_encoder_type="resmlp"`) — a plain
+  residual-MLP alternative following the published pRT NPE recipes (Vasist et
+  al. 2023). Measured on the 8M transmission benchmark it was not better than
+  the convolution encoder (H2O 2.148 → 1.893 dex), so the convolution encoder
+  remains the default.
 - **`PhotometryPointEncoder`** — per-point MLP + pooling for photometry blocks.
 - **`DatasetSetAggregator`** — permutation-invariant pooling across multiple
   block embeddings.
-- **`ObservationEncoder`** — the top-level encoder (implements
-  `ObservationEncoder`). Dispatches each block to the right modality sub-encoder,
-  then aggregates. Exposes `encode`, batched `encode_stacked_batch`, and
-  `encode_from_prestacked` (the JIT-friendly path consuming `PreStackedObservations`).
+- **`ObservationEncoder`** — the top-level encoder. Dispatches each block to the
+  right modality sub-encoder, then aggregates. Exposes `encode`, batched
+  `encode_stacked_batch`, and `encode_from_prestacked` (the JIT-friendly path
+  consuming `PreStackedObservations`). **All three must return the identical
+  vector** — a unit-RMS rescale on the `encode` path alone once corrupted every
+  delivered posterior; `test_encode_paths_agree` pins them together.
+- **The exact-summary channel** (`EncoderConfig.exact_summary_channel`, on by
+  default). Four analytically computed scalars — log median amplitude, the
+  normalized median, the within-spectrum scatter, and the median normalized
+  error bar — are appended to the conditioning vector *after* the aggregator,
+  bypassing the network entirely. They are standardised only by constants fitted
+  once on the training split. Motivation: the trained encoder recovered
+  log(median transit depth) with a residual of 0.085 dex where the raw amplitude
+  features it is handed reach 0.00001. The conditioning width is therefore
+  `embedding_dim + exact_summary_dim` (`ObservationEncoder.context_dim`), not
+  `embedding_dim`.
 
 ---
 
@@ -275,12 +290,25 @@ diagnostics batch-slicing helpers.
 objective), `batch_embeddings`, and `compute_validation_diagnostics` (the
 flow-invertibility/collapse metrics feeding checkpoint selection).
 
-### `flows/refinement.py` — test-time refinement (extracted)
-`refine_posterior_on_observation` (flow-ELBO) and
-`map_laplace_posterior_on_observation` (MAP + Laplace / Gaussian-VI) as free
-functions taking the posterior; `ConditionalFlowPosterior` exposes them as thin
-methods. They sharpen the amortized posterior for one specific target spectrum using
-the differentiable forward model.
+### `flows/refinement.py` — test-time refinement
+Three free functions taking the posterior, exposed as thin methods on
+`ConditionalFlowPosterior`. Each sharpens the amortized posterior for one target
+spectrum using the differentiable forward model.
+
+- `map_laplace_posterior_on_observation` — MAP + a curvature-based covariance.
+  `covariance_method` is `"hessian"` (default; the exact Hessian of the negative
+  log posterior), `"laplace"` (its Gauss-Newton approximation, which drops the
+  residual-curvature term and is too narrow whenever the fit is imperfect), or
+  `"gaussian_vi"`. Multi-start with likelihood-ranked starts.
+- `importance_sampling_posterior_on_observation` — exact-likelihood reweighting
+  of amortized draws; its sampling efficiency is a built-in trust diagnostic.
+- `refine_posterior_on_observation` — flow-ELBO refinement.
+
+**A refinement is not delivered automatically.** `run_sbi` gates it twice: on
+absolute thresholds (effective sample size, held-out coverage, median chi2/N),
+and on a *comparative* test — the refined target predictive must beat the
+amortized one by CRPS, a proper scoring rule. Both decisions and their numbers
+are recorded in `refinement_verdict.json`.
 
 ### `flows/matching.py` — alternative estimator (was `flow_matching_posterior.py`)
 - **`FlowMatchingPosterior`** (`estimator_family="flow_matching"`, **experimental**)
@@ -290,11 +318,40 @@ the differentiable forward model.
 
 ---
 
-## 9. Training loop
+### `flows/reparameterization.py` — observation-conditioned parameter basis
+`AmplitudeConditionedParameter` replaces one parameter's cube coordinate by
+`log10(theta) - exponent * log10(observed amplitude)`, so a radius is inferred
+relative to the amplitude the spectrum measures rather than in absolute terms;
+`fit_amplitude_conditioned_parameter` fits the ratio bounds and reports the
+captured fraction. Enabled with `SBIConfig.amplitude_conditioned_parameter`.
+**Currently off by default and not recommended without further work**: on the
+8M transmission benchmark the resulting coordinate put 91.5% of its prior mass
+in one of 12 spline bins, destroying the uniform marginal the flow is built
+around, and the run plateaued 6 nats worse than the baseline. A retry needs the
+ratio mapped through its own empirical CDF plus a bin-occupancy guard.
+
+---
+
+## 9. Truncation (sequential rounds)
+
+### `truncation.py`
+Prior truncation for a sharpened second inference round (TSNPE). `TruncationBox`
+describes an axis-aligned box in cube coordinates and maps between full-cube and
+box-normalized coordinates; `build_truncation_box` derives one from posterior
+draws; `truncation_box_report` measures retained mass and checks a known truth
+before any truncation is acted on; `compose` chains boxes across rounds; and
+`TruncatedParameterLayout` makes every cube consumer read box-normalized
+coordinates. Wrapping the parameter layout is the entire mechanism — the
+simulator still draws the unit cube — and because the prior quantiles in the task
+fingerprint pass through the same transform, a truncated round re-fingerprints
+and cannot silently reuse its parent's dataset.
+
+---
+
+## 10. Training loop
 
 ### `training.py`
-The o
-gine used by the posterior estimators' `fit` methods.
+The training engine used by the posterior estimators' `fit` methods.
 
 - **`SBITrainer`** — reusable JAX/Optax training loop: cosine LR schedule with
   warmup, gradient clipping, weight decay, early stopping
@@ -311,7 +368,7 @@ gine used by the posterior estimators' `fit` methods.
 
 ---
 
-## 10. Grouped configuration & high-level entry points
+## 11. Grouped configuration & high-level entry points
 
 ### `config.py`
 Tames `ConditionalFlowPosterior`'s ~40 flat constructor kwargs into themed
@@ -364,7 +421,7 @@ The orchestrator.
 
 ---
 
-## 11. Artifacts, calibration, plotting, validation
+## 12. Artifacts, calibration, plotting, validation
 
 ### `artifacts.py`
 Provenance, registry, and run-directory bookkeeping.
@@ -397,6 +454,19 @@ The diagnostics suite (validating that the amortized posterior is trustworthy).
   correlations) around representative posterior points.
 - **`PosteriorInformativenessReport`** + `classify_posterior_informativeness()` —
   flags parameters whose posterior is no tighter than the prior.
+- **`generate_embedding_information_report()`** — regresses the true parameters
+  on the trained conditioning vector for held-out simulations (ridge + random
+  features) and reports out-of-sample R². This separates "the flow failed to
+  decode it" from "the encoder never carried it", which call for opposite fixes.
+  Also reports recovery of the observation's own log median amplitude, a
+  closed-form statistic that must come back at R² ≈ 1.
+  **Read it as a weak-learner lower bound, not an information ceiling**: the
+  embedding is a deterministic function of the spectrum, so the spectrum cannot
+  contain less, and the trained encoder routinely beats this probe.
+- **`generate_encoder_stage_information_report()`** — the same regression against
+  every intermediate of the spectral encoder, localising where a statistic stops
+  being recoverable. Stages come from the same forward pass that produces the
+  embedding, never a re-implementation.
 - Summarizers (`summarize_posterior_samples`, `summarize_posterior_contraction`,
   `summarize_predictive_report`, `summarize_training_diagnostics`,
   `serialize_ood_diagnostic`) and the parameter-space → physical transform
@@ -486,11 +556,12 @@ shape-determined parameters (composition, temperature, clouds).
 | Function / class | File | Scientific role |
 | --- | --- | --- |
 | `SpectralConvolutionEncoder` (default) | `encoders.py` | The production spectral encoder; explicit amplitude/shape factorization. |
-| `SpectralConv1DEncoder`, `SpectralPatchEncoder` | `encoders.py` | Alternative spectral encoder architectures (user-selectable via `EncoderConfig.spectrum_encoder_type`). |
+| `SpectralResMLPEncoder` | `encoders.py` | Alternative spectral encoder (`EncoderConfig.spectrum_encoder_type='resmlp'`). |
 | `PhotometryPointEncoder` | `encoders.py` | Encoder architecture for photometric points. |
 | `DatasetSetAggregator` | `encoders.py` | Permutation-invariant pooling across blocks — defines how multiple datasets are combined into one embedding. |
 | `ObservationEncoder` | `encoders.py` | Top-level encoder: modality dispatch + aggregation. The object that produces the conditioning vector. |
-| `_amplitude_features`, `_generic_amplitude_features`, `_generic_shape_tensor`, `_within_spectrum_standardized`, `_spectral_local_structure`, `_robust_center_scale`, `_normalized_coordinate_channel` | `encoders.py` | The feature-construction primitives that *define* the amplitude/shape split. Changing these changes what the network sees. |
+| `_generic_amplitude_features`, `_generic_shape_tensor`, `_within_spectrum_standardized`, `_robust_center_scale`, `_normalized_coordinate_channel` | `encoders.py` | The feature-construction primitives that *define* the amplitude/shape split. Changing these changes what the network sees. |
+| `exact_summary_feature_matrix`, `standardize_exact_summary_features` | `preprocessing.py` | The analytic scalars appended to the conditioning vector, and the fixed constants that standardise them. |
 
 ### C. How the data is normalized (preprocessing transform)
 

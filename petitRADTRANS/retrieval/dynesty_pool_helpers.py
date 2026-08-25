@@ -81,7 +81,7 @@ class DynestyPoolLogLikelihood:
         from jax import jit
         import jax.numpy as jnp
 
-        from petitRADTRANS.retrieval.parameter import JAX_DTYPE
+        from petitRADTRANS.retrieval.parameter import FEAUTRIER_JAX_DTYPE
 
         self._load_state()
         parameter_layout = self._parameter_layout
@@ -102,7 +102,7 @@ class DynestyPoolLogLikelihood:
 
         self._jitted_log_likelihood = jitted_log_likelihood
         self._jax_module = jnp
-        self._jax_dtype = JAX_DTYPE
+        self._jax_dtype = FEAUTRIER_JAX_DTYPE
 
     def __call__(self, free_parameter_values):
         self._load_state()

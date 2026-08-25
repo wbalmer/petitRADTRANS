@@ -55,6 +55,10 @@ class _PosteriorModel(eqx.Module):
     invertibility_loss_weight: float = eqx.field(static=True)
     invertibility_loss_n_samples: int = eqx.field(static=True)
     bnpe_balance_loss_weight: float = eqx.field(static=True, default=0.0)
+    # Optional observation-conditioned reparameterisation of one parameter (see
+    # ``flows.reparameterization``). Static: it is a frozen dataclass of fitted
+    # constants, not something the optimizer touches.
+    reparameterization: Any = eqx.field(static=True, default=None)
 
 
 def _mean_spectral_log_scale(blocks: list[ObservationBlock]) -> float | None:
@@ -258,6 +262,7 @@ def loss_from_observations(
         parameters,
         embeddings,
         parameter_space,
+        reparameterization=model.reparameterization,
     )
     # Hard clip on the log probabilities to avoid NaN gradients.
     log_probabilities = jnp.clip(log_probabilities, -50000.0, 15000.0)
@@ -286,7 +291,9 @@ def loss_from_observations(
         model.spline_small_bin_regularization_weight > 0.0
         or model.spline_derivative_regularization_weight > 0.0
     ):
-        flow_inputs, _ = _flow_space_parameters(parameters, parameter_space)
+        flow_inputs, _ = _flow_space_parameters(
+            parameters, parameter_space, model.reparameterization, embeddings
+        )
         (
             small_bin_penalty,
             _,
@@ -340,6 +347,7 @@ def loss_from_observations(
                 shuffled_parameters,
                 embeddings,
                 parameter_space,
+                reparameterization=model.reparameterization,
             ),
             -50000.0,
             15000.0,
@@ -622,7 +630,9 @@ def compute_validation_diagnostics(
         model, diagnostic_batch.observations
     )
     parameter_space = str(diagnostic_batch.metadata.get("parameter_space", "physical"))
-    flow_inputs, _ = _flow_space_parameters(parameters, parameter_space)
+    flow_inputs, _ = _flow_space_parameters(
+        parameters, parameter_space, model.reparameterization, embeddings
+    )
 
     latent, forward_logdet = vmap(
         lambda sample, context: model.flow.forward(sample, context)

@@ -9,6 +9,7 @@ from typing import Callable, Optional, Union
 import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
+from jax import core as jax_core
 from jax import lax, debug
 from jax.typing import ArrayLike
 
@@ -172,6 +173,56 @@ def _check_wavelength_boundaries(boundaries: ArrayLike):
         )
 
 
+def _check_clouds_particle_porosity_factors(clouds_particle_porosity_factor):
+    """Check caller-supplied cloud porosity factors lie in [0, 1).
+
+    Must be called from the un-jitted entry point: inside the spectral kernels
+    these values are tracers and cannot be inspected. Non-finite values are the
+    "unset" sentinel that the kernel replaces with a valid per-source default
+    (0.25 for DHS, 0.0 otherwise), so they are skipped.
+    """
+    if clouds_particle_porosity_factor is None:
+        return
+
+    for species_name, porosity in clouds_particle_porosity_factor.items():
+        if isinstance(porosity, jax_core.Tracer):
+            continue
+
+        porosity_value = float(jnp.asarray(porosity))
+
+        if not np.isfinite(porosity_value):
+            continue
+
+        if porosity_value < 0 or porosity_value >= 1:
+            raise ValueError(
+                f"clouds particles porosity factor "
+                f"must be >= 0 (full particles) and < 1 (empty particles), "
+                f"but is {porosity_value} for species '{species_name}'"
+            )
+
+
+def _check_power_law_opacity_completeness(
+    power_law_opacity_350nm, power_law_opacity_coefficient
+):
+    """Check the power-law opacity parameters are supplied as a pair.
+
+    Must be called from the un-jitted entry point, where "not supplied" is still
+    visible as ``None``; inside the kernels it has already been replaced by a
+    sentinel and the values are tracers.
+    """
+    a_missing = power_law_opacity_350nm is None
+    b_missing = power_law_opacity_coefficient is None
+
+    if a_missing ^ b_missing:
+        none_parameter = (
+            "power_law_opacity_350nm" if a_missing else "power_law_opacity_coefficient"
+        )
+        raise RuntimeError(
+            f"to include a power law opacity, both parameters 'power_law_opacity_350nm' "
+            f"and 'power_law_opacity_coefficient' must be provided; missing '{none_parameter}'"
+        )
+
+
 def _sanitize_frequency_surface_input(
     values, frequencies, default_value, quantity_name
 ):
@@ -189,10 +240,10 @@ def _sanitize_frequency_surface_input(
     # But since _sanitize is called before the kernels, in the non-jitted part,
     # this error raising will always only happen at compile time,
     # since if the emissivity shape is changed a new compile is triggered.
-    if jnp.size(_values) != _frequencies.size:
+    if jnp.size(values) != frequencies.size:
         raise ValueError(
             f"{quantity_name} must be a scalar or of the same size than frequencies "
-            f"({_frequencies.size}), but is of size {jnp.size(_values)}"
+            f"({frequencies.size}), but is of size {jnp.size(values)}"
         )
 
     return values
@@ -352,6 +403,10 @@ def _sanitize_flux_opacity_inputs(
     clouds_particle_porosity_factor_norm = {
         species: missing_neg_inf for species in cloud_species
     }
+    # NOTE: this sanitiser runs inside the jitted spectral kernels, so values are
+    # tracers here and cannot be range-checked. The [0, 1) check lives in
+    # _check_clouds_particle_porosity_factors, called from the un-jitted
+    # Radtrans entry points.
     if clouds_particle_porosity_factor is not None:
         for key, value in list(clouds_particle_porosity_factor.items()):
             clouds_particle_porosity_factor_norm[key] = jnp.array(
@@ -388,8 +443,12 @@ def _sanitize_flux_opacity_inputs(
         "clouds_particle_porosity_factor": clouds_particle_porosity_factor_norm,
         "cloud_f_sed": cloud_f_sed_norm,
         "eddy_diffusion_coefficients": eddy_diffusion_coefficients_norm,
+        # Kept in the pressure grid's precision rather than the default working
+        # precision: it is compared against that grid to place the cloud deck, and
+        # a float32 round-trip moves the comparison by ~1e-4 relative, which is
+        # enough to flip a layer that lies exactly at the cloud top.
         "opaque_cloud_top_pressure": _normalize_optional_scalar(
-            opaque_cloud_top_pressure, missing_float
+            opaque_cloud_top_pressure, missing_float, dtype=FEAUTRIER_JAX_DTYPE
         ),
         "cloud_particle_radius_distribution_std": _normalize_optional_mapping_or_scalar(
             cloud_particle_radius_distribution_std,
