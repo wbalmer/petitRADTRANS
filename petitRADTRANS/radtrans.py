@@ -45,7 +45,6 @@ from petitRADTRANS.validation import (
     _check_line_opacity_mode,
     _check_path_input_data,
     _check_pressures,
-    _check_return_clear_spectrum_relevance,
     _check_clouds_particle_porosity_factors,
     _check_power_law_opacity_completeness,
     _sanitize_emission_surface_inputs,
