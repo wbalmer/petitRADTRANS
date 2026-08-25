@@ -182,12 +182,7 @@ def _maybe_add_opaque_cloud_deck(
     cloud_continuum_opacities, pressures, opaque_cloud_top_pressure
 ):
     # The transmission kernels later run in WORKING_JAX_DTYPE, so the deck must be
-    # representable there. Use sqrt(max) rather than max/2: this opacity is
-    # multiplied by dP/g to form an optical depth, and a deck at max/2 overflows
-    # that product to inf, so whether it overflows depends on how the expression
-    # is fused. sqrt(max) leaves enough headroom for the product to stay finite
-    # while remaining overwhelmingly opaque (exp(-tau) underflows to 0 for
-    # tau > ~88).
+    # representable there. Use sqrt(max) to avoid overflows.
     _OPAQUE_DECK_OPACITY = jnp.array(
         jnp.sqrt(jnp.finfo(WORKING_JAX_DTYPE).max),
         dtype=FEAUTRIER_JAX_DTYPE,
@@ -199,11 +194,7 @@ def _maybe_add_opaque_cloud_deck(
     # grid can contain a pressure lying exactly at the cloud top, so this
     # comparison is decided by its last bits: computing the threshold in a
     # narrower precision, or letting XLA constant-fold it, could move the cloud
-    # top by one layer and shift the transit radii by ~8e-3 relative. Doing the
-    # conversion explicitly here, on a value the caller kept in full precision
-    # (see validation._sanitize_flux_opacity_inputs), makes the result
-    # independent of both. A layer exactly at the cloud top stays *outside* the
-    # deck, which is the existing convention.
+    # top by one layer.
     cloud_top_pressure = (
         jnp.asarray(opaque_cloud_top_pressure, dtype=pressures.dtype) * 1e6
     )  # bar to cgs
@@ -250,13 +241,6 @@ def _maybe_add_power_law_cloud_scattering(
         lambda args: args,
         (scattering_in_transmission, cloud_continuum_opacities_scattering),
     )
-
-
-# NOTE: the "both power-law parameters or neither" check used to live here as a
-# debug.callback. It now runs in validation._check_power_law_opacity_completeness,
-# called from the un-jitted Radtrans entry points: by the time execution reaches
-# this module the values are tracers and None has been replaced by a sentinel, so
-# the check could only be done via a host callback on every evaluation.
 
 
 def _init_cloud_background_continuum(
@@ -768,11 +752,9 @@ def _validate_missing_cloud_radius_arguments(
                 f"The cloud particle radii are necessary to calculate the cloud opacities."
             )
 
-    # NOTE: this must stay a runtime callback. Although `missing_arguments` is
+    # This must stay a runtime callback. Although `missing_arguments` is
     # known while tracing, the caller traces this branch unconditionally and only
-    # *executes* it when the clouds genuinely need derived radii (see the lax.cond
-    # in _compute_cloud_opacity_grids_with_derived_radii). Raising at trace time
-    # would reject valid setups whose dead branch merely gets traced.
+    # *executes* it when the clouds genuinely need derived radii
     debug.callback(raise_missing_arguments_error, missing_arguments)
 
 
@@ -983,13 +965,6 @@ def init_clouds_particle_porosity_factor(
 
         # Store back the (possibly updated) porosity
         clouds_particle_porosity_factor[species] = _porosity
-
-        # The [0, 1) range check lives in
-        # validation._check_clouds_particle_porosity_factor, which runs on the
-        # caller's still-concrete values. Doing it here would need a
-        # debug.callback (this function is jitted, so _porosity is a tracer),
-        # costing a host round-trip on every evaluation. The values this branch
-        # substitutes (0.25 for DHS, 0.0 otherwise) are in range by construction.
 
     return clouds_particle_porosity_factor
 
@@ -1443,8 +1418,6 @@ def _compute_cloud_opacities(
         )
         # Provide traceable sentinel arrays for optional inputs that may be
         # None so that lax.cond can trace through this branch without error.
-        # The _validate_missing_cloud_radius_arguments callback above will
-        # still raise at runtime when these values are genuinely required.
         _eddy = (
             eddy_diffusion_coefficients
             if eddy_diffusion_coefficients is not None
