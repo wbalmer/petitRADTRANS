@@ -98,73 +98,19 @@ _SINUSOIDAL_SUFFIXES = (
     "_sin_amplitude",
 )
 _SINUSOIDAL_REQUIRED_SUFFIXES = ("_amplitude", "_phase", "_offset")
-# Cartesian (phase-free) sinusoid alternative:
+# Sinusoid:
 #   P(t) = offset + a*cos(2*pi*t/period) + b*sin(2*pi*t/period)
-# with a = {base}_cos_amplitude and b = {base}_sin_amplitude. Equivalent to the
-# polar form via (a, b) = (A*sin(phi), A*cos(phi)), but without the A >= 0
-# boundary and the phase wrap, so gradient samplers see a nearly Gaussian
-# geometry.
+# with a = {base}_cos_amplitude and b = {base}_sin_amplitude.
+
 _CARTESIAN_REQUIRED_SUFFIXES = ("_cos_amplitude", "_sin_amplitude", "_offset")
 # HARMONIC SERIES of arbitrary order for the Cartesian form. Order k >= 2 is
 # carried by the suffix pair ``_cos_amplitude_h{k}`` / ``_sin_amplitude_h{k}``;
 # the FUNDAMENTAL (k = 1) keeps the bare ``_cos_amplitude`` / ``_sin_amplitude``
 # names, so existing configurations, saved MAPs and seeds are unaffected:
-#   P(t) = offset + sum_k [ a_k*cos(k w t) + b_k*sin(k w t) ]
-# Rotational light curves of variable brown dwarfs are generally NOT pure
-# sinusoids -- a fundamental-only model leaves coherent residuals when the two
-# hemispheres are not identical, and for SIMP 0136 the THIRD harmonic is a
-# 15-20 sigma signal below 2 um (A3/A1 ~ 0.43 there vs ~0.13 in the red).
-# The number of orders is per-base and is discovered from the parameter names,
-# so nothing here is hard-coded to 2 or 3.
-# Both components of an order must be supplied together, order 1 is mandatory,
-# and the orders present must be contiguous (h1+h3 with no h2 is rejected as
-# almost certainly a typo rather than an intended model).
+
 _CARTESIAN_AMPLITUDE_PATTERN = re.compile(
     r"^(?P<base>.+)_(?P<trig>cos|sin)_amplitude(?:_h(?P<order>[2-9][0-9]*))?$"
 )
-
-
-def _cartesian_harmonic_orders(base: str, all_keys) -> tuple[int, ...]:
-    """Discover the harmonic orders declared for ``base``, validated and sorted.
-
-    Returns ``()`` when the base does not declare the Cartesian fundamental.
-    The result is a tuple of Python ints, i.e. a compile-time constant: it sets
-    the number of terms in the sum and must not become a traced value.
-    """
-    seen: dict[int, set] = {}
-    for key in all_keys:
-        match = _CARTESIAN_AMPLITUDE_PATTERN.match(key)
-        if match is None or match.group("base") != base:
-            continue
-        order = int(match.group("order") or 1)
-        seen.setdefault(order, set()).add(match.group("trig"))
-
-    if 1 not in seen:
-        return ()
-
-    incomplete = sorted(k for k, trig in seen.items() if trig != {"cos", "sin"})
-    if incomplete:
-        missing = [
-            f"{base}_{'sin' if 'cos' in seen[k] else 'cos'}_amplitude"
-            + ("" if k == 1 else f"_h{k}")
-            for k in incomplete
-        ]
-        raise ValueError(
-            f"Time-series parameter '{base}' declares only one Cartesian "
-            f"component for harmonic order(s) {incomplete}; missing {missing}. "
-            "Supply both cos and sin for every order, or neither."
-        )
-
-    orders = tuple(sorted(seen))
-    expected = tuple(range(1, len(orders) + 1))
-    if orders != expected:
-        raise ValueError(
-            f"Time-series parameter '{base}' declares harmonic orders {orders}, "
-            f"which are not contiguous from 1 (expected {expected}). A gap is "
-            "almost always a typo; declare every order up to the highest one."
-        )
-    return orders
-_SHARED_PERIOD_KEY = "period"
 
 
 def _as_structural_int(value, parameter_name: str) -> int:
@@ -969,6 +915,48 @@ def gradient_profile_emission(
     return calculate_emission_spectrum_runtime(model_context, model_inputs)
 
 
+def _cartesian_harmonic_orders(base: str, all_keys) -> tuple[int, ...]:
+    """Discover the harmonic orders declared for ``base``, validated and sorted.
+
+    Returns ``()`` when the base does not declare the Cartesian fundamental.
+    The result is a tuple of Python ints, i.e. a compile-time constant: it sets
+    the number of terms in the sum and must not become a traced value.
+    """
+    seen: dict[int, set] = {}
+    for key in all_keys:
+        match = _CARTESIAN_AMPLITUDE_PATTERN.match(key)
+        if match is None or match.group("base") != base:
+            continue
+        order = int(match.group("order") or 1)
+        seen.setdefault(order, set()).add(match.group("trig"))
+
+    if 1 not in seen:
+        return ()
+
+    incomplete = sorted(k for k, trig in seen.items() if trig != {"cos", "sin"})
+    if incomplete:
+        missing = [
+            f"{base}_{'sin' if 'cos' in seen[k] else 'cos'}_amplitude"
+            + ("" if k == 1 else f"_h{k}")
+            for k in incomplete
+        ]
+        raise ValueError(
+            f"Time-series parameter '{base}' declares only one Cartesian "
+            f"component for harmonic order(s) {incomplete}; missing {missing}. "
+            "Supply both cos and sin for every order, or neither."
+        )
+
+    orders = tuple(sorted(seen))
+    expected = tuple(range(1, len(orders) + 1))
+    if orders != expected:
+        raise ValueError(
+            f"Time-series parameter '{base}' declares harmonic orders {orders}, "
+            f"which are not contiguous from 1 (expected {expected}). A gap is "
+            "almost always a typo; declare every order up to the highest one."
+        )
+    return orders
+_SHARED_PERIOD_KEY = "period"
+
 def _build_timestep_params(physical_params, t_idx, t_value):
     """Build a :class:`PhysicalParams` snapshot for a single model timestep.
 
@@ -1381,8 +1369,8 @@ def guillot_transmission(
 
     This model computes a transmission spectrum based on the Guillot p-T profile
     (default is global p-T profile; redistribution_coefficient=0.25)
-    Either free or (dis)equilibrium chemistry can be used. 
-    Abundances are resolved for the resulting P-T profile. 
+    Either free or (dis)equilibrium chemistry can be used.
+    Abundances are resolved for the resulting P-T profile.
     When running in pt_plot_mode, that result is returned immediately
     without computing clouds/hazes or the transmission spectrum.
 
@@ -1392,7 +1380,7 @@ def guillot_transmission(
     parameters and abundance state.
 
     Args:
-        model_context: Runtime context holding the radiative transfer object, 
+        model_context: Runtime context holding the radiative transfer object,
             parameter units, and other shared model state.
         physical_params: Dictionary-like mapping of physical parameters for
             the model.
@@ -1598,8 +1586,8 @@ def madhusudhan_seager_transmission(
     Transmission Model, Mahdusudhan-Seager p-T profile
 
     This model computes a transmission spectrum based on the Madhusudhan-Seager p-T profile
-    Either free or (dis)equilibrium chemistry can be used. 
-    Abundances are resolved for the resulting P-T profile. 
+    Either free or (dis)equilibrium chemistry can be used.
+    Abundances are resolved for the resulting P-T profile.
     When running in pt_plot_mode, that result is returned immediately
     without computing clouds/hazes or the transmission spectrum.
 
@@ -1609,7 +1597,7 @@ def madhusudhan_seager_transmission(
     parameters and abundance state.
 
     Args:
-        model_context: Runtime context holding the radiative transfer object, 
+        model_context: Runtime context holding the radiative transfer object,
             parameter units, and other shared model state.
         physical_params: Dictionary-like mapping of physical parameters for
             the model.
@@ -1765,8 +1753,8 @@ def isothermal_transmission(
     Transmission Model, isothermal p-T profile
 
     This model computes a transmission spectrum based on the isothermal p-T profile
-    Either free or (dis)equilibrium chemistry can be used. 
-    Abundances are resolved for the resulting P-T profile. 
+    Either free or (dis)equilibrium chemistry can be used.
+    Abundances are resolved for the resulting P-T profile.
     When running in pt_plot_mode, that result is returned immediately
     without computing clouds/hazes or the transmission spectrum.
 
@@ -1776,7 +1764,7 @@ def isothermal_transmission(
     parameters and abundance state.
 
     Args:
-        model_context: Runtime context holding the radiative transfer object, 
+        model_context: Runtime context holding the radiative transfer object,
             parameter units, and other shared model state.
         physical_params: Dictionary-like mapping of physical parameters for
             the model.
@@ -1828,7 +1816,7 @@ def isothermal_transmission(
                 `calculate_transit_radii` (e.g. contribution functions,
                 abundances, opacities), wrapped via `_as_auxiliary_outputs`.
     """
-    
+
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
 
     reference_pressure = 100.0
@@ -1891,8 +1879,8 @@ def power_law_profile_transmission(
     Transmission Model, power-law p-T profile
 
     This model computes a transmission spectrum based on the power-law p-T profile
-    Either free or (dis)equilibrium chemistry can be used. 
-    Abundances are resolved for the resulting P-T profile. 
+    Either free or (dis)equilibrium chemistry can be used.
+    Abundances are resolved for the resulting P-T profile.
     When running in pt_plot_mode, that result is returned immediately
     without computing clouds/hazes or the transmission spectrum.
 
@@ -1902,7 +1890,7 @@ def power_law_profile_transmission(
     parameters and abundance state.
 
     Args:
-        model_context: Runtime context holding the radiative transfer object, 
+        model_context: Runtime context holding the radiative transfer object,
             parameter units, and other shared model state.
         physical_params: Dictionary-like mapping of physical parameters for
             the model.
@@ -1956,7 +1944,7 @@ def power_law_profile_transmission(
                 abundances, opacities), wrapped via `_as_auxiliary_outputs`.
 
     """
-     
+
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(
         physical_params, model_context.parameter_units
@@ -4337,8 +4325,8 @@ def _resolve_runtime_abundance_state(
             calculation.
         temperatures: Temperatures corresponding to `p_use`.
         temperature_builder: Callable that computes temperatures for a given
-            pressure grid. Required when `model_context.adaptive_mesh_refinement` 
-            is True, since temperatures must be recomputed after the pressure grid 
+            pressure grid. Required when `model_context.adaptive_mesh_refinement`
+            is True, since temperatures must be recomputed after the pressure grid
             is refined.
         pt_plot_mode: If True, return only the resolved pressure-temperature
             profile without computing abundances. Defaults to False.
@@ -4355,7 +4343,7 @@ def _resolve_runtime_abundance_state(
               resolved atmospheric state for downstream use (e.g. cloud
               setup and spectrum calculation).
     """
-        
+
     del p_global
 
     pressures = p_use
@@ -4502,7 +4490,7 @@ def _build_runtime_transmission_model_inputs(
             `"mean_molar_masses"`.
         gravity: Gravitational acceleration at each pressure level.
         planet_radius: Planet radius in cm.
-        reference_pressure: Pressure at which `planet_radius` is defined. 
+        reference_pressure: Pressure at which `planet_radius` is defined.
             Default set to 0.1 bar.
         opaque_cloud_top_pressure: Pressure where an opaque grey cloud deck
             is placed.
