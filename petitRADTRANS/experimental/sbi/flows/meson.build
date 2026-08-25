@@ -7,6 +7,7 @@ py.install_sources([
     'posterior.py',
     'refinement.py',
     'regularization.py',
+    'reparameterization.py',
     'transforms.py',
     ],
     subdir: 'petitRADTRANS/experimental/sbi/flows'

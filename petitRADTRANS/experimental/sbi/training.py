@@ -988,16 +988,6 @@ class SBITrainer:
         )
         self._checkpoint_backend_fallback_reason: str | None = None
 
-    @property
-    def _latest_checkpoint_directory(self) -> Path | None:
-        """Path of the ``latest`` (resume) checkpoint, or ``None`` if disabled."""
-        return self._checkpoint_directory_for_kind('latest')
-
-    @property
-    def _best_checkpoint_directory(self) -> Path | None:
-        """Path of the ``best`` (deployed-model) checkpoint, or ``None`` if disabled."""
-        return self._checkpoint_directory_for_kind('best')
-
     def _checkpoint_directory_for_kind(self, checkpoint_kind: str) -> Path | None:
         """Resolve the subdirectory for one checkpoint kind, or ``None`` when no
         checkpoint directory is configured."""

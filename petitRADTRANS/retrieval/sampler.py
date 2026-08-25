@@ -399,7 +399,7 @@ def _build_unconstrained_mcmc_interface(context: SamplerContext):
     Returns ``(free_parameter_names, initial_position, logdensity, transform_positions, log_jacobian)``.
     """
     _require_jax()
-    from petitRADTRANS.retrieval.parameter import JAX_DTYPE
+    from petitRADTRANS.retrieval.parameter import FEAUTRIER_JAX_DTYPE
 
     _check_differentiable_support(context, "Gradient-based JAX samplers")
     parameter_layout = context.parameter_layout
@@ -446,7 +446,7 @@ def _build_unconstrained_mcmc_interface(context: SamplerContext):
             print_log_likelihood_for_debugging=context.print_log_likelihood_for_debugging,
         ) + log_jacobian_single(unconstrained_position)
 
-    initial_position = jnp.zeros(parameter_layout.n_free_parameters, dtype=JAX_DTYPE)
+    initial_position = jnp.zeros(parameter_layout.n_free_parameters, dtype=FEAUTRIER_JAX_DTYPE)
 
     return (
         free_parameter_names,

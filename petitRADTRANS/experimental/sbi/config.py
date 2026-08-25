@@ -455,6 +455,20 @@ class RefinementConfig:
         too-narrow Laplace covariance fits the target while being badly
         overconfident; measured coverage of 0.48 against a nominal 0.90 is a
         rejection, not a detail.
+    max_refinement_crps_ratio:
+        Largest ratio of refined-to-amortized predictive CRPS accepted for
+        delivery. The other thresholds ask whether a refinement is bad in
+        absolute terms; this one asks whether it is better than the amortized
+        posterior it would replace, which is the question that decides what
+        ships. On run 20260821T162601Z a refinement passed every absolute
+        threshold and was delivered while being 2.4x worse by CRPS (8.65e-06 vs
+        3.65e-06), 2.1x worse by MAE and 4.2x wider -- the run shipped the worse
+        of the two artifacts it had already computed. CRPS is used because it is
+        a proper scoring rule: a posterior cannot improve it by collapsing to a
+        biased point (which flatters MAE) or by inflating until it contains
+        everything (which flatters coverage). ``1.0`` requires the refinement to
+        be at least as good; raise it to tolerate a small regression, or set it
+        to ``float("inf")`` to restore the old threshold-only behaviour.
     max_test_time_median_chi2_per_n:
         Largest median chi2/N accepted across the held-out test-time cases.
         Values far above 1 mean the refinement optimizer is not converging
@@ -505,6 +519,7 @@ class RefinementConfig:
     min_effective_sample_size: float = 50.0
     max_test_time_coverage_error: float = 0.25
     max_test_time_median_chi2_per_n: float = 10.0
+    max_refinement_crps_ratio: float = 1.0
 
 
 @dataclass(frozen=True)

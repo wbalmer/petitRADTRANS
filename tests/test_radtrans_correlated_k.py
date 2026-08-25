@@ -8,7 +8,10 @@ Do not change the parameters used to generate the comparison files, including in
 
 import copy
 
+import jax
+import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from .context import petitRADTRANS
 from .benchmark import Benchmark
@@ -469,3 +472,158 @@ def test_correlated_k_transmission_spectrum_cloud_on_off():
         target_pressure=test_parameters['target_pressure'],
         frequencies_to_wavelengths=False
     )
+
+
+def test_correlated_k_emission_array_valued_surface_inputs():
+    """Array-valued surface inputs must be accepted, not just scalars/None.
+
+    Regression test: the frequency-size check in
+    validation._sanitize_frequency_surface_input referred to names that only
+    existed in a removed inner function, so any non-scalar reflectance,
+    emissivity or stellar intensity raised NameError. Every other test passes
+    None for these, so nothing caught it.
+    """
+    n_frequencies = atmosphere_ck.frequencies.size
+
+    _, flux, _ = atmosphere_ck.calculate_flux(
+        temperatures=temperature_guillot_2010,
+        mass_fractions=test_parameters["mass_fractions_correlated_k"],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        emissivities=np.full(n_frequencies, 0.9),
+        reflectances=np.full(n_frequencies, 0.1),
+        frequencies_to_wavelengths=False,
+    )
+
+    assert flux.shape == (n_frequencies,)
+    assert np.all(np.isfinite(flux))
+
+
+def test_correlated_k_emission_mismatched_surface_input_size_raises():
+    """A surface input of the wrong length must raise ValueError, not NameError."""
+    with pytest.raises(ValueError, match="same size than frequencies"):
+        atmosphere_ck.calculate_flux(
+            temperatures=temperature_guillot_2010,
+            mass_fractions=test_parameters["mass_fractions_correlated_k"],
+            reference_gravity=test_parameters["planetary_parameters"][
+                "reference_gravity"
+            ],
+            mean_molar_masses=test_parameters["mean_molar_mass"],
+            emissivities=np.ones(atmosphere_ck.frequencies.size - 1),
+            frequencies_to_wavelengths=False,
+        )
+
+
+def test_correlated_k_invalid_porosity_factor_raises():
+    """An out-of-range cloud porosity factor must be rejected at the entry point.
+
+    This check moved out of the jitted cloud kernel (where it needed a
+    per-evaluation host callback) into the un-jitted entry point, so it must
+    still fire.
+    """
+    cloud_species = list(test_parameters["cloud_parameters"]["cloud_species"].keys())
+
+    with pytest.raises(ValueError, match="porosity factor"):
+        atmosphere_ck.calculate_flux(
+            temperatures=temperature_guillot_2010,
+            mass_fractions=test_parameters["mass_fractions_correlated_k"],
+            reference_gravity=test_parameters["planetary_parameters"][
+                "reference_gravity"
+            ],
+            mean_molar_masses=test_parameters["mean_molar_mass"],
+            clouds_particle_porosity_factor={cloud_species[0]: 1.5},
+            frequencies_to_wavelengths=False,
+        )
+
+
+def test_correlated_k_incomplete_power_law_opacity_raises():
+    """Supplying only one of the two power-law opacity parameters must be rejected."""
+    with pytest.raises(RuntimeError, match="power law opacity"):
+        atmosphere_ck.calculate_flux(
+            temperatures=temperature_guillot_2010,
+            mass_fractions=test_parameters["mass_fractions_correlated_k"],
+            reference_gravity=test_parameters["planetary_parameters"][
+                "reference_gravity"
+            ],
+            mean_molar_masses=test_parameters["mean_molar_mass"],
+            power_law_opacity_350nm=0.01,
+            frequencies_to_wavelengths=False,
+        )
+
+
+def test_correlated_k_spectral_functions_reuse_compilation():
+    """The spectral functions must compile once and reuse it across calls.
+
+    They are jit-compiled, so a second call with the same static arguments and
+    input shapes must not recompile. Regression guard for the argument split: a
+    parameter wrongly left traced (or wrongly made static) shows up here as an
+    extra trace.
+    """
+    kwargs = dict(
+        mass_fractions=test_parameters["mass_fractions_correlated_k"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        frequencies_to_wavelengths=False,
+    )
+
+    compiled = petitRADTRANS.radtrans.Radtrans.calculate_flux.compiled_function
+
+    # Warm the cache, then assert no further compilation happens.
+    atmosphere_ck.calculate_flux(temperatures=temperature_guillot_2010, **kwargs)
+    cache_size = compiled._cache_size()
+
+    for _ in range(3):
+        atmosphere_ck.calculate_flux(temperatures=temperature_guillot_2010, **kwargs)
+
+    assert compiled._cache_size() == cache_size, (
+        "repeated identical calls should reuse the compiled function"
+    )
+
+
+def test_correlated_k_spectral_functions_are_differentiable():
+    """jax.grad must work directly through the standard spectral functions."""
+    kwargs = dict(
+        mass_fractions=test_parameters["mass_fractions_correlated_k"],
+        mean_molar_masses=test_parameters["mean_molar_mass"],
+        reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+        frequencies_to_wavelengths=False,
+    )
+    base_temperatures = jnp.asarray(temperature_guillot_2010)
+
+    flux_gradient = jax.grad(
+        lambda t: jnp.sum(
+            atmosphere_ck.calculate_flux(temperatures=t, **kwargs)[1]
+        )
+    )(base_temperatures)
+
+    assert flux_gradient.shape == base_temperatures.shape
+    assert np.all(np.isfinite(np.asarray(flux_gradient)))
+
+    transit_gradient = jax.grad(
+        lambda t: jnp.sum(
+            atmosphere_ck.calculate_transit_radii(
+                temperatures=t,
+                reference_pressure=test_parameters["planetary_parameters"][
+                    "reference_pressure"
+                ],
+                planet_radius=test_parameters["planetary_parameters"]["radius"]
+                * petitRADTRANS.physical_constants.r_jup_mean,
+                **kwargs,
+            )[1]
+        )
+    )(base_temperatures)
+
+    assert transit_gradient.shape == base_temperatures.shape
+    assert np.all(np.isfinite(np.asarray(transit_gradient)))
+
+
+def test_removed_spectral_function_variants_hint_at_replacements():
+    """The removed _jit / _autodiff variants must give a helpful error."""
+    for removed, replacement in (
+        ("calculate_flux_jit", "calculate_flux"),
+        ("calculate_flux_autodiff", "calculate_flux"),
+        ("calculate_transit_radii_jit", "calculate_transit_radii"),
+        ("calculate_transit_radii_autodiff", "calculate_transit_radii"),
+    ):
+        with pytest.raises(AttributeError, match=replacement):
+            getattr(atmosphere_ck, removed)

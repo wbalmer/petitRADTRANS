@@ -22,9 +22,6 @@ from .observation import (
 )
 
 
-_ABSOLUTE_PROFILE_BINS = 16
-
-
 # --- Helper functions for normalising and encoding observations ---------
 #
 def _as_vector(values: Any) -> jnp.ndarray:
@@ -50,66 +47,11 @@ def _safe_mask(mask: Any, size: int) -> jnp.ndarray:
     return jnp.concatenate((flattened_mask, padding), axis=0)
 
 
-def _summaries(values: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
-    """
-    Compute summary statistics of a masked 1D array of values. Returns a 6-element vector containing:
-    [mean, std, min, max, valid_fraction, invalid_fraction].
-    """
-    if values.shape[0] == 0:
-        return jnp.zeros((6,), dtype=jnp.float32)
-
-    valid_mask = ~mask
-    valid_count = jnp.sum(valid_mask).astype(jnp.float32)
-    safe_count = jnp.maximum(valid_count, 1.0)
-    valid = jnp.where(valid_mask, values, jnp.zeros_like(values))
-    mean_value = jnp.sum(valid) / safe_count
-    centered = jnp.where(valid_mask, values - mean_value, jnp.zeros_like(values))
-    std_value = jnp.sqrt(jnp.sum(centered**2) / safe_count + 1e-8)
-    min_value = jnp.min(
-        jnp.where(valid_mask, values, jnp.asarray(jnp.inf, dtype=values.dtype))
-    )
-    max_value = jnp.max(
-        jnp.where(valid_mask, values, jnp.asarray(-jnp.inf, dtype=values.dtype))
-    )
-    min_value = jnp.where(valid_count > 0.0, min_value, 0.0)
-    max_value = jnp.where(valid_count > 0.0, max_value, 0.0)
-    valid_fraction = valid_count / max(float(values.shape[0]), 1.0)
-
-    return jnp.asarray(
-        [
-            mean_value,
-            std_value,
-            min_value,
-            max_value,
-            valid_fraction,
-            1.0 - valid_fraction,
-        ],
-        dtype=jnp.float32,
-    )
-
-
 def _merge_embedding_branches(*branches: jnp.ndarray) -> jnp.ndarray:
     return jnp.concatenate(
         [jnp.ravel(jnp.asarray(branch, dtype=jnp.float32)) for branch in branches],
         axis=0,
     )
-
-
-def _spectral_local_structure(
-    values: jnp.ndarray,
-    mask: jnp.ndarray,
-) -> jnp.ndarray:
-    if values.shape[0] == 0:
-        return jnp.zeros((0,), dtype=jnp.float32)
-
-    valid = ~mask
-    next_valid = jnp.concatenate((valid[1:], jnp.zeros((1,), dtype=bool)), axis=0)
-    pair_valid = valid & next_valid
-    forward_difference = jnp.concatenate(
-        (values[1:] - values[:-1], jnp.zeros((1,), dtype=values.dtype)),
-        axis=0,
-    )
-    return jnp.where(pair_valid, forward_difference, 0.0).astype(jnp.float32)
 
 
 def _within_spectrum_standardized(
@@ -137,31 +79,6 @@ def _within_spectrum_standardized(
     scale = jnp.sqrt(variance + jnp.asarray(1e-12, dtype=values.dtype))
     standardized = centered / jnp.maximum(scale, jnp.asarray(1e-6, dtype=values.dtype))
     return standardized * valid
-
-
-def _masked_bin_means(
-    values: jnp.ndarray,
-    mask: jnp.ndarray,
-    n_bins: int = _ABSOLUTE_PROFILE_BINS,
-) -> jnp.ndarray:
-    if values.shape[0] == 0:
-        return jnp.zeros((n_bins,), dtype=jnp.float32)
-
-    valid_mask = ~mask
-    if n_bins <= 0:
-        return jnp.zeros((0,), dtype=jnp.float32)
-
-    n_values = max(int(values.shape[0]), 1)
-    bin_indices = jnp.minimum(
-        (jnp.arange(values.shape[0], dtype=jnp.int32) * n_bins) // n_values,
-        n_bins - 1,
-    )
-    safe_values = jnp.where(valid_mask, values, 0.0)
-    valid_counts = valid_mask.astype(jnp.float32)
-
-    bin_sums = jnp.zeros((n_bins,), dtype=jnp.float32).at[bin_indices].add(safe_values)
-    bin_counts = jnp.zeros((n_bins,), dtype=jnp.float32).at[bin_indices].add(valid_counts)
-    return bin_sums / jnp.maximum(bin_counts, 1.0)
 
 
 def _resize_embedding(features: jnp.ndarray, embedding_dim: int) -> jnp.ndarray:
@@ -219,13 +136,6 @@ def _scalar_feature(value: Any) -> jnp.ndarray:
     return scalar[:1]
 
 
-def _broadcast_scalar_feature(value: Any, size: int) -> jnp.ndarray:
-    if size <= 0:
-        return jnp.zeros((0,), dtype=jnp.float32)
-    scalar = _scalar_feature(value)
-    return jnp.broadcast_to(scalar, (size,)).astype(jnp.float32)
-
-
 def _log_scale_from_metadata(metadata: Any) -> Any:
     if not isinstance(metadata, dict):
         return 0.0
@@ -252,21 +162,6 @@ def _spectral_auxiliary_vector(metadata: Any, size: int) -> jnp.ndarray:
     if isinstance(metadata, dict) and "relative_values" in metadata:
         return _metadata_vector(metadata, "relative_values", size)
     return _metadata_vector(metadata, "absolute_values", size)
-
-
-def _amplitude_features(
-    absolute_values: jnp.ndarray,
-    mask: jnp.ndarray,
-    log_scale: Any,
-) -> jnp.ndarray:
-    return jnp.concatenate(
-        (
-            _summaries(absolute_values, mask),
-            _masked_bin_means(absolute_values, mask),
-            _scalar_feature(log_scale),
-        ),
-        axis=0,
-    )
 
 
 # --- Robust amplitude/shape decomposition for the convolution encoder ---------

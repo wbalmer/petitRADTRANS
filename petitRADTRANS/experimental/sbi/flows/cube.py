@@ -105,6 +105,7 @@ def _parameter_space_log_prob(
     parameters: jnp.ndarray,
     embeddings: jnp.ndarray,
     parameter_space: str,
+    reparameterization: Any | None = None,
 ) -> jnp.ndarray:
     """Conditional flow log-density of ``parameters`` in the requested space.
 
@@ -127,6 +128,13 @@ def _parameter_space_log_prob(
     parameter_space:
         ``'cube'`` to apply the uniform-prior change of variables, otherwise the
         flow log-density is used unchanged.
+    reparameterization:
+        Optional
+        :class:`~petitRADTRANS.experimental.sbi.flows.reparameterization.AmplitudeConditionedParameter`.
+        When present, one coordinate is replaced by its observation-conditioned
+        ratio before the flow sees it, and the extra change-of-variables term is
+        added so the returned density is still expressed in the original cube
+        coordinates.
 
     Returns
     -------
@@ -134,9 +142,19 @@ def _parameter_space_log_prob(
         Per-sample log-densities, shape ``(batch,)``.
     """
     if parameter_space == "cube":
+        reparameterization_log_det = 0.0
+        if reparameterization is not None:
+            reparameterization_log_det = reparameterization.log_abs_det_jacobian(
+                parameters, embeddings
+            )
+            parameters = reparameterization.to_flow_cube(parameters, embeddings)
         unconstrained_parameters, cube_parameters = _cube_to_unconstrained(parameters)
         log_probabilities = vmap(flow.log_prob)(unconstrained_parameters, embeddings)
-        return log_probabilities + _cube_log_abs_det_jacobian(cube_parameters)
+        return (
+            log_probabilities
+            + _cube_log_abs_det_jacobian(cube_parameters)
+            + reparameterization_log_det
+        )
 
     return vmap(flow.log_prob)(parameters, embeddings)
 
@@ -144,6 +162,8 @@ def _parameter_space_log_prob(
 def _flow_space_parameters(
     parameters: jnp.ndarray,
     parameter_space: str,
+    reparameterization: Any | None = None,
+    embeddings: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray | None]:
     """Map parameters into the flow's own coordinate space.
 
@@ -155,6 +175,8 @@ def _flow_space_parameters(
     is ``None``.
     """
     if parameter_space == "cube":
+        if reparameterization is not None and embeddings is not None:
+            parameters = reparameterization.to_flow_cube(parameters, embeddings)
         unconstrained_parameters, cube_parameters = _cube_to_unconstrained(parameters)
         return unconstrained_parameters, cube_parameters
     return parameters, None

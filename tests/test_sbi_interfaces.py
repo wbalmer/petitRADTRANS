@@ -2883,6 +2883,38 @@ def test_run_sbi_end_to_end_on_an_analytic_task(tmp_path):
         assert stats.exact_summary_center is not None
         assert len(stats.exact_summary_center) == EXACT_SUMMARY_DIM
 
+    # The comparative delivery gate must actually execute in the real workflow.
+    # It lives in a branch that only runs when a refinement survives the
+    # absolute thresholds, and a long linear function with an untested branch is
+    # how three defects reached the compute queue in this project already.
+    refined_root = run_sbi(
+        replace(
+            configuration,
+            run_label=None,
+            refinement=RefinementConfig(
+                method="map_laplace",
+                map_num_steps=20,
+                map_num_starts=1,
+                map_num_scored_starts=8,
+                test_time_validation=False,
+            ),
+            seed=configuration.seed + 2,
+        )
+    )
+    refined_summary = json.loads((refined_root / "amortized_summary.json").read_text())
+    verdict = refined_summary["refinement_verdict"]
+    assert verdict["method"] == "map_laplace"
+    # Whatever it decided, it must have made the comparison and recorded it.
+    comparison = verdict["predictive_comparison"]
+    assert comparison["refined_crps"] is not None
+    assert comparison["amortized_crps"] is not None
+    assert isinstance(comparison["refined_is_better"], bool)
+    # And the delivered artifact must match the decision.
+    expected = "refined_map_laplace" if verdict["accepted"] else "amortized"
+    assert refined_summary["delivered_posterior"] == expected, (
+        refined_summary["delivered_posterior"], verdict
+    )
+
     reparameterised = json.loads(
         (reparameterised_root / "amortized_summary.json").read_text()
     )
@@ -3750,3 +3782,125 @@ def test_exact_summary_features_accept_a_per_spectrum_mask():
     assert np.all(np.isfinite(features))
     # The first feature is the supplied log amplitude, untouched by masking.
     np.testing.assert_allclose(features[:, 0], log_scale, rtol=0, atol=0)
+
+
+def test_checkpoint_selection_is_not_dominated_by_the_worst_single_parameter():
+    """The calibration penalty must rank on the mean, not the max.
+
+    Measured over all 384 epochs of the 8M transmission run:
+    ``calibration_coverage_error_max`` has a floor of 0.312 and never falls
+    below its 0.25 threshold in any epoch of any run, while the mean sits at
+    0.183-0.240 and always passes. Ranking on the max therefore penalised every
+    checkpoint by ~1.8 nats that jittered by 0.35 nats epoch to epoch -- more
+    than the 0.1-0.3 nats separating good late epochs -- and selection was
+    decided by that noise. The chosen checkpoint delivered a target predictive
+    1.8x wider and 2.5x more biased than the same run's best-loss checkpoint.
+    """
+    from petitRADTRANS.experimental.sbi.flows.regularization import (
+        _flow_validation_selection_metric,
+    )
+
+    def diagnostics(mean_error, max_error, threshold=0.25):
+        return {
+            "checkpoint_is_stable": 0.0,
+            "checkpoint_is_pathological": 0.0,
+            "calibration_coverage_error_mean": mean_error,
+            "calibration_coverage_error_max": max_error,
+            "checkpoint_stability_margin_calibration_coverage_error_mean": (
+                threshold - mean_error
+            ),
+            "checkpoint_stability_margin_calibration_coverage_error_max": (
+                threshold - max_error
+            ),
+        }
+
+    # Two epochs from the real run: the better-loss one has a slightly worse
+    # MAX and a slightly better MEAN. Ranking on the max inverts the order.
+    better_loss = _flow_validation_selection_metric(-12.44, diagnostics(0.213, 0.379))
+    worse_loss = _flow_validation_selection_metric(-12.42, diagnostics(0.221, 0.331))
+    assert better_loss < worse_loss, (better_loss, worse_loss)
+
+    # A calibrated-on-average checkpoint must carry no calibration penalty, so
+    # the term cannot jitter the ranking when it is not diagnosing anything.
+    calibrated = _flow_validation_selection_metric(-10.0, diagnostics(0.20, 0.40))
+    assert calibrated == pytest.approx(-10.0 + 1.0)  # only the unstable floor
+
+    # Genuine collapse raises the mean across parameters and must still be
+    # penalised -- that is what the term exists for.
+    collapsed = _flow_validation_selection_metric(-10.0, diagnostics(0.60, 0.85))
+    assert collapsed > calibrated + 1.0
+
+    # And a pathological checkpoint is still barred outright.
+    pathological = dict(diagnostics(0.60, 0.85), checkpoint_is_pathological=1.0)
+    assert _flow_validation_selection_metric(-99.0, pathological) == 1.0e6
+
+
+def test_delivery_gate_rejects_a_refinement_worse_than_the_amortized_posterior():
+    """The gate must compare, not just threshold.
+
+    On run 20260821T162601Z the MAP+Laplace refinement passed every absolute
+    threshold -- held-out coverage error 0.164 against a limit of 0.25, median
+    chi2/N 1.12 against a limit of 10 -- and was delivered, while being
+    measurably worse than the amortized posterior it displaced: CRPS 8.65e-06
+    against 3.65e-06, MAE 1.74 sigma against 0.83, and a predictive interval
+    28.5 sigma wide against 6.8. The run shipped the worse of the two artifacts
+    it had already computed, because nothing ever asked which was better.
+
+    CRPS is the criterion because it is a proper scoring rule: a posterior
+    cannot improve it by collapsing onto a biased point (which flatters MAE) or
+    by inflating until it contains everything (which flatters coverage).
+    """
+    from types import SimpleNamespace
+    from petitRADTRANS.experimental.sbi.workflow import (
+        _predictive_crps,
+        _refinement_predictive_comparison,
+    )
+
+    def result(crps):
+        return SimpleNamespace(
+            posterior_predictive=SimpleNamespace(crps={"TransitSynthetic05pct": crps})
+        )
+
+    # The real numbers from that run.
+    refined, amortized = result(8.650727e-06), result(3.652579e-06)
+    assert _predictive_crps(refined) == pytest.approx(8.650727e-06)
+
+    verdict = _refinement_predictive_comparison(refined, amortized, max_crps_ratio=1.0)
+    assert verdict["refined_is_better"] is False
+    assert verdict["crps_ratio"] == pytest.approx(8.650727 / 3.652579, rel=1e-6)
+
+    # A refinement that genuinely improves the predictive is still delivered.
+    better = _refinement_predictive_comparison(
+        result(1.5e-06), amortized, max_crps_ratio=1.0
+    )
+    assert better["refined_is_better"] is True
+
+    # The knob can restore the old threshold-only behaviour.
+    tolerant = _refinement_predictive_comparison(
+        refined, amortized, max_crps_ratio=float("inf")
+    )
+    assert tolerant["refined_is_better"] is True
+
+    # A missing predictive must not silently reject a refinement the thresholds
+    # accepted -- it defers rather than inventing a decision.
+    absent = _refinement_predictive_comparison(
+        SimpleNamespace(posterior_predictive=None), amortized, max_crps_ratio=1.0
+    )
+    assert absent["refined_is_better"] is True
+    assert "skipped" in absent["note"]
+
+    # Non-finite scores must not poison the mean.
+    mixed = SimpleNamespace(
+        posterior_predictive=SimpleNamespace(
+            crps={"a": float("nan"), "b": 2.0e-06}
+        )
+    )
+    assert _predictive_crps(mixed) == pytest.approx(2.0e-06)
+
+
+def test_refinement_config_carries_the_comparative_threshold():
+    """The new knob must round-trip through the config and its provenance dict."""
+    from petitRADTRANS.experimental.sbi.config import RefinementConfig
+
+    assert RefinementConfig().max_refinement_crps_ratio == 1.0
+    assert RefinementConfig(max_refinement_crps_ratio=1.25).max_refinement_crps_ratio == 1.25

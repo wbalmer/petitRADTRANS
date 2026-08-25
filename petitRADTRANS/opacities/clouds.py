@@ -181,16 +181,33 @@ def _init_cloud_branch_outputs(frequencies, pressures, n_clouds):
 def _maybe_add_opaque_cloud_deck(
     cloud_continuum_opacities, pressures, opaque_cloud_top_pressure
 ):
-    # The transmission kernels later run in WORKING_JAX_DTYPE. Define the deck
-    # in that working precision so the mixed-precision cast does not overflow to
-    # inf before the shell-path integration.
+    # The transmission kernels later run in WORKING_JAX_DTYPE, so the deck must be
+    # representable there. Use sqrt(max) rather than max/2: this opacity is
+    # multiplied by dP/g to form an optical depth, and a deck at max/2 overflows
+    # that product to inf, so whether it overflows depends on how the expression
+    # is fused. sqrt(max) leaves enough headroom for the product to stay finite
+    # while remaining overwhelmingly opaque (exp(-tau) underflows to 0 for
+    # tau > ~88).
     _OPAQUE_DECK_OPACITY = jnp.array(
-        jnp.finfo(WORKING_JAX_DTYPE).max / 2,
+        jnp.sqrt(jnp.finfo(WORKING_JAX_DTYPE).max),
         dtype=FEAUTRIER_JAX_DTYPE,
     )
 
     deck_active = jnp.greater_equal(opaque_cloud_top_pressure, 0.0)
-    mask = jnp.greater(pressures, opaque_cloud_top_pressure * 1e6)  # bar to pascal
+
+    # Convert the cloud top to cgs in the pressure grid's precision. The layer
+    # grid can contain a pressure lying exactly at the cloud top, so this
+    # comparison is decided by its last bits: computing the threshold in a
+    # narrower precision, or letting XLA constant-fold it, could move the cloud
+    # top by one layer and shift the transit radii by ~8e-3 relative. Doing the
+    # conversion explicitly here, on a value the caller kept in full precision
+    # (see validation._sanitize_flux_opacity_inputs), makes the result
+    # independent of both. A layer exactly at the cloud top stays *outside* the
+    # deck, which is the existing convention.
+    cloud_top_pressure = (
+        jnp.asarray(opaque_cloud_top_pressure, dtype=pressures.dtype) * 1e6
+    )  # bar to cgs
+    mask = jnp.greater(pressures, cloud_top_pressure)
     deck = jnp.where(
         jnp.logical_and(deck_active, mask)[jnp.newaxis, :],
         _OPAQUE_DECK_OPACITY,
@@ -235,27 +252,11 @@ def _maybe_add_power_law_cloud_scattering(
     )
 
 
-def _validate_power_law_inputs(power_law_opacity_350nm, power_law_opacity_coefficient):
-    def _raise_incomplete_powerlaw(a, b):
-        a_missing = bool(a == _MISSING_FLOAT)
-        b_missing = bool(b == _MISSING_FLOAT)
-
-        if a_missing ^ b_missing:
-            none_parameter = (
-                "power_law_opacity_350nm"
-                if a_missing
-                else "power_law_opacity_coefficient"
-            )
-            raise RuntimeError(
-                f"to include a power law opacity, both parameters 'power_law_opacity_350nm' "
-                f"and 'power_law_opacity_coefficient' must be provided; missing '{none_parameter}'"
-            )
-
-    debug.callback(
-        _raise_incomplete_powerlaw,
-        power_law_opacity_350nm,
-        power_law_opacity_coefficient,
-    )
+# NOTE: the "both power-law parameters or neither" check used to live here as a
+# debug.callback. It now runs in validation._check_power_law_opacity_completeness,
+# called from the un-jitted Radtrans entry points: by the time execution reaches
+# this module the values are tracers and None has been replaced by a sentinel, so
+# the check could only be done via a host callback on every evaluation.
 
 
 def _init_cloud_background_continuum(
@@ -310,8 +311,6 @@ def _init_cloud_background_continuum(
             (frequencies.size, pressures.size), dtype=FEAUTRIER_JAX_DTYPE
         )
 
-    _validate_power_law_inputs(power_law_opacity_350nm, power_law_opacity_coefficient)
-
     return (
         cloudy_continuum_opacities,
         cloudy_continuum_opacities_scattering,
@@ -324,23 +323,16 @@ def _init_cloud_background_continuum(
 def _validate_selected_cloud_species(
     cloud_species_mass_fractions, selected_cloud_species, mass_fraction_keys
 ):
-    def raise_error_for_inconsistent_cloud_species_length(
-        _mass_fractions, _selected_cloud_species, _keys
-    ):
-        if len(_mass_fractions) != len(_selected_cloud_species):
-            raise ValueError(
-                f"the number of cloud species mass fractions ({len(_mass_fractions)}) "
-                f"does not match the number of cloud species ({len(_selected_cloud_species)}); "
-                f"check for inconsistencies between mass_fractions keys ({_keys}) "
-                f"and cloud_species keys ({_selected_cloud_species})"
-            )
-
-    debug.callback(
-        raise_error_for_inconsistent_cloud_species_length,
-        cloud_species_mass_fractions,
-        selected_cloud_species,
-        mass_fraction_keys,
-    )
+    # Container lengths are known while tracing, so this is a plain Python check:
+    # a debug.callback would defer it to a host call on every evaluation for no gain
+    # (see the same reasoning in validation._sanitize_frequency_surface_input).
+    if len(cloud_species_mass_fractions) != len(selected_cloud_species):
+        raise ValueError(
+            f"the number of cloud species mass fractions ({len(cloud_species_mass_fractions)}) "
+            f"does not match the number of cloud species ({len(selected_cloud_species)}); "
+            f"check for inconsistencies between mass_fractions keys ({mass_fraction_keys}) "
+            f"and cloud_species keys ({selected_cloud_species})"
+        )
 
 
 def _compute_selected_cloud_branch(
@@ -776,6 +768,11 @@ def _validate_missing_cloud_radius_arguments(
                 f"The cloud particle radii are necessary to calculate the cloud opacities."
             )
 
+    # NOTE: this must stay a runtime callback. Although `missing_arguments` is
+    # known while tracing, the caller traces this branch unconditionally and only
+    # *executes* it when the clouds genuinely need derived radii (see the lax.cond
+    # in _compute_cloud_opacity_grids_with_derived_radii). Raising at trace time
+    # would reject valid setups whose dead branch merely gets traced.
     debug.callback(raise_missing_arguments_error, missing_arguments)
 
 
@@ -987,17 +984,12 @@ def init_clouds_particle_porosity_factor(
         # Store back the (possibly updated) porosity
         clouds_particle_porosity_factor[species] = _porosity
 
-        # Validate value with jnp logicals, raise via debug.callback so it works under jitting/tracing
-        def _raise_if_invalid(porosity, species_name):
-            if porosity < 0 or porosity >= 1:
-                raise ValueError(
-                    f"clouds particles porosity factor "
-                    f"must be >= 0 (full particles) and < 1 (empty particles), "
-                    f"but is {porosity} for species '{species_name}'"
-                )
-
-        # Only call the callback when invalid is True (callback will run during tracing/execution)
-        debug.callback(_raise_if_invalid, _porosity, species)
+        # The [0, 1) range check lives in
+        # validation._check_clouds_particle_porosity_factor, which runs on the
+        # caller's still-concrete values. Doing it here would need a
+        # debug.callback (this function is jitted, so _porosity is a tracer),
+        # costing a host round-trip on every evaluation. The values this branch
+        # substitutes (0.25 for DHS, 0.0 otherwise) are in range by construction.
 
     return clouds_particle_porosity_factor
 

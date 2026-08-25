@@ -4,183 +4,23 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [Unreleased]
-### Added
-- **`petitRADTRANS.experimental.sbi`: the flow now receives the observation's
-  amplitude exactly, instead of a learned reconstruction of it.** A transmission
-  spectrum determines `log10(median depth)` -- and hence the constrained
-  combination `R_p + h` -- to a few parts in 10^5, but that statistic reached
-  the conditioner only through the encoder. Measured on the trained
-  24M-simulation model over its own held-out split, the six raw amplitude
-  features the encoder is handed recover it with a residual of 0.00001 dex,
-  while the 256-dimensional conditioning vector built from them manages 0.08542
-  against a prior spread of 0.3164 -- a degradation of about 8,500x, and 1,600x
-  worse than the data. `EncoderConfig.exact_summary_channel` (on by default)
-  appends four analytically computed scalars -- the log amplitude, the median of
-  the normalized spectrum, its robust within-spectrum scatter, and the median
-  normalized error bar -- directly to the conditioning vector, bypassing the
-  network, the fusion layer, the `LayerNorm` and the set aggregator. They are
-  standardised only by constants fitted once on the training split and stored in
-  the preprocessing sidecar (`BlockNormalizationStats.exact_summary_center` /
-  `_scale`), never per batch: a per-batch rescaling would divide out exactly the
-  amplitude the channel exists to carry, which is how the deleted
-  `_normalize_embedding` corrupted every delivered posterior. The conditioning
-  vector is now `embedding_dim + exact_summary_dim` wide
-  (`ObservationEncoder.context_dim`); models saved before this change reload at
-  their original width because the estimator's own default is off.
-- **`petitRADTRANS.experimental.sbi.calibration.generate_encoder_stage_information_report`:
-  an audit that localises where the encoder loses a statistic.** Runs the
-  held-out regression of `generate_embedding_information_report` against every
-  intermediate representation of the spectral encoder rather than only its
-  output, with a target -- the per-spectrum log amplitude -- that is a closed-form
-  function of the input, so any stage scoring below 1 is discarding it. Stages
-  come from the same `_forward_with_stages` call that produces the embedding, so
-  the audited tensors are the ones the encoder actually computes; a previous
-  audit that rebuilt the forward pass to inspect it reported three consecutive
-  stages at exactly 0.00000. On the trained transmission model the loss is
-  concentrated in the amplitude MLP (0.00001 -> 0.01980), the fusion MLP
-  (-> 0.09675) and the set aggregator (0.03768 -> 0.08542); the `LayerNorm`,
-  the suspected culprit, improves the readout rather than degrading it.
-  `generate_embedding_information_report` also reports the same statistic under
-  `observation_statistic`, so every run records whether its conditioning carries
-  the amplitude.
-- **`petitRADTRANS.experimental.sbi.flows.reparameterization`: infer an
-  amplitude-driven parameter in an observation-conditioned basis.** Setting
-  `SBIConfig.amplitude_conditioned_parameter` gives the flow
-  `log10(theta) - 0.5 * log10(observed amplitude)` in place of that parameter's
-  cube coordinate, so inferring the planet radius becomes inferring the
-  atmospheric annulus -- the part the spectrum genuinely leaves uncertain -- with
-  the sharp, data-determined direction handled by an exact formula. Carrying the
-  amplitude in the conditioning vector is necessary but not sufficient: the
-  conditioner would still have to *learn* a map accurate to four and a half
-  significant digits, which trained float32 networks do not deliver.
-  `AmplitudeConditionedParameter` reads the log amplitude back out of the
-  exact-summary channel (an exactly invertible affine map, not an estimate) and
-  is a monotone bijection in the parameter, so the change of variables is
-  tracked in the log-density and posterior draws are mapped back exactly before
-  anything downstream sees them. `fit_amplitude_conditioned_parameter` fits the
-  ratio bounds from training draws and reports the captured fraction; a fit that
-  would clip more than 0.5% of draws aborts the run rather than piling posterior
-  mass on a cube edge. Earlier radius reparameterisations in this benchmark were
-  measured to change nothing -- they reparameterised the marginal with no
-  reference to the observation, which cannot help when the deficiency is that
-  the posterior ignores a combination the spectrum determines.
-
+## [4.0.0b2] - 2026-08-25
 ### Changed
-- **`petitRADTRANS.experimental.sbi`: MAP refinement now uses the actual Hessian
-  of the negative log posterior, not its Gauss-Newton approximation.**
-  Gauss-Newton drops `sum_i r_i d^2 r_i / du^2`, a term that vanishes only for a
-  perfect fit. With the optimizer converged at chi2/N 1.28 the held-out
-  interval coverage was still 0.524 against a nominal 0.90, and dropping a term
-  that subtracts from the curvature makes the posterior too narrow.
-  `RefinementConfig.map_covariance_method` now defaults to `"hessian"`;
-  `"laplace"` keeps the previous behaviour and `"gaussian_vi"` is unchanged
-  (being mean-field and reverse-KL it targets conditional rather than marginal
-  widths, so expect it to be narrower still). An unknown value now raises
-  instead of silently falling back. Every refinement records which curvature it
-  used, the largest per-marginal width ratio against Gauss-Newton, and the
-  chi2/dof misfit factor -- reported always, applied only under the new
-  `map_covariance_chi2_inflation`, so the textbook error-bar correction cannot
-  quietly paper over whatever the curvature term does not explain.
-- **`petitRADTRANS.experimental.sbi`: the test-time validation report now
-  separates a displaced posterior from a too-narrow one.** Coverage alone cannot
-  say why it falls short, and the two call for opposite fixes.
-  `test_time_validation_report.json` gains the standardized error of the truth
-  under the delivered posterior: `per_parameter_z_bias`, `per_parameter_z_spread`
-  (1.0 when the widths are right), `overall_rms_z`, and
-  `implied_width_inflation`, the factor the reported standard deviations would
-  have to be multiplied by.
+- `calculate_flux` and `calculate_transit_radii` now fully JIT compiled for
+  improved performance (about 30% faster).
+- Time-series retrieval model now can be used to N-order harmonics rather than
+  hard-coded first and second order.
+- Moved SBI module to `experimental`. SBI now works for both emission and transmission.
+  Recommended setup is to use a neural autoregressive flow for both, with more details
+  in README.
 
 ### Fixed
-- **`tests/test_sbi_interfaces.py` was uncollectable outside a SLURM
-  allocation.** The module imports `pymultinest` so the real package wins where
-  it is usable, guarded against `ImportError`/`SystemExit`; mpi4py now raises
-  `RuntimeError` ("cannot load MPI library") instead, which took the entire SBI
-  suite down at collection. Nothing in the suite uses pymultinest, so the guard
-  now falls through to the existing stub on any import failure.
+- Removed `debug.callbacks` from opacities and validation.
+- dtype mismatch in patchy cloud opacity conditional.
+- lambda functions in JIT compiled functions which results in extra compilations.
 
-- **`petitRADTRANS.experimental.sbi`: the delivered target posterior is now gated
-  on the refinement's own diagnostics.** Test-time refinement can fail while
-  still producing a confident-looking artifact -- importance sampling can put
-  all its weight on a single particle, and a MAP point can carry a Laplace
-  covariance far too narrow -- and a repeated point estimate serialises exactly
-  like a posterior. `RefinementConfig` gains `min_effective_sample_size`,
-  `max_test_time_coverage_error`, and `max_test_time_median_chi2_per_n`; a
-  refinement that fails them is written to
-  `rejected_refined_posterior_samples.npy`, the amortized posterior is
-  delivered instead, and `refinement_verdict.json` records the numbers behind
-  the decision. Runs also report `delivered_posterior` and
-  `delivered_posterior_degenerate_marginals` in their summary.
-- **`petitRADTRANS.experimental.sbi.truncation`: prior-truncation primitives for
-  a sharpened second inference round (TSNPE).** `TruncationBox` describes an
-  axis-aligned box in cube coordinates and maps between full-cube and
-  box-normalized coordinates; `build_truncation_box` derives one from posterior
-  draws; `truncation_box_report` measures the posterior mass retained and
-  checks a known truth before any truncation is acted on; `compose` chains
-  boxes across rounds; and `TruncatedParameterLayout` makes every cube-consuming
-  consumer read box-normalized coordinates. Set `TruncationConfig.enabled` with
-  a `source_run_label` and `run_sbi` derives the box from that run's posterior,
-  verifies it, and runs the round against it; point each round at the previous
-  one to iterate. Wrapping the parameter layout is the entire mechanism -- the
-  simulator draws the unit cube unchanged -- and because the prior quantiles in
-  the task fingerprint pass through the same transform, a truncated round
-  fingerprints differently and cannot reuse its parent's dataset. The box and
-  its verification report are written to the run directory, the run manifest,
-  and the summary. A box that would drop more than
-  `min_captured_fraction` of the source posterior's mass, or exclude a known
-  truth, aborts the run rather than producing a confidently wrong answer.
-
-- **`petitRADTRANS.experimental.sbi`: runs now report what the observation
-  embedding actually knows about each parameter.**
-  `generate_embedding_information_report` regresses the true parameters on the
-  trained embedding for held-out simulations and reports out-of-sample R² from
-  both a ridge fit and a random-feature nonlinear fit, plus the implied
-  residual scatter as a fraction of the prior. A broad posterior marginal is
-  ambiguous on its own -- it can mean the flow failed to decode the embedding,
-  or that the encoder never carried the information, and only the second is an
-  encoder problem. On the transmission benchmark the two probes agree that the
-  convolution encoder carries the planet radius (R² 0.94) and surface gravity
-  (0.84) but discards water (0.03) and methane (0.10), which validation loss
-  did not reveal because it is dominated by the sharp radius direction. Written
-  to the run summary as `embedding_information`.
-
-### Fixed
-- **`petitRADTRANS.experimental.sbi`: target inference conditioned the flow on a
-  rescaled embedding.** `ObservationEncoder.encode` — the single-observation path
-  used by `SBIInference.infer` — normalised the fused embedding to unit RMS,
-  while the training (`encode_from_prestacked`) and batched-validation
-  (`encode_stacked_batch`) paths did not. The trained flow was therefore
-  evaluated on a conditioning vector rescaled by `1 / RMS` (a factor of ~9.5 for
-  the transmission benchmark). Because that rescaling divides out the overall
-  embedding scale, it removed precisely the amplitude information that pins the
-  planet radius: target posteriors collapsed toward the low-radius prior edge and
-  the posterior-predictive spectrum missed the observed transit depth by a factor
-  of ~2, while SBC, validation predictive checks, and every other diagnostic —
-  which use the batched path — looked healthy. Downstream MAP and
-  importance-sampling refinement inherited the mis-placed proposal and collapsed
-  (importance-sampling ESS of 1). `encode` now returns exactly what the training
-  paths produce; `test_encode_paths_agree` pins all three paths together and
-  asserts the embedding still responds to a spectrum's absolute scale.
-- **`petitRADTRANS.experimental.sbi`: trainer checkpoints written before the
-  package moved could not be restored.** Checkpoints pickle classes by dotted
-  module path, so runs recorded under `petitRADTRANS.sbi` failed to load with
-  `ModuleNotFoundError`, which blocked re-running inference on an
-  already-trained posterior (the failure surfaced inside the checkpoint
-  guardrails, not only when resuming training). `EquinoxCheckpointBackend.restore`
-  now rewrites the pre-move module prefix during class lookup. No importable
-  alias is registered at the old path -- the move stays visible to user code.
-
-### Changed
-- **Moved the simulation-based inference package from `petitRADTRANS.sbi` to
-  `petitRADTRANS.experimental.sbi`.** The new `petitRADTRANS.experimental`
-  namespace marks features that are under active development: they are not
-  covered by the usual deprecation policy, and their public API, saved-artifact
-  formats (datasets, posteriors, run manifests), and numerical behaviour may
-  change in any release. Importing anything from `petitRADTRANS.experimental`
-  emits a `UserWarning` to that effect. Update imports from
-  `from petitRADTRANS.sbi import ...` to
-  `from petitRADTRANS.experimental.sbi import ...`; no compatibility shim is
-  provided at the old path.
+### Removed
+- autodiff versions of `calculate_flux` and `calculate_transit_radii`
 
 ## [4.0.0b1] - 2026-07-30
 ### Summary

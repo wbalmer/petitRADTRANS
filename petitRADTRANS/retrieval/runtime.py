@@ -2393,15 +2393,15 @@ def mean_anchor_log_likelihood(model_mean: Any, time_series_config: dict) -> Any
     ``N(<M>, sigma^2 + s^2 <M>^2)`` -- so the nuisance costs no sampled
     parameters and simply widens the anchor's variance in quadrature.
     """
-    observed_mean = jnp.asarray(time_series_config["mean_spectrum"], dtype=JAX_DTYPE)
+    observed_mean = jnp.asarray(time_series_config["mean_spectrum"], dtype=FEAUTRIER_JAX_DTYPE)
     observed_uncertainty = jnp.asarray(
-        time_series_config["mean_uncertainty"], dtype=JAX_DTYPE
+        time_series_config["mean_uncertainty"], dtype=FEAUTRIER_JAX_DTYPE
     )
     scale_prior = jnp.asarray(
-        time_series_config.get("mean_anchor_scale_prior", 0.05), dtype=JAX_DTYPE
+        time_series_config.get("mean_anchor_scale_prior", 0.05), dtype=FEAUTRIER_JAX_DTYPE
     )
 
-    model_mean = jnp.asarray(model_mean, dtype=JAX_DTYPE)
+    model_mean = jnp.asarray(model_mean, dtype=FEAUTRIER_JAX_DTYPE)
     variance = observed_uncertainty**2 + (scale_prior * model_mean) ** 2
     residual = observed_mean - model_mean
 

@@ -371,6 +371,70 @@ def _refinement_verdict(
     return verdict
 
 
+def _predictive_crps(result: Any) -> float | None:
+    """Mean CRPS across observation blocks of a target inference result.
+
+    CRPS is a *proper* scoring rule, which is why the delivery comparison uses
+    it rather than the mean absolute error or the interval width on their own.
+    A posterior can win on MAE by collapsing to a biased point, and win on
+    coverage by inflating until it contains everything; CRPS penalises both
+    directions at once, so "better CRPS" cannot be bought by mis-stating the
+    uncertainty. Returns ``None`` when no predictive was computed.
+    """
+    predictive = getattr(result, "posterior_predictive", None)
+    if predictive is None:
+        return None
+    scores = [
+        float(value)
+        for value in getattr(predictive, "crps", {}).values()
+        if np.isfinite(float(value))
+    ]
+    if not scores:
+        return None
+    return float(np.mean(scores))
+
+
+def _refinement_predictive_comparison(
+    refined_result: Any,
+    amortized_result: Any,
+    max_crps_ratio: float,
+) -> dict[str, Any]:
+    """Compare a refined target predictive against the amortized one.
+
+    The threshold gate in :func:`_refinement_verdict` asks whether a refinement
+    is bad in absolute terms. It never asked the question that actually decides
+    what to ship: *is it better than what it replaces?* On run
+    20260821T162601Z the refinement passed every threshold (held-out coverage
+    error 0.164 < 0.25, median chi2/N 1.12 < 10) and was delivered, while being
+    measurably worse than the amortized posterior it displaced -- CRPS
+    8.65e-06 against 3.65e-06, MAE 1.74 sigma against 0.83, and a predictive
+    interval 28.5 sigma wide against 6.8. The run shipped the worse of the two
+    artifacts it had computed.
+
+    Returns the numbers behind the comparison and whether the refinement earns
+    delivery.
+    """
+    refined_crps = _predictive_crps(refined_result)
+    amortized_crps = _predictive_crps(amortized_result)
+    comparison: dict[str, Any] = {
+        "criterion": "mean predictive CRPS (proper scoring rule; lower is better)",
+        "refined_crps": refined_crps,
+        "amortized_crps": amortized_crps,
+        "max_crps_ratio": float(max_crps_ratio),
+    }
+    if refined_crps is None or amortized_crps is None or amortized_crps <= 0.0:
+        # Nothing to compare against: keep the threshold gate's decision rather
+        # than inventing one.
+        comparison["refined_is_better"] = True
+        comparison["note"] = "no predictive available on one side; comparison skipped"
+        return comparison
+
+    ratio = refined_crps / amortized_crps
+    comparison["crps_ratio"] = float(ratio)
+    comparison["refined_is_better"] = bool(ratio <= float(max_crps_ratio))
+    return comparison
+
+
 def _resolve_truncation(
     config: Any,
     task: Any,
@@ -1922,15 +1986,76 @@ def run_sbi(config: SBIConfig) -> Path:
         write_json(run_root / "truncation_box.json", truncation_box.to_payload())
         write_json(run_root / "truncation_report.json", truncation_report)
 
+    def _infer_target(estimator: Any) -> Any:
+        """Target inference + predictive for one candidate posterior.
+
+        Both delivery candidates go through this same call -- same sample
+        counts, same seed, same interval level -- so the CRPS comparison below
+        is like-for-like and not an artefact of differing settings.
+        """
+        return AmortizedRetrieval(task=task, posterior_estimator=estimator).infer(
+            raw_observation_blocks,
+            n_posterior_samples=config.n_posterior_samples,
+            include_posterior_predictive=True,
+            posterior_predictive_interval_level=0.9,
+            n_predictive_forward_model_samples=config.n_predictive_forward_model_samples,
+            seed=config.seed + 3,
+        )
+
     print("Running amortized inference on the target spectrum...")
-    result = AmortizedRetrieval(task=task, posterior_estimator=target_posterior).infer(
-        raw_observation_blocks,
-        n_posterior_samples=config.n_posterior_samples,
-        include_posterior_predictive=True,
-        posterior_predictive_interval_level=0.9,
-        n_predictive_forward_model_samples=config.n_predictive_forward_model_samples,
-        seed=config.seed + 3,
-    )
+    result = _infer_target(target_posterior)
+
+    # Comparative delivery test. The thresholds above ask whether the refinement
+    # is bad in absolute terms; this asks whether it beats the amortized
+    # posterior it would replace. Only runs when a refinement actually survived
+    # the thresholds, so a "none" or already-rejected refinement costs nothing
+    # extra.
+    if (
+        refinement.method != "none"
+        and refinement_verdict["accepted"]
+        and target_posterior is not posterior
+    ):
+        print(
+            "  Comparing the refined target predictive against the amortized one "
+            "(proper scoring rule: CRPS)..."
+        )
+        amortized_result = _infer_target(posterior)
+        comparison = _refinement_predictive_comparison(
+            result,
+            amortized_result,
+            max_crps_ratio=float(refinement.max_refinement_crps_ratio),
+        )
+        refinement_verdict["predictive_comparison"] = comparison
+        if not comparison["refined_is_better"]:
+            refinement_verdict["accepted"] = False
+            refinement_verdict["status"] = "rejected"
+            reason = (
+                f"the refined predictive scores worse than the amortized one: "
+                f"CRPS {comparison['refined_crps']:.4g} vs "
+                f"{comparison['amortized_crps']:.4g} "
+                f"(ratio {comparison['crps_ratio']:.2f} > "
+                f"{comparison['max_crps_ratio']:.2f}) -- delivering the "
+                "refinement would ship the worse of the two artifacts computed"
+            )
+            refinement_verdict["reasons"].append(reason)
+            print(f"  REFINEMENT REJECTED ({refinement.method}): {reason}")
+            _save_rejected_refinement_samples(
+                run_root=run_root,
+                posterior=target_posterior,
+                task=task,
+                raw_observation_blocks=raw_observation_blocks,
+                preprocessing_metadata=preprocessing_metadata,
+                n_posterior_samples=config.n_posterior_samples,
+                seed=config.seed + 3,
+            )
+            target_posterior = posterior
+            result = amortized_result
+        else:
+            print(
+                f"  refinement accepted: CRPS {comparison['refined_crps']:.4g} vs "
+                f"amortized {comparison['amortized_crps']:.4g}"
+            )
+        write_json(run_root / "refinement_verdict.json", refinement_verdict)
     if result.metadata.get("parameter_space") != "physical":
         raise RuntimeError(
             "AmortizedRetrieval is expected to return posterior samples in physical "

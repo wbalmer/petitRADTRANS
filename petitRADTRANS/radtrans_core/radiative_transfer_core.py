@@ -556,6 +556,74 @@ def combine_ck_opacities(
     )
 
 
+def _compute_ck_angle_transmission(
+    optical_depths: ArrayLike,
+    weights_gauss: ArrayLike,
+    mu: ArrayLike,
+) -> ArrayLike:
+    """Total transmission along one emission angle.
+
+    The correlated-k transmission is the g-quadrature average of
+    ``exp(-tau / mu)``, multiplied over species (random-overlap assumption).
+
+    Parameters
+    ----------
+    optical_depths : jax.Array, shape (n_g, n_frequencies, n_species, n_layers)
+    weights_gauss : jax.Array, shape (n_g,)
+    mu : jax.Array, scalar
+        Cosine of the emission angle.
+
+    Returns
+    -------
+    jax.Array, shape (n_frequencies, n_layers)
+    """
+    transm_mu = jnp.exp(-optical_depths / mu)
+    mean_transm = jnp.sum(transm_mu * weights_gauss[:, None, None, None], axis=0)
+
+    return jnp.prod(mean_transm, axis=1)
+
+
+def _compute_ck_layer_emission_terms(
+    planck: ArrayLike,
+    transm_all: ArrayLike,
+) -> ArrayLike:
+    """Trapezoidal per-layer emission terms, shared by the flux and contribution.
+
+    Parameters
+    ----------
+    planck : jax.Array, shape (n_frequencies, n_layers)
+    transm_all : jax.Array, shape (n_frequencies, n_layers)
+
+    Returns
+    -------
+    jax.Array, shape (n_frequencies, n_layers - 1)
+    """
+    return (planck[:, :-1] + planck[:, 1:]) * (
+        transm_all[:, :-1] - transm_all[:, 1:]
+    )
+
+
+def _compute_ck_angle_flux(
+    layer_terms: ArrayLike,
+    planck: ArrayLike,
+    transm_all: ArrayLike,
+) -> ArrayLike:
+    """Emergent flux along one angle, before the ``mu * mu_weight`` weighting.
+
+    The trailing term closes the integral with the deepest layer. Note the
+    original code indexed column ``n_layers`` here, one past the last valid
+    column; that worked only because JAX clamps out-of-bounds static indices to
+    the last element, so it is written explicitly as ``-1``.
+
+    Returns
+    -------
+    jax.Array, shape (n_frequencies,)
+    """
+    return (
+        jnp.sum(layer_terms * 0.5, axis=1) + planck[:, -1] * transm_all[:, -1]
+    )
+
+
 @jit
 def calculate_ck_emission_contribution(
     frequencies: ArrayLike,
@@ -591,36 +659,24 @@ def calculate_ck_emission_contribution(
     """
 
     struct_shape = (frequencies.shape[0], temperatures.shape[0])
-    flux = jnp.zeros(struct_shape[0])
-    contr_em = jnp.zeros(struct_shape)
 
     # Vectorize over emission angles using vmap: compute per-angle contributions then sum.
     r = physics_core.compute_planck_function(temperatures, frequencies)
 
     def _angle_contrib(mu: ArrayLike, mu_w: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
-        transm_mu = jnp.exp(-optical_depths / mu)
-        mean_transm = jnp.sum(transm_mu * weights_gauss[:, None, None, None], axis=0)
-        transm_all = jnp.prod(mean_transm, axis=1)
+        transm_all = _compute_ck_angle_transmission(optical_depths, weights_gauss, mu)
+        layer_terms = _compute_ck_layer_emission_terms(r, transm_all)
 
         # Radiative transport contribution for this angle
-        flux_mu = jnp.sum(
-            (r[:, :-1] + r[:, 1:]) * (transm_all[:, 0:-1] - transm_all[:, 1:]) / 2.0,
-            axis=1,
-        )
-        flux_mu = flux_mu + r[:, struct_shape[1]] * transm_all[:, struct_shape[1]]
+        flux_mu = _compute_ck_angle_flux(layer_terms, r, transm_all)
 
         contr_local = jnp.zeros(struct_shape)
-        contr_local = contr_local.at[:, :-1].set(
-            (r[:, :-1] + r[:, 1:])
-            * (transm_all[:, 0:-1] - transm_all[:, 1:])
-            * mu
-            * mu_w
-        )
+        contr_local = contr_local.at[:, :-1].set(layer_terms * mu * mu_w)
         contr_local = contr_local.at[:, -1].set(
-            2.0 * r[:, struct_shape[1]] * transm_all[:, struct_shape[1]] * mu * mu_w
+            2.0 * r[:, -1] * transm_all[:, -1] * mu * mu_w
         )
 
-        flux_contrib = flux_mu / 2.0 * mu * mu_w
+        flux_contrib = flux_mu * 0.5 * mu * mu_w
         return flux_contrib, contr_local
 
     vmapped = vmap(_angle_contrib, in_axes=(0, 0))
@@ -635,7 +691,12 @@ def calculate_ck_emission_contribution(
     # Normalization
     flux = flux * 4.0 * jnp.pi
     contr_em = contr_em.T
-    contr_em = jnp.divide(contr_em, jnp.sum(contr_em, axis=0))
+    # Floor the denominator: a frequency column that sums to zero (no emission
+    # anywhere, e.g. a fully opaque column) would otherwise normalize to NaN.
+    contr_em_sum = jnp.sum(contr_em, axis=0)
+    contr_em = contr_em / jnp.maximum(
+        contr_em_sum, jnp.finfo(contr_em.dtype).tiny
+    )
     return flux, contr_em
 
 
@@ -686,25 +747,16 @@ def compute_ck_flux(
     ) -> tuple[ArrayLike, ArrayLike]:
         struct_shape = (frequencies.shape[0], temperatures.shape[0])
         contribution = jnp.zeros((struct_shape[1], struct_shape[0]))
-        flux = jnp.zeros(struct_shape[0])
 
         # Vectorize over emission angles using vmap: compute per-angle flux then sum.
         r = physics_core.compute_planck_function(temperatures, frequencies)
 
         def _angle_contrib(mu: ArrayLike, mu_w: ArrayLike) -> ArrayLike:
-            transm_mu = jnp.exp(-optical_depths / mu)
-            mean_transm = jnp.sum(
-                transm_mu * weights_gauss[:, None, None, None], axis=0
+            transm_all = _compute_ck_angle_transmission(
+                optical_depths, weights_gauss, mu
             )
-            transm_all = jnp.prod(mean_transm, axis=1)
-
-            flux_mu = jnp.sum(
-                (r[:, :-1] + r[:, 1:])
-                * (transm_all[:, 0:-1] - transm_all[:, 1:])
-                * 0.5,
-                axis=1,
-            )
-            flux_mu = flux_mu + r[:, struct_shape[1]] * transm_all[:, struct_shape[1]]
+            layer_terms = _compute_ck_layer_emission_terms(r, transm_all)
+            flux_mu = _compute_ck_angle_flux(layer_terms, r, transm_all)
 
             return flux_mu * 0.5 * mu * mu_w
 
