@@ -20,10 +20,14 @@ from petitRADTRANS.stellar_spectra.phoenix import compute_star_spectrum
 _UNSET = object()
 
 
-def _warn_scattering_in_emission_without_cloud_species(
+def _warn_scattering_in_emission_without_scattering_species(
     scattering_in_emission: bool,
     cloud_species: list[str] | tuple[str] | None,
+    rayleigh_species: list[str] | tuple[str] | None
 ):
+    """ Returns warning if scattering is on but no scatterers are loaded.
+    """
+
     if isinstance(cloud_species, (str, bytes)):
         cloud_species = (cloud_species,)
     elif cloud_species is None:
@@ -31,12 +35,20 @@ def _warn_scattering_in_emission_without_cloud_species(
     else:
         cloud_species = tuple(cloud_species)
 
-    if scattering_in_emission and len(cloud_species) == 0:
+    if isinstance(rayleigh_species, (str, bytes)):
+        rayleigh_species = (rayleigh_species,)
+    elif rayleigh_species is None:
+        rayleigh_species = ()
+    else:
+        rayleigh_species = tuple(rayleigh_species)
+
+    if scattering_in_emission and (len(cloud_species) == 0 and len(rayleigh_species) == 0):
         warnings.warn(
-            "scattering_in_emission=True, but 'cloud_species' is empty. "
-            "Consider setting 'scattering_in_emission' to False.",
-            UserWarning,
-            stacklevel=3,
+            "scattering_in_emission=True, but 'cloud_species' and"
+            " 'rayleigh_species' is empty. Consider re-initializing a Radtrans object"
+            " with 'scattering_in_emission' set to False to calculate emission spectra"
+            " more quickly.",
+            stacklevel=3
         )
 
 
