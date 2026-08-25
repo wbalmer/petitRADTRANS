@@ -33,15 +33,15 @@ def zhang_2023_temperature_profile(
     p_use = jnp.maximum(pressures, pressure_floor)
     num_pressures = p_use.shape[0]
 
-    # 1.3 pressures of layers
+    # pressures of layers
     layer_pressures = jnp.logspace(
         top_of_atmosphere_pressure, bottom_of_atmosphere_pressure, int(num_layer)
     )
 
-    # 1.4 assemble the P-T slopes for these layers
+    # assemble the P-T slopes for these layers
     # for index in range(num_layer):
     #    layer_pt_slopes[index] = parameters['PTslope_%d'%(num_layer - index)].value
-    # 1.5 interpolate the P-T slopes to compute slopes for all layers
+    # interpolate the P-T slopes to compute slopes for all layers
     pt_slopes = interp1d(
         jnp.log10(p_use),
         jnp.log10(layer_pressures),
@@ -49,7 +49,7 @@ def zhang_2023_temperature_profile(
         method="cubic",
     )
 
-    # 1.6 compute temperatures
+    # compute temperatures
     # Initialise finite (every entry is overwritten below). An all-NaN
     # initialiser is a forward NaN that trips jax_debug_nans and, more
     # importantly, makes the reverse-mode gradient NaN via 0*NaN in the

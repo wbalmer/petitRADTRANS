@@ -119,39 +119,6 @@ def _run_clear_spectrum_check(capsys, mass_fractions, cloud_species,
     return capsys.readouterr().out
 
 
-def test_clear_spectrum_requested_without_effective_clouds_warns(capsys):
-    output = _run_clear_spectrum_check(
-        capsys,
-        mass_fractions={"Mg2SiO4": np.array([0.0])},
-        cloud_species=("Mg2SiO4",),
-    )
-
-    assert "clouds have no effect" in output
-
-
-def test_clear_spectrum_any_effective_cloud_species_does_not_warn(capsys):
-    # Regression test: only the last cloud species used to be consulted, so a
-    # zero-MMR species listed last incorrectly triggered the warning
-    output = _run_clear_spectrum_check(
-        capsys,
-        mass_fractions={"Mg2SiO4": np.array([1e-6]), "Fe": np.array([0.0])},
-        cloud_species=("Mg2SiO4", "Fe"),
-    )
-
-    assert "clouds have no effect" not in output
-
-
-def test_clear_spectrum_with_partial_cloud_coverage_warns(capsys):
-    output = _run_clear_spectrum_check(
-        capsys,
-        mass_fractions={"Mg2SiO4": np.array([1e-6])},
-        cloud_species=("Mg2SiO4",),
-        cloud_fraction=0.5,
-    )
-
-    assert "partial cloud coverage" in output
-
-
 def test_no_clear_spectrum_requested_does_not_warn(capsys):
     output = _run_clear_spectrum_check(
         capsys,

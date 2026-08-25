@@ -1376,6 +1376,77 @@ def guillot_transmission(
     physical_params: PhysicalParams,
     pt_plot_mode: bool = False,
 ) -> ModelResult:
+    """
+    Transmission Model, Guillot p-T profile
+
+    This model computes a transmission spectrum based on the Guillot p-T profile
+    (default is global p-T profile; redistribution_coefficient=0.25)
+    Either free or (dis)equilibrium chemistry can be used. 
+    Abundances are resolved for the resulting P-T profile. 
+    When running in pt_plot_mode, that result is returned immediately
+    without computing clouds/hazes or the transmission spectrum.
+
+    Otherwise, simple cloud/haze parameters (opaque cloud-top pressure,
+    power-law opacity coefficient, haze factor, and power-law opacity at
+    350 nm) or detailed cloud properties are set up from the physical
+    parameters and abundance state.
+
+    Args:
+        model_context: Runtime context holding the radiative transfer object, 
+            parameter units, and other shared model state.
+        physical_params: Dictionary-like mapping of physical parameters for
+            the model.
+        pt_plot_mode: If True, allows the abundance-resolution step to return
+            early (for inspecting/plotting the pressure-temperature
+            profile) before cloud setup and spectrum calculation are
+            performed. Defaults to False.
+        parameters:
+            *  distance_to_system : Distance to the planet in [cm]
+            Two of
+                *  log_g : Log of surface gravity
+                *  planet_radius : planet radius [cm]
+                *  mass : planet mass [g]
+
+            *  T_int : Interior temperature of the planet [K]
+            *  T_equ : Equilibrium temperature of the planet
+            *  gamma : Guillot gamma parameter
+            *  log_kappa_IR : The log of the ratio between the infrared and optical opacities
+
+            Either:
+                *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
+                *  Fe/H : Metallicity
+                *  C/O : Carbon to oxygen ratio
+            Or:
+                * $SPECIESNAME[_$DATABASE][.R$RESOLUTION] : The log mass fraction abundance of the species
+
+            Either:
+                * [log_]Pcloud : The (log) pressure at which to place the gray cloud opacity.
+            Or:
+                *  fsed : sedimentation parameter - can be unique to each cloud type
+                One of:
+                *  sigma_lnorm : Width of cloud particle size distribution (log normal)
+                *  b_hans : Width of cloud particle size distribution (hansen)
+                One of:
+                *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
+                *  log_kzz : Vertical mixing parameter
+                One of
+                *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
+                *  log_X_cb_: cloud mass fraction abundance
+            Optional
+                *  contribution : return the transmission contribution function
+                *  power_law_opacity_coefficient : gamma, power law slope for a rayleigh-like haze
+                *  haze_factor : multiplicative scaling factor for the strength of the rayleigh haze
+                *  power_law_opacity_350nm : strength of the rayleigh haze at 350 nm.
+
+    Returns:
+        ModelResult: the computed transmission spectrum result
+            - wavelengths: Model wavelength grid, in microns.
+            - spectrum: Transit-depth spectrum, (Rp/Rs)^2, as a function of
+                wavelength.
+            - auxiliary_outputs: Any additional outputs returned by
+                `calculate_transit_radii` (e.g. contribution functions,
+                abundances, opacities), wrapped via `_as_auxiliary_outputs`.
+    """
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     reference_pressure = 100.0
     if "reference_pressure" in physical_params.keys():
@@ -1388,7 +1459,7 @@ def guillot_transmission(
     gamma = _resolve_guillot_gamma(physical_params)
     redistribution_coefficient = _get_parameter_value(physical_params, "redistribution_coefficient")
     if redistribution_coefficient is None:
-        redistribution_coefficient = 0.25
+        redistribution_coefficient = 0.25 # global Guillot profile
 
     temperature_builder = _wrap_runtime_temperature_builder(
         physical_params,
@@ -1444,12 +1515,15 @@ def guillot_patchy_transmission(
     physical_params: PhysicalParams,
     pt_plot_mode: bool = False,
 ) -> ModelResult:
+    """
+    Transmission Model, Guillot p-T profile
+    """
     return guillot_transmission(
         model_context, physical_params, pt_plot_mode=pt_plot_mode
     )
 
 
-def madhushudhan_seager_emission(
+def madhusudhan_seager_emission(
     model_context: ModelContext,
     physical_params: PhysicalParams,
     pt_plot_mode: bool = False,
@@ -1515,11 +1589,86 @@ def madhushudhan_seager_emission(
     return calculate_emission_spectrum_runtime(model_context, model_inputs)
 
 
-def madhushudhan_seager_transmission(
+def madhusudhan_seager_transmission(
     model_context: ModelContext,
     physical_params: PhysicalParams,
     pt_plot_mode: bool = False,
 ) -> ModelResult:
+    """
+    Transmission Model, Mahdusudhan-Seager p-T profile
+
+    This model computes a transmission spectrum based on the Madhusudhan-Seager p-T profile
+    Either free or (dis)equilibrium chemistry can be used. 
+    Abundances are resolved for the resulting P-T profile. 
+    When running in pt_plot_mode, that result is returned immediately
+    without computing clouds/hazes or the transmission spectrum.
+
+    Otherwise, simple cloud/haze parameters (opaque cloud-top pressure,
+    power-law opacity coefficient, haze factor, and power-law opacity at
+    350 nm) or detailed cloud properties are set up from the physical
+    parameters and abundance state.
+
+    Args:
+        model_context: Runtime context holding the radiative transfer object, 
+            parameter units, and other shared model state.
+        physical_params: Dictionary-like mapping of physical parameters for
+            the model.
+        pt_plot_mode: If True, allows the abundance-resolution step to return
+            early (for inspecting/plotting the pressure-temperature
+            profile) before cloud setup and spectrum calculation are
+            performed. Defaults to False.
+        parameters:
+            *  distance_to_system : Distance to the planet in [cm]
+            Two of
+                *  log_g : Log of surface gravity
+                *  planet_radius : planet radius [cm]
+                *  mass : planet mass [g]
+
+            *  log_P_set : Pressure value to contrain the PT profile, defaults to 10 bar.
+            *  T_set : temperature at P_set to constrain the PT profile. [K]
+            *  log_P3 : (log) Pressure value for the top of the deep atmospheric layer, [bar]
+            *  P2 : in range (0,1), sets the pressure level of the middle atmospheric layer
+            *  P1 : in range (0,1), sets the pressure level of the top atmospheric layer
+            *  alpha_0 : slope of the upper atmospheric layer
+            *  alpha_1 : slope of the middle atmospheric layer
+            Optional :
+                *  beta : power law for the slopes, default value is 0.5. Not recommended to change!
+
+            Either:
+                *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
+                *  Fe/H : Metallicity
+                *  C/O : Carbon to oxygen ratio
+            Or:
+                * $SPECIESNAME[_$DATABASE][.R$RESOLUTION] : The log mass fraction abundance of the species
+
+            Either:
+                * [log_]Pcloud : The (log) pressure at which to place the gray cloud opacity.
+            Or:
+                *  fsed : sedimentation parameter - can be unique to each cloud type
+                One of:
+                *  sigma_lnorm : Width of cloud particle size distribution (log normal)
+                *  b_hans : Width of cloud particle size distribution (hansen)
+                One of:
+                *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
+                *  log_kzz : Vertical mixing parameter
+                One of
+                *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
+                *  log_X_cb_: cloud mass fraction abundance
+            Optional
+                *  contribution : return the transmission contribution function
+                *  power_law_opacity_coefficient : gamma, power law slope for a rayleigh-like haze
+                *  haze_factor : multiplicative scaling factor for the strength of the rayleigh haze
+                *  power_law_opacity_350nm : strength of the rayleigh haze at 350 nm.
+
+    Returns:
+        ModelResult: the computed transmission spectrum result
+            - wavelengths: Model wavelength grid, in microns.
+            - spectrum: Transit-depth spectrum, (Rp/Rs)^2, as a function of
+                wavelength.
+            - auxiliary_outputs: Any additional outputs returned by
+                `calculate_transit_radii` (e.g. contribution functions,
+                abundances, opacities), wrapped via `_as_auxiliary_outputs`.
+    """
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     reference_pressure = 100.0
     if "reference_pressure" in physical_params.keys():
@@ -1597,7 +1746,10 @@ def madhu_seager_patchy_transmission(
     physical_params: PhysicalParams,
     pt_plot_mode: bool = False,
 ) -> ModelResult:
-    return madhushudhan_seager_transmission(
+    """
+     Transmission Model, Mahdusudhan-Seager p-T profile, patchy clouds
+    """
+    return madhusudhan_seager_transmission(
         model_context,
         physical_params,
         pt_plot_mode=pt_plot_mode,
@@ -1609,6 +1761,74 @@ def isothermal_transmission(
     physical_params: PhysicalParams,
     pt_plot_mode: bool = False,
 ) -> ModelResult:
+    """
+    Transmission Model, isothermal p-T profile
+
+    This model computes a transmission spectrum based on the isothermal p-T profile
+    Either free or (dis)equilibrium chemistry can be used. 
+    Abundances are resolved for the resulting P-T profile. 
+    When running in pt_plot_mode, that result is returned immediately
+    without computing clouds/hazes or the transmission spectrum.
+
+    Otherwise, simple cloud/haze parameters (opaque cloud-top pressure,
+    power-law opacity coefficient, haze factor, and power-law opacity at
+    350 nm) or detailed cloud properties are set up from the physical
+    parameters and abundance state.
+
+    Args:
+        model_context: Runtime context holding the radiative transfer object, 
+            parameter units, and other shared model state.
+        physical_params: Dictionary-like mapping of physical parameters for
+            the model.
+        pt_plot_mode: If True, allows the abundance-resolution step to return
+            early (for inspecting/plotting the pressure-temperature
+            profile) before cloud setup and spectrum calculation are
+            performed. Defaults to False.
+        parameters:
+            *  distance_to_system : Distance to the planet in [cm]
+            Two of
+                *  log_g : Log of surface gravity
+                *  planet_radius : planet radius [cm]
+                *  mass : planet mass [g]
+
+            *  temperature : vertically constant temperature of the planet [K]
+
+            Either:
+                *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
+                *  Fe/H : Metallicity
+                *  C/O : Carbon to oxygen ratio
+            Or:
+                * $SPECIESNAME[_$DATABASE][.R$RESOLUTION] : The log mass fraction abundance of the species
+
+            Either:
+                * [log_]Pcloud : The (log) pressure at which to place the gray cloud opacity.
+            Or:
+                *  fsed : sedimentation parameter - can be unique to each cloud type
+                One of:
+                *  sigma_lnorm : Width of cloud particle size distribution (log normal)
+                *  b_hans : Width of cloud particle size distribution (hansen)
+                One of:
+                *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
+                *  log_kzz : Vertical mixing parameter
+                One of
+                *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
+                *  log_X_cb_: cloud mass fraction abundance
+            Optional
+                *  contribution : return the transmission contribution function
+                *  power_law_opacity_coefficient : gamma, power law slope for a rayleigh-like haze
+                *  haze_factor : multiplicative scaling factor for the strength of the rayleigh haze
+                *  power_law_opacity_350nm : strength of the rayleigh haze at 350 nm.
+
+    Returns:
+        ModelResult: the computed transmission spectrum result
+            - wavelengths: Model wavelength grid, in microns.
+            - spectrum: Transit-depth spectrum, (Rp/Rs)^2, as a function of
+                wavelength.
+            - auxiliary_outputs: Any additional outputs returned by
+                `calculate_transit_radii` (e.g. contribution functions,
+                abundances, opacities), wrapped via `_as_auxiliary_outputs`.
+    """
+    
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
 
     reference_pressure = 100.0
@@ -1667,6 +1887,76 @@ def power_law_profile_transmission(
     physical_params: PhysicalParams,
     pt_plot_mode: bool = False,
 ) -> ModelResult:
+    """
+    Transmission Model, power-law p-T profile
+
+    This model computes a transmission spectrum based on the power-law p-T profile
+    Either free or (dis)equilibrium chemistry can be used. 
+    Abundances are resolved for the resulting P-T profile. 
+    When running in pt_plot_mode, that result is returned immediately
+    without computing clouds/hazes or the transmission spectrum.
+
+    Otherwise, simple cloud/haze parameters (opaque cloud-top pressure,
+    power-law opacity coefficient, haze factor, and power-law opacity at
+    350 nm) or detailed cloud properties are set up from the physical
+    parameters and abundance state.
+
+    Args:
+        model_context: Runtime context holding the radiative transfer object, 
+            parameter units, and other shared model state.
+        physical_params: Dictionary-like mapping of physical parameters for
+            the model.
+        pt_plot_mode: If True, allows the abundance-resolution step to return
+            early (for inspecting/plotting the pressure-temperature
+            profile) before cloud setup and spectrum calculation are
+            performed. Defaults to False.
+        parameters:
+            *  distance_to_system : Distance to the planet in [cm]
+            Two of
+                *  log_g : Log of surface gravity
+                *  planet_radius : planet radius [cm]
+                *  mass : planet mass [g]
+
+            *  alpha : power law slope for the temperture profile
+            *  T_0 : multiplicative factor for the power law slope
+
+            Either:
+                *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
+                *  Fe/H : Metallicity
+                *  C/O : Carbon to oxygen ratio
+            Or:
+                * $SPECIESNAME[_$DATABASE][.R$RESOLUTION] : The log mass fraction abundance of the species
+
+            Either:
+                * [log_]Pcloud : The (log) pressure at which to place the gray cloud opacity.
+            Or:
+                *  fsed : sedimentation parameter - can be unique to each cloud type
+                One of:
+                *  sigma_lnorm : Width of cloud particle size distribution (log normal)
+                *  b_hans : Width of cloud particle size distribution (hansen)
+                One of:
+                *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
+                *  log_kzz : Vertical mixing parameter
+                One of
+                *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
+                *  log_X_cb_: cloud mass fraction abundance
+            Optional
+                *  contribution : return the transmission contribution function
+                *  power_law_opacity_coefficient : gamma, power law slope for a rayleigh-like haze
+                *  haze_factor : multiplicative scaling factor for the strength of the rayleigh haze
+                *  power_law_opacity_350nm : strength of the rayleigh haze at 350 nm.
+
+    Returns:
+        ModelResult: the computed transmission spectrum result
+            - wavelengths: Model wavelength grid, in microns.
+            - spectrum: Transit-depth spectrum, (Rp/Rs)^2, as a function of
+                wavelength.
+            - auxiliary_outputs: Any additional outputs returned by
+                `calculate_transit_radii` (e.g. contribution functions,
+                abundances, opacities), wrapped via `_as_auxiliary_outputs`.
+
+    """
+     
     p_use, p_global = _initialize_runtime_pressure_grid(model_context, physical_params)
     gravity, planet_radius = _compute_gravity(
         physical_params, model_context.parameter_units
@@ -2169,7 +2459,7 @@ def legacy_guillot_emission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, Emission contribution function, relative contributions for each wavelength and pressure level.
 
@@ -2303,7 +2593,7 @@ def legacy_guillot_emission_add_gaussian_temperature(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, Emission contribution function, relative contributions for each wavelength and pressure level.
 
@@ -2462,7 +2752,7 @@ def legacy_interpolated_profile_emission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
@@ -2598,7 +2888,7 @@ def legacy_gradient_profile_emission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
@@ -2744,7 +3034,7 @@ def legacy_power_law_profile_emission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
@@ -2885,7 +3175,7 @@ def legacy_guillot_transmission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
@@ -2987,13 +3277,13 @@ def legacy_guillot_patchy_transmission(
 
 
 @mark_legacy_model_function
-def legacy_madhushudhan_seager_emission(
+def legacy_madhusudhan_seager_emission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
     """
     Transmission Model, Madhusudhan Seager 2009 Profile
 
-    This model computes a transmission spectrum based on a Guillot temperature-pressure profile.
+    This model computes a transmission spectrum based on a Madhusudhan-Seager temperature-pressure profile.
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
     It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
     Chemical clouds can be used, or a simple gray opacity source. This model requires patchy clouds.
@@ -3051,7 +3341,7 @@ def legacy_madhushudhan_seager_emission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
@@ -3144,13 +3434,13 @@ def legacy_madhushudhan_seager_emission(
 
 
 @mark_legacy_model_function
-def legacy_madhushudhan_seager_transmission(
+def legacy_madhusudhan_seager_transmission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
     """
     Transmission Model, Madhusudhan Seager 2009 Profile
 
-    This model computes a transmission spectrum based on a Guillot temperature-pressure profile.
+    This model computes a transmission spectrum based on the Madhu & Seager (2009) temperature-pressure profile.
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
     It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
     Chemical clouds can be used, or a simple gray opacity source. This model requires patchy clouds.
@@ -3209,7 +3499,7 @@ def legacy_madhushudhan_seager_transmission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
@@ -3319,7 +3609,7 @@ def legacy_madhu_seager_patchy_transmission(
     """
     Deprecated
     """
-    return legacy_madhushudhan_seager_transmission(
+    return legacy_madhusudhan_seager_transmission(
         prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement
     )
 
@@ -3343,7 +3633,7 @@ def legacy_isothermal_transmission(
                   *  log_g : Log of surface gravity
                   *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
-                *  temperature : Interior temperature of the planet [K]
+                *  temperature : vertically constant temperature of the planet [K]
 
                 Either:
                   *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
@@ -3379,7 +3669,7 @@ def legacy_isothermal_transmission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
@@ -3468,7 +3758,7 @@ def legacy_power_law_profile_transmission(
     prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
 ):
     """
-    This model computes a emission spectrum based a gradient temperature-pressure profile (Zhang 2023).
+    This model computes a transmission spectrum based on a gradient power-law pressure-temperature profile.
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
     It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
 
@@ -3517,9 +3807,9 @@ def legacy_power_law_profile_transmission(
         wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : jnp.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
-            Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
+            Optional, the transmission contribution function, relative contributions for each wavelength and pressure level.
     """
     p_use, PGLOBAL = initialize_pressure_from_legacy_dict(
         prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement
@@ -4014,6 +4304,58 @@ def _resolve_runtime_abundance_state(
     temperature_builder=None,
     pt_plot_mode: bool = False,
 ):
+    """
+    Resolve the pressure/temperature/abundance state for a runtime model.
+
+    Optionally refines the pressure grid around cloud base pressures
+    (adaptive mesh refinement), then either short-circuits with a
+    pt_profile-only `ModelResult` (when `pt_plot_mode` is True) or computes
+    chemical abundances and mean molar masses on the resolved grid.
+
+    If adaptive mesh refinement is enabled on `model_context`, cloud base
+    pressures are first estimated from the input pressures/temperatures via
+    `resolve_cloud_base_pressures`, stacked into an array, and used to build
+    a refined pressure grid via `build_adaptive_pressure_grid`. Temperatures
+    are then recomputed on this refined grid using `temperature_builder`,
+    which must be provided in this case.
+
+    If `pt_plot_mode` is True, the function returns early with a
+    `ModelResult` of kind "pt_profile" containing just the (possibly
+    refined) pressures and temperatures, skipping abundance calculation.
+
+    Otherwise, abundances are computed via `get_abundances` on the resolved
+    pressures/temperatures. If abundance calculation fails (returns None),
+    a NaN-filled spectrum `ModelResult` is returned instead (sized to the
+    model's wavelength grid).
+
+    Args:
+        model_context: Runtime context holding the `Radtrans` object and the
+            `adaptive_mesh_refinement` flag.
+        physical_params: Dictionary-like mapping of physical parameters used
+            to resolve cloud base pressures and abundances.
+        p_use: Pressure grid to use as the starting point for this
+            calculation.
+        temperatures: Temperatures corresponding to `p_use`.
+        temperature_builder: Callable that computes temperatures for a given
+            pressure grid. Required when `model_context.adaptive_mesh_refinement` 
+            is True, since temperatures must be recomputed after the pressure grid 
+            is refined.
+        pt_plot_mode: If True, return only the resolved pressure-temperature
+            profile without computing abundances. Defaults to False.
+
+    Returns:
+        tuple: A `(result, abundance_state)` pair where exactly one element
+        is meaningful:
+            - If returning early (ptz-plot mode or failed abundance
+              resolution): `result` is a `ModelResult` (kind "pt_profile" or
+              a NaN spectrum result) and `abundance_state` is None.
+            - Otherwise: `result` is None and `abundance_state` is a dict
+              with keys `"pressures"`, `"temperatures"`, `"abundances"`,
+              `"mean_molar_masses"`, and `"small_index"`, describing the
+              resolved atmospheric state for downstream use (e.g. cloud
+              setup and spectrum calculation).
+    """
+        
     del p_global
 
     pressures = p_use
@@ -4143,6 +4485,44 @@ def _build_runtime_transmission_model_inputs(
     power_law_opacity_350nm,
     cloud_properties,
 ):
+    """
+    Assemble a `ModelInputs` object for a runtime transmission spectrum calculation.
+
+    Combines the resolved atmospheric state (pressures, temperatures,
+    abundances, mean molar masses) from `abundance_state` with planetary
+    parameters, cloud/haze settings, and unpacked cloud property values into
+    a single `ModelInputs` instance suitable for passing to
+    `calculate_transmission_spectrum_runtime`.
+
+    Args:
+        physical_params: Dictionary-like mapping of physical parameters
+        abundance_state: Dict describing the resolved atmospheric state, as
+            produced by `_resolve_runtime_abundance_state`. Must contain the
+            keys `"pressures"`, `"temperatures"`, `"abundances"`, and
+            `"mean_molar_masses"`.
+        gravity: Gravitational acceleration at each pressure level.
+        planet_radius: Planet radius in cm.
+        reference_pressure: Pressure at which `planet_radius` is defined. 
+            Default set to 0.1 bar.
+        opaque_cloud_top_pressure: Pressure where an opaque grey cloud deck
+            is placed.
+        haze_factor: Multiplicative factor on the strength of a power law
+            haze slope.
+        power_law_opacity_coefficient: Exponent for the slope of a power
+            law haze.
+        power_law_opacity_350nm: Strength of the power law scattering at
+            350nm.
+        cloud_properties: Tuple of cloud property values, as returned by
+            `clouds.setup_clouds`, unpacked in order as
+            `(sigma_lnorm, cloud_f_sed, eddy_diffusion_coefficients,
+            cloud_hansen_b, cloud_particle_mean_radii, cloud_fraction,
+            patchy_clouds, distribution)`.
+
+    Returns:
+        ModelInputs: A populated model inputs object combining the
+            atmospheric state, planetary parameters, and cloud/haze parameters,
+            ready for use in the transmission spectrum runtime calculation.
+    """
     (
         sigma_lnorm,
         cloud_f_sed,
@@ -4316,6 +4696,40 @@ def calculate_transmission_spectrum_runtime(
     model_context: ModelContext,
     model_inputs: ModelInputs,
 ) -> ModelResult:
+    """
+    Calculate a transmission spectrum from prepared runtime model inputs.
+
+    Calls the underlying `Radtrans.calculate_transit_radii` method with the
+    atmospheric structure, composition, cloud/haze, and planet parameters
+    packaged in `model_inputs`, along with the auxiliary output flags
+    (contribution functions, cloud contribution, hydrostatic-equilibrium
+    radius, abundances, opacities) requested via `model_context`.
+
+    The resulting wavelength grid is converted from cm to microns, and the
+    transit radii are converted into a transit-depth spectrum as
+    (transit_radii / stellar_radius) ** 2, i.e. (Rp/Rs)^2.
+
+    Args:
+        model_context: Runtime context holding the `Radtrans` object
+            (`model_context.radtrans`) and boolean flags controlling which
+            optional auxiliary outputs to compute and return
+            (`return_contribution`, `return_cloud_contribution`,
+            `return_radius_hydrostatic_equilibrium`, `return_abundances`,
+            `return_opacities`).
+        model_inputs: Prepared model inputs, including pressures,
+            temperatures, mass fraction abundances, mean molar masses,
+            gravity, planet radius, reference pressure, cloud/haze
+            parameters, and stellar_radius.
+
+    Returns:
+        ModelResult: A result of kind "spectrum" containing:
+            - wavelengths: Model wavelength grid, in microns.
+            - spectrum: Transit-depth spectrum, (Rp/Rs)^2, as a function of
+              wavelength.
+            - auxiliary_outputs: Any additional outputs returned by
+              `calculate_transit_radii` (e.g. contribution functions,
+              abundances, opacities), wrapped via `_as_auxiliary_outputs`.
+    """
     results = model_context.radtrans.calculate_transit_radii(
         pressures=model_inputs.pressures,
         temperatures=model_inputs.temperatures,
@@ -4474,7 +4888,7 @@ def calculate_transmission_spectrum(
     patchy_clouds,
     distribution,
 ):
-    """_summary_
+    """Calculate the transmission spectrum (legacy-style interface).
 
     Args:
         prt_object (Radtrans): The Radtrans object used to calculate the spectrum
@@ -4483,7 +4897,7 @@ def calculate_transmission_spectrum(
         abundances (dict): Dictionary of molecular mass fraction abundances for each level in the atmosphere
         gravity (ArrayLike): Gravitational acceleration at each pressure level
         mean_molar_masses (ArrayLike): Mean molecular mass at each pressure level
-        planet_radius (float):Planet radius in cm
+        planet_radius (float): Planet radius in cm
         reference_pressure (float): Pressure at which the planet radius is defined
         opaque_cloud_top_pressure (float): Pressure where an opaque grey cloud deck is placed
         sigma_lnorm (float): Width of the cloud particle size distribution (log-normal)
@@ -4498,7 +4912,15 @@ def calculate_transmission_spectrum(
         patchy_clouds (list(str)) : Which clouds are patchy
         distribution (string): Log normal or hansen particle size distribution
     Returns:
-        _type_: _description_
+        The transmission spectrum
+        tuple:
+            wlen_model (ArrayLike): Model wavelength grid, in microns
+            spectrum_model (ArrayLike): Transmission spectrum expressed as
+                (transit_radii / stellar_radius) ** 2, i.e.
+                the transit depth as a function of wavelength.
+            auxiliary_outputs: Any additional outputs returned by
+                `calculate_transit_radii` (e.g. contribution functions,
+                abundances, opacities), wrapped via `_as_auxiliary_outputs`.
     """
     model_context = _build_model_context_from_parameters(
         name="legacy_transmission_spectrum",
@@ -4585,13 +5007,13 @@ guillot_patchy_transmission = make_unified_model(
     guillot_patchy_transmission,
     legacy_guillot_patchy_transmission,
 )
-madhushudhan_seager_emission = make_unified_model(
-    madhushudhan_seager_emission,
-    legacy_madhushudhan_seager_emission,
+madhusudhan_seager_emission = make_unified_model(
+    madhusudhan_seager_emission,
+    legacy_madhusudhan_seager_emission,
 )
-madhushudhan_seager_transmission = make_unified_model(
-    madhushudhan_seager_transmission,
-    legacy_madhushudhan_seager_transmission,
+madhusudhan_seager_transmission = make_unified_model(
+    madhusudhan_seager_transmission,
+    legacy_madhusudhan_seager_transmission,
 )
 madhu_seager_patchy_transmission = make_unified_model(
     madhu_seager_patchy_transmission,

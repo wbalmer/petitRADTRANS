@@ -151,64 +151,8 @@ def _check_pressures(pressures: ArrayLike):
         raise ValueError("pressures must be an array in increasing order")
 
 
-def _warn_clear_spectrum_irrelevant():
-    debug.print(
-        "requested to return a clear spectrum, but clouds have no effect with this setup\n"
-        "To remove this warning, add non-zero cloud mass fractions, set 'cloud_fraction' to a value > 0, "
-        "add an opaque cloud layer, or set 'return_clear_spectrum' to False."
-    )
-
-
-def _warn_clear_spectrum_partial_coverage():
-    debug.print(
-        "both the clear and cloudy spectra will be returned, but the returned cloudy spectrum will have "
-        "a partial cloud coverage\n"
-        "To remove this warning, set 'cloud_fraction' to 1, or set 'return_clear_spectrum' to False."
-    )
-
-
 def _validation_noop():
     return None
-
-
-def _check_return_clear_spectrum_relevance(
-    return_clear_spectrum: bool,
-    clouds_have_effect_fn: Callable[[], ArrayLike],
-    opaque_cloud_top_pressure: Optional[float],
-    cloud_fraction: float,
-):
-    """Check if returning a clear spectrum is relevant and issue warnings if not.
-
-    Args:
-        return_clear_spectrum: If True, a clear spectrum will be returned in addition to the cloudy one.
-        clouds_have_effect_fn: Zero-argument callable returning True if clouds have an effect on the spectrum.
-            Only called when the check is not skipped, so callers pay no cost in the common case.
-        opaque_cloud_top_pressure: The pressure of the opaque cloud top.
-        cloud_fraction: The cloud fraction.
-    """
-    # When callers pass a concrete Python false, do not build the JAX debug
-    # branches at all. This avoids spurious warning prints under transformed
-    # call paths that trace through the effectful lax.cond branches even
-    # though no clear spectrum was requested.
-    if isinstance(return_clear_spectrum, (bool, np.bool_)) and not return_clear_spectrum:
-        return
-
-    clouds_have_effect = clouds_have_effect_fn()
-
-    lax.cond(
-        jnp.logical_and(
-            jnp.logical_and(return_clear_spectrum, jnp.logical_not(clouds_have_effect)),
-            opaque_cloud_top_pressure is None,
-        ),
-        _warn_clear_spectrum_irrelevant,
-        _validation_noop,
-    )
-
-    lax.cond(
-        return_clear_spectrum & (cloud_fraction < 1),
-        _warn_clear_spectrum_partial_coverage,
-        _validation_noop,
-    )
 
 
 def _check_wavelength_boundaries(boundaries: ArrayLike):

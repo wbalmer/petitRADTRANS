@@ -791,21 +791,6 @@ class Radtrans:
         _check_wavelength_boundaries(array)
         self._wavelength_boundaries = array
 
-    def _clouds_have_effect(self, mass_fractions, cloud_fraction):
-        """Check if the clouds have any effect, i.e. if any cloud species MMR is greater than 0.
-
-        Args:
-            mass_fractions: atmospheric mass mixing ratios
-            cloud_fraction: cloud coverage fraction
-        """
-        has_effect = False
-
-        for cloud_species in self._cloud_species:
-            has_effect = jnp.logical_or(
-                has_effect, jnp.any(mass_fractions[cloud_species] > 0)
-            )
-
-        return jnp.logical_and(jnp.not_equal(cloud_fraction, 0), has_effect)
 
     @staticmethod
     def _has_partial_coverage_background_cloud(
@@ -971,23 +956,6 @@ class Radtrans:
         )
 
         spectrum_clear = None
-
-        def clouds_have_effect_fn():
-            return jnp.logical_or(
-                self._clouds_have_effect(mass_fractions, cloud_fraction),
-                jnp.logical_and(
-                    has_partial_coverage_background_cloud,
-                    jnp.not_equal(cloud_fraction, 0),
-                ),
-            )
-
-        # Sanity checking and debugging messaging
-        _check_return_clear_spectrum_relevance(
-            return_clear_spectrum=return_clear_spectrum,
-            clouds_have_effect_fn=clouds_have_effect_fn,
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-            cloud_fraction=cloud_fraction,
-        )
 
         sum_opacities = self._set_sum_opacities(
             emission=is_emission,
@@ -1504,6 +1472,29 @@ class Radtrans:
         reference_gravity,
         planet_radius,
     ):
+        """
+        Calculate the atmospheric radius profile assuming hydrostatic equilibrium.
+
+        Computes the atmospheric mass density at each pressure level from the
+        ideal gas law (using the mean molecular mass and temperature at that
+        level), then integrates the hydrostatic equilibrium equation to
+        obtain the radius as a function of pressure. The last pressure level
+         is used as the reference pressure, anchored to 'planet_radius'.
+
+        Args:
+            pressures (ArrayLike): Pressure at each atmospheric level.
+            temperatures (ArrayLike): Temperature at each atmospheric level.
+            mean_molar_masses (ArrayLike): Mean molecular mass at each
+                atmospheric level.
+            reference_gravity (float or ArrayLike): Gravitational acceleration
+                used in the hydrostatic equilibrium calculation.
+            planet_radius (float): Planet radius in cm, defining the radius at
+                the reference pressure.
+
+        Returns:
+            ArrayLike: Radius at each atmospheric pressure level, consistent
+            with hydrostatic equilibrium.
+        """
         atmospheric_densities = (
             pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
         )
