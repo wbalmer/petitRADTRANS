@@ -881,64 +881,7 @@ class Radtrans:
         return tuple(
             species for species in self._cloud_species if species in patchy_clouds
         )
-
-    # Paul continue from here
-
-    @staticmethod
-    def _compute_additional_continuum_opacities(
-        frequencies,
-        pressures,
-        additional_absorption_opacities_function,
-        additional_scattering_opacities_function,
-        cloud_photosphere_median_optical_depth,
-    ):
-        additional_absorption_opacities = None
-        additional_scattering_opacities = None
-        cloud_absorption_opacities = None
-        cloud_scattering_opacities = None
-
-        # Add optional absorption opacity from outside
-        if additional_absorption_opacities_function is None:
-            if cloud_photosphere_median_optical_depth is not None:
-                cloud_absorption_opacities = jnp.zeros(
-                    (frequencies.size, pressures.size), dtype=WORKING_JAX_DTYPE
-                )
-        else:
-            additional_absorption_opacities = additional_absorption_opacities_function(
-                hz2um(frequencies), pressures * 1e-6  # cgs to bar
-            )
-
-            if (
-                cloud_photosphere_median_optical_depth is not None
-            ):  # the additional opacities are treated as clouds
-                # This assumes a single cloud model that is given by the parametrized opacities from
-                # give_absorption_opacity and give_scattering_opacity
-                cloud_absorption_opacities = additional_absorption_opacities
-
-        # Add optional scattering opacity from outside
-        if additional_scattering_opacities_function is None:
-            if cloud_photosphere_median_optical_depth is not None:
-                cloud_scattering_opacities = jnp.zeros(
-                    (frequencies.size, pressures.size), dtype=WORKING_JAX_DTYPE
-                )
-        else:
-            additional_scattering_opacities = additional_scattering_opacities_function(
-                hz2um(frequencies), pressures * 1e-6  # cgs to bar
-            )
-
-            if (
-                cloud_photosphere_median_optical_depth is not None
-            ):  # the additional opacities are treated as clouds
-                # This assumes a single cloud model that is given by the parametrized opacities from
-                # give_absorption_opacity and give_scattering_opacity
-                cloud_scattering_opacities = additional_scattering_opacities
-
-        return (
-            additional_absorption_opacities,
-            additional_scattering_opacities,
-            cloud_absorption_opacities,
-            cloud_scattering_opacities,
-        )
+    
 
     def _init_spectral_function(
         self,
