@@ -881,16 +881,13 @@ class Radtrans:
         return tuple(
             species for species in self._cloud_species if species in patchy_clouds
         )
-    
+
 
     def _init_spectral_function(
         self,
         is_emission,
         reference_gravity,
-        return_clear_spectrum,
-        mass_fractions,
         cloud_fraction,
-        opaque_cloud_top_pressure,
         has_partial_coverage_background_cloud=False,
         patchy_clouds=None,
         complete_coverage_clouds=None,
@@ -898,25 +895,13 @@ class Radtrans:
     ):
         """Initializations and checks common to calculate_flux and calculate_transit_radii."""
 
-        # Reference gravity is a *value* check, so unlike the shape and None
-        # checks elsewhere it cannot be resolved while tracing.
-        if validate_inputs:
-            if isinstance(reference_gravity, jax_core.Tracer):
-                debug.callback(_handle_invalid_reference_gravity, reference_gravity)
-            else:
-                _handle_invalid_reference_gravity(float(reference_gravity))
-
+        # By default all clouds are patchy clouds.
+        # By default their coverage fraction is 100 %.
+        # This setup ensures that all clouds can take
+        # be downscaled with cloud_fraction if the user wants that.
         patchy_clouds = self._normalize_patchy_clouds(
             patchy_clouds=patchy_clouds,
             complete_coverage_clouds=complete_coverage_clouds,
-        )
-
-        _warn_partial_cloud_coverage_without_patchy_clouds(
-            cloud_fraction=cloud_fraction,
-            patchy_clouds=patchy_clouds,
-            has_partial_coverage_background_cloud=(
-                has_partial_coverage_background_cloud
-            ),
         )
 
         spectrum_clear = None
@@ -2998,10 +2983,7 @@ class Radtrans:
             reference_gravity=reference_gravity,
             patchy_clouds=patchy_clouds,
             complete_coverage_clouds=complete_coverage_clouds,
-            return_clear_spectrum=return_clear_spectrum,
-            mass_fractions=mass_fractions,
             cloud_fraction=cloud_fraction,
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
             has_partial_coverage_background_cloud=(
                 has_partial_coverage_background_cloud
             ),
@@ -4031,10 +4013,7 @@ class Radtrans:
             reference_gravity=reference_gravity,
             patchy_clouds=patchy_clouds,
             complete_coverage_clouds=complete_coverage_clouds,
-            return_clear_spectrum=return_clear_spectrum,
-            mass_fractions=mass_fractions,
             cloud_fraction=cloud_fraction,
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
             has_partial_coverage_background_cloud=(
                 has_partial_coverage_background_cloud
             ),
