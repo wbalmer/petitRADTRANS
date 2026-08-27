@@ -886,25 +886,19 @@ class Radtrans:
     def _init_spectral_function(
         self,
         is_emission,
-        reference_gravity,
-        cloud_fraction,
-        has_partial_coverage_background_cloud=False,
         patchy_clouds=None,
         complete_coverage_clouds=None,
-        validate_inputs=True,
     ):
         """Initializations and checks common to calculate_flux and calculate_transit_radii."""
 
-        # By default all clouds are patchy clouds.
-        # By default their coverage fraction is 100 %.
+        # By default, all clouds are patchy clouds.
+        # By default, their coverage fraction is 100 %.
         # This setup ensures that all clouds can take
         # be downscaled with cloud_fraction if the user wants that.
         patchy_clouds = self._normalize_patchy_clouds(
             patchy_clouds=patchy_clouds,
             complete_coverage_clouds=complete_coverage_clouds,
         )
-
-        spectrum_clear = None
 
         sum_opacities = self._set_sum_opacities(
             emission=is_emission,
@@ -933,7 +927,6 @@ class Radtrans:
         return (
             anisotropic_cloud_scattering,
             patchy_clouds,
-            spectrum_clear,
             sum_opacities,
         )
 
@@ -2976,17 +2969,11 @@ class Radtrans:
         (
             anisotropic_cloud_scattering,
             patchy_clouds,
-            _,
             sum_opacities,
         ) = self._init_spectral_function(
             is_emission=True,
-            reference_gravity=reference_gravity,
             patchy_clouds=patchy_clouds,
             complete_coverage_clouds=complete_coverage_clouds,
-            cloud_fraction=cloud_fraction,
-            has_partial_coverage_background_cloud=(
-                has_partial_coverage_background_cloud
-            ),
             validate_inputs=validate_inputs,
         )
 
@@ -4006,17 +3993,10 @@ class Radtrans:
         (
             anisotropic_cloud_scattering,
             patchy_clouds,
-            _,
             sum_opacities,
         ) = self._init_spectral_function(
             is_emission=False,
-            reference_gravity=reference_gravity,
             patchy_clouds=patchy_clouds,
-            complete_coverage_clouds=complete_coverage_clouds,
-            cloud_fraction=cloud_fraction,
-            has_partial_coverage_background_cloud=(
-                has_partial_coverage_background_cloud
-            ),
             validate_inputs=validate_inputs,
         )
 
