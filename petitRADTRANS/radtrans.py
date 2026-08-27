@@ -895,6 +895,8 @@ class Radtrans:
         # By default, their coverage fraction is 100 %.
         # This setup ensures that all clouds can take
         # be downscaled with cloud_fraction if the user wants that.
+        # Here patchy_clouds are turned into a tuple, regardless
+        # of the user input.
         patchy_clouds = self._normalize_patchy_clouds(
             patchy_clouds=patchy_clouds,
             complete_coverage_clouds=complete_coverage_clouds,
@@ -2974,7 +2976,6 @@ class Radtrans:
             is_emission=True,
             patchy_clouds=patchy_clouds,
             complete_coverage_clouds=complete_coverage_clouds,
-            validate_inputs=validate_inputs,
         )
 
         if return_rosseland_optical_depths:
@@ -3997,7 +3998,6 @@ class Radtrans:
         ) = self._init_spectral_function(
             is_emission=False,
             patchy_clouds=patchy_clouds,
-            validate_inputs=validate_inputs,
         )
 
         return self._calculate_transit_radii_full_kernel(
