@@ -568,8 +568,8 @@ def test_render_chain_worker_script():
     )
     assert "from my_pkg.cfg import build as config_builder" in worker
     assert "SLURM_ARRAY_TASK_ID" in worker
-    assert "Retrieval.run_single_chain" in worker
-    assert "Retrieval.combine_chains_from_builder" in worker
+    assert "multichain.run_single_chain" in worker
+    assert "multichain.combine_chains_from_builder" in worker
     assert 'sys.modules["mpi4py"] = None' in worker
     assert "NUM_CHAINS = 4" in worker and "CHAIN_SEED = 12345" in worker
     _ast.parse(worker)  # generated worker is valid Python
@@ -625,3 +625,300 @@ def test_run_single_chain_resume_skip(tmp_path):
         resume=True, verbose=False,
     )
     assert result is None  # skipped, no Retrieval built
+
+
+# ---------------------------------------------------------------------------
+# Orchestration entry points (moved out of Retrieval) + the Retrieval shims
+# ---------------------------------------------------------------------------
+
+
+def build_nested_demo_config():
+    """Module-level config builder naming a nested (JAXNS) sampler."""
+    return SimpleNamespace(retrieval_name="demo_run", sampler_type="jaxns")
+
+
+def _write_two_mcmc_chains(tmp_path, base_name="demo_run"):
+    """Two synthetic NumPyro chains under out_NumPyro; returns the parameter names."""
+    rng = np.random.default_rng(0)
+    names = ["a", "b"]
+    for chain_id in range(2):
+        _write_chain(
+            tmp_path / "out_NumPyro", base_name, chain_id,
+            rng.normal(size=(64, 2)), names,
+        )
+    return names
+
+
+def test_combine_chains_dispatches_mcmc(tmp_path):
+    _write_two_mcmc_chains(tmp_path)
+    summary = mc.combine_chains(
+        tmp_path, "numpyronuts", "demo_run", num_chains=2, verbose=False
+    )
+    assert summary.combined_name == "demo_run_combined"
+    assert summary.chain_ids == [0, 1]
+    assert summary.diagnostics["n_samples_total"] == 128
+    assert summary.diagnostics["rhat_available"] is True
+    assert os.path.exists(summary.samples_file)
+    assert os.path.exists(summary.diagnostics_file)
+
+
+def test_combine_chains_dispatches_nested(tmp_path):
+    base_dir = tmp_path / "out_JAXNS"
+    base_dir.mkdir(parents=True)
+    rng = np.random.default_rng(1)
+    for chain_id in range(2):
+        name = mc.chain_retrieval_name("demo_run", chain_id)
+        np.savez(
+            base_dir / f"{name}_samples.npz",
+            sample_matrix=rng.normal(size=(32, 2)),
+            log_likelihood=rng.normal(size=32),
+            parameter_names=np.asarray(["a", "b"], dtype=str),
+        )
+        with open(base_dir / f"{name}_evidence.json", "w", encoding="utf-8") as handle:
+            json.dump({"log_Z_mean": -10.0 + chain_id, "log_Z_uncert": 0.2}, handle)
+
+    summary = mc.combine_chains(
+        tmp_path, "jaxns", "demo_run", num_chains=2, verbose=False
+    )
+    assert summary.combined_name == "demo_run_combined"
+    assert summary.evidence["available"] is True
+    assert summary.diagnostics["n_runs"] == 2
+    assert os.path.exists(summary.evidence_file)
+
+
+def test_combine_chains_rejects_other_family(tmp_path):
+    with pytest.raises(NotImplementedError, match="not supported"):
+        mc.combine_chains(tmp_path, "pymultinest", "demo_run", verbose=False)
+
+
+def test_combine_chains_reports_summary(tmp_path, capsys):
+    _write_two_mcmc_chains(tmp_path)
+    mc.combine_chains(tmp_path, "numpyronuts", "demo_run", num_chains=2, verbose=True)
+    out = capsys.readouterr().out
+    assert "Combined 2 chains" in out
+    assert "max R-hat" in out
+
+
+def test_combine_chains_from_builder_needs_no_retrieval(tmp_path):
+    """The SLURM combine task must not construct a Retrieval.
+
+    ``build_demo_config`` returns a SimpleNamespace, which a real Retrieval would
+    reject outright -- so this passing is proof that only the config is built.
+    """
+    _write_two_mcmc_chains(tmp_path)
+    summary = mc.combine_chains_from_builder(
+        build_demo_config, output_directory=str(tmp_path), num_chains=2,
+        verbose=False,
+    )
+    assert summary.combined_name == "demo_run_combined"
+    assert summary.diagnostics["n_samples_total"] == 128
+
+
+def test_module_run_single_chain_resume_skip(tmp_path):
+    (tmp_path / "out_NumPyro").mkdir()
+    (tmp_path / "out_NumPyro" / "demo_run_chain3_samples.npz").touch()
+    assert mc.run_single_chain(
+        build_demo_config, 3, output_directory=str(tmp_path), resume=True,
+        verbose=False,
+    ) is None
+    # num_chains is accepted and ignored (the generated workers still pass it).
+    assert mc.run_single_chain(
+        build_demo_config, 3, output_directory=str(tmp_path), num_chains=4,
+        resume=True, verbose=False,
+    ) is None
+
+
+def test_module_write_chain_launcher(tmp_path):
+    written = mc.write_chain_launcher(
+        build_demo_config, num_chains=8, output_directory="/scratch/out",
+        script_dir=str(tmp_path), partition="p.vera", verbose=False,
+    )
+    names = {os.path.basename(p) for p in written.values()}
+    assert {"demo_run_chain_worker.py", "demo_run_chains.sbatch",
+            "demo_run_combine.sbatch", "demo_run_submit.sh"} <= names
+    _ast.parse((tmp_path / "demo_run_chain_worker.py").read_text())
+
+
+@pytest.mark.parametrize(
+    "method_name, function_name, args",
+    [
+        ("run_multichain", "run_multichain", (build_demo_config,)),
+        ("run_single_chain", "run_single_chain", (build_demo_config, 3)),
+        ("combine_chains_from_builder", "combine_chains_from_builder", (build_demo_config,)),
+        ("write_chain_launcher", "write_chain_launcher", (build_demo_config,)),
+    ],
+)
+def test_retrieval_shims_delegate_to_multichain(
+    monkeypatch, method_name, function_name, args
+):
+    """Each Retrieval classmethod forwards verbatim to its multichain function."""
+    from petitRADTRANS.retrieval.retrieval import Retrieval
+
+    recorded = {}
+
+    def fake(*call_args, **call_kwargs):
+        recorded["args"] = call_args
+        recorded["kwargs"] = call_kwargs
+        return "sentinel"
+
+    monkeypatch.setattr(mc, function_name, fake)
+
+    result = getattr(Retrieval, method_name)(*args, num_chains=4, verbose=False)
+    assert result == "sentinel"
+    assert recorded["args"] == args
+    assert recorded["kwargs"] == {"num_chains": 4, "verbose": False}
+
+
+class _FakeRetrieval:
+    """Stand-in for Retrieval that writes a synthetic chain instead of sampling.
+
+    Records the kwargs each chain was run with, so the seeding / ``num_chains=1``
+    contract of ``_run_single_chain_on`` is checked as well as the combine.
+    """
+
+    calls = []
+
+    def __init__(self, configuration, output_directory, **kwargs):
+        self.configuration = configuration
+        self.output_directory = output_directory
+
+    def run(self, **run_kwargs):
+        name = self.configuration.retrieval_name
+        type(self).calls.append((name, dict(run_kwargs)))
+        rng = np.random.default_rng(run_kwargs["seed"])
+        directory = os.path.join(self.output_directory, "out_NumPyro")
+        os.makedirs(directory, exist_ok=True)
+        samples = rng.normal(size=(64, 2))
+        np.savez(
+            os.path.join(directory, f"{name}_samples.npz"),
+            samples=samples,
+            unconstrained_samples=samples,
+            logdensity=-0.5 * (samples ** 2).sum(axis=1),
+        )
+        with open(os.path.join(directory, f"{name}_params.json"),
+                  "w", encoding="utf-8") as handle:
+            json.dump(["a", "b"], handle)
+
+
+def test_run_multichain_sequential_end_to_end(monkeypatch, tmp_path):
+    """Sequential mode: run 3 chains, auto-combine, produce diagnostics."""
+    import petitRADTRANS.retrieval.retrieval as retrieval_module
+
+    _FakeRetrieval.calls = []
+    monkeypatch.setattr(retrieval_module, "Retrieval", _FakeRetrieval)
+
+    result = mc.run_multichain(
+        build_demo_config,
+        num_chains=3,
+        output_directory=str(tmp_path),
+        chain_execution="sequential",
+        chain_seed=1000,
+        verbose=False,
+    )
+
+    assert result["execution"] == "sequential"
+    assert result["succeeded_chain_ids"] == [0, 1, 2]
+    assert result["failed"] == {}
+    assert result["combine"].combined_name == "demo_run_combined"
+    assert result["diagnostics"]["n_samples_total"] == 192
+    assert result["diagnostics"]["rhat_available"] is True
+
+    # Per-chain namespacing, derived seeds, and num_chains=1 per worker.
+    names = [name for name, _ in _FakeRetrieval.calls]
+    assert names == ["demo_run_chain0", "demo_run_chain1", "demo_run_chain2"]
+    seeds = [kwargs["seed"] for _, kwargs in _FakeRetrieval.calls]
+    assert seeds == [mc.derive_chain_seed(1000, c) for c in range(3)]
+    assert all(kwargs["num_chains"] == 1 for _, kwargs in _FakeRetrieval.calls)
+
+    assert os.path.exists(tmp_path / "out_NumPyro" / "demo_run_combined_samples.npz")
+
+
+def test_run_multichain_sequential_resume_skips_existing(monkeypatch, tmp_path):
+    """resume=True re-runs only the chains whose artifact is missing."""
+    import petitRADTRANS.retrieval.retrieval as retrieval_module
+
+    _FakeRetrieval.calls = []
+    monkeypatch.setattr(retrieval_module, "Retrieval", _FakeRetrieval)
+
+    # Pre-create chains 0 and 2 exactly as a previous run would have.
+    seeded = _FakeRetrieval(build_demo_config(), str(tmp_path))
+    for chain_id in (0, 2):
+        seeded.configuration.retrieval_name = mc.chain_retrieval_name("demo_run", chain_id)
+        seeded.run(seed=mc.derive_chain_seed(1000, chain_id), num_chains=1)
+    _FakeRetrieval.calls = []
+
+    result = mc.run_multichain(
+        build_demo_config, num_chains=3, output_directory=str(tmp_path),
+        chain_execution="sequential", chain_seed=1000, resume=True, verbose=False,
+    )
+    assert [name for name, _ in _FakeRetrieval.calls] == ["demo_run_chain1"]
+    assert result["succeeded_chain_ids"] == [0, 1, 2]
+
+
+def test_run_multichain_sequential_chain_failure_is_collected(monkeypatch, tmp_path):
+    """on_chain_failure='warn' keeps going and combines the survivors."""
+    import petitRADTRANS.retrieval.retrieval as retrieval_module
+
+    class _FlakyRetrieval(_FakeRetrieval):
+        calls = []
+
+        def run(self, **run_kwargs):
+            if self.configuration.retrieval_name.endswith("chain1"):
+                raise RuntimeError("chain 1 blew up")
+            super().run(**run_kwargs)
+
+    _FlakyRetrieval.calls = []
+    monkeypatch.setattr(retrieval_module, "Retrieval", _FlakyRetrieval)
+
+    with pytest.warns(RuntimeWarning, match="Missing chain outputs"):
+        result = mc.run_multichain(
+            build_demo_config, num_chains=3, output_directory=str(tmp_path),
+            chain_execution="sequential", chain_seed=1000,
+            on_chain_failure="warn", verbose=False,
+        )
+    assert result["succeeded_chain_ids"] == [0, 2]
+    assert "RuntimeError: chain 1 blew up" in result["failed"][1]
+    assert result["diagnostics"]["n_samples_total"] == 128  # survivors only
+
+    # ... and 'raise' propagates instead.
+    _FlakyRetrieval.calls = []
+    with pytest.raises(RuntimeError, match="chain 1 blew up"):
+        mc.run_multichain(
+            build_demo_config, num_chains=3, output_directory=str(tmp_path),
+            chain_execution="sequential", chain_seed=1000,
+            on_chain_failure="raise", verbose=False,
+        )
+
+
+def test_retrieval_combine_chains_shim_caches_diagnostics(monkeypatch, tmp_path):
+    """The instance method delegates and caches into _chain_diagnostics."""
+    from petitRADTRANS.retrieval.retrieval import Retrieval
+
+    recorded = {}
+    summary = SimpleNamespace(diagnostics={"max_rhat": 1.0, "converged": True})
+
+    def fake_combine(output_directory, sampler_type, base_name, **kwargs):
+        recorded.update(
+            output_directory=output_directory,
+            sampler_type=sampler_type,
+            base_name=base_name,
+            kwargs=kwargs,
+        )
+        return summary
+
+    monkeypatch.setattr(mc, "combine_chains", fake_combine)
+
+    # A bare instance: combine_chains only reads three attributes, so we can skip
+    # the (very heavy) __init__ entirely.
+    retrieval = Retrieval.__new__(Retrieval)
+    retrieval.configuration = build_demo_config()
+    retrieval.output_directory = str(tmp_path)
+    retrieval._chain_diagnostics = None
+
+    assert retrieval.get_convergence_diagnostics() is None
+    assert retrieval.combine_chains(num_chains=2, verbose=False) is summary
+    assert recorded["output_directory"] == str(tmp_path)
+    assert recorded["sampler_type"] == "numpyronuts"
+    assert recorded["base_name"] == "demo_run"
+    assert recorded["kwargs"]["num_chains"] == 2
+    assert retrieval.get_convergence_diagnostics() == summary.diagnostics

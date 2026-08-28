@@ -377,7 +377,7 @@ def _build_device_likelihood_wrapper(context: SamplerContext):
     print_debug = context.print_log_likelihood_for_debugging
 
     _jit_evaluate = jit(
-        lambda physical_params: runtime.evaluate_jax(
+        lambda physical_params: runtime.evaluate_likelihood_jax(
             physical_params=physical_params,
             uncertainties_mode=uncertainties_mode,
             print_log_likelihood_for_debugging=print_debug,
@@ -440,7 +440,7 @@ def _build_unconstrained_mcmc_interface(context: SamplerContext):
         physical_params = parameter_layout.physical_params_from_free_values(
             tuple(physical_position)
         )
-        return runtime.evaluate_jax(
+        return runtime.evaluate_likelihood_jax(
             physical_params=physical_params,
             uncertainties_mode=context.uncertainties_mode,
             print_log_likelihood_for_debugging=context.print_log_likelihood_for_debugging,
@@ -2428,7 +2428,7 @@ class PymultinestSampler(Sampler):
 
     def __init__(
         self,
-        log_likelihood_func,  # Retrieval.log_likelihood_jax
+        log_likelihood_func,  # Retrieval.log_likelihood
         prior_func,  # Retrieval.prior_model_jax (generator)
         output_directory,
         retrieval_name,
@@ -2742,7 +2742,7 @@ class PymultinestSampler(Sampler):
 class UltranestSampler(Sampler):
     def __init__(
         self,
-        log_likelihood_func,  # Retrieval.log_likelihood_jax
+        log_likelihood_func,  # Retrieval.log_likelihood
         prior_func,  # Retrieval.prior_model_jax (generator)
         output_directory,
         retrieval_name,
@@ -2816,7 +2816,7 @@ class UltranestSampler(Sampler):
 
             def log_likelihood_batch(physical_positions):
                 return np.asarray(
-                    runtime.evaluate_jax_batched(
+                    runtime.evaluate_likelihood_jax_batched(
                         free_parameter_values=physical_positions,
                         uncertainties_mode=context.uncertainties_mode,
                         print_log_likelihood_for_debugging=False,
@@ -3704,7 +3704,7 @@ class JAXNSSampler(Sampler):
 
     def __init__(
         self,
-        log_likelihood_func,  # Retrieval.log_likelihood_jax
+        log_likelihood_func,  # Retrieval.log_likelihood
         prior_func,  # Retrieval.prior_model_jax (generator)
         output_directory,
         retrieval_name,
@@ -3757,7 +3757,7 @@ class JAXNSSampler(Sampler):
 
         def log_likelihood_wrapper(*args):
             physical_params = parameter_layout.physical_params_from_free_values(args)
-            return runtime.evaluate_jax(
+            return runtime.evaluate_likelihood_jax(
                 physical_params=physical_params,
                 uncertainties_mode=uncertainties_mode,
                 print_log_likelihood_for_debugging=False,
@@ -4558,7 +4558,7 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
 
     def __init__(
         self,
-        log_likelihood_func,  # Retrieval.log_likelihood_jax
+        log_likelihood_func,  # Retrieval.log_likelihood
         prior_func,  # Retrieval.prior_model_jax (generator)
         output_directory,
         retrieval_name,
