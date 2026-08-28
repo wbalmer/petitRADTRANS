@@ -217,19 +217,28 @@ def _normalize_cloud_species_sequence(value):
 
 
 def _compile_spectral_function(static_argnames):
-    """Compile the calculate_flux or calculate_transit_radii method.
+    """Decorator factory that returns a decorator function which
+    can then be immediately used on the decorated function (see
+    how calculate_flux and calculate_transit_radii are decorated).
+    This is done instead of @jit(static_argnames) to enable cheap
+    non-jitted checks on user inputs to a function which depend on
+    input variable *values*, and not their shape,
+    such that we could not check without a costly debug.callback(), otherwise.
+    So jit() is still being used, but with a thin so-called wrapper that
+    performs the aforementioned checks.
+    Compared to what we did before (only kernel functions within the now decorated
+    functions we jitted), the wrapped function becomes a single compiled call.
+    This can be more efficient because of how JAX / XLA compilation works.
+    It also enables the computation of gradients.
 
-    The wrapped function becomes a single compiled call instead of many
-    separately-jitted kernels. A thin wrapper remains because a
-    few checks cannot run under tracing:
-
-    - the cloud porosity range check needs concrete floats (it skips tracers);
-    - the power-law completeness check needs to see ``None``;
+    The following checks and operations are run in the wrapper:
+    - the cloud porosity range check needs, which needs concrete floats (it skips tracers);
+    - the power-law completeness check, which needs to see ``None``;
     - the partial-cloud-coverage warning converts ``cloud_fraction`` with
       ``float()``, which fails on a tracer;
     - the reference-gravity check must raise a plain ``ValueError``. Left to the
       compiled body it would only be reachable through a ``debug.callback``,
-      which wraps it in a ``JaxRuntimeError`` and costs a host round-trip on
+      which wraps it in a ``JaxRuntimeError`` and costs a host-device round-trip on
       every evaluation.
 
     The shell also normalizes arguments whose *representation* would otherwise
@@ -237,20 +246,59 @@ def _compile_spectral_function(static_argnames):
     """
 
     def decorate(method):
-        # The signature links the arguments to their names
+
+        # The signature allows the wrapper below to link the arguments to their names
         signature = inspect.signature(method)
 
         # This is the actual compiled function.
         compiled_method = jit(method, static_argnames=static_argnames)
 
-        # We wrap the compiled function in a thin shell
-        # to perform the normalizations.
+        # The functools.wraps(method) decorator, apply to wrapper, allows the
+        # wrapper() function to impersonate the passed method function by copying
+        # over all function "meta data".
+        # So, if method was calculate_flux, wrapper.__name__ will return calculate_flux.
+        # The fact that wrapper takes in (*args, **kwargs) means that we can hand all
+        # possible arguments and keyword arguments that, for example, calculate_flux()
+        # would take, over to wrapper, too.
         @functools.wraps(method)
         def wrapper(*args, **kwargs):
+
+            # returns a "bound arguments" object, which will associate
+            # the arguments of the wrapper call to the arguments that
+            # method expects.
+            # Example:
+            '''
+            def f(x,y,z,yo=None):
+                return
+            test = inspect.signature(f)
+            test.bind(1,2,3,yo='Deine Muddah')
+                Out[24]: <BoundArguments (x=1, y=2, z=3, yo='Deine Muddah')>
+            '''
             bound_arguments = signature.bind(*args, **kwargs)
+            # Apply default values of method if they are not given as kwargs.
+            # Example, using the function above:
+            '''
+            hehe = test.bind(1,2,3)
+            hehe
+                Out[29]: <BoundArguments (x=1, y=2, z=3)>
+            hehe.apply_defaults()
+            hehe
+                Out[31]: <BoundArguments (x=1, y=2, z=3, yo=None)>'''
             bound_arguments.apply_defaults()
+            # Returns function arguments as dictionary
+            # Example with same function as above
+            '''
+            arguments = hehe.arguments
+            arguments
+                Out[33]: {'x': 1, 'y': 2, 'z': 3, 'yo': None}
+            isinstance(arguments, dict)
+                Out[34]: True
+            '''
             arguments = bound_arguments.arguments
+            # Remove self as argument from the dictionary, store in self
             self = arguments.pop("self")
+
+            # TODO Paul: continue review from here.
 
             for argname in _CLOUD_SPECIES_SEQUENCE_ARGNAMES:
                 if argname in arguments:
@@ -305,6 +353,8 @@ def _compile_spectral_function(static_argnames):
                         arguments[argname]
                     )
 
+            # After checks have been run, rebuild the compiled method again,
+            # including self.
             return compiled_method(self, **arguments)
 
         # Exposed so callers (and tests) can inspect the compilation, e.g.
@@ -1179,6 +1229,10 @@ class Radtrans:
             return self._pressures
 
         return jnp.asarray(pressures, dtype=FEAUTRIER_JAX_DTYPE) * 1e6
+
+    # TODO: Paul to continue from here.
+    #   But: I will actually go and start from calculate_flux() below, which passes by this function
+    #   instead.
 
     def _calculate_flux(
         self,
