@@ -889,7 +889,7 @@ class Radtrans:
         patchy_clouds=None,
         complete_coverage_clouds=None,
     ):
-        """Initializations and checks common to calculate_flux and calculate_transit_radii."""
+        """Initializations common to calculate_flux and calculate_transit_radii."""
 
         # By default, all clouds are patchy clouds.
         # By default, their coverage fraction is 100 %.
@@ -902,29 +902,21 @@ class Radtrans:
             complete_coverage_clouds=complete_coverage_clouds,
         )
 
+        # Determine whether opacities will / should be mixed into one "super species".
+        # This happening for scattering in emission in c-k and always for lbl mode.
         sum_opacities = self._set_sum_opacities(
             emission=is_emission,
             line_opacity_mode=self._line_opacity_mode,
             scattering_in_emission=self._scattering_in_emission,
         )
 
+        # If auto and emission: weigh cloud opacities by (1-g) to correctly treat
+        # forward scattering in the diffusive limit.
         if self._anisotropic_cloud_scattering == "auto":
             anisotropic_cloud_scattering = is_emission
+        # Or turn it on otherwise if requested by the user.
         else:
             anisotropic_cloud_scattering = self._anisotropic_cloud_scattering
-
-        if not anisotropic_cloud_scattering and is_emission:
-            debug.print(
-                f"anisotropic cloud scattering is recommended for emission spectra, "
-                f"but 'anisotropic_cloud_scattering' was set to {anisotropic_cloud_scattering}; "
-                f"set it to True or 'auto' to disable this warning"
-            )
-        elif anisotropic_cloud_scattering and not is_emission:
-            debug.print(
-                f"anisotropic cloud scattering is not recommended for transmission spectra, "
-                f"but 'anisotropic_cloud_scattering' was set to {anisotropic_cloud_scattering}; "
-                f"set it to False or 'auto' to disable this warning"
-            )
 
         return (
             anisotropic_cloud_scattering,
@@ -1178,6 +1170,11 @@ class Radtrans:
         return sum_opacities
 
     def _resolve_solver_pressures(self, pressures=None):
+        """pRT allows users to specify a pressure array different from the one used
+        initialize the pRT object with. Within calculate_flux(), calculate_transit_radii()
+        and calculate_photosphere_radius() this function is called to check whether
+        the user has specified a pressure array or whether the initialization pressure
+        is to be used."""
         if pressures is None:
             return self._pressures
 
@@ -2948,6 +2945,11 @@ class Radtrans:
                 ``jax.jit`` this check needs a device-to-host callback on every
                 evaluation, which is costly for GPU performance. Set to False
                 for retrievals or if you're sure inputs have already been checked.
+            pressures (Oprional[ArrayLike]):
+                If not None, these pressures will be used as the vertical structure
+                describing the atmosphere. Pressures must be in units of bar and
+                must be sorted in increasing order. They will be converted to cgs
+                units inside pRT.
         """
         chunk_feautrier, feautrier_chunk_size = (
             radiative_transfer_core.resolve_feautrier_chunking(
@@ -2966,6 +2968,11 @@ class Radtrans:
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
             )
         )
+
+        # TODO: currently no check is done whether pressures are sorted
+        #   in increasing order. Outsource to the thin shell wrapper?
+
+        # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)
 
         (
@@ -3537,6 +3544,11 @@ class Radtrans:
                 Precomputed optical depths. If omitted, they are recomputed.
             cloud_photosphere_wavelength_boundaries:
                 Optional wavelength bounds used for the photospheric cloud model.
+            pressures (Oprional[ArrayLike]):
+                If not None, these pressures will be used as the vertical structure
+                describing the atmosphere. Pressures must be in units of bar and
+                must be sorted in increasing order. They will be converted to cgs
+                units inside pRT.
 
         Returns:
             Photosphere radius on the internal frequency grid, in cm.
@@ -3546,6 +3558,11 @@ class Radtrans:
             line_opacity_mode=self._line_opacity_mode,
             scattering_in_emission=self._scattering_in_emission,
         )
+
+        # TODO: currently no check is done whether pressures are sorted
+        #   in increasing order. Outsource to the thin shell wrapper?
+
+        # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)
 
         if planet_radius is not None:
@@ -3981,7 +3998,13 @@ class Radtrans:
                     Under ``jax.jit`` this check needs a device-to-host callback
                     on every evaluation, which is costly on GPU). Set to False in
                     retrievals or if you've already checked the inputs.
+                pressures (Oprional[ArrayLike]):
+                    If not None, these pressures will be used as the vertical structure
+                    describing the atmosphere. Pressures must be in units of bar and
+                    must be sorted in increasing order. They will be converted to cgs
+                    units inside pRT.
         """
+
         has_partial_coverage_background_cloud = (
             self._has_partial_coverage_analytical_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
@@ -3989,6 +4012,11 @@ class Radtrans:
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
             )
         )
+
+        # TODO: currently no check is done whether pressures are sorted
+        #   in increasing order. Outsource to the thin shell wrapper?
+
+        # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)
 
         (
