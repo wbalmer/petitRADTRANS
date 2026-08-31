@@ -342,20 +342,19 @@ def _compile_spectral_function(static_argnames):
                 ),
             )
 
-            # Todo paul continue here
             # Validate the reference gravity here while it is still concrete, so
             # the caller gets a plain ValueError. Only a gravity that the caller
-            # is itself tracing has to fall through to the callback inside the
-            # compiled body, so tell the body to skip the check otherwise.
+            # is itself tracing (due to calculating a gradient with respect
+            # to gravity) will not be checked.
             reference_gravity = arguments.get("reference_gravity")
 
             if arguments.get("validate_inputs", True) and not isinstance(
                 reference_gravity, jax_core.Tracer
             ):
                 _handle_invalid_reference_gravity(float(reference_gravity))
-                arguments["validate_inputs"] = False
 
-            # Must happen outside the compiled call: see _SPECTRAL_SCALAR_ARGNAMES.
+            # Must happen outside the compiled call: see _SPECTRAL_SCALAR_ARGNAMES,
+            # otherwise we won't benefit from it
             for argname in _SPECTRAL_SCALAR_ARGNAMES:
                 if argname in arguments:
                     arguments[argname] = _convert_scalar_to_strong_type(
@@ -366,9 +365,10 @@ def _compile_spectral_function(static_argnames):
             # including self.
             return compiled_method(self, **arguments)
 
-        # Exposed so callers (and tests) can inspect the compilation, e.g.
+        # Expose the compiled method so callers (and tests) can inspect the compilation, e.g.
         # Radtrans.calculate_flux.compiled_function._cache_size() to check that
-        # repeated calls are not recompiling.
+        # repeated calls are not recompiling. Otherwise these quantities would
+        # not acessible from the wrapper that uses the compiled function, simply.
         wrapper.compiled_function = compiled_method
         wrapper.static_argnames = tuple(static_argnames)
 
