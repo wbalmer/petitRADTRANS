@@ -298,28 +298,36 @@ def _compile_spectral_function(static_argnames):
             # Remove self as argument from the dictionary, store in self
             self = arguments.pop("self")
 
-            # TODO Paul: continue review from here.
-
+            # Look for patchy_clouds or complete_coverage_clouds:
+            # These must be converted into tuples, which is required
+            # for having them static arguments (lists are not hashable!)
+            # Technically, any hashable but mutable container works
+            # for static_argument arguments that are sequences,
+            # but immutability safeguards against compiler cache issues.
+            # Tuples give us both: hashable and immutable
             for argname in _CLOUD_SPECIES_SEQUENCE_ARGNAMES:
                 if argname in arguments:
                     arguments[argname] = _normalize_cloud_species_sequence(
                         arguments[argname]
                     )
 
+            # Check whether porosity values make sense
             _check_clouds_particle_porosity_factors(
                 arguments.get("clouds_particle_porosity_factor")
             )
+            # Check wether power law opacity is correctly used
             _check_power_law_opacity_completeness(
                 arguments.get("power_law_opacity_350nm"),
                 arguments.get("power_law_opacity_coefficient"),
             )
+
             _warn_partial_cloud_coverage_without_patchy_clouds(
                 cloud_fraction=arguments.get("cloud_fraction", 1.0),
                 patchy_clouds=self._normalize_patchy_clouds(
                     patchy_clouds=arguments.get("patchy_clouds"),
                     complete_coverage_clouds=arguments.get("complete_coverage_clouds"),
                 ),
-                has_partial_coverage_background_cloud=(
+                has_partial_coverage_analytical_cloud=(
                     self._has_partial_coverage_analytical_cloud(
                         opaque_cloud_top_pressure=arguments.get(
                             "opaque_cloud_top_pressure"
@@ -334,6 +342,7 @@ def _compile_spectral_function(static_argnames):
                 ),
             )
 
+            # Todo paul continue here
             # Validate the reference gravity here while it is still concrete, so
             # the caller gets a plain ValueError. Only a gravity that the caller
             # is itself tracing has to fall through to the callback inside the
