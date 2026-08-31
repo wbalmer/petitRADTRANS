@@ -3,7 +3,10 @@
 import copy
 import warnings
 
+import jax
 import jax.numpy as jnp
+import numpy as np
+from jax.core import Tracer
 from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 from petitRADTRANS.opacities.opacities import CloudOpacity
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
@@ -155,6 +158,20 @@ def _calculate_cloud_mass_fraction(element_counts, compound_mass, abundances):
 def _calculate_cloud_base_pressure_generic(pressures, temperatures, cond_func_args):
     """Generic cloud base pressure calculator for any species.
 
+    The intersection between the condensation curve and the temperature profile
+    is located by linear interpolation in ``log P`` across the bracketing layer
+    pair, rather than being snapped to the layer midpoint. Snapping would make
+    the cloud base a staircase function of temperature, metallicity and mean
+    molar mass, which is a step discontinuity in every parameter those depend
+    on; interpolating makes it continuous.
+
+    Note:
+        The deepest intersection is still selected discretely. When the
+        temperature profile becomes tangent to the condensation curve a new pair
+        of intersections appears, and the selected base jumps to it. That is a
+        genuine fold in the model rather than a discretisation artefact, and it
+        is not removed here.
+
     Args:
         press: pressure array
         temp: temperature array
@@ -169,10 +186,25 @@ def _calculate_cloud_base_pressure_generic(pressures, temperatures, cond_func_ar
     diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = diff_vec < 0.0
 
-    p_mid = (pressures[1:] + pressures[:-1]) / 2.0
-    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    # A bracketed sign change has t_diff of opposite signs at its two ends, so
+    # the denominator cannot vanish there. It can elsewhere, and jnp.where
+    # evaluates both branches, hence the guarded division.
+    t_diff_drop = t_diff[:-1] - t_diff[1:]
+    safe_t_diff_drop = jnp.where(ind_cdf, t_diff_drop, jnp.ones_like(t_diff_drop))
+    crossing_fraction = jnp.where(
+        ind_cdf, t_diff[:-1] / safe_t_diff_drop, jnp.zeros_like(t_diff_drop)
+    )
+
+    log_pressures = jnp.log(pressures)
+    log_p_crossings = log_pressures[:-1] + crossing_fraction * (
+        log_pressures[1:] - log_pressures[:-1]
+    )
+
+    masked_indices = jnp.where(ind_cdf, jnp.arange(log_p_crossings.shape[0]), -1)
     last_idx = jnp.max(masked_indices)
-    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(pressures))
+    p_cloud = jnp.where(
+        last_idx != -1, jnp.exp(log_p_crossings[last_idx]), jnp.min(pressures)
+    )
     return p_cloud
 
 
@@ -203,6 +235,285 @@ def _get_cloud_species_base_name(name):
         if base in name:
             return base
     return None
+
+
+# ============================================================================
+# Cloud vertical profile
+# ============================================================================
+
+def _as_static_float(name, value):
+    """Return ``value`` as a plain float, or ``None``.
+
+    The cloud-base smoothing width selects between the smooth and the legacy
+    hard-cutoff profile, so it must be a static scalar rather than a traced
+    JAX value.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, Tracer):
+        raise TypeError(
+            f"'{name}' controls the cloud profile discretisation and must be a "
+            f"static scalar, not a traced JAX value."
+        )
+
+    value = float(value)
+
+    if value < 0.0:
+        raise ValueError(f"'{name}' must be non-negative, but was {value}.")
+
+    return value
+
+
+def resolve_cloud_base_smoothing_width(smoothing_width=None):
+    """Resolve the cloud-base smoothing width, in dex.
+
+    Args:
+        smoothing_width:
+            Explicit width in dex, or ``None`` for the default below. ``0``
+            selects the legacy hard cutoff.
+
+    Returns:
+        The smoothing width in dex, as a static float.
+    """
+    # About half a layer on a typical petitRADTRANS pressure grid (100-130
+    # layers over 6-9 decades, i.e. 0.05-0.07 dex per layer), which keeps the
+    # cloud base resolved by the grid it is sampled on without materially
+    # widening it.
+    #
+    # A fixed value rather than one derived from the grid: the width selects
+    # between the smooth and the hard-cutoff profile, so it must be static, and
+    # inside a jit trace the pressure grid is not readable as a concrete array.
+    # Pass :func:`cloud_base_smoothing_from_pressure_grid` evaluated outside the
+    # traced region to tie it to a specific grid.
+    default_smoothing_width = 0.03
+
+    smoothing_width = _as_static_float("cloud_base_smoothing", smoothing_width)
+
+    if smoothing_width is None:
+        return default_smoothing_width
+
+    return smoothing_width
+
+
+def cloud_base_smoothing_from_pressure_grid(pressures, layers=0.5):
+    """Return a cloud-base smoothing width tied to a pressure grid, in dex.
+
+    The taper only conditions the likelihood well if it is resolved by the grid
+    the cloud profile is sampled on, so on an unusually coarse or fine grid it is
+    worth scaling the width with the layer spacing instead of taking the default
+    of :func:`resolve_cloud_base_smoothing_width`.
+
+    Call this once during model setup and pass the result as
+    ``cloud_base_smoothing``: the width has to be a static value, and inside a
+    jit trace the pressure grid is not readable as a concrete array.
+
+    Args:
+        pressures:
+            Pressure grid the cloud profile will be sampled on. Must be
+            concrete.
+        layers:
+            Width in units of the median layer spacing.
+
+    Returns:
+        The smoothing width in dex.
+    """
+    log_pressures = np.log10(np.asarray(pressures, dtype=float))
+
+    if log_pressures.size < 2:
+        return 0.0
+
+    return layers * float(np.median(np.abs(np.diff(log_pressures))))
+
+
+def cloud_base_smoothing_mass_normalisation(f_sed, smoothing_width):
+    """Return the factor that makes the smoothed profile column-mass neutral.
+
+    The hard-cutoff profile carries a column mass proportional to ``1 / a`` with
+    ``a = ln(10) * (f_sed + 1)``, while the logistic taper of effective width
+    ``w' = w / (1 + ln(10) f_sed w)`` carries ``pi * w' / sin(pi * a * w')``.
+    Dividing by their ratio leaves the total cloud column mass unchanged by the
+    smoothing.  ``smoothing_width`` is the user-facing ``w``; the effective width
+    is derived here.
+
+    The identity holds for ``a * w < 1``; beyond that the taper is wider than
+    the profile's own scale height and no finite normalisation exists, so the
+    factor is clamped to 1 and the smoothing is left un-normalised.
+
+    Note:
+        This is *not* applied by default, because total column mass is the
+        wrong invariant to hold fixed. The mass the taper adds sits in its tail
+        below the cloud base, which is optically thick and unobservable, whereas
+        the rescaling it demands (15% at ``f_sed = 5``, ``w = 0.03``) applies to
+        the whole profile including the observable upper cloud. Measured on a
+        cloudy transmission spectrum over four cloud-base pressures, leaving the
+        smoothing un-normalised moves the transit depth by at most 7.7 ppm
+        relative to the hard cutoff, while normalising it moves it by up to
+        86 ppm. Use it only when ``log_X_cb`` has to be calibrated against a
+        total condensate mass budget.
+    """
+    taper_width = smoothing_width / (1.0 + jnp.log(10.0) * f_sed * smoothing_width)
+    a_w = jnp.log(10.0) * (f_sed + 1.0) * taper_width
+    safe_a_w = jnp.where(a_w < 0.9, a_w, 0.9)
+    normalisation = jnp.sinc(safe_a_w)  # sin(pi x) / (pi x)
+
+    return jnp.where(a_w < 0.9, normalisation, jnp.ones_like(normalisation))
+
+
+def cloud_vertical_profile(
+    pressures,
+    cloud_base_pressure,
+    cloud_abundance,
+    f_sed,
+    smoothing_width=None,
+    conserve_column_mass=False,
+):
+    """Build the vertical mass-fraction profile of a sedimenting cloud.
+
+    The Ackerman & Marley (2001) profile decays as ``(P / P_base) ** f_sed``
+    above the cloud base and is zero below it.  Truncating it at the base with a
+    hard cutoff makes the *sampled* profile a step function of ``P_base``: as the
+    base crosses a pressure-grid point, that layer flips between zero and the
+    full base abundance, which changes the spectrum discontinuously.  Any
+    gradient-based method then sees an infinite derivative at every grid
+    boundary, and optimisers settle exactly on one.
+
+    This function instead tapers the profile through the base with a logistic in
+    ``log10 P``:
+
+    .. math::
+
+        X(P) = X_\\mathrm{cb}\\,
+               \\left(\\frac{P}{P_\\mathrm{base}}\\right)^{f_\\mathrm{sed}}
+               \\sigma\\!\\left(
+                   \\frac{\\log_{10}(P_\\mathrm{base} / P)}{w}
+               \\right),
+
+    which is infinitely differentiable in both ``P`` and ``P_base``.  The width
+    ``w`` sets the physical thickness of the cloud base.  It should stay
+    comparable to the pressure-grid spacing: much narrower and the sampled
+    profile is smooth but still effectively a cliff, much wider and the base is
+    no longer where ``P_base`` says it is.
+
+    The taper is steepened to ``w' = w / (1 + ln(10) f_sed w)`` so that it always
+    out-runs the power law, which is still growing downwards at ``ln(10) f_sed``
+    per dex: the profile then decays below the base with an e-folding length of
+    ``w`` dex for every ``f_sed``, and is unchanged above it.  Substituting
+    ``w'`` and rearranging turns the product into the reciprocal form evaluated
+    below, in which that cancellation is exact rather than a difference of large
+    numbers.
+
+    Evaluating it through ``logaddexp`` also keeps the deep layers in range,
+    where the hard-cutoff form evaluates ``(P / P_base) ** f_sed`` at
+    overflow-scale arguments before discarding it -- reaching ``1e87`` at
+    ``f_sed = 20`` and overflowing single precision to a NaN gradient -- and it
+    maps the non-finite ``f_sed`` sentinel, used when no ``f_sed`` parameter is
+    given, back onto a zero cloud rather than a NaN.
+
+    Args:
+        pressures:
+            Pressure grid for the atmospheric layers.
+        cloud_base_pressure:
+            Cloud-base pressure, in the same units as ``pressures``.
+        cloud_abundance:
+            Cloud mass fraction at the base.
+        f_sed:
+            Sedimentation efficiency setting the decay above the base. Must be
+            finite: a non-finite value makes ``f_sed * log10(P / P_base)`` a NaN
+            on a layer sitting exactly on the base, and guarding that product
+            would flatten the derivative on precisely the grid points this
+            function exists to make differentiable. Callers use a zero cloud
+            abundance to express "no cloud configured".
+        smoothing_width:
+            Width of the base taper in dex.  ``None`` takes the default of
+            :func:`resolve_cloud_base_smoothing_width`; ``0`` restores the legacy
+            hard cutoff, which is discontinuous in ``cloud_base_pressure`` and should
+            only be used for reproducing older results.  See
+            :func:`cloud_base_smoothing_from_pressure_grid` for a width tied to a
+            specific pressure grid.
+        conserve_column_mass:
+            If ``True``, rescale the profile so the smoothing leaves the total
+            cloud column mass unchanged relative to the hard cutoff. Off by
+            default; see :func:`cloud_base_smoothing_mass_normalisation` for why
+            that is the better choice.
+
+    Returns:
+        The cloud mass-fraction profile sampled on ``pressures``.
+    """
+    pressures = jnp.asarray(pressures, dtype=FEAUTRIER_JAX_DTYPE)
+    smoothing_width = resolve_cloud_base_smoothing_width(smoothing_width)
+
+    if smoothing_width == 0.0:
+        return jnp.where(
+            pressures < cloud_base_pressure,
+            cloud_abundance * (pressures / cloud_base_pressure) ** f_sed,
+            jnp.zeros_like(pressures),
+        )
+
+    # Positive below the cloud base, negative above it.
+    log_pressure_ratio = jnp.log10(pressures) - jnp.log10(cloud_base_pressure)
+
+    # Reciprocal form of the tapered profile:
+    #
+    #     X = X_cb / ( (P / P_base) ** -f_sed  +  10 ** (d / w) ),
+    #
+    # which is algebraically the power law times the logistic, with the taper
+    # already steepened so that it out-runs the power law. Evaluating it through
+    # logaddexp keeps both terms out of the overflow range, and makes the two
+    # limits exact rather than a difference of large numbers: above the base the
+    # first term dominates and gives the untouched power law, below it the second
+    # dominates and gives a decay of e-folding length `smoothing_width` in dex,
+    # for every f_sed. It is also what keeps a non-finite f_sed sentinel (no
+    # f_sed parameter given) returning a zero cloud instead of inf - inf.
+    log_profile = -jnp.logaddexp(
+        -jnp.log(10.0) * f_sed * log_pressure_ratio,
+        log_pressure_ratio / smoothing_width,
+    )
+    profile = cloud_abundance * jnp.exp(log_profile)
+
+    if conserve_column_mass:
+        profile = profile * cloud_base_smoothing_mass_normalisation(
+            f_sed, smoothing_width
+        )
+
+    return profile
+
+
+def cloud_base_depletion_factor(pressures, cloud_base_pressure, smoothing_width=None):
+    """Return a smooth 1-to-0 factor for gas rained out above a cloud base.
+
+    This is the complement of the taper used by :func:`cloud_vertical_profile`:
+    it is one in the deep layers, one half at the base, and decays to zero above
+    it.  Multiplying a gas profile by this factor depletes it above the cloud
+    base without the step that ``jnp.where(pressures < cloud_base, 0, ...)``
+    introduces every time the base crosses a pressure-grid point.
+
+    Args:
+        pressures:
+            Pressure grid for the atmospheric layers.
+        cloud_base_pressure:
+            Cloud-base pressure above which the gas is depleted.
+        smoothing_width:
+            Width of the transition in dex.  ``None`` takes the default of
+            :func:`resolve_cloud_base_smoothing_width`; ``0`` restores the legacy
+            hard cutoff.
+
+    Returns:
+        A depletion factor sampled on ``pressures``, in ``[0, 1]``.
+    """
+    pressures = jnp.asarray(pressures, dtype=FEAUTRIER_JAX_DTYPE)
+    smoothing_width = resolve_cloud_base_smoothing_width(smoothing_width)
+
+    log_pressure_ratio = jnp.log10(pressures) - jnp.log10(cloud_base_pressure)
+
+    if smoothing_width == 0.0:
+        return jnp.where(
+            log_pressure_ratio < 0,
+            jnp.zeros_like(pressures),
+            jnp.ones_like(pressures),
+        )
+
+    return jax.nn.sigmoid(log_pressure_ratio / smoothing_width)
 
 
 def setup_clouds(pressures, parameters, cloud_species):
