@@ -47,6 +47,7 @@ from petitRADTRANS.validation import (
     _check_pressures,
     _check_clouds_particle_porosity_factors,
     _check_power_law_opacity_completeness,
+    _check_target_particle_radii_completeness,
     _sanitize_emission_surface_inputs,
     _sanitize_flux_opacity_inputs,
     _warn_scattering_in_emission_without_scattering_species,
@@ -87,7 +88,7 @@ def _convert_scalar_to_strong_type(value):
 
     # TODO for the future:
     #     According to Claude repeated calls of this functions in every model call (say ~10 times, and
-    #     outside of jit, which is what happens in the functions below) may add up to 0.5 ms.
+    #     outside of jit, which is what happens in the wrapper below) may add up to 0.5 ms.
     #     So we may start feeling this in our fastest forward models on the GPU.
 
     if value is None:
@@ -321,6 +322,10 @@ def _compile_spectral_function(static_argnames):
             _check_power_law_opacity_completeness(
                 arguments.get("power_law_opacity_350nm"),
                 arguments.get("power_law_opacity_coefficient"),
+            )
+            _check_target_particle_radii_completeness(
+                arguments.get("target_particle_radii"),
+                arguments.get("target_pressure"),
             )
 
             _warn_partial_cloud_coverage_without_patchy_clouds(
@@ -2785,7 +2790,7 @@ class Radtrans:
         cloud_hansen_b: dict[str, ArrayLike] = None,
         cloud_particle_number_density_grid: dict[str, ArrayLike] = None,
         clouds_particle_porosity_factor: dict[str, float] = None,
-        cloud_f_sed: float = None,
+        cloud_f_sed: float | dict[str, float] = None,
         eddy_diffusion_coefficients: ArrayLike = None,
         haze_factor: float = 1.0,
         power_law_opacity_350nm: float = None,
@@ -2871,8 +2876,9 @@ class Radtrans:
             clouds_particle_porosity_factor (Optional[dict]):
                 A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
                 are calculated using the Distribution of Hollow Spheres (DHS) method.
-            cloud_f_sed (Optional[float]):
-                Cloud settling parameter.
+            cloud_f_sed (Optional[float | dict[str, float]]):
+                Cloud settling parameter, either use the same for all cloud species or hand over a dictionary
+                that has one value per species, with the cloud species names as keys.
             eddy_diffusion_coefficients (Optional[float]):
                 The atmospheric eddy diffusion coefficient in cgs (i.e. :math:`\\rm cm^2/s`), at each atmospheric
                 layer (1-d numpy array, same length as pressure array).

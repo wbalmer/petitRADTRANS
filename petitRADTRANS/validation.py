@@ -217,7 +217,9 @@ def _check_power_law_opacity_completeness(
 
     Must be called from the un-jitted entry point, where "not supplied" is still
     visible as ``None``; inside the kernels it has already been replaced by a
-    sentinel and the values are tracers.
+    sentinel and the values are tracers. This happens in the thin shell
+    wrapper that augmenting the nominal jit() function of JAX, which is
+    called _compile_spectral_function in radtrans.py
     """
     # This works even during tracing, when wanting to calculate a gradient
     # with respect to the power law cloud parameters, since tracers are never None.
@@ -231,6 +233,30 @@ def _check_power_law_opacity_completeness(
         raise RuntimeError(
             f"to include a power law opacity, both parameters 'power_law_opacity_350nm' "
             f"and 'power_law_opacity_coefficient' must be provided; missing '{none_parameter}'"
+        )
+
+
+def _check_target_particle_radii_completeness(target_particle_radii, target_pressure):
+    """Check that the parameters that allow the user to disable a specific particle radius and pressure
+       are supplied as a pair.
+
+    Must be called from the un-jitted entry point, where "not supplied" is still
+    visible as ``None``; inside the kernels it has already been replaced by a
+    sentinel and the values are tracers. This happens in the thin shell
+    wrapper that augmenting the nominal jit() function of JAX, which is
+    called _compile_spectral_function in radtrans.py
+    """
+    a_missing = target_particle_radii is None
+    b_missing = target_pressure is None
+
+    if a_missing ^ b_missing:
+        none_parameter = (
+            "target_particle_radii" if a_missing else "target_pressure"
+        )
+        raise RuntimeError(
+            f"to selectively disable a cloud opacity bin, both parameters "
+            f"'target_particle_radii' and 'target_pressure' must be provided; "
+            f"missing '{none_parameter}'"
         )
 
 

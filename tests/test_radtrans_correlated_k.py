@@ -551,6 +551,21 @@ def test_correlated_k_incomplete_power_law_opacity_raises():
         )
 
 
+def test_correlated_k_incomplete_target_particle_radii_raises():
+    """Supplying only one of the two selective-bin-disabling parameters must be rejected."""
+    with pytest.raises(RuntimeError, match="target_particle_radii"):
+        atmosphere_ck.calculate_flux(
+            temperatures=temperature_guillot_2010,
+            mass_fractions=test_parameters["mass_fractions_correlated_k"],
+            reference_gravity=test_parameters["planetary_parameters"][
+                "reference_gravity"
+            ],
+            mean_molar_masses=test_parameters["mean_molar_mass"],
+            target_particle_radii=1.0,
+            frequencies_to_wavelengths=False,
+        )
+
+
 def test_correlated_k_spectral_functions_reuse_compilation():
     """The spectral functions must compile once and reuse it across calls.
 
