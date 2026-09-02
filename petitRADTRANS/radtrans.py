@@ -135,13 +135,15 @@ def _interpolate_linear_sorted(x_grid, y_grid, x_query):
     return y0 + slope * (x_query - x0)
 
 
-# Arguments of calculate_flux and calculate_transit_radii cannot be traced. They are
-# either unhashable-by-nature Python objects (strings, callables, tuples), they
-# select which graph is traced (the return_* flags, the solver chunking controls),
-# or they drive a host-side lookup that needs a concrete value: the stellar
-# parameters below reach phoenix.compute_star_spectrum, which indexes the PHOENIX
-# table with star_effective_temperature.
-#
+# Below we define the static arguments of the pRT calculate_flux
+# and calculate_transit_radii functions. They select how a function
+# is traced or they drive a host-side lookup that needs a concrete value:
+# the stellar parameters below reach phoenix.compute_star_spectrum,
+# which indexes the PHOENIX table with star_effective_temperature.
+# TODO: stellar parameters should not be traced, since we may want to
+#   retrieve on them! This should be straightforward to do by reading
+#   the stellar flux tables analogous to how opacities are read before
+#   computations start.
 # Everything *not* listed is traced, which is what makes the physical inputs
 # (temperatures, mass fractions, gravity, radii, the whole cloud parameter group,
 # ...) differentiable through the public functions.
@@ -217,19 +219,28 @@ def _normalize_cloud_species_sequence(value):
 
 
 def _compile_spectral_function(static_argnames):
-    """Compile the calculate_flux or calculate_transit_radii method.
+    """Decorator factory that returns a decorator function which
+    can then be immediately used on the decorated function (see
+    how calculate_flux and calculate_transit_radii are decorated).
+    This is done instead of @jit(static_argnames) to enable cheap
+    non-jitted checks on user inputs to a function which depend on
+    input variable *values*, and not their shape,
+    such that we could not check without a costly debug.callback(), otherwise.
+    So jit() is still being used, but with a thin so-called wrapper that
+    performs the aforementioned checks.
+    Compared to what we did before (only kernel functions within the now decorated
+    functions we jitted), the wrapped function becomes a single compiled call.
+    This can be more efficient because of how JAX / XLA compilation works.
+    It also enables the computation of gradients.
 
-    The wrapped function becomes a single compiled call instead of many
-    separately-jitted kernels. A thin wrapper remains because a
-    few checks cannot run under tracing:
-
-    - the cloud porosity range check needs concrete floats (it skips tracers);
-    - the power-law completeness check needs to see ``None``;
+    The following checks and operations are run in the wrapper:
+    - the cloud porosity range check needs, which needs concrete floats (it skips tracers);
+    - the power-law completeness check, which needs to see ``None``;
     - the partial-cloud-coverage warning converts ``cloud_fraction`` with
       ``float()``, which fails on a tracer;
     - the reference-gravity check must raise a plain ``ValueError``. Left to the
       compiled body it would only be reachable through a ``debug.callback``,
-      which wraps it in a ``JaxRuntimeError`` and costs a host round-trip on
+      which wraps it in a ``JaxRuntimeError`` and costs a host-device round-trip on
       every evaluation.
 
     The shell also normalizes arguments whose *representation* would otherwise
@@ -237,42 +248,89 @@ def _compile_spectral_function(static_argnames):
     """
 
     def decorate(method):
-        # The signature links the arguments to their names
+
+        # The signature allows the wrapper below to link the arguments to their names
         signature = inspect.signature(method)
 
         # This is the actual compiled function.
         compiled_method = jit(method, static_argnames=static_argnames)
 
-        # We wrap the compiled function in a thin shell
-        # to perform the normalizations.
+        # The functools.wraps(method) decorator, apply to wrapper, allows the
+        # wrapper() function to impersonate the passed method function by copying
+        # over all function "meta data".
+        # So, if method was calculate_flux, wrapper.__name__ will return calculate_flux.
+        # The fact that wrapper takes in (*args, **kwargs) means that we can hand all
+        # possible arguments and keyword arguments that, for example, calculate_flux()
+        # would take, over to wrapper, too.
         @functools.wraps(method)
         def wrapper(*args, **kwargs):
+
+            # returns a "bound arguments" object, which will associate
+            # the arguments of the wrapper call to the arguments that
+            # method expects.
+            # Example:
+            '''
+            def f(x,y,z,yo=None):
+                return
+            test = inspect.signature(f)
+            test.bind(1,2,3,yo='Deine Muddah')
+                Out[24]: <BoundArguments (x=1, y=2, z=3, yo='Deine Muddah')>
+            '''
             bound_arguments = signature.bind(*args, **kwargs)
+            # Apply default values of method if they are not given as kwargs.
+            # Example, using the function above:
+            '''
+            hehe = test.bind(1,2,3)
+            hehe
+                Out[29]: <BoundArguments (x=1, y=2, z=3)>
+            hehe.apply_defaults()
+            hehe
+                Out[31]: <BoundArguments (x=1, y=2, z=3, yo=None)>'''
             bound_arguments.apply_defaults()
+            # Returns function arguments as dictionary
+            # Example with same function as above
+            '''
+            arguments = hehe.arguments
+            arguments
+                Out[33]: {'x': 1, 'y': 2, 'z': 3, 'yo': None}
+            isinstance(arguments, dict)
+                Out[34]: True
+            '''
             arguments = bound_arguments.arguments
+            # Remove self as argument from the dictionary, store in self
             self = arguments.pop("self")
 
+            # Look for patchy_clouds or complete_coverage_clouds:
+            # These must be converted into tuples, which is required
+            # for having them static arguments (lists are not hashable!)
+            # Technically, any hashable but mutable container works
+            # for static_argument arguments that are sequences,
+            # but immutability safeguards against compiler cache issues.
+            # Tuples give us both: hashable and immutable
             for argname in _CLOUD_SPECIES_SEQUENCE_ARGNAMES:
                 if argname in arguments:
                     arguments[argname] = _normalize_cloud_species_sequence(
                         arguments[argname]
                     )
 
+            # Check whether porosity values make sense
             _check_clouds_particle_porosity_factors(
                 arguments.get("clouds_particle_porosity_factor")
             )
+            # Check wether power law opacity is correctly used
             _check_power_law_opacity_completeness(
                 arguments.get("power_law_opacity_350nm"),
                 arguments.get("power_law_opacity_coefficient"),
             )
+
             _warn_partial_cloud_coverage_without_patchy_clouds(
                 cloud_fraction=arguments.get("cloud_fraction", 1.0),
                 patchy_clouds=self._normalize_patchy_clouds(
                     patchy_clouds=arguments.get("patchy_clouds"),
                     complete_coverage_clouds=arguments.get("complete_coverage_clouds"),
                 ),
-                has_partial_coverage_background_cloud=(
-                    self._has_partial_coverage_background_cloud(
+                has_partial_coverage_analytical_cloud=(
+                    self._has_partial_coverage_analytical_cloud(
                         opaque_cloud_top_pressure=arguments.get(
                             "opaque_cloud_top_pressure"
                         ),
@@ -288,28 +346,31 @@ def _compile_spectral_function(static_argnames):
 
             # Validate the reference gravity here while it is still concrete, so
             # the caller gets a plain ValueError. Only a gravity that the caller
-            # is itself tracing has to fall through to the callback inside the
-            # compiled body, so tell the body to skip the check otherwise.
+            # is itself tracing (due to calculating a gradient with respect
+            # to gravity) will not be checked.
             reference_gravity = arguments.get("reference_gravity")
 
             if arguments.get("validate_inputs", True) and not isinstance(
                 reference_gravity, jax_core.Tracer
             ):
                 _handle_invalid_reference_gravity(float(reference_gravity))
-                arguments["validate_inputs"] = False
 
-            # Must happen outside the compiled call: see _SPECTRAL_SCALAR_ARGNAMES.
+            # Must happen outside the compiled call: see _SPECTRAL_SCALAR_ARGNAMES,
+            # otherwise we won't benefit from it
             for argname in _SPECTRAL_SCALAR_ARGNAMES:
                 if argname in arguments:
                     arguments[argname] = _convert_scalar_to_strong_type(
                         arguments[argname]
                     )
 
+            # After checks have been run, rebuild the compiled method again,
+            # including self.
             return compiled_method(self, **arguments)
 
-        # Exposed so callers (and tests) can inspect the compilation, e.g.
+        # Expose the compiled method so callers (and tests) can inspect the compilation, e.g.
         # Radtrans.calculate_flux.compiled_function._cache_size() to check that
-        # repeated calls are not recompiling.
+        # repeated calls are not recompiling. Otherwise these quantities would
+        # not acessible from the wrapper that uses the compiled function, simply.
         wrapper.compiled_function = compiled_method
         wrapper.static_argnames = tuple(static_argnames)
 
@@ -790,14 +851,16 @@ class Radtrans:
         _check_wavelength_boundaries(array)
         self._wavelength_boundaries = array
 
-
     @staticmethod
-    def _has_partial_coverage_background_cloud(
+    def _has_partial_coverage_analytical_cloud(
         opaque_cloud_top_pressure=None,
         power_law_opacity_350nm=None,
         power_law_opacity_coefficient=None,
     ):
-        """Check whether runtime-only cloud opacities should participate in cloud_fraction mixing."""
+        """Check whether analytical cloud options are requested and
+         do therefore participate in cloud_fraction mixing (since
+         this is pRT's standard treatment)."""
+
         return opaque_cloud_top_pressure is not None or (
             power_law_opacity_350nm is not None
             and power_law_opacity_coefficient is not None
@@ -806,6 +869,16 @@ class Radtrans:
     def _normalize_patchy_clouds(
         self, patchy_clouds=None, complete_coverage_clouds=None
     ):
+        """Make sure that patchy_clouds is always normalized to be a tuple,
+        to be consumed by the jitted radiative transfer kernels.
+        What is more, all clouds are patchy by default, but the default coverage
+        (cloud_fraction) is 1. That means one can change the coverage and it will
+        affect all clouds, without having to worry about specifying patchy
+        clouds. In case that a given cloud species should be homogeneous, so
+        not participate in the mixing, this is achieved by handing a patchy_clouds
+        list or tuple to the calculate_flux function contains the species that
+        should be patchy, but omits the one that should not be patchy.
+        """
         if complete_coverage_clouds is not None:
             warnings.warn(
                 "The 'complete_coverage_clouds' argument is deprecated; use 'patchy_clouds' instead.",
@@ -843,9 +916,15 @@ class Radtrans:
         )
 
     def _get_complete_coverage_cloud_species(self, patchy_clouds):
-        if patchy_clouds is None:
-            return ()
+        """Return the tuple of non-patchy cloud species.
+        """
 
+        if patchy_clouds is None:
+            return tuple()
+
+        # convert the tuple to a set because the
+        # if species not in patchy_cloud_species
+        # is then much cheaper, somehow (it is O(1), not O(N)).
         patchy_cloud_species = set(patchy_clouds)
 
         return tuple(
@@ -855,6 +934,8 @@ class Radtrans:
         )
 
     def _get_partial_coverage_cloud_species(self, patchy_clouds):
+        """Return the tuple of patchy cloud species.
+        """
         if patchy_clouds is None:
             return tuple(self._cloud_species)
 
@@ -862,128 +943,45 @@ class Radtrans:
             species for species in self._cloud_species if species in patchy_clouds
         )
 
-    @staticmethod
-    def _compute_additional_continuum_opacities(
-        frequencies,
-        pressures,
-        additional_absorption_opacities_function,
-        additional_scattering_opacities_function,
-        cloud_photosphere_median_optical_depth,
-    ):
-        additional_absorption_opacities = None
-        additional_scattering_opacities = None
-        cloud_absorption_opacities = None
-        cloud_scattering_opacities = None
-
-        # Add optional absorption opacity from outside
-        if additional_absorption_opacities_function is None:
-            if cloud_photosphere_median_optical_depth is not None:
-                cloud_absorption_opacities = jnp.zeros(
-                    (frequencies.size, pressures.size), dtype=WORKING_JAX_DTYPE
-                )
-        else:
-            additional_absorption_opacities = additional_absorption_opacities_function(
-                hz2um(frequencies), pressures * 1e-6  # cgs to bar
-            )
-
-            if (
-                cloud_photosphere_median_optical_depth is not None
-            ):  # the additional opacities are treated as clouds
-                # This assumes a single cloud model that is given by the parametrized opacities from
-                # give_absorption_opacity and give_scattering_opacity
-                cloud_absorption_opacities = additional_absorption_opacities
-
-        # Add optional scattering opacity from outside
-        if additional_scattering_opacities_function is None:
-            if cloud_photosphere_median_optical_depth is not None:
-                cloud_scattering_opacities = jnp.zeros(
-                    (frequencies.size, pressures.size), dtype=WORKING_JAX_DTYPE
-                )
-        else:
-            additional_scattering_opacities = additional_scattering_opacities_function(
-                hz2um(frequencies), pressures * 1e-6  # cgs to bar
-            )
-
-            if (
-                cloud_photosphere_median_optical_depth is not None
-            ):  # the additional opacities are treated as clouds
-                # This assumes a single cloud model that is given by the parametrized opacities from
-                # give_absorption_opacity and give_scattering_opacity
-                cloud_scattering_opacities = additional_scattering_opacities
-
-        return (
-            additional_absorption_opacities,
-            additional_scattering_opacities,
-            cloud_absorption_opacities,
-            cloud_scattering_opacities,
-        )
 
     def _init_spectral_function(
         self,
         is_emission,
-        reference_gravity,
-        return_clear_spectrum,
-        mass_fractions,
-        cloud_fraction,
-        opaque_cloud_top_pressure,
-        has_partial_coverage_background_cloud=False,
         patchy_clouds=None,
         complete_coverage_clouds=None,
-        validate_inputs=True,
     ):
-        """Initializations and checks common to calculate_flux and calculate_transit_radii."""
+        """Initializations common to calculate_flux and calculate_transit_radii."""
 
-        # Reference gravity is a *value* check, so unlike the shape and None
-        # checks elsewhere it cannot be resolved while tracing.
-        if validate_inputs:
-            if isinstance(reference_gravity, jax_core.Tracer):
-                debug.callback(_handle_invalid_reference_gravity, reference_gravity)
-            else:
-                _handle_invalid_reference_gravity(float(reference_gravity))
-
+        # By default, all clouds are patchy clouds.
+        # By default, their coverage fraction is 100 %.
+        # This setup ensures that all clouds can take
+        # be downscaled with cloud_fraction if the user wants that.
+        # Here patchy_clouds are turned into a tuple, regardless
+        # of the user input.
         patchy_clouds = self._normalize_patchy_clouds(
             patchy_clouds=patchy_clouds,
             complete_coverage_clouds=complete_coverage_clouds,
         )
 
-        _warn_partial_cloud_coverage_without_patchy_clouds(
-            cloud_fraction=cloud_fraction,
-            patchy_clouds=patchy_clouds,
-            has_partial_coverage_background_cloud=(
-                has_partial_coverage_background_cloud
-            ),
-        )
-
-        spectrum_clear = None
-
+        # Determine whether opacities will / should be mixed into one "super species".
+        # This happening for scattering in emission in c-k and always for lbl mode.
         sum_opacities = self._set_sum_opacities(
             emission=is_emission,
             line_opacity_mode=self._line_opacity_mode,
             scattering_in_emission=self._scattering_in_emission,
         )
 
+        # If auto and emission: weigh cloud opacities by (1-g) to correctly treat
+        # forward scattering in the diffusive limit.
         if self._anisotropic_cloud_scattering == "auto":
             anisotropic_cloud_scattering = is_emission
+        # Or turn it on otherwise if requested by the user.
         else:
             anisotropic_cloud_scattering = self._anisotropic_cloud_scattering
-
-        if not anisotropic_cloud_scattering and is_emission:
-            debug.print(
-                f"anisotropic cloud scattering is recommended for emission spectra, "
-                f"but 'anisotropic_cloud_scattering' was set to {anisotropic_cloud_scattering}; "
-                f"set it to True or 'auto' to disable this warning"
-            )
-        elif anisotropic_cloud_scattering and not is_emission:
-            debug.print(
-                f"anisotropic cloud scattering is not recommended for transmission spectra, "
-                f"but 'anisotropic_cloud_scattering' was set to {anisotropic_cloud_scattering}; "
-                f"set it to False or 'auto' to disable this warning"
-            )
 
         return (
             anisotropic_cloud_scattering,
             patchy_clouds,
-            spectrum_clear,
             sum_opacities,
         )
 
@@ -1233,10 +1231,19 @@ class Radtrans:
         return sum_opacities
 
     def _resolve_solver_pressures(self, pressures=None):
+        """pRT allows users to specify a pressure array different from the one used
+        initialize the pRT object with. Within calculate_flux(), calculate_transit_radii()
+        and calculate_photosphere_radius() this function is called to check whether
+        the user has specified a pressure array or whether the initialization pressure
+        is to be used."""
         if pressures is None:
             return self._pressures
 
         return jnp.asarray(pressures, dtype=FEAUTRIER_JAX_DTYPE) * 1e6
+
+    # TODO: Paul to continue from here.
+    #   But: I will actually go and start from calculate_flux() below, which passes by this function
+    #   instead.
 
     def _calculate_flux(
         self,
@@ -2894,7 +2901,7 @@ class Radtrans:
                 By default, assume a full cloud cover.
             patchy_clouds:
                 List of cloud species affected by ``cloud_fraction``.
-                Runtime-only cloud sources such as power-law clouds and opaque
+                Analytic cloud sources such as power-law clouds and opaque
                 cloud decks are always mixed by ``cloud_fraction``.
             complete_coverage_clouds:
                 Deprecated alias for the complement of ``patchy_clouds``.
@@ -3003,6 +3010,11 @@ class Radtrans:
                 ``jax.jit`` this check needs a device-to-host callback on every
                 evaluation, which is costly for GPU performance. Set to False
                 for retrievals or if you're sure inputs have already been checked.
+            pressures (Oprional[ArrayLike]):
+                If not None, these pressures will be used as the vertical structure
+                describing the atmosphere. Pressures must be in units of bar and
+                must be sorted in increasing order. They will be converted to cgs
+                units inside pRT.
         """
         chunk_feautrier, feautrier_chunk_size = (
             radiative_transfer_core.resolve_feautrier_chunking(
@@ -3015,32 +3027,27 @@ class Radtrans:
         if ck_chunk_size is None:
             ck_chunk_size = radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE
         has_partial_coverage_background_cloud = (
-            self._has_partial_coverage_background_cloud(
+            self._has_partial_coverage_analytical_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
             )
         )
+
+        # TODO: currently no check is done whether pressures are sorted
+        #   in increasing order. Outsource to the thin shell wrapper?
+
+        # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)
 
         (
             anisotropic_cloud_scattering,
             patchy_clouds,
-            _,
             sum_opacities,
         ) = self._init_spectral_function(
             is_emission=True,
-            reference_gravity=reference_gravity,
             patchy_clouds=patchy_clouds,
             complete_coverage_clouds=complete_coverage_clouds,
-            return_clear_spectrum=return_clear_spectrum,
-            mass_fractions=mass_fractions,
-            cloud_fraction=cloud_fraction,
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-            has_partial_coverage_background_cloud=(
-                has_partial_coverage_background_cloud
-            ),
-            validate_inputs=validate_inputs,
         )
 
         if return_rosseland_optical_depths:
@@ -3236,7 +3243,7 @@ class Radtrans:
             sanitized_inputs["patchy_clouds"]
         )
         has_partial_coverage_background_cloud = (
-            self._has_partial_coverage_background_cloud(
+            self._has_partial_coverage_analytical_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
@@ -3248,7 +3255,7 @@ class Radtrans:
             len(partial_coverage_cloud_species) > 0
             or has_partial_coverage_background_cloud
         ):
-            should_compute_clear_opacities = True
+            should_compute_clear_opacities = True # todo naming?
         else:
             should_compute_clear_opacities = False
 
@@ -3266,7 +3273,7 @@ class Radtrans:
             cloud_opacities,
             cloud_particle_mean_radii,
             cloud_scattering_in_transmission,
-            clear_opacities,
+            clear_opacities, # todo better name here based on discussion
             clear_continuum_opacities_scattering,
             clear_cloud_anisotropic_scattering_opacities,
             clear_cloud_absorption_opacities,
@@ -3356,7 +3363,7 @@ class Radtrans:
         if should_compute_clear_opacities:
             if return_clear_spectrum:
                 # Always compute clear flux when the caller requested it.
-                flux_clear, _, _, _, _ = self._calculate_flux(
+                flux_clear, _, _, _, _ = self._calculate_flux( # TODO return "less cloudy spectrum"
                     pressures=pressures,
                     temperatures=temperatures,
                     reference_gravity=reference_gravity,
@@ -3602,6 +3609,11 @@ class Radtrans:
                 Precomputed optical depths. If omitted, they are recomputed.
             cloud_photosphere_wavelength_boundaries:
                 Optional wavelength bounds used for the photospheric cloud model.
+            pressures (Oprional[ArrayLike]):
+                If not None, these pressures will be used as the vertical structure
+                describing the atmosphere. Pressures must be in units of bar and
+                must be sorted in increasing order. They will be converted to cgs
+                units inside pRT.
 
         Returns:
             Photosphere radius on the internal frequency grid, in cm.
@@ -3611,6 +3623,11 @@ class Radtrans:
             line_opacity_mode=self._line_opacity_mode,
             scattering_in_emission=self._scattering_in_emission,
         )
+
+        # TODO: currently no check is done whether pressures are sorted
+        #   in increasing order. Outsource to the thin shell wrapper?
+
+        # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)
 
         if planet_radius is not None:
@@ -4046,34 +4063,34 @@ class Radtrans:
                     Under ``jax.jit`` this check needs a device-to-host callback
                     on every evaluation, which is costly on GPU). Set to False in
                     retrievals or if you've already checked the inputs.
+                pressures (Oprional[ArrayLike]):
+                    If not None, these pressures will be used as the vertical structure
+                    describing the atmosphere. Pressures must be in units of bar and
+                    must be sorted in increasing order. They will be converted to cgs
+                    units inside pRT.
         """
+
         has_partial_coverage_background_cloud = (
-            self._has_partial_coverage_background_cloud(
+            self._has_partial_coverage_analytical_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
             )
         )
+
+        # TODO: currently no check is done whether pressures are sorted
+        #   in increasing order. Outsource to the thin shell wrapper?
+
+        # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)
 
         (
             anisotropic_cloud_scattering,
             patchy_clouds,
-            _,
             sum_opacities,
         ) = self._init_spectral_function(
             is_emission=False,
-            reference_gravity=reference_gravity,
             patchy_clouds=patchy_clouds,
-            complete_coverage_clouds=complete_coverage_clouds,
-            return_clear_spectrum=return_clear_spectrum,
-            mass_fractions=mass_fractions,
-            cloud_fraction=cloud_fraction,
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-            has_partial_coverage_background_cloud=(
-                has_partial_coverage_background_cloud
-            ),
-            validate_inputs=validate_inputs,
         )
 
         return self._calculate_transit_radii_full_kernel(
@@ -4214,7 +4231,7 @@ class Radtrans:
             sanitized_inputs["patchy_clouds"]
         )
         has_partial_coverage_background_cloud = (
-            self._has_partial_coverage_background_cloud(
+            self._has_partial_coverage_analytical_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
