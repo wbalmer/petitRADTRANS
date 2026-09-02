@@ -2829,9 +2829,11 @@ class Radtrans:
         return_particle_radii_bins: bool = False,
         return_particle_radii: bool = False,
         target_particle_radii: ArrayLike = None,
-        pressures: ArrayLike = None,
         target_pressure: ArrayLike = None,
-        validate_inputs: bool = True,
+        pressures: ArrayLike = None,
+        validate_inputs: bool = True, # Validate it used in the _compile_spectral_function
+                                      # decorator, through a wrapper, so don't remove it here,
+                                      # even if it is grayed out and appears to not be used.
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's emitted flux (emission spectrum).
 
@@ -3022,26 +3024,26 @@ class Radtrans:
                 must be sorted in increasing order. They will be converted to cgs
                 units inside pRT.
         """
+
+        # The Feautrier computation is "chunked", so broken into frequency
+        # parts for memory efficiency and to allow for more efficient XLA-threading.
         chunk_feautrier, feautrier_chunk_size = (
             radiative_transfer_core.resolve_feautrier_chunking(
                 chunk_feautrier=chunk_feautrier,
                 feautrier_chunk_size=feautrier_chunk_size,
             )
         )
+        # See docstring for meaning.
         if thomas_min_batch is None:
             thomas_min_batch = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH
+        # See docstring for meaning.
         if ck_chunk_size is None:
             ck_chunk_size = radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE
-        has_partial_coverage_background_cloud = (
-            self._has_partial_coverage_analytical_cloud(
-                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-                power_law_opacity_350nm=power_law_opacity_350nm,
-                power_law_opacity_coefficient=power_law_opacity_coefficient,
-            )
-        )
 
         # TODO: currently no check is done whether pressures are sorted
-        #   in increasing order. Outsource to the thin shell wrapper?
+        #   in increasing order, if the pressures are supplied not during
+        #   Radtrans initialization, but during calculate_flux() call.
+        #   Outsource to the thin shell wrapper?
 
         # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)
@@ -3920,9 +3922,11 @@ class Radtrans:
         return_particle_radii: bool = False,
         return_particle_densities: bool = False,
         target_particle_radii: ArrayLike = None,
-        pressures: ArrayLike = None,
         target_pressure: ArrayLike = None,
-        validate_inputs: bool = True,
+        pressures: ArrayLike = None,
+        validate_inputs: bool = True, # Validate it used in the _compile_spectral_function
+                                      # decorator, through a wrapper, so don't remove it here,
+                                      # even if it is grayed out and appears to not be used.
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's transmission radius
         (for the transmission spectrum).
