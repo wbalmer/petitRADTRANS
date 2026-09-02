@@ -135,17 +135,15 @@ def _interpolate_linear_sorted(x_grid, y_grid, x_query):
     return y0 + slope * (x_query - x0)
 
 
-# TODO discuss with Evert what to do about stellar parameters (should not
-#   be static arguments). Also looks at the docstring below together.
-# (Some?) Arguments of calculate_flux and calculate_transit_radii cannot be traced. They are
-# either unhashable-by-nature Python objects (strings, callables, tuples), they
-# TODO, comment Paul: tuples are hashable, so are strings.
-#   By definition all static arguments must be hashable.
-# select which graph is traced (the return_* flags, the solver chunking controls),
-# or they drive a host-side lookup that needs a concrete value: the stellar
-# parameters below reach phoenix.compute_star_spectrum, which indexes the PHOENIX
-# table with star_effective_temperature.
-#
+# Below we define the static arguments of the pRT calculate_flux
+# and calculate_transit_radii functions. They select how a function
+# is traced or they drive a host-side lookup that needs a concrete value:
+# the stellar parameters below reach phoenix.compute_star_spectrum,
+# which indexes the PHOENIX table with star_effective_temperature.
+# TODO: stellar parameters should not be traced, since we may want to
+#   retrieve on them! This should be straightforward to do by reading
+#   the stellar flux tables analogous to how opacities are read before
+#   computations start.
 # Everything *not* listed is traced, which is what makes the physical inputs
 # (temperatures, mass fractions, gravity, radii, the whole cloud parameter group,
 # ...) differentiable through the public functions.
