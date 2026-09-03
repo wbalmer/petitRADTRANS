@@ -47,6 +47,41 @@ def compute_optical_depths(
     absorber_present=True,
     **custom_cloud_parameters,
 ):
+    """
+    Compute the optical depths and photon destruction probabilities.
+
+    Parameters
+    ----------
+
+    pressures: jnp.ndarray, shape (n_layers, )
+        The pressures in the atmosphere.
+    reference_gravity: float
+        The reference gravity in the atmosphere.
+    opacities: jnp.ndarray, shape (?, n_frequencies, ?, n_layers) # todo
+        The opacities in the atmosphere.
+    continuum_opacities_scattering: jnp.ndarray, shape (n_frequencies, n_layers)
+        The continuum scattering opacities in the atmosphere.
+    scattering_in_emission: bool
+        Whether to include scattering in the emission calculation.
+    sum_opacities: bool
+        Whether to sum the opacities or not.
+    photospheric_cloud_optical_depths: jnp.ndarray, shape (n_layers, ), optional  #todo is that correct?
+        The photospheric cloud optical depths in the atmosphere. Default is None.
+    absorber_present: bool
+        Whether an absorber is present in the atmosphere. Default is True.
+    custom_cloud_parameters: dict
+        Custom cloud parameters to be passed to the cloud opacity calculation.
+
+    Returns
+    -------
+    optical_depths: jnp.ndarray, shape (?, n_frequencies, ?, n_layers) # todo
+        The cumulative optical depths in the atmosphere.
+    photon_destruction_probabilities: jnp.ndarray, shape (n_layers, )
+        The photon destruction probabilities in the atmosphere.
+    relative_cloud_scaling_factor: float
+        The relative cloud scaling factor in the atmosphere.
+
+    """
     photon_destruction_probabilities = None
     relative_cloud_scaling_factor = None
 
