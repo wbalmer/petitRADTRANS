@@ -176,7 +176,6 @@ _FLUX_STATIC_ARGNAMES = _SPECTRAL_STATIC_ARGNAMES_COMMON + (
     "thomas_min_batch",
     "ck_chunk_size",
     "return_photosphere_radius",
-    "return_rosseland_optical_depths",
     "return_stellar_intensities",
     "return_angle_dependent_intensities",
 )
@@ -2820,7 +2819,6 @@ class Radtrans:
         return_contribution: bool = False,
         return_clear_spectrum: bool = False,
         return_photosphere_radius: bool = False,
-        return_rosseland_optical_depths: bool = False,
         return_cloud_contribution: bool = False,
         return_opacities: bool = False,
         return_abundances: bool = False,
@@ -2988,8 +2986,6 @@ class Radtrans:
                 If True, return the clear spectrum in addition to a cloudy spectrum.
             return_photosphere_radius (Optional[bool]):
                 If True, calculate and return the photosphere radius.
-            return_rosseland_optical_depths (Optional[bool]):
-                If True, calculate and return the Rosseland opacities and optical depths.
             return_cloud_contribution (Optional[bool]):
                 If True, calculate the cloud contribution.
             return_opacities (Optional[bool]):
@@ -3057,12 +3053,6 @@ class Radtrans:
             patchy_clouds=patchy_clouds,
             complete_coverage_clouds=complete_coverage_clouds,
         )
-
-        if return_rosseland_optical_depths:
-            debug.print(
-                "return_rosseland_optical_depths is no longer supported in calculate_flux; "
-                "use calculate_rosseland_planck_opacities instead"
-            )
 
         return self._calculate_flux_kernel(
             pressures=solver_pressures,
