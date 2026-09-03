@@ -833,8 +833,6 @@ def _assemble_cloud_opacity_outputs(
     clouds_loaded_opacities,
     frequency_bins_edges,
     anisotropic_cloud_scattering,
-    sum_opacities,
-    photospheric_cloud_optical_depths,
     continuum_opacities,
 ):
     (
@@ -856,24 +854,18 @@ def _assemble_cloud_opacity_outputs(
         lambda: cloud_isotropic_extinctions - cloud_final_absorption_opacities,
     )
 
-    def sum_cloud_absorption_opacities(
-        _cloud_anisotropic_extinctions, _cloud_final_absorption_opacities
-    ):
-        cloud_anisotropic_scattering_opacities = (
-            _cloud_anisotropic_extinctions - _cloud_final_absorption_opacities
-        )
-        cloud_absorption_opacities = _cloud_final_absorption_opacities
-        return cloud_anisotropic_scattering_opacities, cloud_absorption_opacities
-
-    cloud_anisotropic_scattering_opacities, cloud_absorption_opacities = lax.cond(
-        jnp.logical_and(
-            sum_opacities, jnp.logical_not(photospheric_cloud_optical_depths is None)
-        ),
-        sum_cloud_absorption_opacities,
-        lambda a, b: (jnp.zeros_like(a), jnp.zeros_like(b)),
-        cloud_anisotropic_extinctions,
-        cloud_final_absorption_opacities,
+    # Both terms are already computed above for continuum_opacities and
+    # cloud_opacities, so splitting them out is free. pRT3 left them at None
+    # unless the photospheric-cloud parametrization was active, and the port of
+    # that gate was inert (it tested a sanitized value against None), which left
+    # these zeroed for every caller with sum_opacities False -- including the
+    # arrays that return_opacities hands back. The only arithmetic consumer,
+    # compute_optical_depths, does its own gating on the caller's
+    # photospheric_cloud_optical_depths, so pass the real values through.
+    cloud_anisotropic_scattering_opacities = (
+        cloud_anisotropic_extinctions - cloud_final_absorption_opacities
     )
+    cloud_absorption_opacities = cloud_final_absorption_opacities
 
     continuum_opacities = continuum_opacities + cloud_final_absorption_opacities
     cloud_opacities = cloud_anisotropic_extinctions
@@ -1469,8 +1461,6 @@ def _compute_cloud_opacities(
         clouds_loaded_opacities=clouds_loaded_opacities,
         frequency_bins_edges=frequency_bins_edges,
         anisotropic_cloud_scattering=anisotropic_cloud_scattering,
-        sum_opacities=sum_opacities,
-        photospheric_cloud_optical_depths=photospheric_cloud_optical_depths,
         continuum_opacities=continuum_opacities,
     )
 

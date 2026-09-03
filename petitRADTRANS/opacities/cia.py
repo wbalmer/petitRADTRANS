@@ -10,8 +10,15 @@ from petitRADTRANS.chemistry.utils import get_base_species_mass_fractions
 from petitRADTRANS.jax_dtype import WORKING_JAX_DTYPE
 
 
-_INV_LOSCHMIDT_SQUARED = jnp.array(
-    (1.0 / cst.L0) ** 2, dtype=WORKING_JAX_DTYPE
+# Number density factor of the CIA opacity, (1 / L0) ** 2 / amu / kB.
+# The amu and kB divisions are folded into the constant on purpose: on its own
+# (1 / L0) ** 2 is 1.4e-39, which is subnormal in float32 (smallest normal:
+# 1.2e-38). XLA's op-by-op kernels treat subnormal inputs as zero, so a
+# standalone constant silently zeroed every CIA opacity whenever the spectral
+# functions ran uncompiled. Folded this way the constant is of order unity, and
+# no intermediate of the factor below leaves the float32 normal range.
+_CIA_NUMBER_DENSITY_FACTOR = jnp.array(
+    (1.0 / cst.L0) ** 2 / cst.amu / cst.kB, dtype=WORKING_JAX_DTYPE
 )
 _CIA_OPACITY_CUTOFF = jnp.finfo(WORKING_JAX_DTYPE).tiny
 
@@ -155,10 +162,8 @@ def interpolate_cia(
         combined_mass_fractions
         / weights
         * mean_molar_masses
-        / cst.amu
-        * _INV_LOSCHMIDT_SQUARED
+        * _CIA_NUMBER_DENSITY_FACTOR
         * pressures
-        / cst.kB
         / temperatures
     )
 
