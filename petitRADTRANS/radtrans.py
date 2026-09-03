@@ -1359,9 +1359,8 @@ class Radtrans:
         )
 
         #wl_idx = 1000
-        #tau = np.array(optical_depths[
-        #                   0, :, 0, :])  # shape (10,) — per-layer
-        #omega = np.array(1.0 - photon_destruction_probabilities[0, :, :])  # shape (10,)
+        #tau = np.array(optical_depths[0, :, 0, :])
+        #omega = np.array(1.0 - photon_destruction_probabilities[0, :, :])
 
 
         #jnp.savez("prt_data_timetest.npz", tau=tau, omega=omega, frequencies=self.frequencies)
