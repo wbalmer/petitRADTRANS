@@ -54,6 +54,7 @@ from petitRADTRANS.validation import (
     _check_wavelength_boundaries,
     _handle_grid_misalignment,
     _warn_partial_cloud_coverage_without_patchy_clouds,
+    _warn_opaque_cloud_top_pressure_with_scattering,
 )
 
 # pRT does its computation at single precision, where possible,
@@ -346,6 +347,13 @@ def _compile_spectral_function(static_argnames):
                         ),
                     )
                 ),
+            )
+
+            # Warn user if they use the opaque cloud top pressure together
+            # in scattering in emission == True mode.
+            _warn_opaque_cloud_top_pressure_with_scattering(
+                opaque_cloud_top_pressure=arguments.get("opaque_cloud_top_pressure"),
+                scattering_in_emission=self._scattering_in_emission,
             )
 
             # Validate the reference gravity here while it is still concrete, so
@@ -3196,12 +3204,6 @@ class Radtrans:
         anisotropic_cloud_scattering=None,
     ):
         """JIT-compiled kernel for calculate_flux. See calculate_flux for parameter docs."""
-        if opaque_cloud_top_pressure is not None and self._scattering_in_emission:
-            debug.print(
-                "the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
-                "is not recommended"
-            )
-
         emission_inputs = _sanitize_emission_surface_inputs(
             frequencies=self._frequencies,
             scattering_in_emission=self._scattering_in_emission,

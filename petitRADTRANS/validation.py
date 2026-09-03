@@ -76,6 +76,21 @@ def _warn_partial_cloud_coverage_without_patchy_clouds(
         )
 
 
+def _warn_opaque_cloud_top_pressure_with_scattering(
+    opaque_cloud_top_pressure: Optional[float],
+    scattering_in_emission: bool,
+):
+    '''Check whether opaque_cloud_top_pressure is used together with scattering.
+    '''
+    if opaque_cloud_top_pressure is not None and scattering_in_emission:
+        warnings.warn(
+            "the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
+            "is not recommended",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
 def _check_anisotropic_cloud_scattering(mode: Union[str, bool]):
     """Check if the anisotropic cloud scattering mode is valid.
 

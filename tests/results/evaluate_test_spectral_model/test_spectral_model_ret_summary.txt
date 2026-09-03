@@ -1,5 +1,5 @@
 test_spectral_model
-2026-09-03, 17:14:45
+2026-09-03, 17:33:27
 pRT v4.0.0b2
 /Users/molliere/Documents/pRT_source/petitRADTRANS/tests/results
 
