@@ -74,9 +74,6 @@ it, because ``a_i`` is a genuine unknown rather than an estimate:
   ``theta_ref`` rather than something the amplitudes depend on (exactly so as
   ``s -> infinity``; suppressed by ``1/(1 + s^2 G_i)`` at finite ``s``).
 
-:func:`log_difference_observation` is retained for reproducing the earlier
-results, with its defect documented on the function.
-
 Everything here is written in ``jnp`` and is differentiable and jit-compilable.
 That is a hard requirement, not a stylistic one: the solve sits inside
 ``_score_dataset``, which is reached by both the NumPy sampler path
@@ -159,7 +156,6 @@ __all__ = [
     "reference_anchored_basis",
     "harmonic_outer_products",
     "log_observation",
-    "log_difference_observation",
     "smooth_wavelength_modes",
     "noise_log_determinant",
     "build_linear_system",
@@ -184,24 +180,7 @@ Scalar = Array | float
 # ---------------------------------------------------------------------------
 
 def require_double_precision() -> None:
-    """Refuse to run the marginalisation in single precision.
-
-    petitRADTRANS leaves ``jax_enable_x64`` off by default, which is the right
-    choice for radiative transfer -- the working arrays are memory bound and
-    single precision is ample. It is NOT the right choice here.
-
-    This module forms a Cholesky factor and two log-determinants, and the
-    quantity it returns is compared BETWEEN models at the level of a few nats.
-    In single precision the evidence carries a roughness floor of order 0.03 nat
-    on a value of order 1e5, which is large enough to make a curvature estimate
-    meaningless and to blur a genuine model-comparison difference.
-
-    Enabling x64 promotes ``FEAUTRIER_JAX_DTYPE`` to float64 -- the Feautrier
-    solver and this algebra -- while ``WORKING_JAX_DTYPE`` stays single, so the
-    memory-heavy opacity arrays are unaffected.
-
-    Call once at configuration time, so the failure lands before a sampler has
-    burned hours rather than inside a likelihood evaluation.
+    """Force double precision, single precision is insufficient for linearised time-series retrievals.
     """
     if not config.jax_enable_x64:
         raise RuntimeError(
@@ -224,49 +203,6 @@ def integer_period_window(
     start: int = 0,
 ) -> Array:
     """Epoch indices spanning a WHOLE number of rotations.
-
-    Setup only.
-
-    Why crop
-    --------
-    Over an integer number of periods with even sampling the harmonic basis is
-    orthogonal: distinct harmonics have zero inner product and every column has
-    zero mean.  Over a fractional baseline neither holds, and the columns leak
-    into one another.  Measured on this dataset, cropping 1.233 rotations to
-    1.000 improves the worst off-diagonal coupling from ``1.7e-1`` to
-    ``1.5e-3`` -- a factor of 115 -- and the worst column mean from ``0.13`` to
-    ``7.4e-4``.
-
-    The larger benefit is structural rather than numerical.  Over exactly one
-    rotation every phase is visited once, so a phase bin is CONTIGUOUS IN TIME:
-    the reference set becomes 19 consecutive epochs (index span 18) instead of
-    23 epochs split across two visits 453 apart.  The circular-mean trap that
-    once placed the reference half a rotation from its own data cannot occur at
-    all, rather than being avoided by careful coding.
-
-    What cropping does NOT do
-    -------------------------
-    It does not remove the harmonic degeneracy of the linearisation error.  The
-    dropped Taylor term contains products of harmonics, and
-
-        cos(wt) cos(2wt) = 1/2 cos(wt) + 1/2 cos(3wt)
-
-    is a trigonometric identity, not a windowing artefact.  Measured on the
-    cropped, orthogonal basis, that product projects onto ``c1`` at exactly
-    ``0.500`` and ``c3`` at exactly ``0.500``, with ``0.0000`` of it outside the
-    basis.  Cropping makes the projection cleaner -- it removes the leakage into
-    ``c2`` -- and thereby CONCENTRATES the bias rather than dispersing it.
-    :func:`amplitude_bias_projection` remains the only check on that error.
-
-    Costs
-    -----
-    About 19-21% of the epochs are discarded, inflating every amplitude
-    uncertainty by ``sqrt(573/464) = 1.11``.  And orthogonality is a property of
-    the period used HERE: as the sampler moves the period away from it the
-    coupling degrades (``2.4e-3`` at the crop period, ``4.1e-2`` at the +2.0%
-    offset actually seen in production -- still 4x better than uncropped, but
-    not orthogonal).  Use :func:`basis_orthogonality` to monitor it rather than
-    assuming it.
 
     Parameters
     ----------
@@ -320,39 +256,13 @@ def trigonometric_resampling_matrix(
     Setup (concrete node/target grids), though it is differentiable in
     ``period`` if that is ever wanted.
 
-    The exact time-series model evaluates the radiative transfer at a handful of
-    epochs and interpolates onto the observed ones.  Doing that with straight
-    lines is far more damaging than it looks.  Linear interpolation attenuates a
-    sinusoid of harmonic ``k`` by ``(k w h)^2 / 12`` for node spacing ``h``, and
-    that attenuation is ALIGNED WITH THE SIGNAL -- it is the worst possible
-    error shape by the argument in :func:`amplitude_bias_projection`.  At 13
-    nodes per rotation it removes 2%, 9% and 20% of harmonics 1, 2 and 3, which
-    on this dataset moved the amplitudes by up to 9.7 sigma and swamped the
-    linearisation error the comparison was built to measure.
-
-    There is no need to accept that.  The modulated parameters are a truncated
-    Fourier series by construction, so the spectrum's time dependence is
-    band-limited, and a band-limited periodic signal is recovered EXACTLY from
-    ``2H + 1`` samples per period by fitting the harmonics rather than joining
-    the dots.  This builds the ``(n_target, n_node)`` matrix that does it::
+    The spectrum's time dependence is band-limited, and a band-limited periodic
+    signal is recovered EXACTLY from``2H + 1`` samples per period by fitting
+    the harmonics. This builds the ``(n_target, n_node)`` matrix that does it::
 
         interpolated = matrix @ spectra_at_nodes
 
-    The window does NOT have to be a whole number of periods.  That was assumed
-    at first and it is wrong: the harmonic functions are exact everywhere, so
-    fitting them by least squares recovers their coefficients from samples at
-    ANY set of times, provided the design at those times is invertible.
-    Measured on the production geometry, a 1.2338-rotation span reconstructs a
-    harmonic-6 signal to 1.7e-14 -- as exactly as a cropped one.  Production can
-    therefore adopt this without cropping.
-
-    What is genuinely required is ``2 * n_harmonics + 1`` samples at DISTINCT
-    ROTATIONAL PHASES.  Counting nodes is not enough, and the trap is a real
-    one: 13 nodes placed by ``linspace(0, period, 13)`` include both endpoints,
-    which are the same phase, leaving 12 distinct phases for 13 coefficients.
-    That grid silently returns a 36% error rather than 1e-14.  The check below
-    therefore looks at the conditioning of the design rather than at the node
-    count, whenever the node times are concrete enough to allow it.
+    This requires ``2 * n_harmonics + 1`` samples at DISTINCT ROTATIONAL PHASES.
 
     Choosing ``n_harmonics``.  The MODEL's time dependence is not band-limited
     at ``K`` even though the parameters are: the spectrum is a nonlinear
@@ -433,17 +343,7 @@ def basis_orthogonality(basis: Array) -> tuple[Array, Array]:
     not a cosmetic choice.  Anchoring displaces the basis by a rank-one term,
     ``Phi = psi - 1 c^T`` with ``c = <psi>_ref``, and for a narrow reference bin
     at low phase ``c`` is of order one.  That term dominates ``Phi^T Phi`` and
-    hides the orthogonality entirely: measured on this dataset the anchored
-    basis scores ``6.4e-1`` cropped against ``7.0e-1`` uncropped, so cropping
-    appears to achieve nothing.
-
-    It is the offset nuisance ``a_i`` that resolves this.  Marginalising it
-    removes the constant direction from the fit, and in the remaining space the
-    crop delivers what it promises -- ``1.5e-3`` cropped against ``1.5e-1``
-    uncropped, a factor of 103.  So cropping and the offset formulation are
-    complementary: under log-differencing, where the constant direction was
-    never marginalised, cropping would have bought almost nothing.  Removing the
-    means here measures the basis as the fit actually sees it.
+    hides the orthogonality entirely.
     """
     centred = basis - jnp.mean(basis, axis=0, keepdims=True)
     gram = centred.T @ centred
@@ -468,24 +368,6 @@ def reference_bin_indices(
     would move epochs between bins discretely and put a step discontinuity into
     an otherwise smooth objective.  ``reference_anchored_basis`` then tracks the
     fitted period continuously over this fixed index set.
-
-    Never summarise the returned set by the arithmetic mean of its TIMES.  The
-    set is a PHASE bin, so for a baseline longer than one rotation it contains
-    epochs from two separate visits, and their mean time need not lie at their
-    mean phase at all -- for a 1.23-rotation baseline the mean time of bin 0
-    falls half a rotation away from its data.  Average the basis instead, which
-    is what :func:`reference_anchored_basis` does.
-
-    What this choice does and does not affect
-    -----------------------------------------
-    It fixes the MEANING of ``theta_ref``: the reference state is the
-    atmospheric state on this set of epochs.  Under the offset-marginalised
-    likelihood of this module it does NOT affect the recovered amplitudes in the
-    limit of a free static offset, and affects them only at order
-    ``1/(1 + s^2 G_i)`` at finite offset width -- see :func:`build_linear_system`.
-    Under the older log-difference treatment the amplitudes moved by ~2 sigma
-    between anchorings, which was a defect of that treatment, not a physical
-    sensitivity.
 
     Parameters
     ----------
@@ -553,17 +435,11 @@ def collapse_reference_weights(weights: Array) -> Array:
     Kronecker structure that :func:`build_linear_system` depends on, so the
     weights are collapsed to a single vector over epochs.
 
-    Under the OFFSET-marginalised likelihood this collapse is harmless in a way
-    that can be stated exactly: two anchorings differ by a constant shift of the
-    basis columns, which changes the model by a quantity that is constant in
-    time, and a time-constant quantity is absorbed by the per-wavelength offset
-    ``a_i``.  The residual sensitivity is suppressed by ``1/(1 + s^2 G_i)`` and
-    vanishes as the offset prior widens.
-
-    Under the earlier log-difference treatment it was NOT harmless in principle
-    -- the two halves of the difference then genuinely had to share weights --
-    though it was measured at below 0.01 sigma in practice.  It is recorded here
-    because the reasoning, not just the number, changed.
+    Under the OFFSET-marginalised likelihood this collapse is harmless:
+    two anchorings differ by a constant shift of the basis columns, which changes
+    the model by a quantity that is constant in time, and a time-constant quantity
+    is absorbed by the per-wavelength offset ``a_i``. The residual sensitivity is
+    suppressed by ``1/(1 + s^2 G_i)`` and vanishes as the offset prior widens.
 
     Parameters
     ----------
@@ -644,11 +520,7 @@ def harmonic_outer_products(basis: Array) -> tuple[Array, Array]:
         sum_j  b_ij (Phi_jm Phi_j+1,n + Phi_j+1,m Phi_jn)   (AR(1) term)
 
     Precomputing the two epoch-indexed outer products turns each of those into a
-    single ``(n_wavelength, n_time) @ (n_time, 4K^2)`` matrix product.  The
-    obvious alternative -- broadcasting the basis against the inverse variance to
-    form a ``(n_wavelength, n_time, 2K)`` array and contracting that -- gives the
-    same answer for the same number of floating-point operations, but
-    materialises a large intermediate (10 MB at production size) for no gain.
+    single ``(n_wavelength, n_time) @ (n_time, 4K^2)`` matrix product.
 
     Returns
     -------
@@ -724,76 +596,6 @@ def log_observation(spectrum: Array, uncertainties: Array) -> tuple[Array, Array
             f"expected a (n_time, n_wavelength) spectrum, got ndim={spectrum.ndim}"
         )
     return jnp.log(spectrum).T, jnp.square(uncertainties / spectrum).T
-
-
-def log_difference_observation(
-    spectrum: Array,
-    uncertainties: Array,
-    reference_indices: Array,
-) -> tuple[Array, Array, Array, Array, Array]:
-    """Log-difference the observation against its reference-set mean.  LEGACY.
-
-        y_ij = ln d_ij - ln d_ref,i
-
-    Retained to reproduce earlier results and to support the closure test in
-    Sec. "Validation" of the accompanying note.  New work should use
-    :func:`log_observation` with a marginalised offset.
-
-    Why this is not the production path
-    -----------------------------------
-    ``d_ref`` is estimated FROM THE DATA, so ``y`` and ``d_ref`` are correlated
-    on the reference epochs and the covariance of ``y`` is
-
-        Cov(y_i) = D_i + c_i 1 1^T - c_i (1 e_R^T + e_R 1^T)
-
-    with ``e_R`` the indicator of the reference set.  The rank-two term is not
-    optional.  Dropping it -- as this module previously did -- leaves a
-    covariance that is positive definite, whereas the true one is exactly
-    SINGULAR: the weighted mean of ``y`` over the reference set is identically
-    zero by construction, so the data carry no variance at all in that
-    direction.  Measured on a realistic geometry, the omission biases individual
-    amplitudes by up to 0.47 sigma and shifts chi-squared by ~3400.
-
-    The correct way to use log-differenced data is therefore NOT to patch in the
-    rank-two term but to recognise that a singular covariance means the
-    corresponding direction carries no information, and to handle it by
-    marginalising a free per-wavelength offset -- that is, to pass the returned
-    ``y`` to :func:`build_linear_system` with ``offset_variance=jnp.inf``.  Doing
-    so reproduces the exact pseudo-inverse treatment to within 0.02 sigma and
-    needs no reference variance at all, which is why ``var_reference`` is
-    returned only for diagnostic comparison against the historical behaviour.
-
-    Parameters
-    ----------
-    spectrum, uncertainties:
-        ``(n_time, n_wavelength)``, strictly positive fluxes.
-
-    Returns
-    -------
-    ``(y, var_point, var_reference, reference_spectrum, reference_uncertainty)``
-    with ``y`` and ``var_point`` shaped ``(n_wavelength, n_time)`` and the rest
-    ``(n_wavelength,)``.
-    """
-    if spectrum.shape != uncertainties.shape:
-        raise ValueError(
-            f"spectrum {spectrum.shape} and uncertainties {uncertainties.shape} differ"
-        )
-    if spectrum.ndim != 2:
-        raise ValueError(
-            f"expected a (n_time, n_wavelength) spectrum, got ndim={spectrum.ndim}"
-        )
-
-    inverse_variance = 1.0 / jnp.square(uncertainties[reference_indices])
-    total_weight = jnp.sum(inverse_variance, axis=0)
-    reference_spectrum = (
-        jnp.sum(spectrum[reference_indices] * inverse_variance, axis=0) / total_weight
-    )
-    reference_uncertainty = 1.0 / jnp.sqrt(total_weight)
-
-    y = (jnp.log(spectrum) - jnp.log(reference_spectrum)[None, :]).T
-    var_point = jnp.square(uncertainties / spectrum).T
-    var_reference = jnp.square(reference_uncertainty / reference_spectrum)
-    return y, var_point, var_reference, reference_spectrum, reference_uncertainty
 
 
 def smooth_wavelength_modes(wavelengths: Array, n_modes: int) -> Array:
@@ -999,13 +801,6 @@ def build_linear_system(
         u^T Sigma_i^-1 v = u^T T_i v - kappa_i (g_i.u)(g_i.v),
         kappa_i = 1 / (1/s^2 + G_i).
 
-    The ``kappa`` form above is written with ``1/s^2`` rather than the textbook
-    ``s^2 / (1 + s^2 G)`` deliberately: it is algebraically identical, but it
-    stays finite at both ends.  ``offset_variance = 0`` gives ``kappa = 0`` (no
-    offset marginalised, plain independent noise) and ``offset_variance = inf``
-    gives ``kappa = 1/G`` (a completely free offset, which projects out anything
-    constant in time).  One expression, no branches, no overflow.
-
     Parameters
     ----------
     log_jacobian:
@@ -1017,9 +812,7 @@ def build_linear_system(
     residual:
         ``(n_wavelength, n_time)``.  The data minus the static model in log
         space, ``ln d_ij - ln M_i(theta_ref)``, from :func:`log_observation`
-        and the projected reference spectrum.  For the legacy log-difference
-        path this is ``y`` from :func:`log_difference_observation` and
-        ``offset_variance`` must be ``jnp.inf``.
+        and the projected reference spectrum.
     var_point:
         ``(n_wavelength, n_time)`` variance of the log data.
     offset_variance:
@@ -1236,30 +1029,12 @@ def amplitude_bias_projection(
 ) -> Array:
     """How far a known model error moves the amplitudes, in units of their error.
 
-    THIS is the gate on the linearisation, and it replaces the earlier
-    "coherent bias" statistic, which measured the wrong thing.
+    THIS is the gate on the linearisation.
 
-    That statistic averaged the discrepancy between the exact and linearised
-    models over all data points and compared it with ``0.5/sqrt(N)``.  The
-    reasoning was that an error of the same sign everywhere accumulates as
-    ``sqrt(N)``.  True, but not relevant: what biases an amplitude is not the
-    MEAN of the error but its PROJECTION onto the columns of the design,
+    What biases an amplitude is not the MEAN of the error but its
+    PROJECTION onto the columns of the design,
 
         delta_beta = C A^T Sigma^-1 r.
-
-    The two are almost unrelated.  The dropped second-order Taylor term is
-    ``(1/2) sum_pq G_pq delta_p(t) delta_q(t)``, a product of harmonics, and
-    products of harmonics 1..K contain harmonics 1..K.  The linearisation error
-    is therefore DEGENERATE WITH THE SIGNAL rather than orthogonal to it, and a
-    residual with exactly zero mean can still move an amplitude by several
-    sigma.  Measured on a realistic geometry: a residual at the measured
-    root-mean-square of 0.034 sigma, aligned with the first harmonic and with
-    exactly zero mean, passes the old gate by sixteen orders of magnitude and
-    shifts an amplitude by ~2 sigma (~5 sigma when rescaled to the full dataset).
-    Conversely a constant residual sized to fail the old gate at exactly 0.5
-    moves the amplitudes by 0.05 sigma -- the old gate was simultaneously far
-    too strict for the error shape it was designed for and blind to the shape
-    that matters.
 
     Usage.  Evaluate the exact nonlinear model and the linearised model on the
     same grid at the same amplitudes, form ``error_field = ln M_exact -
@@ -1357,25 +1132,6 @@ def curvature_expansion_parameter(
     LINEAR change of the modulated coordinates, because such a change rescales
     ``delta``, ``J`` and ``G`` in exactly compensating ways -- the same physical
     trajectory is described, so the same term is dropped.
-
-    And one thing it responds to that it should not.  Because it is formed PER
-    PARAMETER from the diagonal of the Hessian, it can be made to look better by
-    splitting the same physical perturbation across more coordinates.  Refining
-    the temperature-profile grid from 4 nodes to 25 lowers the worst
-    per-parameter value from 0.052 to 0.008 -- a factor of nearly seven -- while
-    the actual linearisation error changes by 0.5%: each node now carries a
-    smaller share of a temperature modulation that is unchanged.  The number
-    below is therefore a LOCALISER, good for saying which parameter is
-    responsible, and not a gate.  The gate is
-    :func:`amplitude_bias_projection` on the full field, which carries the
-    cross-terms ``G_pq`` and is not gameable this way.  When comparing
-    parameterisations, compare the total excursion in a physical variable --
-    ``max|delta ln T|`` over the profile -- not this per-coordinate ratio.  Rewriting a gradient
-    modulation as a temperature modulation, when temperature is built by
-    summing gradients, is such a change and cannot help.  Only a NONLINEAR
-    change of variable can reduce ``eps``, by making the model's response
-    genuinely straighter; whether one exists is decided by comparing ``G/J``
-    across candidate variables, which is what this function is for.
 
     Parameters
     ----------
@@ -1487,11 +1243,7 @@ def second_order_field(log_curvature_full: Array, excursions: Array) -> Array:
 
     Diagnostic.  This is the analytic form of the error field that
     :func:`amplitude_bias_projection` gates on, and it is the cheap substitute
-    for evaluating the exact nonlinear model: it needs one Hessian rather than
-    one radiative-transfer solution per epoch, and it carries no interpolation
-    error of its own.  It is correct to third order in the excursion, so it
-    agrees with the exact comparison only while the expansion is behaving --
-    which makes disagreement between the two informative rather than a nuisance.
+    for evaluating the exact nonlinear model.
 
     Parameters
     ----------

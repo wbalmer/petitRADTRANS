@@ -15,6 +15,8 @@ The core responsibilities of the module are:
 The classes in this file are intentionally small, immutable containers with a
 few conversion helpers. Together they provide the bridge between the legacy
 retrieval configuration objects and the newer runtime-native execution model.
+
+AI tools were used to help develop this module.
 """
 
 from __future__ import annotations

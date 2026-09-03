@@ -800,15 +800,8 @@ class RetrievalConfig:
         it will add parameters to allow for a retrieval using an ackermann-marley model.
         If an equilibrium condensation model is used in th retrieval model function (use_equilibrium_chemistry=True),
         then a parameter is added that scales the equilibrium cloud abundance, as in Molliere (2020).
-        If eq is false, two parameters are added, the cloud abundnace and the cloud base pressure.
+        If use_equilibrium_chemistry is False, two parameters are added, the cloud abundnace and the cloud base pressure.
         The limits set the prior ranges, both on a log scale.
-
-        NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
-        abundance limits were set from free_mass_fraction_limits[0] to
-        (free_mass_fraction_limits[0] + free_mass_fraction_limits[1]). This has been changed
-        so that the limits of the prior range are from free_mass_fraction_limits[0] to
-        free_mass_fraction_limits[1] (ie the actual boundaries).
-        The same is true for PBase_lim.
 
         Args:
             species : str
@@ -1518,7 +1511,7 @@ class RetrievalConfig:
 
         This constructor is deliberately separate from
         :meth:`add_time_series_data` rather than another flag on it: the two
-        want genuinely different arguments, and overloading one method would
+        use different arguments, and overloading one method would
         leave ``mean_divide`` and ``modulated_parameters`` silently
         incompatible.
 
