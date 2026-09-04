@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - The BlackJAX and NumPyro samplers now share a `GradientSampler` base holding
   their (previously duplicated) results dataclass, saving, reloading, summary
   and optax MAP warm-up. Behaviour and file formats are unchanged.
-
+- `scattering_in_emission=True` now raises `ValueError` unless JAX is running in
+  64-bit mode.
 ### Fixed
 - Removed `debug.callbacks` from opacities and validation.
 - dtype mismatch in patchy cloud opacity conditional.

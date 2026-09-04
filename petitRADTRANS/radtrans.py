@@ -49,6 +49,7 @@ from petitRADTRANS.validation import (
     _check_power_law_opacity_completeness,
     _sanitize_emission_surface_inputs,
     _sanitize_flux_opacity_inputs,
+    _check_scattering_in_emission_dtype,
     _warn_scattering_in_emission_without_scattering_species,
     _check_wavelength_boundaries,
     _handle_grid_misalignment,
@@ -411,6 +412,10 @@ class Radtrans:
             Will be ``False`` by default.
             If ``True`` scattering will be included in the emission spectral calculations. Note that this increases
             the runtime of pRT!
+            Requires 64-bit JAX: the Feautrier scattering solver diverges in
+            single precision, so ``True`` raises ``ValueError`` unless
+            ``jax.config.update("jax_enable_x64", True)`` was called before
+            petitRADTRANS was imported.
         emission_angle_grid (Optional):
             Array defining the cosines of the angle grid to be used for the emission spectrum calculations,
             and their quadrature weights for angle integrations. This is the cosine of the angle between a
@@ -495,6 +500,10 @@ class Radtrans:
         self._line_by_line_opacity_sampling = line_by_line_opacity_sampling
         self._scattering_in_emission = scattering_in_emission
         self._retain_unstacked_line_opacities_for_plotting = retain_unstacked_line_opacities_for_plotting
+
+        # Refuse single-precision emission scattering up front, before the
+        # (slow) opacity load, rather than returning a diverged spectrum.
+        _check_scattering_in_emission_dtype(self._scattering_in_emission)
 
         _warn_scattering_in_emission_without_scattering_species(
             self._scattering_in_emission,
@@ -834,6 +843,7 @@ class Radtrans:
     @scattering_in_emission.setter
     def scattering_in_emission(self, value: bool):
         warnings.warn(self.__property_setting_warning_message)
+        _check_scattering_in_emission_dtype(value)
         _warn_scattering_in_emission_without_scattering_species(
             scattering_in_emission=value,
             cloud_species=self._cloud_species,

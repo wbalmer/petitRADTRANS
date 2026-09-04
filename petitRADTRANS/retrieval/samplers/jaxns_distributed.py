@@ -94,8 +94,10 @@ class JAXNSDistributedSampler(JAXNSSampler):
             if value is not None
         }
         # Distributed allocation has no shell width: one pending task is one
-        # logical lineage thread, and per-worker batching is configured in the
-        # worker TOML rather than here.
+        # logical lineage thread. DistributedNestedSampler accepts neither
+        # 'shell_size' nor 'batch_size' (a worker's batch size is a private
+        # device choice configured per worker in the jaxns-cli TOML), so drop
+        # them here rather than letting them raise a TypeError deep in JAXNS.
         for unsupported in ("shell_size", "batch_size"):
             if nested_sampler_kwargs.pop(unsupported, None) is not None:
                 warnings.warn(
@@ -114,16 +116,14 @@ class JAXNSDistributedSampler(JAXNSSampler):
         if slice_sampler is not None:
             nested_sampler_kwargs["sampler"] = slice_sampler
 
-        if run_config["termination_condition"] is not None:
-            nested_sampler_kwargs["termination_condition"] = run_config[
-                "termination_condition"
-            ]
+        if run_config["depth_condition"] is not None:
+            nested_sampler_kwargs["depth_condition"] = run_config["depth_condition"]
 
         self.jaxns_parameters = {
             **{
                 key: value
                 for key, value in nested_sampler_kwargs.items()
-                if key not in ("sampler", "termination_condition")
+                if key not in ("sampler", "depth_condition")
             },
             **slice_summary,
             "coordinator_port": self.coordinator_port,
@@ -133,28 +133,6 @@ class JAXNSDistributedSampler(JAXNSSampler):
             model=model,
             coordinator_port=self.coordinator_port,
             **nested_sampler_kwargs,
-        )
-
-    def _execute(self, run_config, checkpoint_dir):
-        jax_random_key = _opt.random.PRNGKey(self.seed)
-        goal_cond = run_config["goal_cond"]
-
-        if goal_cond is None:
-            # DistributedNestedSampler has no plain run(); its goal loop is the
-            # only entry point, so mirror NestedSampler.run's default goal.
-            def goal_cond(state):
-                if int(state.goal_loop_iter) == 0:
-                    return False
-                done, _ = state.compute_termination_register().is_done(
-                    self.sampler.termination_condition
-                )
-                return bool(done)
-
-        return self.sampler.run_until_goal(
-            goal_cond,
-            key=jax_random_key,
-            checkpoint_dir=checkpoint_dir,
-            checkpoint_cadence=run_config["checkpoint_cadence"],
         )
 
     def _materialize_raw_results(self, state):

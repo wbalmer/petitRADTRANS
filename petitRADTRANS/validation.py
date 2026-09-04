@@ -9,6 +9,7 @@ from typing import Callable, Optional, Union
 import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
+from jax import config as jax_config
 from jax import core as jax_core
 from jax import lax, debug
 from jax.typing import ArrayLike
@@ -18,6 +19,55 @@ from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE, WORKING_JAX_DTYPE
 from petitRADTRANS.stellar_spectra.phoenix import compute_star_spectrum
 
 _UNSET = object()
+
+
+def _check_scattering_in_emission_dtype(scattering_in_emission: bool) -> None:
+    """Refuse emission scattering in single precision.
+
+    The Feautrier scattering solver is an iterative source-function scheme, and
+    in float32 it *diverges* for optically thick (g, f) bins rather than merely
+    losing digits. Compared against the identical calculation in float64, single
+    precision returns a median flux error of several percent, individual bins
+    wrong by orders of magnitude, and can overflow to +inf. That is a wrong
+    answer rather than a degraded one, so it must not be produced silently.
+
+    Emission without scattering and transmission are unaffected: those agree
+    with float64 to ~1e-6 and remain fully supported in single precision.
+
+    Raises:
+        ValueError: If emission scattering is requested while the Feautrier
+            solver would run in float32.
+    """
+    if not scattering_in_emission:
+        return
+
+    if FEAUTRIER_JAX_DTYPE != jnp.float32:
+        return
+
+    # jax_dtype resolves FEAUTRIER_JAX_DTYPE once, at import time. Enabling x64
+    # afterwards leaves the solver in float32 with no other visible symptom, so
+    # name that case explicitly instead of repeating advice the user has
+    # apparently already followed.
+    if jax_config.jax_enable_x64:
+        remedy = (
+            "jax_enable_x64 is set, but it was enabled after "
+            "petitRADTRANS.jax_dtype had already resolved the solver dtype to "
+            "float32. Call jax.config.update('jax_enable_x64', True) at the top "
+            "of your script, before importing petitRADTRANS."
+        )
+    else:
+        remedy = (
+            "Call jax.config.update('jax_enable_x64', True) at the top of your "
+            "script, before importing petitRADTRANS."
+        )
+
+    raise ValueError(
+        "scattering_in_emission=True requires 64-bit JAX. The Feautrier "
+        "scattering solver diverges in float32 instead of simply losing "
+        "precision, so it returns fluxes that are wrong by several percent on "
+        f"average and can overflow to +inf. {remedy} Alternatively, set "
+        "scattering_in_emission=False, which stays accurate in float32."
+    )
 
 
 def _warn_scattering_in_emission_without_scattering_species(

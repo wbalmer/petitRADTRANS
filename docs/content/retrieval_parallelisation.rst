@@ -396,8 +396,9 @@ Single GPU
    import jax
    jax.config.update("jax_enable_x64", True)
 
-   # JAXNS:
-   retrieval.run(num_live_points=400, devices=jax.devices("gpu"), use_jit=True)
+   # JAXNS: it compiles its own depth epochs and uses the default JAX
+   # device, so a single GPU needs no extra arguments.
+   retrieval.run(num_live_points=400)
 
    # NumPyro / BlackJAX, single chain on the GPU:
    retrieval.run(num_samples=2000, num_warmup=1000, num_chains=1)
@@ -415,11 +416,17 @@ device mesh.
 
    export JAX_PLATFORMS=cuda,cpu
 
-* **JAXNS** — pass the device list:
+* **JAXNS** — JAXNS 3 removed device sharding, so ``devices`` is rejected.
+  Multi-device runs go through a ``jaxns-cli`` worker pool instead (see
+  :ref:`jaxns_distributed`):
 
   .. code-block:: python
 
-     retrieval.run(num_live_points=800, devices=jax.devices("gpu"), use_jit=True)
+     retrieval.run(
+         sampler_type="jaxns_distributed",
+         num_live_points=800,
+         coordinator_port=5555,
+     )
 
 * **NumPyro / BlackJAX** — set ``num_chains`` equal to the number of GPUs so the
   ``shard_map`` path places **one chain per device** (``chains_per_device == 1``).
@@ -631,7 +638,9 @@ Quick reference
   MPI ranks (``srun``, ``ntasks-per-node``, ``OMP_NUM_THREADS=1``).
 * **Nested sampling, one node, pure Python:** Dynesty with ``pool_njobs`` (single
   node only).
-* **Nested sampling on GPU:** JAXNS with ``devices=jax.devices("gpu")``.
+* **Nested sampling on one GPU:** JAXNS (it uses the default JAX device).
+* **Nested sampling on many GPUs:** ``sampler_type="jaxns_distributed"``
+  with a ``jaxns-cli`` worker pool.
 * **Gradient MCMC on GPU(s):** NumPyro/BlackJAX with ``num_chains == #GPUs``.
 * **Gradient MCMC on CPU / across nodes:** independent-process chains + merge.
 * **CPU search + GPU likelihood:** PyMultiNest/UltraNest with

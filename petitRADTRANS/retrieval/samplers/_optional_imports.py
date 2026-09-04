@@ -105,15 +105,19 @@ Model = None
 NestedSampler = None
 DistributedNestedSampler = None
 NestedSamplerResults = None
-TerminationCondition = None
+DepthCondition = None
 UniDimSliceSampler = None
-EllipsoidalDirection = None
+# Private JAXNS helper, needed only when pRT synthesises a Python goal (see
+# JAXNSSampler._build_goal_condition). It stays None when JAXNS moves it, and
+# the one caller that needs it raises with migration guidance at that point,
+# so an ordinary run never depends on a private symbol.
+depth_condition_reached = None
 
 
 def require_jaxns():
     """Import JAXNS 3 and the JAXCTX prior machinery it builds models from."""
     global jaxns, Model, NestedSampler, NestedSamplerResults
-    global TerminationCondition, UniDimSliceSampler, EllipsoidalDirection
+    global DepthCondition, UniDimSliceSampler, depth_condition_reached
 
     if jaxns is not None:
         return
@@ -133,33 +137,47 @@ def require_jaxns():
             "(jax.config.update('jax_enable_x64', True))."
         )
 
+    # JAXNS 3 has kept changing its public surface *after* the 3.0.0 release
+    # without bumping its version (its pyproject still reads 3.0.0), so a
+    # version pin cannot express what pRT needs. Probe the actual API instead:
+    # jaxns.depth_condition replaced jaxns.termination_condition, and is the
+    # marker separating the 3.0.0 release from the API pRT targets.
     try:
         import jaxns as jaxns_module
         from jaxns.core import NestedSampler as jaxns_nested_sampler
         from jaxns.model import Model as jaxns_model
         from jaxns.results import NestedSamplerResults as jaxns_results
-        from jaxns.termination_condition import (
-            TerminationCondition as jaxns_termination_condition,
-        )
+        from jaxns.depth_condition import DepthCondition as jaxns_depth_condition
         from jaxns.constrained_sampler import (
-            EllipsoidalDirection as jaxns_ellipsoidal_direction,
             UniDimSliceSampler as jaxns_unidim_slice_sampler,
         )
     except Exception as error:
         raise ImportError(
             "JAXNS 3 (and jaxctx) could not be imported. This sampler cannot be used. "
-            "pRT requires JAXNS >= 3.0.0, whose public classes live in their defining "
-            "modules (jaxns.core, jaxns.model, ...); a JAXNS 2.x install will fail here. "
-            "Install with `pip install 'jaxctx>=1.2.0'` and JAXNS >= 3."
+            "pRT requires a JAXNS 3 that exposes 'jaxns.depth_condition.DepthCondition'. "
+            "A JAXNS 2.x install will fail here, and so will the JAXNS 3.0.0 release, "
+            "which still had 'jaxns.termination_condition' -- note that JAXNS reports "
+            "itself as 3.0.0 in both cases, so the version number cannot be trusted. "
+            "Install jaxctx>=1.2.0 and a JAXNS 3 from after the depth-scheduling "
+            "change (jaxns commit 4c70caf or later)."
         ) from error
 
     jaxns = jaxns_module
     Model = jaxns_model
     NestedSampler = jaxns_nested_sampler
     NestedSamplerResults = jaxns_results
-    TerminationCondition = jaxns_termination_condition
+    DepthCondition = jaxns_depth_condition
     UniDimSliceSampler = jaxns_unidim_slice_sampler
-    EllipsoidalDirection = jaxns_ellipsoidal_direction
+
+    # Best-effort: NestedSampler.run() uses this to turn the depth condition
+    # into its default stopping goal. pRT needs the same predicate to keep
+    # dlogZ terminating a run that also carries user goal criteria.
+    try:
+        from jaxns.algorithm.depth import _depth_condition_reached
+    except Exception:
+        depth_condition_reached = None
+    else:
+        depth_condition_reached = _depth_condition_reached
 
 
 def require_jaxns_distributed():

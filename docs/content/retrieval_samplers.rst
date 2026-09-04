@@ -192,8 +192,17 @@ In practice, ``queue_size`` should usually match the number of worker processes,
 JAXNS
 ~~~~~
 
-pRT requires **JAXNS >= 3.0.0** (and ``jaxctx``). JAXNS 3 removed the entire
-JAXNS 2 API, so a 2.x install will not work.
+pRT requires **JAXNS 3** (and ``jaxctx``). JAXNS 3 removed the entire JAXNS 2
+API, so a 2.x install will not work.
+
+.. warning::
+
+   JAXNS has continued to change its public API after the 3.0.0 release
+   *without bumping its version number*, so ``jaxns>=3.0.0`` is a floor, not a
+   guarantee. pRT needs a JAXNS that provides
+   ``jaxns.depth_condition.DepthCondition`` (which replaced
+   ``jaxns.termination_condition``); the 3.0.0 release itself does not. pRT
+   probes for this at import and raises with installation guidance.
 
 Key parameters:
 
@@ -204,11 +213,6 @@ Key parameters:
   there is no longer any reason to pre-declare a huge value.
 * ``num_slices`` / ``no_step_out``: slice-sampler controls. Omit both to use the
   JAXNS default (``5 * n_parameters`` slices, isotropic directions).
-* ``ellipsoidal_directions``: ``True`` (or a dict of
-  :class:`jaxns.constrained_sampler.EllipsoidalDirection` options) to fit a
-  Gaussian mixture to the live population and propose along its axes. This can
-  cut likelihood evaluations on anisotropic posteriors; it cannot be combined
-  with periodic parameters.
 * ``collect_phantom_samples`` (default ``True``) and ``max_phantom_samples``:
   retain intermediate slice-chain states to condition the evidence estimate.
 * ``evidence_conditioning``: ``"phantom"`` (default), ``"classic"``, or ``None``
@@ -218,22 +222,45 @@ Key parameters:
   default into ``out_JAXNS/<retrieval_name>_checkpoints`` every hour. See
   the caveat below.
 * ``goal_cond``: an optional Python callable evaluated on the JAXNS ``State`` at
-  each depth boundary, for stopping rules the compiled termination condition
-  cannot express.
+  each depth boundary. Supplying it makes it the *only* stopping rule, so it
+  must express everything the run needs, including evidence convergence.
 * ``allocation_target``, ``shell_size``, ``delta_K``, ``initial_capacity``,
   ``unlimited_samples``: advanced race-tree allocation and storage controls.
 * ``seed``: random seed.
 * ``sanity_check``: run :meth:`jaxns.model.Model.sanity_check` before sampling,
   which catches NaN or ``+inf`` likelihoods before a long run starts.
 * ``termination_condition``, ``term_cond``, or ``termination_condition_kwargs``:
-  pass a mapping or ``TerminationCondition``.
-* Direct termination-condition fields are also accepted as keyword arguments:
-  ``ess``, ``evidence_uncert``, ``dlogZ``, ``max_num_likelihood_evaluations``,
-  ``log_L_target``, ``log_L_contour_target``, ``efficiency_threshold``,
-  ``rtol``, ``atol``, and ``cummax_XL_frac``.
+  pass a mapping of stopping criteria.
+* Stopping criteria are also accepted directly as keyword arguments:
+  ``dlogZ``, ``cummax_XL_frac``, ``evidence_uncert``, ``ess``,
+  ``max_num_likelihood_evaluations``, and ``log_L_target``.
 * ``termination_<field>`` aliases are accepted for all of them. In practice
   ``termination_max_samples`` is the important one, because plain
   ``max_samples`` configures the nested sampler itself.
+
+How stopping works
+^^^^^^^^^^^^^^^^^^
+
+JAXNS 3 split the old single termination condition in two, and pRT hides the
+split behind the keyword arguments above:
+
+* ``dlogZ`` and ``cummax_XL_frac`` are evaluated by JAXNS itself, inside the
+  compiled depth loop.
+* Everything else is a **Python goal** that pRT evaluates between allocation
+  rounds. These criteria are therefore checked at round boundaries rather than
+  continuously, so a run can overshoot a budget such as
+  ``max_num_likelihood_evaluations`` by up to one round.
+
+If you set only goal criteria, they alone decide when the run stops -- pRT
+passes JAXNS an empty depth condition so its default ``dlogZ`` cannot end the
+run early. If you set ``dlogZ``/``cummax_XL_frac`` *as well*, the run stops as
+soon as **any** of them is met, matching how the old termination condition
+combined its fields. Setting none of them leaves JAXNS' own default
+(``dlogZ = log1p(1e-3)``, the JAXNS 2 stopping goal) in place.
+
+``ess`` is the one expensive criterion: JAXNS exposes no cheap effective sample
+size on its run state, so pRT materialises the full result at each round
+boundary to evaluate it.
 
 Evidence: two numbers, one of them authoritative
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -287,6 +314,9 @@ Example
        termination_max_samples=200000,
    )
 
+This stops as soon as any one of them is satisfied: JAXNS' own ``dlogZ`` check,
+or pRT's goal reaching 512 effective samples, or 200000 collected samples.
+
 Migrating from JAXNS 2
 ^^^^^^^^^^^^^^^^^^^^^^
 
@@ -311,19 +341,38 @@ change the run:
    * - ``difficult_model``
      - raise ``num_slices`` and/or ``num_live_points``
    * - ``parameter_estimation``
-     - a termination condition on ``ess``
+     - a stopping criterion on ``ess``
    * - ``init_efficiency_threshold``
      - removed; there is no separate initialisation phase
    * - ``devices``
      - ``sampler_type="jaxns_distributed"`` (see below)
    * - ``use_jit``
      - accepted but ignored with a warning; JAXNS compiles its own depth epochs
+   * - ``ellipsoidal_directions``
+     - removed from the slice sampler; JAXNS 3 fits directions on the run state
+       with ``state.fit_gmm_directions()``, which pRT does not drive yet
 
-Two termination-condition fields were renamed (``log_L_contour`` ->
-``log_L_contour_target``, ``peak_XL_frac`` -> ``cummax_XL_frac``); the old names
-still work but emit a ``DeprecationWarning``. ``live_evidence_frac`` has no
-JAXNS 3 equivalent -- use ``dlogZ``, which bounds the same remaining-evidence
-fraction.
+``peak_XL_frac`` was renamed to ``cummax_XL_frac``; the old name still works but
+emits a ``DeprecationWarning``.
+
+These stopping criteria have no equivalent in current JAXNS 3 and raise
+``TypeError``. JAXNS deleted the registers behind them, and approximating them
+would silently stop runs at a different point:
+
+.. list-table::
+   :widths: 40 60
+   :header-rows: 1
+
+   * - Removed
+     - Replacement
+   * - ``live_evidence_frac``
+     - ``dlogZ``, which bounds the same remaining-evidence fraction
+   * - ``log_L_contour`` / ``log_L_contour_target``
+     - ``log_L_target``, which stops on the maximum likelihood reached
+   * - ``efficiency_threshold``
+     - ``max_num_likelihood_evaluations`` to bound likelihood work
+   * - ``rtol`` / ``atol``
+     - ``evidence_uncert`` to target evidence precision
 
 Raw results are now saved as ``out_JAXNS/<name>_jaxns_results.pkl`` instead of
 the JAXNS 2 ``.json``; a run left over from JAXNS 2 must be re-run.

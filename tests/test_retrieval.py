@@ -1507,58 +1507,131 @@ def test_prior_ultranest_supports_vectorized_cube_transforms():
     np.testing.assert_allclose(transformed, np.array([[1.75, 11.5], [2.5, 11.0]]))
 
 
-def test_jaxns_sampler_builds_termination_condition_from_sampler_kwargs():
+def test_jaxns_sampler_splits_stopping_conditions_from_sampler_kwargs():
+    """JAXNS 3 split TerminationCondition into a DepthCondition plus a goal.
+
+    Only dlogZ/cummax_XL_frac remain fields of a condition dataclass; the rest
+    are now evaluated by the caller between depth epochs, so pRT routes them
+    into goal_values instead.
+    """
     sampler_kwargs = {
-        "termination_condition_kwargs": {"ess": 256, "rtol": 1e-4},
+        "termination_condition_kwargs": {"ess": 256, "evidence_uncert": 0.2},
         "dlogZ": 0.05,
         "termination_max_samples": 1024,
     }
 
-    termination_condition, termination_summary = JAXNSSampler._build_termination_condition(
-        sampler_kwargs
+    depth_condition, goal_values, termination_summary = (
+        JAXNSSampler._build_stopping_conditions(sampler_kwargs)
     )
 
     assert sampler_kwargs == {}
-    assert termination_condition is not None
-    assert termination_condition.ess == 256
-    assert termination_condition.rtol == 1e-4
-    assert termination_condition.dlogZ == 0.05
-    assert termination_condition.max_samples == 1024
+    assert depth_condition is not None
+    assert depth_condition.dlogZ == 0.05
+    assert depth_condition.cummax_XL_frac is None
+    assert goal_values == {
+        "ess": 256,
+        "evidence_uncert": 0.2,
+        "max_samples": 1024,
+    }
     assert termination_summary == {
         "ess": 256,
-        "rtol": 1e-4,
+        "evidence_uncert": 0.2,
         "dlogZ": 0.05,
         "max_samples": 1024,
     }
 
 
-@pytest.mark.parametrize(
-    "old_name,new_name",
-    [("log_L_contour", "log_L_contour_target"), ("peak_XL_frac", "cummax_XL_frac")],
-)
-def test_jaxns_termination_condition_accepts_renamed_v2_fields(old_name, new_name):
-    """JAXNS 3 renamed two termination fields; old run scripts still work."""
+def test_jaxns_goal_only_kwargs_get_an_empty_depth_condition():
+    """A goal must not be overridden by JAXNS' default dlogZ.
+
+    Leaving the depth condition unset would let JAXNS apply dlogZ=log1p(1e-3),
+    which ends the run at the first allocation boundary -- so asking for a
+    tighter evidence_uncert would stop *earlier* rather than run longer. An
+    explicitly empty DepthCondition leaves termination to the goal.
+    """
+    depth_condition, goal_values, _ = JAXNSSampler._build_stopping_conditions(
+        {"evidence_uncert": 0.08}
+    )
+
+    assert goal_values == {"evidence_uncert": 0.08}
+    assert depth_condition is not None
+    assert depth_condition.dlogZ is None
+    assert depth_condition.cummax_XL_frac is None
+
+    run_config = JAXNSSampler._resolve_run_config({"evidence_uncert": 0.08})
+    assert run_config["depth_explicit"] is False
+
+
+def test_jaxns_no_stopping_kwargs_leaves_jaxns_defaults_alone():
+    depth_condition, goal_values, summary = JAXNSSampler._build_stopping_conditions({})
+
+    assert depth_condition is None
+    assert goal_values == {}
+    assert summary == {}
+
+    run_config = JAXNSSampler._resolve_run_config({})
+    assert run_config["depth_condition"] is None
+    assert run_config["depth_explicit"] is False
+
+
+def test_jaxns_depth_and_goal_kwargs_are_both_recorded():
+    run_config = JAXNSSampler._resolve_run_config({"dlogZ": 0.1, "ess": 100})
+
+    assert run_config["depth_condition"].dlogZ == 0.1
+    assert run_config["goal_values"] == {"ess": 100}
+    # Only an explicit depth field may also terminate a goal-driven run.
+    assert run_config["depth_explicit"] is True
+
+
+def test_jaxns_termination_condition_accepts_renamed_v2_fields():
+    """JAXNS renamed peak_XL_frac; old run scripts still work."""
     with pytest.warns(DeprecationWarning):
-        termination_condition, summary = JAXNSSampler._build_termination_condition(
-            {old_name: 0.25}
+        depth_condition, goal_values, summary = (
+            JAXNSSampler._build_stopping_conditions({"peak_XL_frac": 0.25})
         )
 
-    assert getattr(termination_condition, new_name) == 0.25
-    assert summary == {new_name: 0.25}
+    assert depth_condition.cummax_XL_frac == 0.25
+    assert goal_values == {}
+    assert summary == {"cummax_XL_frac": 0.25}
 
 
-def test_jaxns_termination_condition_rejects_removed_v2_field():
-    """live_evidence_frac has no JAXNS 3 equivalent and must not be ignored."""
-    with pytest.raises(TypeError, match="live_evidence_frac"):
-        JAXNSSampler._build_termination_condition({"live_evidence_frac": 0.01})
+@pytest.mark.parametrize(
+    "removed_field",
+    [
+        # No JAXNS 3 equivalent at all.
+        "live_evidence_frac",
+        # Dropped together with TerminationRegister: the likelihood-contour,
+        # shrinkage-efficiency and live-spread registers are not on State, and
+        # approximating them would stop runs at a different point.
+        "log_L_contour",
+        "log_L_contour_target",
+        "efficiency_threshold",
+        "rtol",
+        "atol",
+    ],
+)
+def test_jaxns_termination_condition_rejects_removed_fields(removed_field):
+    """Silently ignoring these would change where a run stops."""
+    with pytest.raises(TypeError, match=removed_field):
+        JAXNSSampler._build_stopping_conditions({removed_field: 0.01})
 
 
 def test_jaxns_termination_condition_rejects_unknown_field():
     """Unknown keys inside an explicit termination mapping are a typo, not a
     forwardable NestedSampler option, so they must not be silently dropped."""
     with pytest.raises(TypeError, match="not_a_field"):
-        JAXNSSampler._build_termination_condition(
+        JAXNSSampler._build_stopping_conditions(
             {"termination_condition_kwargs": {"not_a_field": 1.0}}
+        )
+
+
+def test_jaxns_rejects_removed_ellipsoidal_directions():
+    """JAXNS 3 moved ellipsoidal directions off the sampler and onto State."""
+    run_config = JAXNSSampler._resolve_run_config({"ellipsoidal_directions": True})
+
+    with pytest.raises(TypeError, match="ellipsoidal_directions"):
+        JAXNSSampler._build_slice_sampler(
+            None, dict(run_config["slice_sampler_kwargs"]), 3
         )
 
 
@@ -1615,7 +1688,7 @@ def test_jaxns_phantom_conditioning_requires_phantom_collection():
     assert run_config["evidence_conditioning"] == "classic"
 
 
-def test_jaxns_run_sampler_passes_termination_condition(monkeypatch, tmp_path):
+def test_jaxns_run_sampler_passes_depth_condition(monkeypatch, tmp_path):
     """JAXNS 3: sampler.run(key=...) replaces jit(sampler)(key, term_cond)."""
     captured = {}
 
@@ -1668,24 +1741,25 @@ def test_jaxns_run_sampler_passes_termination_condition(monkeypatch, tmp_path):
             "max_samples": 4096,
             "seed": 7,
             "dlogZ": 0.1,
-            "termination_max_samples": 256,
         }
     )
     results = sampler.run_sampler(run_config=run_config)
 
     assert captured["init_kwargs"]["target_num_live_points"] == 32
     assert captured["init_kwargs"]["max_samples"] == 4096
-    termination_condition = captured["init_kwargs"]["termination_condition"]
-    assert termination_condition is not None
-    assert termination_condition.dlogZ == 0.1
-    assert termination_condition.max_samples == 256
+    # dlogZ is the only stopping kwarg here, so it stays a DepthCondition on
+    # the sampler and the run goes through plain run() rather than a goal.
+    depth_condition = captured["init_kwargs"]["depth_condition"]
+    assert depth_condition is not None
+    assert depth_condition.dlogZ == 0.1
+    assert "run_until_goal" not in captured
     # The model is now a single callable; there is no separate log_likelihood.
     assert set(captured["model"]) == {"prior_model"}
     assert captured["save_file"].endswith("_jaxns_results.pkl")
     assert results == {"samples": np.array([[1.0]])}
 
 
-def test_jaxns_distributed_run_sampler_passes_termination_condition(monkeypatch, tmp_path):
+def test_jaxns_distributed_run_sampler_passes_depth_condition(monkeypatch, tmp_path):
     """The distributed backend replaces the removed sharded static sampler."""
     captured = {}
 
@@ -1697,7 +1771,12 @@ def test_jaxns_distributed_run_sampler_passes_termination_condition(monkeypatch,
             captured["model"] = model
             captured["coordinator_port"] = coordinator_port
             captured["init_kwargs"] = dict(kwargs)
-            self.termination_condition = kwargs.get("termination_condition")
+            self.depth_condition = kwargs.get("depth_condition")
+
+        def run(self, key, checkpoint_dir=None, checkpoint_cadence=None):
+            captured["key"] = key
+            captured["ran_plain"] = True
+            return FakeState()
 
         def run_until_goal(self, goal_cond, key, checkpoint_dir=None,
                            checkpoint_cadence=None):
@@ -1745,7 +1824,7 @@ def test_jaxns_distributed_run_sampler_passes_termination_condition(monkeypatch,
             "num_live_points": 24,
             "max_samples": 2048,
             "seed": 11,
-            "termination_condition_kwargs": {"evidence_uncert": 0.2, "atol": 1e-3},
+            "termination_condition_kwargs": {"evidence_uncert": 0.2},
         }
     )
     results = sampler.run_sampler(run_config=run_config)
@@ -1753,9 +1832,13 @@ def test_jaxns_distributed_run_sampler_passes_termination_condition(monkeypatch,
     assert captured["coordinator_port"] == 5599
     assert captured["init_kwargs"]["target_num_live_points"] == 24
     assert captured["init_kwargs"]["max_samples"] == 2048
-    termination_condition = captured["init_kwargs"]["termination_condition"]
-    assert termination_condition.evidence_uncert == 0.2
-    assert termination_condition.atol == 1e-3
+    # evidence_uncert is a goal criterion now, so it must not reach the
+    # constructor, and the run must go through the goal loop. The empty
+    # DepthCondition is what stops JAXNS' default dlogZ pre-empting the goal.
+    assert "evidence_uncert" not in captured["init_kwargs"]
+    assert captured["init_kwargs"]["depth_condition"].dlogZ is None
+    assert callable(captured["goal_cond"])
+    assert "ran_plain" not in captured
     assert results == {"samples": np.array([[1.0]])}
 
 

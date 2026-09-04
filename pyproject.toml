@@ -39,6 +39,9 @@ dependencies = [
     "molmass",
     "h5py",
     "dill",
+    # NOTE: JAXNS still reports 3.0.0 for post-release API changes pRT
+    # depends on (jaxns.depth_condition replacing jaxns.termination_condition),
+    # so this bound is a floor only. require_jaxns() probes the real API.
     "jaxns>=3.0.0",
     "pyvo",
     "bs4",
@@ -89,6 +92,9 @@ retrieval = [
     "matplotlib",
     "arviz",
     "corner",
+    # NOTE: JAXNS still reports 3.0.0 for post-release API changes pRT
+    # depends on (jaxns.depth_condition replacing jaxns.termination_condition),
+    # so this bound is a floor only. require_jaxns() probes the real API.
     "jaxns>=3.0.0",
     "dynesty>=3.0.0",
     "pymultinest",

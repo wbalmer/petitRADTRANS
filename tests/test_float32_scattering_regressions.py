@@ -12,7 +12,19 @@ from .context import petitRADTRANS  # noqa: F401
 from .utils import test_parameters
 
 
-def test_float32_scattering_flux_stays_finite():
+def test_float32_scattering_in_emission_is_rejected():
+    """Emission scattering must refuse to run in single precision.
+
+    The Feautrier scattering solver is an iterative source-function scheme that
+    *diverges* in float32 rather than losing a few digits: measured against the
+    identical float64 calculation it returns a median flux error of ~5%, single
+    bins wrong by >1000x, and can overflow to +inf. A wrong spectrum is worse
+    than no spectrum, so Radtrans refuses the combination up front instead of
+    returning it.
+
+    This previously asserted only that the flux stayed finite, which the diverged
+    float32 result satisfied for years while being orders of magnitude wrong.
+    """
     repo_root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
 
@@ -37,22 +49,29 @@ def test_float32_scattering_flux_stays_finite():
         from jax import config
         config.update("jax_enable_x64", False)
 
-        import warnings
-        warnings.filterwarnings("error", message="overflow encountered.*")
-
         import jax.numpy as jnp
         from petitRADTRANS.radtrans import Radtrans
 
         pressures = jnp.logspace(-6, 2, 27, dtype=jnp.float32)
-        atmosphere = Radtrans(
+        kwargs = dict(
             pressures=pressures,
             line_species=("H2O__POKAZATEL",),
             rayleigh_species=("H2", "He"),
             gas_continuum_contributors=("H2--H2", "H2--He"),
             wavelength_boundaries=(1.0, 1.1),
             line_opacity_mode="c-k",
-            scattering_in_emission=True,
         )
+
+        try:
+            Radtrans(scattering_in_emission=True, **kwargs)
+        except ValueError as error:
+            print("rejected", "64-bit" in str(error))
+        else:
+            print("not rejected")
+
+        # Emission without scattering agrees with float64 to ~1e-6, so it stays
+        # supported in single precision and must keep working.
+        atmosphere = Radtrans(scattering_in_emission=False, **kwargs)
         temperatures = jnp.full_like(pressures, 1200.0)
         mass_fractions = {
             "H2O__POKAZATEL": jnp.full_like(pressures, 1e-3),
@@ -68,12 +87,7 @@ def test_float32_scattering_flux_stays_finite():
             reference_gravity=jnp.asarray(10 ** 2.45, dtype=jnp.float32),
         )
 
-        print(
-            "finite",
-            bool(jnp.all(jnp.isfinite(flux))),
-            float(jnp.nanmin(flux)),
-            float(jnp.nanmax(flux)),
-        )
+        print("no_scattering_finite", bool(jnp.all(jnp.isfinite(flux))))
         """
     )
 
@@ -91,7 +105,65 @@ def test_float32_scattering_flux_stays_finite():
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
-    assert "finite True" in result.stdout
+    assert "rejected True" in result.stdout, result.stdout
+    assert "no_scattering_finite True" in result.stdout, result.stdout
+
+
+def test_float32_scattering_in_emission_is_rejected_by_the_setter():
+    """The combination must not be reachable by flipping the flag afterwards."""
+    repo_root = Path(__file__).resolve().parents[1]
+
+    bootstrap = (
+        "import sys, os\n"
+        f"_repo_root = {repr(str(repo_root))}\n"
+        "sys.path = [p for p in sys.path "
+        "if os.path.abspath(p or os.getcwd()) != _repo_root]\n"
+        "sys.path.append(_repo_root)\n"
+    )
+
+    code = bootstrap + textwrap.dedent(
+        """
+        from jax import config
+        config.update("jax_enable_x64", False)
+
+        import warnings
+        import jax.numpy as jnp
+        from petitRADTRANS.radtrans import Radtrans
+
+        atmosphere = Radtrans(
+            pressures=jnp.logspace(-6, 2, 27, dtype=jnp.float32),
+            gas_continuum_contributors=("H2--H2",),
+            wavelength_boundaries=(1.0, 1.1),
+            line_opacity_mode="c-k",
+            scattering_in_emission=False,
+        )
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                atmosphere.scattering_in_emission = True
+        except ValueError:
+            print("setter_rejected True")
+        else:
+            print("setter_rejected False")
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=repo_root,
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, (
+        f"float32 scattering setter subprocess failed\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
+    assert "setter_rejected True" in result.stdout, result.stdout
 
 
 def _cia_opacities(dtype):

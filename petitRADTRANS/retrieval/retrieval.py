@@ -3779,20 +3779,21 @@ class Retrieval:
             n_free_parameters=parameter_layout.n_free_parameters,
         )
 
-    def _build_jaxns_sampler_interface(self):
-        """Build ``(free_parameter_names, prior_model)`` for a JAXNS 3 run.
+    def _build_interface_sampler_context(self) -> SamplerContext:
+        """Build a SamplerContext for *inspecting* a sampler interface.
 
-        Delegates to the shared builder in
-        :mod:`petitRADTRANS.retrieval.samplers.interfaces` so the Retrieval-facing helper
-        and JAXNSSampler.prepare() cannot drift apart.
+        The interface builders need only the parameter layout, the runtime and
+        the priors. Going through :meth:`_build_sampler_context` would demand
+        run-level state -- output paths, the retrieval name, the legacy scalar
+        callbacks -- that these helpers have never used and that a Retrieval
+        assembled purely to inspect an interface need not carry.
+
+        :meth:`_build_sampler_context` deliberately stays strict: on the real
+        run path a missing output directory is a bug worth surfacing, not
+        something to paper over with a default.
         """
-        self._ensure_jax_sampler_model_support("JAXNS")
         parameter_layout = self._get_parameter_layout()
-        # A minimal context: the prior model needs only the parameter layout,
-        # the runtime and the priors. Building the full SamplerContext here
-        # would demand run-level state (output paths, MPI callbacks) that this
-        # helper has never required.
-        context = SamplerContext(
+        return SamplerContext(
             parameter_layout=parameter_layout,
             runtime=self._get_runtime(),
             configuration=self.configuration,
@@ -3801,15 +3802,29 @@ class Retrieval:
                 self.configuration, "retrieval_name", "retrieval"
             ),
             uncertainties_mode=getattr(self, "uncertainties_mode", "default"),
+            print_log_likelihood_for_debugging=getattr(
+                self, "print_log_likelihood_for_debugging", False
+            ),
             free_parameter_names=list(parameter_layout.free_parameter_names),
             n_free_parameters=parameter_layout.n_free_parameters,
         )
-        return build_jaxns_prior_model(context)
+
+    def _build_jaxns_sampler_interface(self):
+        """Build ``(free_parameter_names, prior_model)`` for a JAXNS 3 run.
+
+        Delegates to the shared builder in
+        :mod:`petitRADTRANS.retrieval.samplers.interfaces` so the Retrieval-facing helper
+        and JAXNSSampler.prepare() cannot drift apart.
+        """
+        self._ensure_jax_sampler_model_support("JAXNS")
+        return build_jaxns_prior_model(self._build_interface_sampler_context())
 
     def _build_unconstrained_mcmc_interface(self):
         """Unconstrained log-posterior and transforms, as the gradient samplers see them."""
         self._ensure_jax_sampler_model_support("Gradient-based JAX samplers")
-        return build_unconstrained_mcmc_interface(self._build_sampler_context())
+        return build_unconstrained_mcmc_interface(
+            self._build_interface_sampler_context()
+        )
 
     def run(self, sampler_object: Sampler = None, **sampler_kwargs):
         """

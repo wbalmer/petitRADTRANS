@@ -7,6 +7,11 @@ absorbs that difference so pRT run scripts do not have to:
   scalar log likelihood -- there is no separate likelihood function.
 * The sampler owns its own JIT; ``run``/``run_until_goal`` return an immutable
   ``State`` that is converted to results afterwards.
+* Stopping is split in two. JAXNS itself evaluates only ``dlogZ`` and
+  ``cummax_XL_frac`` (a ``DepthCondition``); every other criterion is a Python
+  goal the caller checks between depth epochs. This module still accepts them
+  all as sampler kwargs and synthesises that goal, so run scripts keep saying
+  "stop when ..." declaratively.
 * The authoritative evidence is a Monte Carlo shrinkage estimate that can be
   conditioned on retained phantom states, which is calibrated tighter than the
   cheap expectation values used for depth decisions.
@@ -44,35 +49,79 @@ from petitRADTRANS.retrieval.samplers.interfaces import (
 # (-> checkpointing disabled).
 _CHECKPOINT_DEFAULT = object()
 
-# Fields of jaxns.termination_condition.TerminationCondition (JAXNS 3).
-_JAXNS_TERMINATION_FIELDS = (
-    "ess",
-    "evidence_uncert",
+# Fields of jaxns.depth_condition.DepthCondition. JAXNS 3 split the old
+# TerminationCondition in two: these two fields bound how far one allocation
+# epoch extends inside the compiled depth loop, and everything else became the
+# caller's Python goal over the immutable State (see _JAXNS_GOAL_FIELDS).
+_JAXNS_DEPTH_FIELDS = (
     "dlogZ",
-    "max_samples",
-    "max_num_likelihood_evaluations",
-    "log_L_target",
-    "log_L_contour_target",
-    "efficiency_threshold",
-    "rtol",
-    "atol",
     "cummax_XL_frac",
 )
 
+# Stopping criteria JAXNS moved out of its condition dataclass and into the
+# Python goal loop. pRT still accepts them as sampler kwargs and synthesises
+# the goal, so run scripts keep expressing "stop when ..." declaratively.
+#
+# Each entry is (State attribute, comparison, needs_full_result). The
+# comparisons reproduce the removed TerminationRegister.is_done() exactly:
+# "at_least" was `register >= value`, "at_most" was `register <= value`.
+_JAXNS_GOAL_FIELDS = {
+    "evidence_uncert": ("expected_log_Z_uncert", "at_most", False),
+    "max_samples": ("num_samples", "at_least", False),
+    "max_num_likelihood_evaluations": (
+        "total_num_likelihood_evaluations",
+        "at_least",
+        False,
+    ),
+    "log_L_target": ("log_L_supremum", "at_least", False),
+    # State has no cheap ESS, so this one materialises the full result at each
+    # goal boundary. That is a whole allocation round apart, not per sample,
+    # and it is the pattern JAXNS' own run-pattern design doc uses.
+    "ess": ("ess", "at_least", True),
+}
+
+# Every field pRT accepts as a stopping criterion. Used for kwarg discovery
+# and error messages.
+_JAXNS_TERMINATION_FIELDS = _JAXNS_DEPTH_FIELDS + tuple(_JAXNS_GOAL_FIELDS)
+
 # JAXNS 2 spellings that JAXNS 3 renamed. Accepted with a DeprecationWarning so
 # existing pRT run scripts keep working instead of failing on an unknown field.
-# TODO: remove in version 5.0.0
+# TODO: remove in version 5.0.0
 _JAXNS_TERMINATION_RENAMES = {
-    "log_L_contour": "log_L_contour_target",
     "peak_XL_frac": "cummax_XL_frac",
 }
 
-# JAXNS 2 termination fields with no JAXNS 3 equivalent.
-# TODO: remove in version 5.0.0
+# Termination fields with no equivalent in current JAXNS 3. The register-backed
+# ones were dropped together with TerminationRegister: their quantities (the
+# maximum likelihood *contour*, shrinkage efficiency, and the relative and
+# absolute spread of the live likelihoods) are not exposed on State, and
+# approximating them would silently stop runs at a different point than
+# before. Reject them rather than guess.
+# TODO: remove in version 5.0.0
 _JAXNS_TERMINATION_REMOVED = {
     "live_evidence_frac": (
         "JAXNS 3 removed 'live_evidence_frac'. Use 'dlogZ', which bounds the "
         "same remaining-evidence fraction, or 'cummax_XL_frac'."
+    ),
+    "log_L_contour": (
+        "JAXNS 3 removed the likelihood-contour register. Use 'log_L_target', "
+        "which stops on the maximum likelihood reached."
+    ),
+    "log_L_contour_target": (
+        "JAXNS 3 removed the likelihood-contour register. Use 'log_L_target', "
+        "which stops on the maximum likelihood reached."
+    ),
+    "efficiency_threshold": (
+        "JAXNS 3 removed the shrinkage-efficiency register. Use "
+        "'max_num_likelihood_evaluations' to bound likelihood work instead."
+    ),
+    "rtol": (
+        "JAXNS 3 removed the live-likelihood spread registers. Use "
+        "'evidence_uncert' to target evidence precision instead."
+    ),
+    "atol": (
+        "JAXNS 3 removed the live-likelihood spread registers. Use "
+        "'evidence_uncert' to target evidence precision instead."
     ),
 }
 
@@ -180,8 +229,8 @@ class JAXNSSampler(Sampler):
 
         if not isinstance(values, dict):
             raise TypeError(
-                f"JAXNS termination condition source '{source_name}' must be a mapping or "
-                f"TerminationCondition, but is '{type(values)}'"
+                f"JAXNS termination condition source '{source_name}' must be a mapping "
+                f"or a condition dataclass, but is '{type(values)}'"
             )
 
         return dict(values)
@@ -215,9 +264,22 @@ class JAXNSSampler(Sampler):
         return field_name
 
     @classmethod
-    def _build_termination_condition(
+    def _build_stopping_conditions(
         cls, sampler_kwargs: dict[str, Any]
-    ) -> tuple[Any, dict[str, Any]]:
+    ) -> tuple[Any, dict[str, Any], dict[str, Any]]:
+        """Split stopping criteria into a DepthCondition and Python-goal values.
+
+        JAXNS 3 keeps only ``dlogZ`` and ``cummax_XL_frac`` in a condition
+        dataclass; every other criterion is now evaluated by the caller between
+        compiled depth epochs. pRT still accepts them all as sampler kwargs and
+        performs that split here, so run scripts stay declarative.
+
+        Returns:
+            ``(depth_condition, goal_values, summary)``. ``depth_condition`` is
+            None when the user set neither depth field, which is what lets
+            JAXNS apply its own default of ``dlogZ = log1p(1e-3)`` -- v2's
+            stopping goal, and the one its benchmarks are calibrated against.
+        """
         _opt.require_jaxns()
 
         termination_condition_values: dict[str, Any] = {}
@@ -277,13 +339,34 @@ class JAXNSSampler(Sampler):
                 option_name,
             )
 
-        if len(termination_condition_values) == 0:
-            return None, {}
+        depth_values = {
+            name: value
+            for name, value in termination_condition_values.items()
+            if name in _JAXNS_DEPTH_FIELDS
+        }
+        goal_values = {
+            name: value
+            for name, value in termination_condition_values.items()
+            if name in _JAXNS_GOAL_FIELDS
+        }
 
-        return (
-            _opt.TerminationCondition(**termination_condition_values),
-            dict(termination_condition_values),
-        )
+        if len(depth_values) > 0:
+            depth_condition = _opt.DepthCondition(**depth_values)
+        elif len(goal_values) > 0:
+            # Goal criteria but no depth field. Leaving this None would let
+            # JAXNS apply its own default (dlogZ = log1p(1e-3)), which would
+            # then end the run at the first allocation boundary regardless of
+            # the goal -- so asking for a *tighter* evidence_uncert would stop
+            # early instead of running longer. A user condition replaced the
+            # default outright before the split, so pass an explicitly empty
+            # one: it ends each allocation epoch promptly and leaves
+            # termination entirely to the goal. This is the pattern JAXNS'
+            # own run_pattern.py design doc uses with a custom goal.
+            depth_condition = _opt.DepthCondition()
+        else:
+            depth_condition = None
+
+        return depth_condition, goal_values, dict(termination_condition_values)
 
     @staticmethod
     def _build_slice_sampler(model, sampler_kwargs: dict[str, Any], n_free_parameters: int):
@@ -296,18 +379,28 @@ class JAXNSSampler(Sampler):
         num_slices = sampler_kwargs.pop("num_slices", None)
         no_step_out = sampler_kwargs.pop("no_step_out", None)
         gradient_guided = sampler_kwargs.pop("gradient_guided_slices", None)
-        ellipsoidal = sampler_kwargs.pop("ellipsoidal_directions", None)
+
+        # JAXNS 3 removed UniDimSliceSampler's 'direction' field: ellipsoidal
+        # geometry is no longer a sampler option but immutable State data,
+        # fitted explicitly at a Python goal boundary with
+        # state.fit_gmm_directions() and toggled with iso_directions() /
+        # gmm_directions(). pRT does not drive that yet -- choosing a refit
+        # cadence is a scientific decision, and JAXNS rejects a GMM fit
+        # outright for periodic coordinates, which pRT priors can declare.
+        if "ellipsoidal_directions" in sampler_kwargs:
+            sampler_kwargs.pop("ellipsoidal_directions")
+            raise TypeError(
+                "JAXNSSampler got removed kwarg 'ellipsoidal_directions'. JAXNS 3 "
+                "moved ellipsoidal directions off the slice sampler and onto the "
+                "run state: fit them explicitly with state.fit_gmm_directions() "
+                "between depth epochs. Runs default to isotropic directions."
+            )
 
         if all(
             option is None
-            for option in (num_slices, no_step_out, gradient_guided, ellipsoidal)
+            for option in (num_slices, no_step_out, gradient_guided)
         ):
             return None, {}
-
-        direction = None
-        if ellipsoidal:
-            direction_kwargs = ellipsoidal if isinstance(ellipsoidal, dict) else {}
-            direction = _opt.EllipsoidalDirection(**direction_kwargs)
 
         slice_kwargs = {
             "num_slices": (
@@ -315,7 +408,6 @@ class JAXNSSampler(Sampler):
             ),
             "no_step_out": True if no_step_out is None else bool(no_step_out),
             "gradient_guided": bool(gradient_guided) if gradient_guided else False,
-            "direction": direction,
         }
 
         sampler = _opt.UniDimSliceSampler(
@@ -327,7 +419,6 @@ class JAXNSSampler(Sampler):
             "num_slices": slice_kwargs["num_slices"],
             "no_step_out": slice_kwargs["no_step_out"],
             "gradient_guided_slices": slice_kwargs["gradient_guided"],
-            "ellipsoidal_directions": bool(ellipsoidal),
         }
         return sampler, summary
 
@@ -357,8 +448,8 @@ class JAXNSSampler(Sampler):
         # JAXNS 3 logs through its package logger rather than a verbosity flag.
         sampler_kwargs.pop("verbose", None)
 
-        termination_condition, termination_summary = cls._build_termination_condition(
-            sampler_kwargs
+        depth_condition, goal_values, termination_summary = (
+            cls._build_stopping_conditions(sampler_kwargs)
         )
 
         num_live_points = sampler_kwargs.pop("num_live_points", None)
@@ -383,6 +474,13 @@ class JAXNSSampler(Sampler):
                 else int(sampler_kwargs.pop("max_samples"))
             ),
             "shell_size": sampler_kwargs.pop("shell_size", None),
+            # Added by JAXNS after the 3.0.0 release. root_allocation_degree is
+            # the new spelling of the root population and must agree with
+            # target_num_live_points; batch_size bounds one compiled epoch.
+            "root_allocation_degree": sampler_kwargs.pop(
+                "root_allocation_degree", None
+            ),
+            "batch_size": sampler_kwargs.pop("batch_size", None),
             "delta_K": sampler_kwargs.pop("delta_K", None),
             "initial_capacity": sampler_kwargs.pop("initial_capacity", None),
             "unlimited_samples": bool(sampler_kwargs.pop("unlimited_samples", False)),
@@ -396,7 +494,16 @@ class JAXNSSampler(Sampler):
 
         run_config = {
             "nested_sampler_kwargs": nested_sampler_kwargs,
-            "termination_condition": termination_condition,
+            "depth_condition": depth_condition,
+            # Whether the user set dlogZ/cummax_XL_frac themselves. Only then
+            # may the depth condition also terminate a goal-driven run.
+            "depth_explicit": any(
+                field_name in termination_summary
+                for field_name in _JAXNS_DEPTH_FIELDS
+            ),
+            # Criteria JAXNS no longer evaluates itself; _build_goal_condition
+            # turns these into the Python goal passed to run_until_goal.
+            "goal_values": goal_values,
             "termination_summary": termination_summary,
             "seed": int(sampler_kwargs.pop("seed", 42654)),
             "checkpoint_dir": sampler_kwargs.get("checkpoint_dir", _CHECKPOINT_DEFAULT),
@@ -425,6 +532,9 @@ class JAXNSSampler(Sampler):
                     "num_slices",
                     "no_step_out",
                     "gradient_guided_slices",
+                    # Removed in JAXNS 3; forwarded only so that
+                    # _build_slice_sampler can reject it with guidance rather
+                    # than letting it fall through to NestedSampler.
                     "ellipsoidal_directions",
                 )
                 if key in sampler_kwargs
@@ -1041,16 +1151,14 @@ class JAXNSSampler(Sampler):
         if slice_sampler is not None:
             nested_sampler_kwargs["sampler"] = slice_sampler
 
-        if run_config["termination_condition"] is not None:
-            nested_sampler_kwargs["termination_condition"] = run_config[
-                "termination_condition"
-            ]
+        if run_config["depth_condition"] is not None:
+            nested_sampler_kwargs["depth_condition"] = run_config["depth_condition"]
 
         self.jaxns_parameters = {
             **{
                 key: value
                 for key, value in nested_sampler_kwargs.items()
-                if key != "sampler" and key != "termination_condition"
+                if key not in ("sampler", "depth_condition")
             },
             **slice_summary,
         }
@@ -1092,10 +1200,84 @@ class JAXNSSampler(Sampler):
         os.makedirs(checkpoint_dir, exist_ok=True)
         return checkpoint_dir
 
+    def _build_goal_condition(self, run_config):
+        """Turn the non-depth stopping criteria into a JAXNS Python goal.
+
+        JAXNS 3 evaluates only ``dlogZ``/``cummax_XL_frac`` itself; the rest of
+        the old TerminationCondition is now the caller's job, checked between
+        compiled depth epochs. Returns None when the user asked for none of
+        them, so an ordinary run keeps using ``NestedSampler.run``.
+        """
+        goal_values = dict(run_config["goal_values"])
+        if len(goal_values) == 0:
+            return None
+
+        # run_until_goal loops until the *goal* is true; the depth condition
+        # only sizes one allocation epoch and never stops the loop. When the
+        # user set dlogZ/cummax_XL_frac alongside goal criteria, OR it in so
+        # those keep terminating the run -- the removed TerminationCondition
+        # OR-ed all of its fields together the same way. When the user set no
+        # depth field, _build_stopping_conditions has already passed an empty
+        # DepthCondition, and the goal alone owns termination.
+        depth_condition = None
+        depth_reached = None
+        if run_config["depth_explicit"]:
+            depth_condition = self.sampler.depth_condition
+            depth_reached = _opt.depth_condition_reached
+            if depth_reached is None:
+                raise RuntimeError(
+                    "This JAXNS build does not expose the depth-condition predicate "
+                    "(jaxns.algorithm.depth._depth_condition_reached), so pRT cannot "
+                    f"combine {sorted(goal_values)} with dlogZ/cummax_XL_frac "
+                    "termination. Drop one side, or pass an explicit 'goal_cond' "
+                    "callable that owns termination entirely."
+                )
+
+        checks = []
+        for field_name, value in goal_values.items():
+            attribute_name, comparison, needs_result = _JAXNS_GOAL_FIELDS[field_name]
+            checks.append((attribute_name, comparison, needs_result, float(value)))
+
+        needs_result = any(check[2] for check in checks)
+
+        def goal_cond(state):
+            # Iteration 0 has no completed allocation round to judge; JAXNS'
+            # own default goal skips it for the same reason.
+            if int(state.goal_loop_iter) == 0:
+                return False
+
+            if depth_reached is not None and bool(
+                depth_reached(state, depth_condition)
+            ):
+                return True
+
+            # Only materialise the result tree when a criterion needs it
+            # (currently just 'ess'); the State scalars are the cheap path.
+            result = state.to_result() if needs_result else None
+
+            for attribute_name, comparison, from_result, target in checks:
+                source = result if from_result else state
+                current = float(np.asarray(getattr(source, attribute_name)))
+                if comparison == "at_least":
+                    if current >= target:
+                        return True
+                elif current <= target:
+                    return True
+
+            return False
+
+        return goal_cond
+
     def _execute(self, run_config, checkpoint_dir):
         """Run the sampler. Split out so the distributed backend can override."""
         jax_random_key = _opt.random.PRNGKey(self.seed)
+
+        # An explicit goal_cond callable owns termination completely, matching
+        # JAXNS' own contract; otherwise pRT synthesises one from the stopping
+        # kwargs, and falls back to run() when there are none.
         goal_cond = run_config["goal_cond"]
+        if goal_cond is None:
+            goal_cond = self._build_goal_condition(run_config)
 
         if goal_cond is None:
             return self.sampler.run(
