@@ -2417,7 +2417,13 @@ def _linearised_time_series_log_likelihood(
     See ``petitRADTRANS.retrieval.linearised`` for the algebra, and the
     accompanying note for why the amplitudes are marginalised rather than fitted.
     """
-    from petitRADTRANS.retrieval import linearised as _lin
+    try:
+        from petitRADTRANS.retrieval import linearised as _lin
+    except ImportError as e:
+        raise ImportError(
+            "Failed to import the linearised module from petitRADTRANS.retrieval. "
+            "Ensure that petitRADTRANS is correctly installed."
+        ) from e
 
     config = (observation.metadata or {}).get("time_series_config") or {}
     state = config.get("linearised")
