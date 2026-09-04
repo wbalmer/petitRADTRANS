@@ -37,15 +37,37 @@ def _cast_distribution_to_jax_dtype(distribution):
         return distribution
 
 
-def _build_jaxns_prior(distribution, name):
+def _build_jaxns_prior(distribution, name, periodic=False):
+    """Build a JAXCTX ``Prior`` describing one free parameter for JAXNS.
+
+    JAXNS 3 moved the probabilistic-programming layer out into JAXCTX, so
+    ``Prior`` is imported from ``jaxctx.priors.prior`` rather than from
+    ``jaxns``. The constructor signature is unchanged, and the distribution
+    must still expose a quantile (``_quantile``) because JAXCTX inverts it to
+    map the unit hypercube onto the parameter.
+
+    Args:
+        distribution: A TFP (JAX substrate) distribution with a quantile.
+        name: Parameter name; becomes the key in the JAXNS ``X_samples`` tree.
+        periodic: Declare that the two endpoints of this prior's base
+            coordinate are the same physical point (e.g. an angle spanning a
+            full turn). This is an endpoint-equivalence assertion, not a
+            synonym for "bounded", and it forces isotropic slice directions.
+
+    Returns:
+        ``(prior, periodic)`` -- the prior and the periodicity flag that the
+        caller passes to ``prior.realise(periodic=...)``.
+    """
     try:
-        from jaxns import Prior
+        from jaxctx.priors.prior import Prior
     except Exception as error:
         raise ImportError(
-            "JAXNS is required to build Prior objects for JAXNS retrievals, but it could not be imported."
+            "JAXCTX is required to build Prior objects for JAXNS retrievals, but it "
+            "could not be imported. JAXNS 3 depends on it; install with "
+            "`pip install \'jaxctx>=1.2.0\'`."
         ) from error
 
-    return Prior(distribution, name=name)
+    return Prior(distribution, name=name), bool(periodic)
 
 
 class Parameter:
@@ -80,6 +102,12 @@ class Parameter:
             value is assumed to already be in the units expected by the model function (cgs).
             If set to an astropy unit, the model functions can use it to convert the value to
             the units required for the radiative transfer calculation (e.g. cm, g).
+        periodic : bool, optional
+            JAXNS only. Declare that the two endpoints of this parameter's prior are the
+            same physical point (e.g. an angle spanning a full turn), so a nested-sampling
+            chain may cross the seam. This is an endpoint-equivalence assertion, not a
+            synonym for a bounded prior, and it requires isotropic slice directions
+            (it cannot be combined with ellipsoidal directions).
     """
 
     def __init__(
@@ -94,6 +122,7 @@ class Parameter:
         corner_transform=None,
         corner_label=None,
         units=None,
+        periodic=False,
     ):
 
         self.name = name
@@ -111,6 +140,11 @@ class Parameter:
         self.corner_transform = corner_transform
         self.corner_label = corner_label
         self.units = units
+        # Endpoint-equivalence declaration used only by the JAXNS backend, which
+        # draws an independent random chart per slice transition so a chain can
+        # cross an artificial seam (e.g. -pi/pi) without changing the prior
+        # measure. Other samplers ignore it.
+        self.periodic = periodic
 
     def _tree_flatten(self):
         children = (self.value,)  # arrays / dynamic values
@@ -124,6 +158,7 @@ class Parameter:
             "corner_transform": self.corner_transform,
             "corner_label": self.corner_label,
             "units": self.units,
+            "periodic": self.periodic,
         }  # static values
         return (children, aux_data)
 
@@ -177,8 +212,10 @@ class Parameter:
         raise ValueError(f"Error! Parameter '{self.name}' is not a free parameter")
 
     def set_prior(self):
-        return _build_jaxns_prior(self.distribution, name=self.name)
-        # return self.prior_sample
+        """Return ``(prior, periodic)`` for the JAXNS/JAXCTX prior model."""
+        return _build_jaxns_prior(
+            self.distribution, name=self.name, periodic=self.periodic
+        )
 
 
 class RetrievalParameter:

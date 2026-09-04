@@ -27,13 +27,29 @@ For example, to run a Dynesty retrieval you would typically write:
 
 All built-in samplers follow the same high-level flow:
 
-1. ``Retrieval`` builds a :class:`petitRADTRANS.retrieval.sampler.SamplerContext`.
+1. ``Retrieval`` builds a :class:`petitRADTRANS.retrieval.samplers.base.SamplerContext`.
 2. The sampler class turns that context into a backend-specific likelihood and prior.
 3. The backend runs and returns posterior samples.
 4. ``Retrieval`` saves a generic ``out_samples/<retrieval_name>_samples.npz`` archive for downstream plotting and analysis.
 
 If a backend is inherently weighted, it should convert its posterior to equal-weight samples before handing the results back to ``Retrieval``.
 The built-in Dynesty and JAXNS integrations already do this.
+
+Where the code lives
+--------------------
+
+Each backend is one module under ``petitRADTRANS/retrieval/samplers/``:
+``pymultinest.py``, ``ultranest.py``, ``dynesty.py``, ``jaxns.py``,
+``jaxns_distributed.py``, ``blackjax.py``, ``numpyro.py`` and
+``optimal_estimation.py``. Around them:
+
+* ``base.py`` -- the ``Sampler`` abstract base class and ``SamplerContext``.
+* ``interfaces.py`` -- the likelihood and prior builders shared by the backends.
+* ``gradient.py`` -- machinery common to the BlackJAX and NumPyro samplers.
+* ``_optional_imports.py`` -- one ``require_<library>()`` per optional backend.
+  Importing ``petitRADTRANS.retrieval.samplers`` never imports a backend, so you
+  only need the libraries you actually run.
+* ``__init__.py`` -- the ``sampler_type`` registry and ``resolve_sampler_class``.
 
 Choosing a sampler
 ------------------
@@ -176,80 +192,188 @@ In practice, ``queue_size`` should usually match the number of worker processes,
 JAXNS
 ~~~~~
 
+pRT requires **JAXNS >= 3.0.0** (and ``jaxctx``). JAXNS 3 removed the entire
+JAXNS 2 API, so a 2.x install will not work.
+
 Key parameters:
 
-* ``num_live_points``: number of live points.
-* ``max_samples``: hard cap on the number of nested-sampling evaluations.
-* ``s``, ``k``, ``c``: JAXNS nested-sampling control parameters.
-* ``shell_fraction``: shell-fragment control for proposal generation.
-* ``gradient_guided``: enable gradient-guided proposals.
-* ``parameter_estimation``: toggle estimation-oriented behavior.
-* ``init_efficiency_threshold``: early-efficiency threshold.
-* ``devices``: JAX devices to use.
+* ``num_live_points`` (alias ``target_num_live_points``): number of root
+  lineages. Defaults to JAXNS' own ``30 * n_parameters``.
+* ``max_samples``: hard cap on collected samples. Defaults to JAXNS' own
+  ``1000 * num_live_points``; sample storage grows on demand up to it, so
+  there is no longer any reason to pre-declare a huge value.
+* ``num_slices`` / ``no_step_out``: slice-sampler controls. Omit both to use the
+  JAXNS default (``5 * n_parameters`` slices, isotropic directions).
+* ``ellipsoidal_directions``: ``True`` (or a dict of
+  :class:`jaxns.constrained_sampler.EllipsoidalDirection` options) to fit a
+  Gaussian mixture to the live population and propose along its axes. This can
+  cut likelihood evaluations on anisotropic posteriors; it cannot be combined
+  with periodic parameters.
+* ``collect_phantom_samples`` (default ``True``) and ``max_phantom_samples``:
+  retain intermediate slice-chain states to condition the evidence estimate.
+* ``evidence_conditioning``: ``"phantom"`` (default), ``"classic"``, or ``None``
+  to skip the Monte Carlo evidence entirely. ``evidence_num_samples`` (default
+  4096) and ``num_phantoms`` tune the draw.
+* ``checkpoint_dir`` / ``checkpoint_cadence``: full-state checkpointing, on by
+  default into ``out_JAXNS/<retrieval_name>_checkpoints`` every hour. See
+  the caveat below.
+* ``goal_cond``: an optional Python callable evaluated on the JAXNS ``State`` at
+  each depth boundary, for stopping rules the compiled termination condition
+  cannot express.
+* ``allocation_target``, ``shell_size``, ``delta_K``, ``initial_capacity``,
+  ``unlimited_samples``: advanced race-tree allocation and storage controls.
 * ``seed``: random seed.
-* ``use_jit``: JIT the nested-sampler call.
+* ``sanity_check``: run :meth:`jaxns.model.Model.sanity_check` before sampling,
+  which catches NaN or ``+inf`` likelihoods before a long run starts.
 * ``termination_condition``, ``term_cond``, or ``termination_condition_kwargs``:
-  pass a mapping or JAXNS ``TerminationCondition``-like object with stopping
-  criteria.
+  pass a mapping or ``TerminationCondition``.
 * Direct termination-condition fields are also accepted as keyword arguments:
-  ``ess``, ``evidence_uncert``, ``live_evidence_frac``, ``dlogZ``,
-  ``max_num_likelihood_evaluations``, ``log_L_contour``,
-  ``efficiency_threshold``, ``rtol``, ``atol``, and ``peak_XL_frac``.
-* ``termination_<field>`` aliases are accepted for all termination-condition
-  fields. In practice, ``termination_max_samples`` is the important one because
-  plain ``max_samples`` configures the nested sampler itself.
+  ``ess``, ``evidence_uncert``, ``dlogZ``, ``max_num_likelihood_evaluations``,
+  ``log_L_target``, ``log_L_contour_target``, ``efficiency_threshold``,
+  ``rtol``, ``atol``, and ``cummax_XL_frac``.
+* ``termination_<field>`` aliases are accepted for all of them. In practice
+  ``termination_max_samples`` is the important one, because plain
+  ``max_samples`` configures the nested sampler itself.
 
-JAXNS is the default JAX-native nested sampler in pRT. It expects a differentiable retrieval runtime and now saves equal-weight posterior samples for downstream plotting.
+Evidence: two numbers, one of them authoritative
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If you do not supply any termination-condition settings, pRT leaves
-``term_cond=None`` and JAXNS falls back to its internal defaults.
+JAXNS 3 separates a cheap expectation-based ``log_Z`` (used internally for depth
+decisions) from a final Monte Carlo shrinkage estimate. pRT reports the Monte
+Carlo value as ``log_Z_mean``/``log_Z_uncert`` and keeps the expectation value
+alongside it as ``log_Z_expected_mean``/``log_Z_expected_uncert``.
 
-For example, this run keeps the sampler-level ``max_samples`` cap at ``50000``
-while also building a termination condition with ``dlogZ=0.1``, ``ess=512``,
-and a termination-condition ``max_samples`` of ``20000``:
+By default that Monte Carlo estimate is *phantom-conditioned*: it reuses
+intermediate slice-chain states as extra shrinkage observations. On JAXNS' own
+calibration this reduced log-evidence RMSE from 0.297 to 0.232 over 30 runs, at
+the cost of wider result and checkpoint arrays. Pass
+``evidence_conditioning="classic"`` to disable it.
+
+Both values are written to ``out_JAXNS/<name>_evidence.json``, which is what the
+multi-run combiner in :mod:`petitRADTRANS.retrieval.multichain` reads.
+
+Checkpointing and resume
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+JAXNS stores the model on the state it checkpoints, so a checkpoint is only
+resumable if the prior model can be pickled. An ordinary pRT prior model closes
+over the ``RetrievalRuntime`` and its opacity tables, which cannot be. pRT
+therefore **disables checkpointing with a warning** in that case rather than
+writing a file it could never resume.
+
+To enable it, point the configuration at a module-level factory that rebuilds
+it (see :ref:`jaxns_distributed`)::
+
+   rc = RetrievalConfig(
+       retrieval_name="my_run",
+       sampler_type="jaxns",
+       pressures=pressures,
+       jaxns_config_factory="my_retrieval:build_configuration",
+   )
+
+pRT then uses a prior model that carries only a small spec, and re-running the
+same script with the same ``checkpoint_dir`` resumes instead of restarting --
+which is what turns a SLURM wall-clock timeout into a continuation.
+
+Example
+^^^^^^^
 
 .. code-block:: python
 
    retrieval.run(
        num_live_points=400,
-       max_samples=50000,
        dlogZ=0.1,
        ess=512,
-       termination_max_samples=20000,
-       use_jit=True,
+       termination_max_samples=200000,
    )
 
-You can also pass the same stopping criteria as a mapping:
+Migrating from JAXNS 2
+^^^^^^^^^^^^^^^^^^^^^^
 
-.. code-block:: python
+These keyword arguments were removed in JAXNS 3. pRT raises ``TypeError`` naming
+the replacement rather than ignoring them, because silently dropping them would
+change the run:
 
-   retrieval.run(
-       num_live_points=400,
-       termination_condition_kwargs={
-           "dlogZ": 0.1,
-           "rtol": 1e-4,
-           "peak_XL_frac": 1e-2,
-       },
-       use_jit=True,
-   )
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
 
-JAXNS sharded static sampler
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   * - Removed
+     - Replacement
+   * - ``s``
+     - ``num_slices`` on the slice sampler
+   * - ``k``
+     - ``max_phantom_samples``
+   * - ``c``
+     - ``num_live_points``
+   * - ``shell_fraction``
+     - ``shell_size`` (an explicit width)
+   * - ``difficult_model``
+     - raise ``num_slices`` and/or ``num_live_points``
+   * - ``parameter_estimation``
+     - a termination condition on ``ess``
+   * - ``init_efficiency_threshold``
+     - removed; there is no separate initialisation phase
+   * - ``devices``
+     - ``sampler_type="jaxns_distributed"`` (see below)
+   * - ``use_jit``
+     - accepted but ignored with a warning; JAXNS compiles its own depth epochs
 
-Key parameters:
+Two termination-condition fields were renamed (``log_L_contour`` ->
+``log_L_contour_target``, ``peak_XL_frac`` -> ``cummax_XL_frac``); the old names
+still work but emit a ``DeprecationWarning``. ``live_evidence_frac`` has no
+JAXNS 3 equivalent -- use ``dlogZ``, which bounds the same remaining-evidence
+fraction.
 
-* ``num_live_points``: number of live points.
-* ``max_samples``: hard cap on the total number of samples.
-* ``devices``: JAX devices to use.
-* ``difficult_model``: hint for harder likelihood surfaces.
-* ``verbose``: backend verbosity.
-* ``seed``: random seed.
-* ``use_jit``: JIT the sampler call.
+Raw results are now saved as ``out_JAXNS/<name>_jaxns_results.pkl`` instead of
+the JAXNS 2 ``.json``; a run left over from JAXNS 2 must be re-run.
 
-This backend accepts the same termination-condition setup as ``jaxns``:
-``termination_condition`` / ``term_cond`` / ``termination_condition_kwargs``,
-direct termination-condition field kwargs, and ``termination_<field>`` aliases.
-Prefer ``jaxns`` unless you specifically need the static sharded execution strategy.
+.. _jaxns_distributed:
+
+JAXNS distributed
+~~~~~~~~~~~~~~~~~
+
+``sampler_type="jaxns_distributed"`` replaces the removed
+``jaxnsshardedstaticnestedsampler``. JAXNS 3 dropped device sharding in favour
+of an explicit worker pool: a coordinator process owns one worker process per
+device, and the pRT script submits constrained-sampling work to it.
+
+This backend needs the optional runtime dependencies
+(``pip install 'jaxns[distributed]'``, i.e. ``cloudpickle`` and ``pyzmq``) and a
+running stack started with ``jaxns-cli``.
+
+Key parameters, in addition to the ``jaxns`` ones above:
+
+* ``coordinator_port``: TCP port of the already-started coordinator (default 5555).
+* ``worker_spec_path``: where to write the worker rebuild spec. Defaults to
+  ``out_JAXNS/<retrieval_name>_worker_spec.json`` and must be on storage shared
+  with every worker.
+
+``shell_size`` and ``batch_size`` are ignored here: distributed allocation has no
+shell width, and per-worker batching is configured in the worker TOML.
+
+**The configuration factory is required.** The runtime registers the model with
+each worker by pickling it, and a pRT likelihood closes over the loaded opacity
+tables. pRT therefore ships only a small JSON spec naming a module-level factory
+that each worker uses to rebuild the retrieval locally and cache it::
+
+   # my_retrieval.py -- importable by every worker process
+   def build_configuration():
+       rc = RetrievalConfig(
+           retrieval_name="my_run",
+           sampler_type="jaxns_distributed",
+           pressures=pressures,
+           jaxns_config_factory="my_retrieval:build_configuration",
+       )
+       ...  # parameters, opacities and data exactly as usual
+       return rc
+
+The factory must be deterministic and yield the same free parameters everywhere;
+pRT validates that on the coordinator and again inside each worker, and fails
+loudly rather than sampling a different model on different nodes.
+
+Ready-to-edit TOML templates and a SLURM walkthrough are in
+``testjaxprt/jaxns_distributed/``.
 
 NumPyro NUTS / HMC
 ~~~~~~~~~~~~~~~~~~
@@ -494,9 +618,9 @@ Notes:
 Defining a custom sampler
 -------------------------
 
-Custom samplers should inherit from :class:`petitRADTRANS.retrieval.sampler.Sampler`.
+Custom samplers should inherit from :class:`petitRADTRANS.retrieval.samplers.base.Sampler`.
 For full integration with ``Retrieval.run()``, implement a ``prepare`` class method that consumes a
-:class:`petitRADTRANS.retrieval.sampler.SamplerContext` and returns a sampler instance,
+:class:`petitRADTRANS.retrieval.samplers.base.SamplerContext` and returns a sampler instance,
 the keyword arguments for ``run_sampler()``, and a small dictionary of summary parameters.
 
 The minimal contract is:
@@ -505,6 +629,23 @@ The minimal contract is:
 * ``run_sampler(**run_kwargs)`` executes the backend and returns results.
 * ``get_results()`` returns the in-memory results object.
 * Optionally implement ``post_run()``, ``plot_diagnostics()``, ``load_results()``, and ``get_summary()``.
+
+Declare your backend's identity and file layout as class attributes, so that
+``Retrieval`` can ask the class about itself instead of matching on
+``sampler_type`` strings:
+
+* ``sampler_type`` -- the canonical name, and ``aliases`` -- other accepted spellings.
+* ``output_subdirectory`` -- the folder your backend owns under the retrieval
+  output directory (e.g. ``"out_JAXNS"``), or ``None`` if it writes nothing of
+  its own. When set, the base class creates it and ``_get_output_prefix()``
+  returns ``<output directory>/<subdirectory>/<retrieval name>``.
+* ``uses_distribution_priors`` -- ``True`` if your free parameters must carry a
+  JAX ``distribution`` rather than a cube transform.
+* ``archive_sample_keys`` / ``archive_log_likelihood_keys`` -- the keys the
+  inherited ``load_samples_archive()`` looks for in your ``<prefix>_samples.npz``.
+  Override ``load_samples_archive()`` outright if your backend stores its
+  posterior some other way; ``Retrieval.get_samples()`` calls it to read the
+  outputs of past runs.
 
 To participate cleanly in pRT posterior plotting and ``Retrieval.get_samples()``, your results object should expose:
 
@@ -521,7 +662,7 @@ Here is a minimal example:
    import numpy as np
 
    from petitRADTRANS.retrieval.retrieval import SAMPLER_DISPATCH
-   from petitRADTRANS.retrieval.sampler import Sampler, SamplerContext
+   from petitRADTRANS.retrieval.samplers import Sampler, SamplerContext
 
 
    class MySampler(Sampler):

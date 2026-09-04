@@ -49,6 +49,9 @@ DEFAULT_CK_CHUNK_SIZE = 0
 DEFAULT_CHUNK_FEAUTRIER = True
 DEFAULT_FEAUTRIER_CHUNK_SIZE = 1536
 
+# 1e-2 was too loose for gradient calculations.
+SCATTERING_CONVERGENCE_THRESHOLD = 1e-6
+
 
 def resolve_feautrier_chunking(
     chunk_feautrier=None,
@@ -944,7 +947,7 @@ def _compute_feautrier_radiative_transfer_chunk(
     return_contribution: bool = False,
     return_solver_diagnostics: Literal[False] = False,
     iter_scat_max: int = 100,
-    convergence_threshold: float = 1e-2,
+    convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike]: ...
 
@@ -967,7 +970,7 @@ def _compute_feautrier_radiative_transfer_chunk(
     return_contribution: bool = False,
     return_solver_diagnostics: Literal[True] = True,
     iter_scat_max: int = 100,
-    convergence_threshold: float = 1e-2,
+    convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]: ...
 
@@ -999,7 +1002,7 @@ def _compute_feautrier_radiative_transfer_chunk(
     return_contribution: bool = False,
     return_solver_diagnostics: bool = False,
     iter_scat_max: int = 100,
-    convergence_threshold: float = 1e-2,
+    convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> (
     tuple[ArrayLike, ArrayLike, ArrayLike]
@@ -1800,7 +1803,7 @@ def compute_feautrier_radiative_transfer(
     return_contribution: bool = False,
     return_solver_diagnostics: Literal[False] = False,
     iter_scat_max: int = 100,
-    convergence_threshold: float = 1e-2,
+    convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     chunk_feautrier: bool = True,
     feautrier_chunk_size: int = 1536,
     thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
@@ -1825,7 +1828,7 @@ def compute_feautrier_radiative_transfer(
     return_contribution: bool = False,
     return_solver_diagnostics: Literal[True] = True,
     iter_scat_max: int = 100,
-    convergence_threshold: float = 1e-2,
+    convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     chunk_feautrier: bool = True,
     feautrier_chunk_size: int = 1536,
     thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
@@ -1861,7 +1864,7 @@ def compute_feautrier_radiative_transfer(
     return_contribution: bool = False,
     return_solver_diagnostics: bool = False,
     iter_scat_max: int = 100,
-    convergence_threshold: float = 1e-2,
+    convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     chunk_feautrier: bool = True,
     feautrier_chunk_size: int = 1536,
     thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,

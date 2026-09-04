@@ -7,8 +7,11 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 import ctypes
 import json
 import os
+import pickle
 import sys
 from types import ModuleType, SimpleNamespace
+
+import cloudpickle
 import jax
 import jax.numpy as jnp
 import pytest
@@ -76,16 +79,20 @@ from petitRADTRANS.retrieval.runtime import (
     compute_diagonal_observation_log_likelihood,
     project_model_to_observation_space,
 )
-from petitRADTRANS.retrieval.sampler import (
+from petitRADTRANS.retrieval.samplers import _optional_imports as sampler_imports
+from petitRADTRANS.retrieval.samplers.blackjax import (
     BlackJAXNUTSSampler,
     BlackJAXSamplingResults,
-    JAXNSSampler,
-    JAXNSShardedStaticNestedSampler,
-    NumPyroNUTSSampler,
-    NumPyroSamplingResults,
-    NumPyroSampler,
-    UltranestSampler,
 )
+from petitRADTRANS.retrieval.samplers.interfaces import prior_model_is_picklable
+from petitRADTRANS.retrieval.samplers.jaxns import JAXNSSampler
+from petitRADTRANS.retrieval.samplers.jaxns_distributed import JAXNSDistributedSampler
+from petitRADTRANS.retrieval.samplers.numpyro import (
+    NumPyroNUTSSampler,
+    NumPyroSampler,
+    NumPyroSamplingResults,
+)
+from petitRADTRANS.retrieval.samplers.ultranest import UltranestSampler
 from petitRADTRANS.retrieval.utils import gaussian_prior
 
 from .context import petitRADTRANS
@@ -277,25 +284,33 @@ class _MissingEvaluateSampler:
 
 class _JAXNSLikeResults:
     def __init__(self):
-        self.parametrised_samples = {"amplitude": np.array([1.0, 3.0, 2.0])}
-        self.log_L_samples = np.array([-3.0, -1.0, -2.0])
+        self.X_samples = {"amplitude": np.array([1.0, 3.0, 2.0])}
+        self.log_L = np.array([-3.0, -1.0, -2.0])
         self.log_Z_mean = 1.5
         self.log_Z_uncert = 0.2
 
 
 class _JAXNSSamplesOnlyResults:
     def __init__(self):
-        self.samples = {"amplitude": np.array([1.0, 3.0, 2.0])}
-        self.parametrised_samples = {}
-        self.log_L_samples = np.array([-3.0, -1.0, -2.0])
-        self.log_dp_mean = np.array([-0.3, -0.2, -0.1])
+        self.X_samples = {"amplitude": np.array([1.0, 3.0, 2.0])}
+        self.log_L = np.array([-3.0, -1.0, -2.0])
+        self.log_dp = np.array([-0.3, -0.2, -0.1])
         self.log_Z_mean = 1.5
         self.log_Z_uncert = 0.2
-        self.ESS = 3.0
+        self.ess = 3.0
         self.H_mean = 0.1
         self.total_num_samples = 3
+        self.total_phantom_samples = 0
         self.total_num_likelihood_evaluations = 3
         self.log_efficiency = -1.0
+        # JAXNS 3 reports the max-likelihood point directly.
+        self.X_supremum = {"amplitude": np.array(3.0)}
+        self.log_L_supremum = -1.0
+        self.log_L_phantom = np.zeros((3, 0))
+
+    def resample(self, num_samples, replace=True, key=None):
+        del num_samples, replace, key
+        return self
 
 
 def _build_runtime(
@@ -1517,155 +1532,316 @@ def test_jaxns_sampler_builds_termination_condition_from_sampler_kwargs():
     }
 
 
+@pytest.mark.parametrize(
+    "old_name,new_name",
+    [("log_L_contour", "log_L_contour_target"), ("peak_XL_frac", "cummax_XL_frac")],
+)
+def test_jaxns_termination_condition_accepts_renamed_v2_fields(old_name, new_name):
+    """JAXNS 3 renamed two termination fields; old run scripts still work."""
+    with pytest.warns(DeprecationWarning):
+        termination_condition, summary = JAXNSSampler._build_termination_condition(
+            {old_name: 0.25}
+        )
+
+    assert getattr(termination_condition, new_name) == 0.25
+    assert summary == {new_name: 0.25}
+
+
+def test_jaxns_termination_condition_rejects_removed_v2_field():
+    """live_evidence_frac has no JAXNS 3 equivalent and must not be ignored."""
+    with pytest.raises(TypeError, match="live_evidence_frac"):
+        JAXNSSampler._build_termination_condition({"live_evidence_frac": 0.01})
+
+
+def test_jaxns_termination_condition_rejects_unknown_field():
+    """Unknown keys inside an explicit termination mapping are a typo, not a
+    forwardable NestedSampler option, so they must not be silently dropped."""
+    with pytest.raises(TypeError, match="not_a_field"):
+        JAXNSSampler._build_termination_condition(
+            {"termination_condition_kwargs": {"not_a_field": 1.0}}
+        )
+
+
+@pytest.mark.parametrize(
+    "removed_kwarg",
+    ["s", "k", "c", "shell_fraction", "difficult_model", "parameter_estimation",
+     "init_efficiency_threshold", "devices"],
+)
+def test_jaxns_rejects_removed_v2_sampler_kwargs(removed_kwarg):
+    """JAXNS 3 dropped these; dropping them silently would change the run."""
+    with pytest.raises(TypeError, match=removed_kwarg):
+        JAXNSSampler._resolve_run_config({removed_kwarg: 1})
+
+
+def test_jaxns_use_jit_is_ignored_with_warning():
+    """JAXNS 3 compiles its own depth epochs; wrapping run() in jit is wrong."""
+    with pytest.warns(RuntimeWarning, match="use_jit"):
+        run_config = JAXNSSampler._resolve_run_config({"use_jit": True})
+
+    assert "use_jit" not in run_config
+
+
+def test_jaxns_run_config_defaults():
+    run_config = JAXNSSampler._resolve_run_config({})
+
+    # Phantom conditioning and checkpointing are on by default.
+    assert run_config["nested_sampler_kwargs"]["collect_phantom_samples"] is True
+    assert run_config["evidence_conditioning"] == "phantom"
+    assert run_config["checkpoint_cadence"] == 3600.0
+    assert run_config["checkpoint_explicit"] is False
+    # None lets JAXNS apply its own scaling defaults rather than pRT's old
+    # hard-coded num_live_points=400 / max_samples=1e7.
+    assert run_config["nested_sampler_kwargs"]["target_num_live_points"] is None
+    assert run_config["nested_sampler_kwargs"]["max_samples"] is None
+
+
+def test_jaxns_num_live_points_is_an_alias_for_target_num_live_points():
+    run_config = JAXNSSampler._resolve_run_config({"num_live_points": 123})
+    assert run_config["nested_sampler_kwargs"]["target_num_live_points"] == 123
+
+    with pytest.raises(TypeError, match="aliases"):
+        JAXNSSampler._resolve_run_config(
+            {"num_live_points": 1, "target_num_live_points": 2}
+        )
+
+
+def test_jaxns_phantom_conditioning_requires_phantom_collection():
+    with pytest.raises(ValueError, match="collect_phantom_samples"):
+        JAXNSSampler._resolve_run_config({"collect_phantom_samples": False})
+
+    run_config = JAXNSSampler._resolve_run_config(
+        {"collect_phantom_samples": False, "evidence_conditioning": "classic"}
+    )
+    assert run_config["evidence_conditioning"] == "classic"
+
+
 def test_jaxns_run_sampler_passes_termination_condition(monkeypatch, tmp_path):
+    """JAXNS 3: sampler.run(key=...) replaces jit(sampler)(key, term_cond)."""
     captured = {}
+
+    class FakeState:
+        pass
 
     class FakeNestedSampler:
         def __init__(self, model, **kwargs):
             captured["model"] = model
             captured["init_kwargs"] = dict(kwargs)
 
-        def __call__(self, key, termination_condition):
+        def run(self, key, checkpoint_dir=None, checkpoint_cadence=None):
             captured["key"] = key
-            captured["termination_condition"] = termination_condition
-            return "termination_reason", "state"
+            captured["checkpoint_dir"] = checkpoint_dir
+            captured["checkpoint_cadence"] = checkpoint_cadence
+            return FakeState()
+
+    class FakeRawResults:
+        def save(self, path):
+            captured["save_file"] = path
 
     monkeypatch.setattr(
-        petitRADTRANS.retrieval.sampler,
+        sampler_imports,
         "Model",
-        lambda prior_model, log_likelihood: {
-            "prior_model": prior_model,
-            "log_likelihood": log_likelihood,
-        },
+        lambda prior_model: {"prior_model": prior_model},
     )
     monkeypatch.setattr(
-        petitRADTRANS.retrieval.sampler,
-        "NestedSampler",
-        FakeNestedSampler,
+        sampler_imports, "NestedSampler", FakeNestedSampler
     )
-    monkeypatch.setattr(
-        petitRADTRANS.retrieval.sampler,
-        "save_results",
-        lambda results, save_file: captured.update(
-            {"saved_results": results, "save_file": save_file}
-        ),
-    )
-    monkeypatch.setattr(
-        petitRADTRANS.retrieval.sampler,
-        "clear_caches",
-        lambda: None,
-    )
+    monkeypatch.setattr(sampler_imports, "clear_caches", lambda: None)
 
     sampler = JAXNSSampler(
-        log_likelihood_func=lambda *_args: 0.0,
-        prior_func=lambda: (),
+        log_likelihood_func=None,
+        prior_func=lambda: 0.0,
         output_directory=str(tmp_path),
         retrieval_name="jaxns_termination",
     )
-    sampler._materialize_raw_results = (
-        lambda termination_reason, state: {
-            "termination_reason": termination_reason,
-            "state": state,
-        }
-    )
+    sampler.parameter_names = ["amplitude"]
+    sampler._materialize_raw_results = lambda state: FakeRawResults()
     sampler._to_numpy_tree = lambda raw_results: raw_results
-    sampler._build_equal_weight_results = lambda raw_results: {"samples": np.array([[1.0]])}
+    sampler._build_equal_weight_results = lambda raw_results, run_config: {
+        "samples": np.array([[1.0]])
+    }
     sampler.pretty_print_results = lambda: None
     sampler.plot_diagnostics = lambda results=None: {}
 
-    results = sampler.run_sampler(
-        use_jit=False,
-        num_live_points=32,
-        max_samples=4096,
-        seed=7,
-        dlogZ=0.1,
-        termination_max_samples=256,
+    run_config = JAXNSSampler._resolve_run_config(
+        {
+            "num_live_points": 32,
+            "max_samples": 4096,
+            "seed": 7,
+            "dlogZ": 0.1,
+            "termination_max_samples": 256,
+        }
     )
+    results = sampler.run_sampler(run_config=run_config)
 
-    assert captured["init_kwargs"]["num_live_points"] == 32
+    assert captured["init_kwargs"]["target_num_live_points"] == 32
     assert captured["init_kwargs"]["max_samples"] == 4096
-    assert captured["termination_condition"] is not None
-    assert captured["termination_condition"].dlogZ == 0.1
-    assert captured["termination_condition"].max_samples == 256
+    termination_condition = captured["init_kwargs"]["termination_condition"]
+    assert termination_condition is not None
+    assert termination_condition.dlogZ == 0.1
+    assert termination_condition.max_samples == 256
+    # The model is now a single callable; there is no separate log_likelihood.
+    assert set(captured["model"]) == {"prior_model"}
+    assert captured["save_file"].endswith("_jaxns_results.pkl")
     assert results == {"samples": np.array([[1.0]])}
 
 
-def test_jaxns_sharded_run_sampler_passes_termination_condition(monkeypatch, tmp_path):
+def test_jaxns_distributed_run_sampler_passes_termination_condition(monkeypatch, tmp_path):
+    """The distributed backend replaces the removed sharded static sampler."""
     captured = {}
 
-    class FakeShardedStaticNestedSampler:
-        def __init__(self, model, sampler, **kwargs):
+    class FakeState:
+        pass
+
+    class FakeDistributedNestedSampler:
+        def __init__(self, model, coordinator_port, **kwargs):
             captured["model"] = model
-            captured["sampler"] = sampler
+            captured["coordinator_port"] = coordinator_port
             captured["init_kwargs"] = dict(kwargs)
+            self.termination_condition = kwargs.get("termination_condition")
 
-        def __call__(self, key, termination_condition):
+        def run_until_goal(self, goal_cond, key, checkpoint_dir=None,
+                           checkpoint_cadence=None):
             captured["key"] = key
-            captured["termination_condition"] = termination_condition
-            return "termination_reason", "state"
+            captured["goal_cond"] = goal_cond
+            return FakeState()
+
+    class FakeRawResults:
+        def save(self, path):
+            captured["save_file"] = path
 
     monkeypatch.setattr(
-        petitRADTRANS.retrieval.sampler,
+        sampler_imports,
         "Model",
-        lambda prior_model, log_likelihood: {
-            "prior_model": prior_model,
-            "log_likelihood": log_likelihood,
-        },
+        lambda prior_model: {"prior_model": prior_model},
     )
     monkeypatch.setattr(
-        petitRADTRANS.retrieval.sampler,
-        "ShardedStaticNestedSampler",
-        FakeShardedStaticNestedSampler,
+        sampler_imports,
+        "DistributedNestedSampler",
+        FakeDistributedNestedSampler,
     )
     monkeypatch.setattr(
-        petitRADTRANS.retrieval.sampler,
-        "UniformSampler",
-        object(),
+        sampler_imports, "require_jaxns_distributed", lambda: None
     )
-    monkeypatch.setattr(
-        petitRADTRANS.retrieval.sampler,
-        "save_results",
-        lambda results, save_file: captured.update(
-            {"saved_results": results, "save_file": save_file}
-        ),
-    )
-    monkeypatch.setattr(
-        petitRADTRANS.retrieval.sampler,
-        "clear_caches",
-        lambda: None,
-    )
+    monkeypatch.setattr(sampler_imports, "clear_caches", lambda: None)
 
-    sampler = JAXNSShardedStaticNestedSampler(
-        log_likelihood_func=lambda *_args: 0.0,
-        prior_func=lambda: (),
+    sampler = JAXNSDistributedSampler(
+        log_likelihood_func=None,
+        prior_func=lambda: 0.0,
         output_directory=str(tmp_path),
-        retrieval_name="jaxns_sharded_termination",
+        retrieval_name="jaxns_distributed_termination",
     )
-    sampler._materialize_raw_results = (
-        lambda termination_reason, state: {
-            "termination_reason": termination_reason,
-            "state": state,
-        }
-    )
+    sampler.parameter_names = ["amplitude"]
+    sampler.coordinator_port = 5599
+    sampler._materialize_raw_results = lambda state: FakeRawResults()
     sampler._to_numpy_tree = lambda raw_results: raw_results
-    sampler._build_equal_weight_results = lambda raw_results: {"samples": np.array([[1.0]])}
+    sampler._build_equal_weight_results = lambda raw_results, run_config: {
+        "samples": np.array([[1.0]])
+    }
     sampler.pretty_print_results = lambda: None
     sampler.plot_diagnostics = lambda results=None: {}
 
-    results = sampler.run_sampler(
-        use_jit=False,
-        num_live_points=24,
-        max_samples=2048,
-        seed=11,
-        termination_condition_kwargs={"evidence_uncert": 0.2, "atol": 1e-3},
+    run_config = JAXNSSampler._resolve_run_config(
+        {
+            "num_live_points": 24,
+            "max_samples": 2048,
+            "seed": 11,
+            "termination_condition_kwargs": {"evidence_uncert": 0.2, "atol": 1e-3},
+        }
     )
+    results = sampler.run_sampler(run_config=run_config)
 
-    assert captured["init_kwargs"]["num_live_points"] == 24
+    assert captured["coordinator_port"] == 5599
+    assert captured["init_kwargs"]["target_num_live_points"] == 24
     assert captured["init_kwargs"]["max_samples"] == 2048
-    assert captured["termination_condition"] is not None
-    assert captured["termination_condition"].evidence_uncert == 0.2
-    assert captured["termination_condition"].atol == 1e-3
+    termination_condition = captured["init_kwargs"]["termination_condition"]
+    assert termination_condition.evidence_uncert == 0.2
+    assert termination_condition.atol == 1e-3
     assert results == {"samples": np.array([[1.0]])}
+
+
+def test_jaxns_checkpointing_is_disabled_for_an_unpicklable_prior_model(tmp_path):
+    """JAXNS pickles the model into its checkpoints.
+
+    An ordinary pRT prior model closes over the RetrievalRuntime and cannot be
+    pickled; JAXNS' own Pytree.save swallows that and leaves a truncated file,
+    so pRT must refuse to write a checkpoint it could never resume.
+    """
+    sampler = JAXNSSampler.__new__(JAXNSSampler)
+    sampler.output_directory = str(tmp_path)
+    sampler.retrieval_name = "unpicklable"
+
+    def _make_closure():
+        state = object()
+
+        def prior_model():
+            return state
+
+        return prior_model
+
+    sampler.prior_func = _make_closure()
+    assert not prior_model_is_picklable(sampler.prior_func)
+
+    run_config = JAXNSSampler._resolve_run_config({})
+    with pytest.warns(RuntimeWarning, match="checkpointing"):
+        assert sampler._resolve_checkpoint_dir(run_config) is None
+
+    # An explicit checkpoint_dir must fail loudly rather than be ignored.
+    explicit = JAXNSSampler._resolve_run_config(
+        {"checkpoint_dir": str(tmp_path / "ck")}
+    )
+    with pytest.raises(ValueError, match="picklable prior model"):
+        sampler._resolve_checkpoint_dir(explicit)
+
+
+def test_spec_backed_prior_model_is_picklable_and_small(monkeypatch):
+    """The distributed/checkpointable prior model must pickle to ~a path."""
+    from petitRADTRANS.retrieval.samplers import jaxns_worker
+
+    spec_path = "/some/where/run_worker_spec.json"
+    rebuilds = []
+    monkeypatch.setattr(jaxns_worker, "_rebuild", rebuilds.append)
+
+    model = jaxns_worker.SpecBackedPriorModel(spec_path)
+    payload = pickle.dumps(model)
+    restored = pickle.loads(payload)
+
+    assert restored.spec_path == model.spec_path
+    assert rebuilds == [spec_path, spec_path]
+    # Kilobytes, not gigabytes: this is what crosses the wire to every worker.
+    assert len(payload) < 1024
+
+
+def test_spec_backed_prior_model_primes_runtime_before_jit(monkeypatch):
+    from petitRADTRANS.retrieval.samplers import jaxns_worker
+
+    spec_path = "/some/where/run_worker_spec.json"
+    rebuilds = []
+    prior = SimpleNamespace(realise=lambda periodic: jnp.asarray(1.0))
+    parameter_layout = SimpleNamespace(
+        physical_params_from_free_values=lambda values: values
+    )
+    runtime = SimpleNamespace(
+        evaluate_likelihood_jax=lambda **kwargs: jnp.sum(
+            jnp.stack(kwargs["physical_params"])
+        )
+    )
+    rebuilt = (((prior, False),), parameter_layout, runtime, "default")
+
+    monkeypatch.setattr(jaxns_worker, "_RUNTIME_CACHE", {})
+
+    def rebuild(worker_spec_path):
+        rebuilds.append(worker_spec_path)
+        jaxns_worker._RUNTIME_CACHE[worker_spec_path] = rebuilt
+        return rebuilt
+
+    monkeypatch.setattr(jaxns_worker, "_rebuild", rebuild)
+    payload = cloudpickle.dumps(jaxns_worker.SpecBackedPriorModel(spec_path))
+    jaxns_worker._RUNTIME_CACHE.clear()
+    restored = cloudpickle.loads(payload)
+
+    assert rebuilds == [spec_path, spec_path]
+    assert np.asarray(jax.jit(lambda: restored())()).item() == 1.0
+    assert rebuilds == [spec_path, spec_path]
 
 
 def test_parameter_layout_free_parameter_ordering_matches_all_sampler_interfaces():
@@ -2292,19 +2468,36 @@ def test_build_jaxns_sampler_interface_routes_through_runtime_jax_likelihood():
     )
     retrieval.uncertainties_mode = "default"
 
-    free_parameter_names, _prior_model, log_likelihood_wrapper = (
-        retrieval._build_jaxns_sampler_interface()
-    )
+    # JAXNS 3 models are a single callable: the prior model realises the priors
+    # and returns the scalar log likelihood, so there is no separate wrapper.
+    free_parameter_names, prior_model = retrieval._build_jaxns_sampler_interface()
 
     assert free_parameter_names == ["amplitude"]
-    # Compare the wrapper against the runtime entry point it actually calls.
-    expected = retrieval.runtime.evaluate_likelihood_jax(
-        physical_params=retrieval.parameter_layout.physical_params_from_vector(
-            np.array([2.0])
-        ),
-        uncertainties_mode="default",
-    )
-    np.testing.assert_allclose(log_likelihood_wrapper(jnp.array(2.0)), expected)
+
+    from jaxns.model import Model
+
+    model = Model(prior_model=prior_model)
+
+    # U-space is a JAXCTX collection, so draw a point and read back the physical
+    # value the model realised, then check the model's log likelihood equals the
+    # runtime evaluated at that same value.
+    u_sample = model.sample_U(jax.random.PRNGKey(0))
+    x_sample = model.transform_to_X(u_sample)
+    amplitude = x_sample.to_dict()["amplitude"]
+
+    def evaluate_runtime(value):
+        return retrieval.runtime.evaluate_likelihood_jax(
+            physical_params=retrieval.parameter_layout.physical_params_from_free_values(
+                (value,)
+            ),
+            uncertainties_mode="default",
+        )
+
+    # Compare under jit: JAXNS evaluates the model inside a compiled program, and
+    # this runtime's likelihood is not bit-identical between traced and untraced
+    # execution (a pre-existing pRT difference, unrelated to the sampler).
+    expected = jax.jit(evaluate_runtime)(amplitude)
+    np.testing.assert_allclose(model.log_likelihood(u_sample), expected, rtol=1e-12)
 
 
 def test_build_jaxns_sampler_interface_rejects_non_distribution_priors():
@@ -2685,8 +2878,8 @@ def test_run_evaluate_mode_loads_saved_results_without_sampling(monkeypatch, tmp
     _EvaluateLoadingSampler.results_to_load = expected_results
     monkeypatch.setattr(
         petitRADTRANS.retrieval.retrieval,
-        "_resolve_sampler_class",
-        lambda _sampler_type: _EvaluateLoadingSampler,
+        "resolve_sampler_class",
+        lambda _sampler_type, strict=True: _EvaluateLoadingSampler,
     )
 
     results = retrieval.run(error_checking=True)
@@ -3021,28 +3214,26 @@ def test_get_samples_dict_supports_jaxns_style_results_without_pymultinest():
     assert retrieval.get_quantile_parameters(0.5) == {"amplitude": 2.0}
 
 
-def test_jaxns_equal_weight_results_fall_back_to_samples_mapping(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        petitRADTRANS.retrieval.sampler,
-        "jaxns_resample",
-        lambda key, posterior_payload, log_dp_mean: {
-            "samples": posterior_payload["samples"],
-            "log_likelihood": posterior_payload["log_likelihood"],
-        },
-    )
-
+def test_jaxns_equal_weight_results_fall_back_to_samples_mapping(tmp_path):
+    """JAXNS 3 resamples through results.resample(), not a module-level helper."""
     sampler = JAXNSSampler(
-        log_likelihood_func=lambda *_args: 0.0,
-        prior_func=lambda: (),
+        log_likelihood_func=None,
+        prior_func=lambda: 0.0,
         output_directory=str(tmp_path),
         retrieval_name="jaxns_samples_only",
     )
     sampler.parameter_names = ["amplitude"]
     sampler.seed = 7
 
-    results = sampler._build_equal_weight_results(_JAXNSSamplesOnlyResults())
+    run_config = JAXNSSampler._resolve_run_config({"evidence_conditioning": None})
+    results = sampler._build_equal_weight_results(
+        _JAXNSSamplesOnlyResults(), run_config
+    )
 
     assert results["samples"].shape == (3, 1)
+    # Row 0 is pinned to the max-likelihood point (X_supremum).
+    np.testing.assert_allclose(results["samples"][0], np.array([3.0]))
+    np.testing.assert_allclose(results["log_likelihood"][0], -1.0)
     np.testing.assert_allclose(
         results["weighted_samples"]["points"],
         np.array([[1.0], [3.0], [2.0]]),
@@ -3088,19 +3279,25 @@ def test_get_samples_recovers_malformed_jaxns_archive_from_raw_results(tmp_path,
 
     params_path = out_jaxns / "archived_jaxns_params.json"
     samples_path = out_jaxns / "archived_jaxns_samples.npz"
-    raw_results_path = out_jaxns / "archived_jaxns_jaxns_results.json"
+    # JAXNS 3 persists its result pytree with pickle, not JSON.
+    raw_results_path = out_jaxns / "archived_jaxns_jaxns_results.pkl"
 
     params_path.write_text("[]")
-    raw_results_path.write_text("{}")
+    raw_results_path.write_bytes(b"")
     np.savez(
         samples_path,
         sample_matrix=np.array(np.nan),
         log_likelihood=np.array([-3.0, -1.0, -2.0]),
     )
 
-    fake_jaxns = ModuleType("jaxns")
-    fake_jaxns.load_results = lambda _path: _JAXNSSamplesOnlyResults()
-    monkeypatch.setitem(sys.modules, "jaxns", fake_jaxns)
+    class _FakeNestedSamplerResults:
+        @staticmethod
+        def load(_path):
+            return _JAXNSSamplesOnlyResults()
+
+    fake_results_module = ModuleType("jaxns.results")
+    fake_results_module.NestedSamplerResults = _FakeNestedSamplerResults
+    monkeypatch.setitem(sys.modules, "jaxns.results", fake_results_module)
 
     sample_dict, parameter_dict = retrieval.get_samples(
         names=["archived_jaxns"],

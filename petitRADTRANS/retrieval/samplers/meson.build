@@ -1,0 +1,19 @@
+py.install_sources([
+    'base.py',
+    'blackjax.py',
+    'dynesty_pool.py',
+    'dynesty.py',
+    'gradient.py',
+    '__init__.py',
+    'interfaces.py',
+    'jaxns_distributed.py',
+    'jaxns.py',
+    'jaxns_worker.py',
+    'numpyro.py',
+    'optimal_estimation.py',
+    '_optional_imports.py',
+    'pymultinest.py',
+    'ultranest.py',
+    ],
+    subdir: 'petitRADTRANS/retrieval/samplers'
+)
