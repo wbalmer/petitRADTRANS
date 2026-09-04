@@ -39,7 +39,7 @@ dependencies = [
     "molmass",
     "h5py",
     "dill",
-    "jaxns",
+    "jaxns>=3.0.0",
     "pyvo",
     "bs4",
     "selenium",
@@ -89,6 +89,7 @@ retrieval = [
     "matplotlib",
     "arviz",
     "corner",
+    "jaxns>=3.0.0"
     "dynesty>=3.0.0",
     "pymultinest",
     "blackjax",
