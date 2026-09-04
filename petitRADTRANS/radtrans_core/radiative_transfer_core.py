@@ -533,7 +533,7 @@ def combine_ck_opacities(
     )
 
 
-def _compute_ck_angle_transmission(
+def _compute_ck_transmission(
     optical_depths: ArrayLike,
     weights_gauss: ArrayLike,
     mu: ArrayLike,
@@ -580,7 +580,7 @@ def _compute_ck_layer_emission_terms(
     )
 
 
-def _compute_ck_angle_flux(
+def _compute_ck_emergent_flux(
     layer_terms: ArrayLike,
     planck: ArrayLike,
     transm_all: ArrayLike,
@@ -601,7 +601,7 @@ def _compute_ck_angle_flux(
     )
 
 
-def _compute_ck_angle_contributions(
+def _compute_ck_flux_and_contribution(
     frequencies: ArrayLike,
     temperatures: ArrayLike,
     weights_gauss: ArrayLike,
@@ -627,10 +627,10 @@ def _compute_ck_angle_contributions(
     planck = physics_core.compute_planck_function(temperatures, frequencies)
 
     def _angle_contrib(mu: ArrayLike, mu_w: ArrayLike):
-        transm_all = _compute_ck_angle_transmission(optical_depths, weights_gauss, mu)
+        transm_all = _compute_ck_transmission(optical_depths, weights_gauss, mu)
         layer_terms = _compute_ck_layer_emission_terms(planck, transm_all)
         flux_contrib = (
-            _compute_ck_angle_flux(layer_terms, planck, transm_all) * 0.5 * mu * mu_w
+            _compute_ck_emergent_flux(layer_terms, planck, transm_all) * 0.5 * mu * mu_w
         )
 
         if not return_contribution:
@@ -702,7 +702,7 @@ def compute_ck_flux(
         contribution function of shape ``(n_layers, n_frequencies)`` or a zero
         array with the same shape when ``return_contribution`` is ``False``.
     """
-    return _compute_ck_angle_contributions(
+    return _compute_ck_flux_and_contribution(
         frequencies,
         temperatures,
         weights_gauss,
