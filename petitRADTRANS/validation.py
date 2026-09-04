@@ -55,9 +55,11 @@ def _warn_scattering_in_emission_without_scattering_species(
 def _warn_partial_cloud_coverage_without_patchy_clouds(
     cloud_fraction: float,
     patchy_clouds: tuple[str, ...],
-    has_partial_coverage_background_cloud: bool = False,
+    has_partial_coverage_analytical_cloud: bool = False,
 ):
-    if len(patchy_clouds) > 0 or has_partial_coverage_background_cloud:
+    '''Check whether partial cloud coverage makes sense.
+    '''
+    if len(patchy_clouds) > 0 or has_partial_coverage_analytical_cloud:
         return
 
     try:
@@ -78,7 +80,7 @@ def _check_anisotropic_cloud_scattering(mode: Union[str, bool]):
     """Check if the anisotropic cloud scattering mode is valid.
 
     Args:
-        mode: The anisotropic cloud scattering mode.
+           mode: The anisotropic cloud scattering mode.
     """
     if mode not in ["auto", True, False]:
         raise ValueError(
@@ -176,15 +178,22 @@ def _check_wavelength_boundaries(boundaries: ArrayLike):
 def _check_clouds_particle_porosity_factors(clouds_particle_porosity_factor):
     """Check caller-supplied cloud porosity factors lie in [0, 1).
 
-    Must be called from the un-jitted entry point: inside the spectral kernels
-    these values are tracers and cannot be inspected. Non-finite values are the
-    "unset" sentinel that the kernel replaces with a valid per-source default
+    Must be called from the un-jitted entry point (happening in the thin shell wrapper, for now):
+    inside the spectral functions these values are tracers and cannot be inspected.
+
+    Non-finite values (None) are the "unset" sentinel that the kernel replaces with a valid per-source default
     (0.25 for DHS, 0.0 otherwise), so they are skipped.
     """
+
     if clouds_particle_porosity_factor is None:
         return
 
     for species_name, porosity in clouds_particle_porosity_factor.items():
+        # While _check_clouds_particle_porosity_factors
+        # is only ever called oin the unjitted thin shell,
+        # if one were to calculate a gradient with respect to porosities,
+        # it would have to be traced starting from the uppermost call level,
+        # throwing a bug. The check immediately below catches that.
         if isinstance(porosity, jax_core.Tracer):
             continue
 
@@ -210,6 +219,8 @@ def _check_power_law_opacity_completeness(
     visible as ``None``; inside the kernels it has already been replaced by a
     sentinel and the values are tracers.
     """
+    # This works even during tracing, when wanting to calculate a gradient
+    # with respect to the power law cloud parameters, since tracers are never None.
     a_missing = power_law_opacity_350nm is None
     b_missing = power_law_opacity_coefficient is None
 
