@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0b2] - 2026-08-25
+## [4.0.0b3] - 2026-09-03
 ### Changed
 - `calculate_flux` and `calculate_transit_radii` now fully JIT compiled for
   improved performance (about 30% faster).
@@ -13,11 +13,36 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Moved SBI module to `experimental`. SBI now works for both emission and transmission.
   Recommended setup is to use a neural autoregressive flow for both, with more details
   in README.
+- **Breaking (import paths).** The retrieval samplers now live in the package
+  `petitRADTRANS.retrieval.samplers`, one module per backend, replacing the
+  5300-line `petitRADTRANS/retrieval/sampler.py`. The modules
+  `retrieval/optimal_estimation.py`, `retrieval/jaxns_worker.py` and
+  `retrieval/dynesty_pool_helpers.py` moved into it as well.
+- a backend class -> `petitRADTRANS.retrieval.samplers.<backend>`, e.g.
+  `from petitRADTRANS.retrieval.samplers.jaxns import JAXNSSampler`
+- `petitRADTRANS.retrieval.optimal_estimation`
+  -> `petitRADTRANS.retrieval.samplers.optimal_estimation`
+  `sampler_type` strings, `SAMPLER_DISPATCH` and
+  `from petitRADTRANS.retrieval.retrieval import SAMPLER_DISPATCH` are
+  unchanged.
+- The BlackJAX and NumPyro samplers now share a `GradientSampler` base holding
+  their (previously duplicated) results dataclass, saving, reloading, summary
+  and optax MAP warm-up. Behaviour and file formats are unchanged.
 
 ### Fixed
 - Removed `debug.callbacks` from opacities and validation.
 - dtype mismatch in patchy cloud opacity conditional.
 - lambda functions in JIT compiled functions which results in extra compilations.
+- `Retrieval.get_samples()` read the outputs of an `ultranest` retrieval from
+  the `out_JAXNS` directory, which is not where UltraNest writes them. Each
+  sampler class now reports its own archive location, and the UltraNest backend
+  reads its own `chains/weighted_post.txt`.
+- CIA opacities being set to 0 due to 32-bit underflow.
+- `return_opacities=True` returned all-zero `cloud_absorption_opacities` and
+  `cloud_anisotropic_scattering_opacities` whenever `sum_opacities` was False.
+  `test_correlated_k_photospheric_radius_calculation` reference file was
+  regenerated (its stored *inputs* held the old zeros; its outputs are
+  unchanged).
 
 ### Removed
 - autodiff versions of `calculate_flux` and `calculate_transit_radii`
