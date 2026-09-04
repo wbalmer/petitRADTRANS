@@ -3904,3 +3904,63 @@ def test_refinement_config_carries_the_comparative_threshold():
 
     assert RefinementConfig().max_refinement_crps_ratio == 1.0
     assert RefinementConfig(max_refinement_crps_ratio=1.25).max_refinement_crps_ratio == 1.25
+
+
+def test_a_collapsed_refinement_is_rejected_even_though_crps_prefers_it():
+    """CRPS alone cannot see a collapsed parameter posterior.
+
+    Emission run 20260729T121612Z delivered 4096 identical rows -- importance
+    sampling put all 16384 weights on one particle (ESS 1.0,
+    max_weight_fraction 1.0). That artifact scored *better* on every predictive
+    metric than the honest amortized posterior it replaced: CRPS 1.70e-17
+    against 6.39e-17, MAE 1.14 sigma against 3.79, width 3.25 sigma against
+    11.55. The reason is structural: a maximum-likelihood point pushed through
+    the forward model gives an accurate predictive whose spread is entirely
+    observational noise, and CRPS scores the *observable* forecast, not the
+    parameter posterior.
+
+    So the comparative gate must veto on degeneracy before it looks at the
+    score, or it would promote exactly the artifact it exists to catch.
+    """
+    from types import SimpleNamespace
+    from petitRADTRANS.experimental.sbi.workflow import (
+        _refinement_predictive_comparison,
+    )
+
+    def result(crps):
+        return SimpleNamespace(
+            posterior_predictive=SimpleNamespace(crps={"Emission": crps})
+        )
+
+    # The real numbers: the collapsed artifact scores 3.7x better by CRPS.
+    collapsed_crps, amortized_crps = 1.704527e-17, 6.388291e-17
+    assert collapsed_crps < amortized_crps
+
+    collapsed_samples = np.tile(np.linspace(0.1, 0.9, 19), (4096, 1))  # 4096 identical rows
+    verdict = _refinement_predictive_comparison(
+        result(collapsed_crps),
+        result(amortized_crps),
+        max_crps_ratio=1.0,
+        refined_samples=collapsed_samples,
+    )
+    assert verdict["refined_is_better"] is False, verdict
+    assert verdict["refined_degenerate_marginals"] == 19
+    assert "zero width" in verdict["note"]
+
+    # Without the degeneracy check the same scores would have been accepted --
+    # this is what the veto is protecting against.
+    unguarded = _refinement_predictive_comparison(
+        result(collapsed_crps), result(amortized_crps), max_crps_ratio=1.0
+    )
+    assert unguarded["refined_is_better"] is True
+
+    # A healthy refinement with spread is unaffected.
+    rng = np.random.default_rng(0)
+    healthy = _refinement_predictive_comparison(
+        result(collapsed_crps),
+        result(amortized_crps),
+        max_crps_ratio=1.0,
+        refined_samples=rng.normal(size=(4096, 19)),
+    )
+    assert healthy["refined_is_better"] is True
+    assert healthy["refined_degenerate_marginals"] == 0

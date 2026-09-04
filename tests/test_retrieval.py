@@ -159,7 +159,7 @@ class _RecordingUltranestSampler:
 
             def log_likelihood_batch(physical_positions):
                 return np.asarray(
-                    runtime.evaluate_jax_batched(
+                    runtime.evaluate_likelihood_jax_batched(
                         free_parameter_values=physical_positions,
                         uncertainties_mode=uncertainties_mode,
                         print_log_likelihood_for_debugging=False,
@@ -1144,12 +1144,14 @@ def test_log_likelihood_routes_normal_scalar_path_through_runtime():
     )
 
     runtime_value = retrieval.log_likelihood(np.array([2.0]))
-    legacy_value = retrieval._log_likelihood_legacy(np.array([2.0]))
 
-    np.testing.assert_allclose(runtime_value, legacy_value)
+    # Golden value: chi2 log-likelihood of the single 'simple' dataset. Pinned when
+    # the removed _log_likelihood_legacy implementation was deleted, having first
+    # been verified equal to it (the two agreed to machine precision).
+    np.testing.assert_allclose(runtime_value, -0.45158270528945482)
 
 
-def test_log_likelihood_jax_routes_normal_path_through_runtime():
+def test_runtime_evaluate_jax_normal_path():
     parameter = Parameter(
         name="amplitude",
         is_free_parameter=True,
@@ -1177,12 +1179,6 @@ def test_log_likelihood_jax_routes_normal_path_through_runtime():
         data={"simple": data},
         adaptive_mesh_refinement=False,
     )
-    parameters = {
-        "amplitude": Parameter(
-            name="amplitude", is_free_parameter=True, value=jnp.array(2.0)
-        )
-    }
-
     retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
     retrieval.configuration = configuration
     retrieval.parameter_layout = ParameterLayout.from_parameters(
@@ -1194,19 +1190,17 @@ def test_log_likelihood_jax_routes_normal_path_through_runtime():
         n_free_parameters=retrieval.parameter_layout.n_free_parameters,
     )
 
-    runtime_value = retrieval.log_likelihood_jax(
-        parameters=parameters,
+    runtime_value = retrieval.runtime.evaluate_likelihood_jax(
+        physical_params=retrieval.parameter_layout.physical_params_from_vector(
+            np.array([2.0])
+        ),
         uncertainties_mode="default",
     )
-    legacy_value = (
-        petitRADTRANS.retrieval.retrieval.Retrieval._log_likelihood_jax_legacy(
-            parameters=parameters,
-            configuration=configuration,
-            uncertainties_mode="default",
-        )
-    )
-
-    np.testing.assert_allclose(runtime_value, legacy_value)
+    # Golden value: chi2 log-likelihood of the single dataset. Pinned when the
+    # removed _log_likelihood_jax_legacy implementation was deleted, having first
+    # been verified equal to it (the two agreed to machine precision). The
+    # removed log_likelihood_jax wrapper returned this same value exactly.
+    np.testing.assert_allclose(runtime_value, -0.45158270528945482)
 
 
 def _make_amplitude_line_data(name="simple", covariance=None, uncertainties=None):
@@ -1261,7 +1255,7 @@ def test_runtime_per_datapoint_terms_match_closed_form_and_sum_to_total():
 
     physical_params = parameter_layout.physical_params_from_vector(np.array([2.0]))
     per_datapoint = np.asarray(
-        runtime.evaluate_per_datapoint_jax(physical_params)["simple"]
+        runtime.evaluate_likelihood_per_datapoint_jax(physical_params)["simple"]
     )
 
     model_spectrum = np.array([2.0, 3.0, 4.0])
@@ -1274,7 +1268,7 @@ def test_runtime_per_datapoint_terms_match_closed_form_and_sum_to_total():
 
     np.testing.assert_allclose(per_datapoint, expected, rtol=1e-10)
 
-    total = runtime.evaluate_jax(physical_params=physical_params)
+    total = runtime.evaluate_likelihood_jax(physical_params=physical_params)
     np.testing.assert_allclose(per_datapoint.sum(), np.asarray(total), rtol=1e-10)
 
     np.testing.assert_array_equal(
@@ -1302,7 +1296,7 @@ def test_runtime_per_datapoint_terms_with_covariance_match_buerkner_reference():
 
     physical_params = parameter_layout.physical_params_from_vector(np.array([2.0]))
     per_datapoint = np.asarray(
-        runtime.evaluate_per_datapoint_jax(physical_params)["simple"]
+        runtime.evaluate_likelihood_per_datapoint_jax(physical_params)["simple"]
     )
 
     # Conditional leave-one-out terms of Buerkner, Gabry & Vehtari (2020)
@@ -1331,7 +1325,7 @@ def test_runtime_per_datapoint_invalid_model_fills_invalid_log_likelihood():
 
     physical_params = parameter_layout.physical_params_from_vector(np.array([2.0]))
     per_datapoint = np.asarray(
-        runtime.evaluate_per_datapoint_jax(physical_params)["simple"]
+        runtime.evaluate_likelihood_per_datapoint_jax(physical_params)["simple"]
     )
 
     np.testing.assert_array_equal(
@@ -1423,7 +1417,7 @@ def test_get_log_likelihood_per_datapoint_vmapped_matches_per_sample_runtime(tmp
     # grid-equality rebin short-circuit is skipped, so an unjitted reference
     # would differ for models evaluated directly on the observation grid.
     single_sample_reference = jax.jit(
-        lambda free_values: retrieval.runtime.evaluate_per_datapoint_jax(
+        lambda free_values: retrieval.runtime.evaluate_likelihood_per_datapoint_jax(
             retrieval.parameter_layout.physical_params_from_free_values(free_values)
         )
     )
@@ -1722,7 +1716,6 @@ def test_parameter_layout_free_parameter_ordering_matches_all_sampler_interfaces
         retrieval.parameter_layout.free_parameter_names
     )
     retrieval.uncertainties_mode = "default"
-    retrieval.generate_mock_data = False
     retrieval.print_log_likelihood_for_debugging = False
 
     pymultinest_names = tuple(retrieval._free_parameter_names_cache)
@@ -2085,8 +2078,8 @@ def test_runtime_evaluation_adds_runtime_model_log_prior_weight_once():
         configuration.parameters
     ).physical_params_from_vector(np.array([0.0]))
 
-    base_log_likelihood = base_runtime.evaluate_scalar(physical_params)
-    log_likelihood = runtime.evaluate_scalar(physical_params)
+    base_log_likelihood = base_runtime.evaluate_likelihood_scalar(physical_params)
+    log_likelihood = runtime.evaluate_likelihood_scalar(physical_params)
 
     assert np.isfinite(log_likelihood)
     np.testing.assert_allclose(log_likelihood - base_log_likelihood, 1.25)
@@ -2132,7 +2125,7 @@ def test_model_group_evaluation_is_reused_across_external_references():
         configuration.parameters
     ).physical_params_from_vector(np.array([2.0]))
 
-    log_likelihood = runtime.evaluate_scalar(physical_params)
+    log_likelihood = runtime.evaluate_likelihood_scalar(physical_params)
 
     assert np.isfinite(log_likelihood)
     assert call_counter["count"] == 1
@@ -2188,12 +2181,15 @@ def test_log_likelihood_routes_external_reference_setup_through_runtime():
     )
 
     runtime_value = retrieval.log_likelihood(np.array([2.0]))
-    legacy_value = retrieval._log_likelihood_legacy(np.array([2.0]))
 
-    np.testing.assert_allclose(runtime_value, legacy_value)
+    # Golden value: both datasets ('source' and 'shared') contribute the same chi2
+    # term, so this is exactly twice the single-dataset case above. Pinned when the
+    # removed _log_likelihood_legacy implementation was deleted, having first been
+    # verified equal to it (the two agreed to machine precision).
+    np.testing.assert_allclose(runtime_value, -0.90316541057890964)
 
 
-def test_log_likelihood_jax_routes_external_reference_setup_through_runtime():
+def test_runtime_evaluate_jax_external_reference_setup():
     def shared_model(
         _prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False
     ):
@@ -2225,12 +2221,6 @@ def test_log_likelihood_jax_routes_external_reference_setup_through_runtime():
         data={"source": source_data, "shared": shared_data},
         adaptive_mesh_refinement=False,
     )
-    parameters = {
-        "amplitude": Parameter(
-            name="amplitude", is_free_parameter=True, value=jnp.array(2.0)
-        )
-    }
-
     retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
     retrieval.configuration = configuration
     retrieval.parameter_layout = ParameterLayout.from_parameters(
@@ -2242,19 +2232,18 @@ def test_log_likelihood_jax_routes_external_reference_setup_through_runtime():
         n_free_parameters=retrieval.parameter_layout.n_free_parameters,
     )
 
-    runtime_value = retrieval.log_likelihood_jax(
-        parameters=parameters,
+    runtime_value = retrieval.runtime.evaluate_likelihood_jax(
+        physical_params=retrieval.parameter_layout.physical_params_from_vector(
+            np.array([2.0])
+        ),
         uncertainties_mode="default",
     )
-    legacy_value = (
-        petitRADTRANS.retrieval.retrieval.Retrieval._log_likelihood_jax_legacy(
-            parameters=parameters,
-            configuration=configuration,
-            uncertainties_mode="default",
-        )
-    )
-
-    np.testing.assert_allclose(runtime_value, legacy_value)
+    # Golden value: both datasets ('source' and 'shared') contribute the same chi2
+    # term, so this is exactly twice the single-dataset case above. Pinned when the
+    # removed _log_likelihood_jax_legacy implementation was deleted, having first
+    # been verified equal to it (the two agreed to machine precision). The removed
+    # log_likelihood_jax wrapper returned this same value exactly.
+    np.testing.assert_allclose(runtime_value, -0.90316541057890964)
 
 
 def test_build_jaxns_sampler_interface_routes_through_runtime_jax_likelihood():
@@ -2302,19 +2291,17 @@ def test_build_jaxns_sampler_interface_routes_through_runtime_jax_likelihood():
         ),
     )
     retrieval.uncertainties_mode = "default"
-    retrieval.generate_mock_data = False
 
     free_parameter_names, _prior_model, log_likelihood_wrapper = (
         retrieval._build_jaxns_sampler_interface()
     )
 
     assert free_parameter_names == ["amplitude"]
-    expected = retrieval.log_likelihood_jax(
-        parameters={
-            "amplitude": Parameter(
-                name="amplitude", is_free_parameter=True, value=jnp.array(2.0)
-            )
-        },
+    # Compare the wrapper against the runtime entry point it actually calls.
+    expected = retrieval.runtime.evaluate_likelihood_jax(
+        physical_params=retrieval.parameter_layout.physical_params_from_vector(
+            np.array([2.0])
+        ),
         uncertainties_mode="default",
     )
     np.testing.assert_allclose(log_likelihood_wrapper(jnp.array(2.0)), expected)

@@ -314,7 +314,7 @@ as ``likelihood_devices``.
        likelihood_devices=jax.devices("gpu"),   # e.g. [CudaDevice(id=0)]
    )
 
-pRT wraps the likelihood in a JIT-compiled call to ``evaluate_jax``, dispatches the
+pRT wraps the likelihood in a JIT-compiled call to ``evaluate_likelihood_jax``, dispatches the
 computation to the target device using JAX's ``default_device`` context manager, and
 returns a plain Python float to the sampler via ``jax.device_get``.  The sampler and
 MPI orchestration layer stay on CPU throughout.
@@ -348,7 +348,7 @@ job launcher that handles device assignment automatically.
 
 When ``vectorized=True`` is also passed, ``likelihood_devices`` is ignored with a
 ``RuntimeWarning``: the vectorized path already dispatches through JAX
-(``evaluate_jax_batched``) and device selection there follows the standard JAX
+(``evaluate_likelihood_jax_batched``) and device selection there follows the standard JAX
 default-device mechanism.
 
 Optimal estimation (optax)

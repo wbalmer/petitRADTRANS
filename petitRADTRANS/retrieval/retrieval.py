@@ -1,7 +1,6 @@
 import os
 import sys
 import copy
-import functools
 import importlib
 import json
 import traceback
@@ -12,7 +11,7 @@ import numpy.typing as npt
 from typing import Callable
 
 from jax import errors as jax_errors
-from jax import jit, vmap, lax, numpy as jnp
+from jax import jit, vmap, numpy as jnp
 
 import petitRADTRANS
 from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity, CorrelatedKOpacity
@@ -22,9 +21,6 @@ from petitRADTRANS.radtrans_core.spectrum_utils import (
     convolve,
     convolve_and_sample_variable_resolution_breads,
     rebin_spectrum_bin,
-)
-from petitRADTRANS.physics import (
-    shift_wavelengths_by_radial_velocity,
 )
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data, PhotometryData
@@ -46,11 +42,8 @@ from petitRADTRANS.retrieval.runtime import (
 )
 from petitRADTRANS.retrieval.utils import (
     get_pymultinest_sample_dict,
-    unpack_model_output,
     extract_spectrum_parameters,
     process_spectrum_pipeline,
-    validate_model_output,
-    ensure_jax_array,
 )
 from petitRADTRANS.retrieval.sampler import (
     Sampler,
@@ -139,93 +132,6 @@ def _resolve_sampler_class(sampler_type: str) -> type[Sampler] | None:
     return sampler_class
 
 
-# ---------------------------------------------------------------------------
-# Native multi-chain orchestration helpers (Phase 2). Module-level so the
-# per-chain runner is picklable for the ``spawn`` process pool.
-# ---------------------------------------------------------------------------
-
-
-def _detect_jax_devices() -> tuple[int, bool]:
-    """Return ``(num_devices, gpu_available)`` from JAX, or ``(1, False)``."""
-    try:
-        import jax
-
-        devices = jax.devices()
-        gpu_available = any(
-            getattr(device, "platform", "cpu") in ("gpu", "cuda")
-            for device in devices
-        )
-        return len(devices), gpu_available
-    except Exception:  # noqa: BLE001 -- JAX missing / not initialised
-        return 1, False
-
-
-def _validate_top_level_builder(builder) -> None:
-    """Raise a clear error if ``builder`` cannot be used with the spawn pool.
-
-    The ``processes`` execution mode dispatches the builder to ``spawn`` workers,
-    which pickle it by reference. Closures and lambdas are not picklable; the
-    builder must be a top-level (module-level) function.
-    """
-    if not callable(builder):
-        raise TypeError("config_builder must be callable.")
-    qualname = getattr(builder, "__qualname__", "")
-    if "<locals>" in qualname or "<lambda>" in qualname or "." in qualname:
-        raise ValueError(
-            "config_builder must be a top-level (module-level) function so it can "
-            "be sent to spawned worker processes; got a "
-            f"closure/lambda/method ({qualname!r}). Define it at module scope and "
-            "call run_multichain under `if __name__ == \"__main__\":`."
-        )
-
-
-def _run_single_chain_on(retrieval, chain_spec, run_kwargs, force_single_chain=True) -> str:
-    """Run one chain on an existing Retrieval, namespaced by ``chain_spec``.
-
-    ``force_single_chain`` adds ``num_chains=1`` (the gradient-MCMC samplers accept
-    it). Nested samplers (JAXNS) do not take ``num_chains``, so it is left off for
-    them -- each run is one independent nested run distinguished only by its seed.
-    """
-    retrieval.configuration.retrieval_name = chain_spec.retrieval_name
-    per_chain_kwargs = dict(run_kwargs)
-    per_chain_kwargs.pop("chain_execution", None)
-    per_chain_kwargs.pop("num_chains", None)
-    if force_single_chain:
-        per_chain_kwargs["num_chains"] = 1
-    per_chain_kwargs["seed"] = chain_spec.seed
-    retrieval.run(**per_chain_kwargs)
-    return chain_spec.retrieval_name
-
-
-def _run_one_chain_from_builder(
-    config_builder,
-    output_directory,
-    retrieval_kwargs,
-    base_name,
-    base_seed,
-    run_kwargs,
-    force_single_chain,
-    chain_id,
-    cores,
-):
-    """Worker entry: build a Retrieval from ``config_builder`` and run one chain.
-
-    Module-level + only picklable arguments so it can be dispatched to a ``spawn``
-    worker. ``cores`` is accepted for signature compatibility (affinity is applied
-    by the multichain worker entry before this runs).
-    """
-    from petitRADTRANS.retrieval.multichain import ChainSpec
-
-    spec = ChainSpec.build(base_name, base_seed, chain_id)
-    configuration = config_builder()
-    retrieval = Retrieval(
-        configuration,
-        output_directory=output_directory,
-        **(retrieval_kwargs or {}),
-    )
-    return _run_single_chain_on(retrieval, spec, run_kwargs, force_single_chain)
-
-
 class Retrieval:
     """Implement the retrieval method using petitRADTRANS.
 
@@ -265,11 +171,6 @@ class Retrieval:
                 - "retrieve_add": a fixed scalar is added to the uncertainties, and is retrieved.
         print_log_likelihood_for_debugging : bool
             If True, the current log likelihood of a forward model run will be printed to the console.
-        generate_mock_data : bool
-            If True, the retrieval will generate a mock data set by sampling the prior distributions and bring
-            it into the exact same shape as the input data. This is useful for testing the retrieval setup in input
-            = output tests. The mock data will be saved in the mock_data folder in the run directory, with the
-            following file names: data.name + '_mock_data.dat'.
     """
 
     def __init__(
@@ -283,7 +184,6 @@ class Retrieval:
         test_plotting: bool = False,
         uncertainties_mode: str = "default",
         print_log_likelihood_for_debugging: bool = False,
-        generate_mock_data: bool = False,
         compilation_cache_dir: str | bool | None = None,
     ):
         self.configuration = configuration
@@ -306,7 +206,6 @@ class Retrieval:
         _, self.comm, self.rank = get_mpi_context()
         self.uncertainties_mode = uncertainties_mode
         self.print_log_likelihood_for_debugging = print_log_likelihood_for_debugging
-        self.generate_mock_data = generate_mock_data
         self.output_directory = output_directory
 
         self._configure_compilation_cache(compilation_cache_dir)
@@ -326,6 +225,9 @@ class Retrieval:
         # PMN analysis
         self.analyzer = None
         self.sampler = None
+
+        # Populated by combine_chains(); read by get_convergence_diagnostics().
+        self._chain_diagnostics = None
 
         self.samples = {}
         self.param_dictionary = {}
@@ -381,13 +283,9 @@ class Retrieval:
             print(f"Could not generate initial summary file! Error was: {str(e)}")
 
     def _configure_compilation_cache(self, compilation_cache_dir):
-        """Enable a shared on-disk XLA compilation cache for this retrieval.
-
-        Compiling a differentiable forward model can take minutes. Sequential
-        multi-chain runs and freshly spawned chain workers otherwise recompile it
-        from scratch every time, because each sampler run clears the in-memory
-        cache to free device memory after it finishes. Pointing JAX at a
-        persistent on-disk cache turns those recompiles into cache reads.
+        """
+        Compiling a differentiable forward model is slows, so we save
+        the compiled function to disk to avoid recompilation after sampling.
 
         ``compilation_cache_dir`` selects the location:
 
@@ -426,6 +324,10 @@ class Retrieval:
             )
 
     def _check_errors(self):
+        """ Check if the model function and data can be used for retrievals.
+        Will raise errors and warnings if there are problems.
+
+        """
         data_are_valid = self._data_are_valid()
 
         if not data_are_valid:
@@ -436,6 +338,19 @@ class Retrieval:
         self._error_check_model_function()
 
     def _data_are_valid(self, data=None):
+        """
+        Check if the provided data is valid for retrievals.
+
+        Parameters
+        ----------
+        data : dict or np.ndarray, optional
+            The data to check. If None, the data from the configuration is used.
+
+        Returns
+        -------
+        bool
+            True if the data is valid, False otherwise.
+        """
         tested_attributes = ["wavelengths", "spectrum", "uncertainties"]
         valid = True
 
@@ -482,6 +397,11 @@ class Retrieval:
         return valid
 
     def _error_check_model_function(self):
+        """
+        Sanity check the model function. This will catch most common
+        failure modes (e.g., invalid parameter names, bad calculations,
+        incorrect array shapes, division by zero, invalid inputs etc.)
+        """
         for data_name in self.configuration.data:
             print(f"Testing model function for data '{data_name}'...")
             message = None
@@ -539,6 +459,10 @@ class Retrieval:
         print("No errors detected in the model functions!")
 
     def _rebin_opacities(self, resolution: float):
+        """
+        Based on exo-k, will rebin c-k opacities down to the requested resolution
+        if the file does not already exist.
+        """
         species = []
 
         for line in self.configuration.line_species:
@@ -627,6 +551,28 @@ class Retrieval:
         pt_plot_mode: bool = False,
         adaptive_mesh_refinement: bool = False,
     ):
+        """
+        Call the model generating function with the given parameters and data.
+
+        Args:
+            model_generating_function : Callable
+                The model generating function to call.
+            radtrans_object :
+                The radiative transfer object to use.
+            parameters : dict[str, Parameter]
+                A dictionary of parameters to pass to the model.
+            data_name : str
+                The name of the data set.
+            data_object : Data | None, optional
+                The data object to use, by default None.
+            pt_plot_mode : bool, optional
+                Whether to enable pressure-temperature plot mode, by default False.
+            adaptive_mesh_refinement : bool, optional
+                Whether to enable adaptive mesh refinement, by default False.
+
+        Returns:
+            The output of the model generating function, converted to the legacy format.
+        """
         _, runtime_ready_model_function = coerce_model_generating_function(
             model_generating_function
         )
@@ -671,7 +617,7 @@ class Retrieval:
         copy_configuration_parameters: bool = True,
         **kwargs,
     ):
-        """Calculate the forward model associated with the given data, for the given parameters.
+        """Calculate the forward model associated with the given datasets, for the given parameters.
 
         Args:
             parameters:
@@ -1235,6 +1181,14 @@ class Retrieval:
                         summary.write(f"    {key} = {out}\n")
 
     def _collect_best_fit_summary(self) -> dict | None:
+        """
+        Collect a summary of the best fit parameters and statistics from the retrieval that
+        will be used to generate the summary file.
+
+        Returns:
+            dict | None: A dictionary containing the best fit log-likelihood, chi-squared values,
+            and evidence approximations, or None if the best fit could not be determined.
+        """
         try:
             samples_dict, parameter_dict = self.get_samples(
                 names=[self.configuration.retrieval_name],
@@ -1296,9 +1250,20 @@ class Retrieval:
         }
 
     def _count_data_points(self) -> int:
+        """ Counts how many data points are present across all datasets.
+
+        Returns:
+            int: The total number of data points across all datasets.
+        """
         return sum(np.size(data.spectrum) for data in self.configuration.data.values())
 
     def _count_free_parameters(self) -> int:
+        """
+        Counts how many free parameters are present in the retrieval configuration.
+
+        Returns:
+            int: The total number of free parameters.
+        """
         return sum(
             1
             for parameter in self.configuration.parameters.values()
@@ -1306,6 +1271,17 @@ class Retrieval:
         )
 
     def _get_log_weight_samples(self, results=None) -> np.ndarray | None:
+        """
+        Retrieves the log-weighted samples from the given results.
+        This allows for comparison between PMN and other samplers which
+        don't automatically provide the equal-weighted samples.
+
+        Args:
+            results (dict | None): The results from the sampler. If None, the active sampler results will be used.
+
+        Returns:
+            np.ndarray | None: The log weight samples as a 1D numpy array, or None if they could not be retrieved.
+        """
         if results is None:
             results = self._get_active_sampler_results()
 
@@ -1358,6 +1334,21 @@ class Retrieval:
         logl_samples: npt.ArrayLike,
         log_weights: npt.ArrayLike = None,
     ) -> dict[str, float] | None:
+        """
+        Collects various evidence approximations for the model based on the provided
+        log-likelihood samples and weights. This includes approximations such as the
+        Bayesian Information Criterion (BIC), Akaike Information Criterion (AIC),
+        and Bayesian Predictive Information Criterion (BPICs).
+
+        Args:
+            max_logl (float): The maximum log-likelihood value.
+            logl_samples (npt.ArrayLike): The log-likelihood samples as a 1D array.
+            log_weights (npt.ArrayLike, optional): The log weight samples as a 1D array. Defaults to None.
+
+        Returns:
+            dict[str, float] | None: A dictionary containing the evidence approximations
+            (BIC, AIC, BPICs), or None if they could not be computed.
+        """
         logl_samples = np.asarray(logl_samples, dtype=float).reshape(-1)
 
         if logl_samples.size == 0:
@@ -1388,6 +1379,17 @@ class Retrieval:
     def _collect_sampler_summary(
         self, stats: dict = None, sampler_parameters: dict = None
     ) -> dict:
+        """
+        Collects a summary of the sampler's performance, including parameters, diagnostics,
+        evidence, and posterior distributions.
+
+        Args:
+            stats (dict, optional): A dictionary containing global evidence and marginal statistics. Defaults to None.
+            sampler_parameters (dict, optional): A dictionary containing sampler-specific parameters. Defaults to None.
+
+        Returns:
+            dict: A dictionary summarizing the sampler's performance.
+        """
         sampler_summary = {
             "sampler": (
                 self.sampler.__class__.__name__ if self.sampler is not None else None
@@ -1438,6 +1440,17 @@ class Retrieval:
         return sampler_summary
 
     def _write_sampler_summary_section(self, summary, sampler_summary: dict) -> None:
+        """
+        Writes a summary section for the sampler, including its parameters, diagnostics,
+        evidence, and posterior distributions.
+
+        Args:
+            summary (TextIO): The file-like object to write the summary to.
+            sampler_summary (dict): A dictionary containing the sampler's summary information.
+
+        Returns:
+            None
+        """
         summary.write("Sampler\n")
         if sampler_summary.get("sampler") is not None:
             summary.write(f"    sampler = {sampler_summary['sampler']}\n")
@@ -1506,6 +1519,16 @@ class Retrieval:
 
     @staticmethod
     def _get_results_field(results, *field_names):
+        """
+        Retrieves the value of the first available field from the sampler results.
+
+        Args:
+            results (dict or object): The results object to query.
+            *field_names (str): One or more field names to look for in the results.
+
+        Returns:
+            The value of the first found field, or None if none of the fields are present.
+        """
         if results is None:
             return None
 
@@ -1518,6 +1541,12 @@ class Retrieval:
         return None
 
     def _get_active_sampler_results(self):
+        """
+        Retrieves the results from the active sampler, if available.
+
+        Returns:
+            The sampler results object, or None if no results are available.
+        """
         if getattr(self, "latest_sampler_results", None) is not None:
             return self.latest_sampler_results
 
@@ -1536,6 +1565,19 @@ class Retrieval:
         return getattr(self.sampler, "results", None)
 
     def _coerce_parameter_sample_matrix(self, parameter_samples, parameter_names):
+        """
+        Forces the parameter samples into a consistent matrix format. Not all
+        samplers return the same format for the parameters, so it's necessary
+        to check and make sure the samples are compatible with the rest of the
+        retrieval package.
+
+        Args:
+            parameter_samples (dict or array-like): The parameter samples to coerce.
+            parameter_names (list of str): The names of the parameters.
+
+        Returns:
+            tuple: A tuple containing the coerced parameter sample matrix and the ordered parameter names.
+        """
         if parameter_samples is None:
             return None, parameter_names
 
@@ -1577,6 +1619,15 @@ class Retrieval:
         return None, parameter_names
 
     def _evaluate_sample_log_likelihoods(self, parameter_samples):
+        """
+        Evaluates the log-likelihoods for a set of parameter samples.
+
+        Args:
+            parameter_samples (array-like): The parameter samples to evaluate.
+
+        Returns:
+            np.ndarray: An array of log-likelihood values corresponding to the parameter samples.
+        """
         return np.asarray(
             [
                 self.log_likelihood(np.asarray(sample, dtype=float))
@@ -1586,6 +1637,16 @@ class Retrieval:
         )
 
     def _build_samples_from_sampler_results(self, results=None, parameter_names=None):
+        """
+        Builds a matrix of parameter samples and their corresponding log-likelihoods from the sampler results.
+
+        Args:
+            results (dict or object, optional): The sampler results to process. If None, the active sampler results are used.
+            parameter_names (list of str, optional): The names of the parameters. If None, the free parameter names are used.
+
+        Returns:
+            tuple: A tuple containing the matrix of parameter samples with log-likelihoods appended as the last row, and the ordered parameter names.
+        """
         if parameter_names is None:
             parameter_names = list(self._free_parameter_names_cache)
 
@@ -1656,6 +1717,17 @@ class Retrieval:
         )
 
     def _load_samples_archive(self, ret_name: str | None = None):
+        """
+        Loads the archived samples for a given retrieval.
+
+        Args:
+            ret_name (str, optional): The name of the retrieval. If None, the active retrieval name is used.
+
+        Returns:
+            tuple: A tuple containing the matrix of parameter samples with
+            log-likelihoods appended as the last row, and the ordered parameter names.
+            Returns (None, None) if the archive does not exist or is invalid.
+        """
         archive_path = self._get_samples_archive_path(ret_name=ret_name)
 
         if not os.path.exists(archive_path):
@@ -1716,6 +1788,19 @@ class Retrieval:
         ret_name: str,
         parameter_names: list[str],
     ):
+        """
+        Loads the raw JAXNS results samples for a given retrieval.
+
+        Args:
+            output_directory (str): The output directory containing the JAXNS results.
+            ret_name (str): The name of the retrieval.
+            parameter_names (list of str): The names of the parameters.
+
+        Returns:
+            tuple: A tuple containing the parameter matrix, the ordered parameter names,
+            and the log-likelihood array. Returns (None, parameter_names, None) if the
+            results cannot be loaded or are invalid.
+        """
         raw_results_path = os.path.join(
             output_directory,
             "out_JAXNS",
@@ -1772,6 +1857,13 @@ class Retrieval:
         return parameter_matrix, parameter_names, log_likelihood
 
     def _build_samples_for_export(self):
+        """
+        Builds the samples for saving to npz, either from the sampler results or from the PyMultiNest output.
+
+        Returns:
+            tuple: A tuple containing the samples matrix and the ordered parameter names.
+            Returns (None, None) if the samples cannot be built.
+        """
         samples, parameter_names = self._build_samples_from_sampler_results()
 
         if samples is not None and parameter_names is not None:
@@ -1791,6 +1883,12 @@ class Retrieval:
         return None, None
 
     def _save_samples_archive(self) -> str | None:
+        """
+        Saves the posterior samples to an npz archive.
+
+        Returns:
+            str | None: The path to the saved archive, or None if the samples could not be built.
+        """
         samples, parameter_names = self._build_samples_for_export()
 
         if samples is None or parameter_names is None:
@@ -1812,6 +1910,16 @@ class Retrieval:
         return archive_path
 
     def _register_sampler_results(self, sampler, results):
+        """
+        Registers the sampler and its results with the retrieval object.
+
+        Args:
+            sampler: The sampler instance used for the retrieval.
+            results: The results returned by the sampler.
+
+        Returns:
+            The results that were registered.
+        """
         self.sampler = sampler
         self.latest_sampler_results = results
 
@@ -1834,6 +1942,19 @@ class Retrieval:
     def _finalize_sampler_run(
         self, sampler, results, stats=None, sampler_parameters=None
     ):
+        """
+        Finalizes the sampler run by registering the results, saving the samples archive,
+        and generating the retrieval summary.
+
+        Args:
+            sampler: The sampler instance used for the retrieval.
+            results: The results returned by the sampler.
+            stats: Optional statistics from the sampler.
+            sampler_parameters: Optional parameters used by the sampler.
+
+        Returns:
+            The results that were registered.
+        """
         self._register_sampler_results(sampler, results)
 
         if self.rank == 0:
@@ -2106,6 +2227,17 @@ class Retrieval:
 
     @staticmethod
     def _coerce_best_fit_auxiliary_outputs(auxiliary_outputs):
+        """
+        Coerces the best fit auxiliary outputs into a standardized dictionary format.
+        This is all of the additional outputs that can be produced by calculate_flux
+        or calculate_transit_radii.
+
+        Args:
+            auxiliary_outputs: The auxiliary outputs to be coerced. Can be None, a numpy array, or a dictionary.
+
+        Returns:
+            dict: A dictionary containing the coerced auxiliary outputs.
+        """
         if auxiliary_outputs is None:
             return {}
 
@@ -2243,6 +2375,21 @@ class Retrieval:
         return norm
 
     def get_elpd_per_datapoint(self, ret_name: str = None):
+        """
+        Get the expected log predictive density (ELPD) per datapoint for the retrieval.
+        This method uses leave-one-out cross-validation (LOO-CV) to estimate the predictive
+        performance of the retrieval model for each datapoint. It leverages the Pareto-smoothed
+        importance sampling (PSIS) technique to compute the ELPD and Pareto k diagnostic values.
+        This allows us to see how much each data point contributes to the retrieval.
+
+        Args:
+            ret_name : str, optional
+                The name of the retrieval to evaluate. If None, uses the current retrieval.
+
+        Returns:
+            tuple: A tuple containing dictionaries for the total ELPD, ELPD per datapoint,
+            Pareto k values, and the difference in ELPD between two retrievals (if applicable).
+        """
         # Leave one out cross validation analysis
         from .psis import psisloo
 
@@ -2450,6 +2597,7 @@ class Retrieval:
         adaptive_mesh_refinement: bool | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Return batched model outputs for a batch of sampled free parameters.
+        This allows us to compute the likelihood for many samples in parallel.
 
         Model functions are evaluated with a single static model
         context and ``jax.vmap`` over the leading sample dimension when
@@ -2463,6 +2611,8 @@ class Retrieval:
         """
         sample_matrix = np.asarray(free_parameter_values, dtype=float)
 
+        # Start with all the setup and error checking,
+        # making sure everything is correctly formatted
         if adaptive_mesh_refinement is None:
             adaptive_mesh_refinement = self.configuration.adaptive_mesh_refinement
 
@@ -2513,11 +2663,13 @@ class Retrieval:
                 f"sample matrix is missing free parameter '{error.args[0]}'"
             ) from error
 
+        # More efficient to use a contiguous array in memory
         ordered_sample_matrix = np.ascontiguousarray(
             sample_matrix[:, reorder_indices],
             dtype=float,
         )
 
+        # Define a helper function to evaluate the model in batches for scalar outputs
         def _evaluate_scalar_batch():
             batched_first_output = []
             batched_second_output = []
@@ -2719,7 +2871,7 @@ class Retrieval:
             physical_params = parameter_layout.physical_params_from_free_values(
                 free_parameter_values
             )
-            return runtime.evaluate_per_datapoint_jax(physical_params)
+            return runtime.evaluate_likelihood_per_datapoint_jax(physical_params)
 
         all_native = all(
             group.model_contract == MODEL_CONTRACT_DIFFERENTIABLE
@@ -3371,81 +3523,23 @@ class Retrieval:
         Returns:
             The combine summary, including the combined retrieval name, written
             file paths, and the diagnostics dictionary.
+
+        See Also:
+            :func:`petitRADTRANS.retrieval.multichain.combine_chains`, which does
+            the work and can be called without a Retrieval.
         """
         from petitRADTRANS.retrieval import multichain
 
-        sampler_type = self.configuration.sampler_type
-        family = multichain.sampler_family(sampler_type)
-        base_name = self.configuration.retrieval_name
-
-        if family == "nested":
-            summary = multichain.combine_nested_chains(
-                self.output_directory,
-                sampler_type,
-                base_name,
-                num_chains=num_chains,
-                write=True,
-                on_missing=on_missing,
-            )
-            self._chain_diagnostics = summary.diagnostics
-            if verbose:
-                evidence = summary.evidence
-                print(
-                    f"Combined {len(summary.chain_ids)} nested runs "
-                    f"({summary.chain_ids}) into '{summary.combined_name}': "
-                    f"{summary.diagnostics['n_samples_total']} samples."
-                )
-                if evidence.get("available"):
-                    print(
-                        f"  log Z = {evidence['log_Z_mean']:.3f} +/- "
-                        f"{evidence['log_Z_uncert']:.3f}; between-run std = "
-                        f"{evidence.get('log_Z_between_std', float('nan')):.3f}; "
-                        f"consistent = {summary.diagnostics.get('evidence_consistent')}"
-                    )
-                else:
-                    print("  evidence unavailable (no per-run evidence sidecars).")
-            return summary
-
-        if family != "mcmc":
-            raise NotImplementedError(
-                f"combine_chains supports gradient-MCMC (NumPyro, BlackJAX) and "
-                f"nested (JAXNS) samplers; sampler_type {sampler_type!r} (family "
-                f"{family!r}) is not supported."
-            )
-
-        summary = multichain.combine_mcmc_chains(
+        summary = multichain.combine_chains(
             self.output_directory,
-            sampler_type,
-            base_name,
+            self.configuration.sampler_type,
+            self.configuration.retrieval_name,
             num_chains=num_chains,
-            write=True,
             on_missing=on_missing,
             rhat_threshold=rhat_threshold,
+            verbose=verbose,
         )
         self._chain_diagnostics = summary.diagnostics
-
-        if verbose:
-            diagnostics = summary.diagnostics
-            print(
-                f"Combined {len(summary.chain_ids)} chains "
-                f"({summary.chain_ids}) into '{summary.combined_name}': "
-                f"{diagnostics['n_samples_total']} samples."
-            )
-            if diagnostics.get("rhat_available"):
-                print(
-                    f"  max R-hat = {diagnostics['max_rhat']:.4f} "
-                    f"(threshold {diagnostics['rhat_threshold']}); "
-                    f"min ESS = {diagnostics['min_ess']:.0f}; "
-                    f"converged = {diagnostics['converged']}"
-                )
-            else:
-                print("  R-hat unavailable (need >= 2 chains and >= 4 draws).")
-            if diagnostics.get("divergences") is not None:
-                print(
-                    f"  divergences: {diagnostics['divergences']['total']} "
-                    f"({100.0 * diagnostics['divergences']['fraction']:.2f}%)"
-                )
-
         return summary
 
     def get_convergence_diagnostics(self) -> dict | None:
@@ -3454,504 +3548,55 @@ class Retrieval:
         Populated by :meth:`combine_chains`; returns ``None`` if chains have not
         been combined in this session.
         """
-        return getattr(self, "_chain_diagnostics", None)
+        return self._chain_diagnostics
 
     @classmethod
-    def run_multichain(
-        cls,
-        config_builder,
-        *,
-        num_chains: int,
-        output_directory: str,
-        retrieval_kwargs: dict | None = None,
-        chain_execution: str = "auto",
-        chain_seed: int = 12345,
-        per_chain_memory_gb: float | None = None,
-        on_chain_failure: str = "warn",
-        combine: bool = True,
-        rhat_threshold: float = 1.01,
-        max_workers: int | None = None,
-        sampler_type: str | None = None,
-        base_retrieval_name: str | None = None,
-        resume: bool = False,
-        verbose: bool = True,
-        **run_kwargs,
-    ) -> dict:
+    def run_multichain(cls, config_builder, **kwargs) -> dict:
         """Run a multi-chain retrieval and (optionally) combine the chains.
 
-        This is the native entry point for multi-chain JAX-sampler runs. It keeps
-        the parent process lightweight for the out-of-process modes (only the
-        children build the heavy runtime) and merges the per-chain posteriors into
-        one combined result with convergence diagnostics.
-
-        Parameters
-        ----------
-        config_builder:
-            A **top-level (module-level)** callable returning a fresh
-            ``RetrievalConfig``. For the ``processes`` mode it is dispatched to
-            ``spawn`` workers (so it must be picklable by reference: no closures or
-            lambdas), and the call site must be guarded by
-            ``if __name__ == "__main__":``. It should be cheap (it is also called
-            once in the parent to read the sampler type and retrieval name unless
-            those are given explicitly).
-        num_chains:
-            Number of independent chains.
-        output_directory:
-            Output directory passed to each per-chain ``Retrieval``.
-        retrieval_kwargs:
-            Extra keyword arguments for the ``Retrieval(config, ...)`` constructor.
-        chain_execution:
-            ``auto`` | ``vectorised`` | ``sharded`` | ``sequential`` | ``processes``.
-            ``auto`` chooses based on devices and ``num_chains`` (see
-            :func:`petitRADTRANS.retrieval.multichain.resolve_chain_execution`).
-        chain_seed:
-            Base seed; chain ``c`` uses ``derive_chain_seed(chain_seed, c)``.
-        per_chain_memory_gb:
-            Resident memory per chain, used for the printed peak-memory estimate
-            and to cap process concurrency.
-        on_chain_failure:
-            ``"warn"`` (combine survivors) or ``"raise"``.
-        combine:
-            If ``True`` (and the sampler is gradient-MCMC), combine the per-chain
-            posteriors and compute diagnostics after the chains finish.
-
-        Returns
-        -------
-        dict with keys ``execution``, ``num_chains``, ``succeeded_chain_ids``,
-        ``failed`` (chain_id -> error), ``combine`` (the combine summary or
-        ``None``), and ``diagnostics`` (or ``None``).
+        Thin wrapper around
+        :func:`petitRADTRANS.retrieval.multichain.run_multichain`, which holds the
+        implementation and documents every keyword argument. The parent process
+        stays light: the heavy ``Retrieval`` objects are built by the workers.
         """
         from petitRADTRANS.retrieval import multichain
 
-        if int(num_chains) < 1:
-            raise ValueError("num_chains must be >= 1.")
-        num_chains = int(num_chains)
-        chain_execution = multichain.ChainExecution.validate(chain_execution)
-        if on_chain_failure not in {"warn", "raise"}:
-            raise ValueError("on_chain_failure must be 'warn' or 'raise'.")
-
-        # Light introspection: read sampler type + base name without building the
-        # heavy runtime (RetrievalConfig does not load opacities).
-        if sampler_type is None or base_retrieval_name is None:
-            probe_config = config_builder()
-            if sampler_type is None:
-                sampler_type = probe_config.sampler_type
-            if base_retrieval_name is None:
-                base_retrieval_name = probe_config.retrieval_name
-        base_name = base_retrieval_name
-        family = multichain.sampler_family(sampler_type)
-        # Gradient-MCMC samplers take num_chains=1 per worker; nested samplers
-        # (JAXNS) do not -- each worker is one independent nested run.
-        force_single_chain = family == "mcmc"
-
-        num_devices, gpu_available = _detect_jax_devices()
-        execution = multichain.resolve_chain_execution(
-            chain_execution,
-            num_chains=num_chains,
-            num_devices=num_devices,
-            gpu_available=gpu_available,
-            per_chain_memory_gb=per_chain_memory_gb,
-        )
-
-        peak_gb = multichain.estimate_peak_memory_gb(
-            execution, num_chains, per_chain_memory_gb, max_workers=max_workers
-        )
-        if verbose:
-            print(
-                f"run_multichain: sampler='{sampler_type}' chains={num_chains} "
-                f"execution='{execution}' (requested '{chain_execution}'); "
-                f"devices={num_devices} gpu={gpu_available}"
-            )
-            if peak_gb is not None:
-                available = multichain.available_memory_gb()
-                suffix = (
-                    f"; node MemAvailable ~= {available:.0f}GB" if available else ""
-                )
-                print(f"  estimated peak resident memory ~= {peak_gb:.0f}GB{suffix}")
-                if available is not None and peak_gb > available:
-                    warnings.warn(
-                        f"Estimated peak memory {peak_gb:.0f}GB exceeds available "
-                        f"{available:.0f}GB; reduce num_chains or per-worker load.",
-                        RuntimeWarning,
-                    )
-
-        succeeded_ids: list[int] = []
-        failed: dict[int, str] = {}
-
-        # Resume: chains whose per-chain artifact already exists are treated as
-        # done and skipped (only meaningful for the per-chain modes).
-        already_done: list[int] = []
-        if resume and family in ("mcmc", "nested"):
-            already_done = multichain.existing_chain_ids(
-                output_directory, sampler_type, base_name, num_chains
-            )
-            if already_done and verbose:
-                print(f"  resume: {len(already_done)} chains already done {already_done}.")
-        chains_to_run = [c for c in range(num_chains) if c not in set(already_done)]
-
-        if execution in (multichain.ChainExecution.VECTORISED, multichain.ChainExecution.SHARDED):
-            # In-process device-parallel run: the sampler pools the chains itself
-            # into one archive. We then split that pooled archive back into its
-            # per-chain blocks to compute split-R-hat / ESS and write the same
-            # <base_name>_combined artifacts as the per-chain paths.
-            configuration = config_builder()
-            retrieval = cls(
-                configuration,
-                output_directory=output_directory,
-                **(retrieval_kwargs or {}),
-            )
-            retrieval.run(num_chains=num_chains, seed=chain_seed, **run_kwargs)
-
-            combine_summary = None
-            diagnostics = None
-            if combine and family == "mcmc":
-                try:
-                    combine_summary = multichain.combine_in_process_mcmc_chains(
-                        output_directory,
-                        sampler_type,
-                        base_name,
-                        num_chains,
-                        write=True,
-                        rhat_threshold=rhat_threshold,
-                    )
-                    diagnostics = combine_summary.diagnostics
-                    retrieval._chain_diagnostics = diagnostics
-                except (FileNotFoundError, ValueError, KeyError) as error:
-                    warnings.warn(
-                        f"In-process multi-chain combine failed: {error}",
-                        RuntimeWarning,
-                    )
-            if verbose:
-                if diagnostics is not None:
-                    print(
-                        f"  ran {num_chains} chains in-process ('{execution}'); "
-                        f"combined -> '{combine_summary.combined_name}': "
-                        f"{diagnostics['n_samples_total']} samples; max R-hat="
-                        f"{diagnostics['max_rhat']:.4f} "
-                        f"converged={diagnostics['converged']}"
-                    )
-                else:
-                    print(
-                        f"  ran {num_chains} chains in-process ('{execution}'); "
-                        "the sampler pooled them."
-                    )
-            return {
-                "execution": execution,
-                "num_chains": num_chains,
-                "succeeded_chain_ids": list(range(num_chains)),
-                "failed": {},
-                "combine": combine_summary,
-                "diagnostics": diagnostics,
-            }
-
-        if execution == multichain.ChainExecution.SEQUENTIAL:
-            # One resident model; run chains one after another in this process.
-            succeeded_ids = list(already_done)
-            configuration = config_builder()
-            retrieval = cls(
-                configuration,
-                output_directory=output_directory,
-                **(retrieval_kwargs or {}),
-            )
-            for chain_id in chains_to_run:
-                spec = multichain.ChainSpec.build(base_name, chain_seed, chain_id)
-                try:
-                    _run_single_chain_on(
-                        retrieval, spec, run_kwargs, force_single_chain
-                    )
-                    succeeded_ids.append(chain_id)
-                except Exception as error:  # noqa: BLE001
-                    failed[chain_id] = f"{type(error).__name__}: {error}"
-                    if on_chain_failure == "raise":
-                        raise
-            succeeded_ids = sorted(set(succeeded_ids))
-        else:  # processes
-            succeeded_ids = list(already_done)
-            if chains_to_run:
-                _validate_top_level_builder(config_builder)
-                cpus = (
-                    sorted(os.sched_getaffinity(0))
-                    if hasattr(os, "sched_getaffinity")
-                    else list(range(os.cpu_count() or 1))
-                )
-                cpu_groups = multichain.partition_cpus(cpus, len(chains_to_run))
-                chain_runner = functools.partial(
-                    _run_one_chain_from_builder,
-                    config_builder,
-                    output_directory,
-                    retrieval_kwargs,
-                    base_name,
-                    chain_seed,
-                    run_kwargs,
-                    force_single_chain,
-                )
-                run_result = multichain.run_chains_in_processes(
-                    chain_runner,
-                    chains_to_run,
-                    cpu_groups,
-                    on_chain_failure=on_chain_failure,
-                    max_workers=max_workers,
-                    block_mpi=True,
-                )
-                succeeded_ids = sorted(set(succeeded_ids) | set(run_result.succeeded_chain_ids))
-                failed = run_result.failed
-
-        if verbose:
-            print(
-                f"  chains finished: {len(succeeded_ids)} succeeded "
-                f"({succeeded_ids}), {len(failed)} failed."
-            )
-
-        combine_summary = None
-        diagnostics = None
-        if combine and succeeded_ids:
-            if family == "mcmc":
-                combine_summary = multichain.combine_mcmc_chains(
-                    output_directory,
-                    sampler_type,
-                    base_name,
-                    num_chains=num_chains,
-                    write=True,
-                    on_missing=on_chain_failure,
-                    rhat_threshold=rhat_threshold,
-                )
-                diagnostics = combine_summary.diagnostics
-                if verbose:
-                    print(
-                        f"  combined -> '{combine_summary.combined_name}': "
-                        f"{diagnostics['n_samples_total']} samples; "
-                        f"max R-hat="
-                        f"{diagnostics['max_rhat']:.4f} "
-                        f"converged={diagnostics['converged']}"
-                    )
-            elif family == "nested":
-                combine_summary = multichain.combine_nested_chains(
-                    output_directory,
-                    sampler_type,
-                    base_name,
-                    num_chains=num_chains,
-                    write=True,
-                    on_missing=on_chain_failure,
-                    seed=chain_seed,
-                )
-                diagnostics = combine_summary.diagnostics
-                if verbose:
-                    evidence = combine_summary.evidence
-                    if evidence.get("available"):
-                        print(
-                            f"  combined -> '{combine_summary.combined_name}': "
-                            f"{diagnostics['n_samples_total']} samples; "
-                            f"log Z = {evidence['log_Z_mean']:.3f} +/- "
-                            f"{evidence['log_Z_uncert']:.3f} "
-                            f"(between-run std "
-                            f"{evidence.get('log_Z_between_std', float('nan')):.3f})"
-                        )
-                    else:
-                        print(
-                            f"  combined -> '{combine_summary.combined_name}': "
-                            f"{diagnostics['n_samples_total']} samples; "
-                            "evidence unavailable."
-                        )
-            elif verbose:
-                print(
-                    f"  combine skipped: sampler family '{family}' is not "
-                    "supported by the native combiner."
-                )
-
-        return {
-            "execution": execution,
-            "num_chains": num_chains,
-            "succeeded_chain_ids": succeeded_ids,
-            "failed": failed,
-            "combine": combine_summary,
-            "diagnostics": diagnostics,
-        }
+        return multichain.run_multichain(config_builder, **kwargs)
 
     @classmethod
-    def run_single_chain(
-        cls,
-        config_builder,
-        chain_id: int,
-        *,
-        output_directory: str,
-        num_chains: int,
-        chain_seed: int = 12345,
-        sampler_type: str | None = None,
-        base_retrieval_name: str | None = None,
-        retrieval_kwargs: dict | None = None,
-        resume: bool = True,
-        verbose: bool = True,
-        **run_kwargs,
-    ) -> str | None:
-        """Run exactly one chain (used by the SLURM-array worker and as a primitive).
+    def run_single_chain(cls, config_builder, chain_id: int, **kwargs) -> str | None:
+        """Run exactly one chain (used by e.g. a SLURM-array worker).
 
-        Builds a Retrieval from ``config_builder`` and runs chain ``chain_id`` into
-        its per-chain namespace. With ``resume=True`` the chain is skipped (returns
-        ``None``) if its ``*_samples.npz`` artifact already exists. Returns the
-        per-chain retrieval name, or ``None`` if skipped.
+        Thin wrapper around
+        :func:`petitRADTRANS.retrieval.multichain.run_single_chain`.
         """
         from petitRADTRANS.retrieval import multichain
 
-        if sampler_type is None or base_retrieval_name is None:
-            probe_config = config_builder()
-            sampler_type = sampler_type or probe_config.sampler_type
-            base_retrieval_name = base_retrieval_name or probe_config.retrieval_name
-        base_name = base_retrieval_name
-
-        if resume:
-            artifact = multichain.chain_artifact_path(
-                output_directory, sampler_type, base_name, chain_id
-            )
-            if os.path.exists(artifact):
-                if verbose:
-                    print(f"[chain {chain_id}] resume: {artifact} exists; skipping.")
-                return None
-
-        force_single_chain = multichain.sampler_family(sampler_type) == "mcmc"
-        return _run_one_chain_from_builder(
-            config_builder,
-            output_directory,
-            retrieval_kwargs,
-            base_name,
-            chain_seed,
-            run_kwargs,
-            force_single_chain,
-            chain_id,
-            None,
-        )
+        return multichain.run_single_chain(config_builder, chain_id, **kwargs)
 
     @classmethod
-    def combine_chains_from_builder(
-        cls,
-        config_builder,
-        *,
-        output_directory: str,
-        num_chains: int,
-        retrieval_kwargs: dict | None = None,
-        on_missing: str = "warn",
-        verbose: bool = True,
-    ):
-        """Build a Retrieval from ``config_builder`` and combine its chains.
+    def combine_chains_from_builder(cls, config_builder, **kwargs):
+        """Read a builder's configuration and combine the chains it names.
 
-        Convenience for the SLURM-array combine task: it rebuilds a (cheap)
-        Retrieval and calls :meth:`combine_chains`.
+        Thin wrapper around
+        :func:`petitRADTRANS.retrieval.multichain.combine_chains_from_builder`.
+        No ``Retrieval`` is constructed, so the combine task stays light.
         """
-        configuration = config_builder()
-        retrieval = cls(
-            configuration,
-            output_directory=output_directory,
-            **(retrieval_kwargs or {}),
-        )
-        return retrieval.combine_chains(
-            num_chains=num_chains, on_missing=on_missing, verbose=verbose
-        )
+        from petitRADTRANS.retrieval import multichain
+
+        return multichain.combine_chains_from_builder(config_builder, **kwargs)
 
     @classmethod
-    def write_chain_launcher(
-        cls,
-        config_builder,
-        *,
-        num_chains: int,
-        output_directory: str,
-        script_dir: str = ".",
-        scheduler: str = "slurm_array",
-        builder_module: str | None = None,
-        builder_function: str | None = None,
-        retrieval_kwargs: dict | None = None,
-        run_kwargs: dict | None = None,
-        chain_seed: int = 12345,
-        resume: bool = True,
-        base_retrieval_name: str | None = None,
-        python: str = "python",
-        cpus_per_task: int = 8,
-        partition: str | None = None,
-        time: str = "24:00:00",
-        mem: str | None = None,
-        gres: str | None = None,
-        account: str | None = None,
-        log_dir: str = "out",
-        job_name: str | None = None,
-        env_setup_lines: tuple = (),
-        extra_sbatch_lines: tuple = (),
-        verbose: bool = True,
-    ) -> dict:
+    def write_chain_launcher(cls, config_builder, **kwargs) -> dict:
         """Generate a SLURM job-array launcher for a multi-node multi-chain run.
 
-        Writes a per-task worker script plus an array sbatch, a dependent combine
-        sbatch, and a submit driver into ``script_dir``. The array runs one chain
-        per task (``SLURM_ARRAY_TASK_ID``); the combine task depends on it
-        (``afterany``) and merges the survivors. ``config_builder`` must live in an
-        importable module (not ``__main__``) and be a top-level function;
-        ``retrieval_kwargs``/``run_kwargs`` must be Python literals (load arrays
-        inside the builder).
+        Thin wrapper around
+        :func:`petitRADTRANS.retrieval.multichain.write_chain_launcher`, which
+        holds the implementation and documents every keyword argument.
         """
-        from pathlib import Path as _Path
-
         from petitRADTRANS.retrieval import multichain
 
-        if scheduler != "slurm_array":
-            raise ValueError("Only scheduler='slurm_array' is currently supported.")
-        _validate_top_level_builder(config_builder)
-
-        builder_module = builder_module or getattr(config_builder, "__module__", None)
-        builder_function = builder_function or getattr(
-            config_builder, "__qualname__", None
-        )
-        if base_retrieval_name is None:
-            base_retrieval_name = config_builder().retrieval_name
-        base_name = base_retrieval_name
-
-        script_path = _Path(script_dir)
-        script_path.mkdir(parents=True, exist_ok=True)
-        worker_filename = f"{base_name}_chain_worker.py"
-
-        worker_content = multichain.render_chain_worker_script(
-            builder_module,
-            builder_function,
-            output_directory,
-            num_chains,
-            chain_seed,
-            retrieval_kwargs,
-            run_kwargs,
-            resume,
-        )
-        scripts = multichain.render_slurm_array_scripts(
-            base_name=base_name,
-            worker_filename=worker_filename,
-            num_chains=num_chains,
-            python=python,
-            cpus_per_task=cpus_per_task,
-            partition=partition,
-            time=time,
-            mem=mem,
-            gres=gres,
-            account=account,
-            log_dir=log_dir,
-            job_name=job_name,
-            env_setup_lines=env_setup_lines,
-            extra_sbatch_lines=extra_sbatch_lines,
-        )
-
-        written: dict[str, str] = {}
-        worker_path = script_path / worker_filename
-        worker_path.write_text(worker_content, encoding="utf-8")
-        written["worker"] = str(worker_path)
-        for filename, content in scripts.items():
-            path = script_path / filename
-            path.write_text(content, encoding="utf-8")
-            written[filename] = str(path)
-            if filename.endswith((".sh", ".sbatch")):
-                try:
-                    os.chmod(path, 0o755)
-                except OSError:
-                    pass
-
-        if verbose:
-            print(f"Wrote SLURM multi-chain launcher for '{base_name}':")
-            for value in written.values():
-                print(f"  {value}")
-            print(f"Submit with:  bash {script_path / (base_name + '_submit.sh')}")
-        return written
+        return multichain.write_chain_launcher(config_builder, **kwargs)
 
     @staticmethod
     def get_special_parameters() -> set[str]:
@@ -4001,27 +3646,31 @@ class Retrieval:
     ):
         """Sampler-facing log-likelihood entry point.
 
-        The normal scalar retrieval path now executes through ``RetrievalRuntime``.
-        Less common debug modes still fall back to the legacy implementation
-        until the entire retrieval stack has been migrated.
+        The retrieval path executes through ``RetrievalRuntime``.
 
         When *log_l_per_datapoint_dict* is a dict, the per-datapoint
         log-likelihood vector of each dataset is appended to the corresponding
         dict entry and the dict is returned (used by PSIS leave-one-out
         analysis; see :meth:`get_log_likelihood_per_datapoint`).
+
+        ``return_model`` is no longer supported: the legacy implementation that
+        returned the forward model alongside the likelihood has been removed. Use
+        :meth:`get_best_fit_model` or :meth:`get_full_range_model` to obtain model
+        spectra.
         """
         if return_model:
-            return self._log_likelihood_legacy(
-                cube,
-                ndim=ndim,
-                nparam=nparam,
-                return_model=return_model,
+            raise NotImplementedError(
+                "log_likelihood(return_model=True) is no longer supported: the "
+                "legacy implementation that returned (log_likelihood, wavelengths, "
+                "spectra, beta, additional_log_likelihoods) has been removed. Use "
+                "Retrieval.get_best_fit_model() or Retrieval.get_full_range_model() "
+                "to generate model spectra."
             )
 
         physical_params = self.parameter_layout.physical_params_from_vector(cube)
 
         if isinstance(log_l_per_datapoint_dict, dict):
-            per_datapoint_log_likelihoods = self.runtime.evaluate_per_datapoint_jax(
+            per_datapoint_log_likelihoods = self.runtime.evaluate_likelihood_per_datapoint_jax(
                 physical_params
             )
 
@@ -4032,433 +3681,38 @@ class Retrieval:
 
             return log_l_per_datapoint_dict
 
-        return self.runtime.evaluate_scalar(
+        return self.runtime.evaluate_likelihood_scalar(
             physical_params=physical_params,
             uncertainties_mode=self.uncertainties_mode,
             print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging,
         )
 
-    def _log_likelihood_legacy(
-        self,
-        cube: npt.NDArray[np.floating],
-        ndim: int = 0,  # noqa: F811 keeping unused parameters for Multinest compatibility.
-        nparam: int = 0,  # noqa: F811 keeping unused parameters for Multinest compatibility.
-        return_model: bool = False,
-    ):
-        """Legacy scalar likelihood implementation retained for fallback modes."""
-        invalid_value = -1e99
-        tiny = 1e-99
-        log_likelihood = 0.0
-        log_prior = 0.0
-
-        retrieve_uncertainties = False
-        beta_mode = "multiply"
-
-        wavelengths_models = []
-        spectrum_models = []
-        additional_log_ls = []
-        beta = 1.0
-
-        atmospheric_model_column_fluxes = None
-
-        if self.uncertainties_mode == "default":
-            beta = 1.0
-        elif self.uncertainties_mode == "optimize":
-            warnings.warn(
-                "automatically optimizing for uncertainties, be sure of what you are doing..."
-            )
-            beta = None
-        elif self.uncertainties_mode == "retrieve":
-            warnings.warn(
-                "retrieving uncertainties (multiply mode), be sure of what you are doing..."
-            )
-            retrieve_uncertainties = True
-            beta_mode = "multiply"
-        elif self.uncertainties_mode == "retrieve_add":
-            warnings.warn(
-                "retrieving uncertainties (add mode), be sure of what you are doing..."
-            )
-            retrieve_uncertainties = True
-            beta_mode = "add"
-        else:
-            raise ValueError(
-                f"uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
-                f"but was '{self.uncertainties_mode}'"
-            )
-
-        # Update model parameters with the sampled free-parameter values.
-        self._set_free_parameter_values(cube)
-
-        for data_name, data in self.configuration.data.items():
-            data_spectrum = data.spectrum
-
-            # Only calculate spectra within a given wavelengths range once if
-            # data.scale_flux or data.scale_uncertainties:
-            data_spectrum = data.apply_flux_scaling(
-                data_spectrum, self.configuration.parameters
-            )
-            data_spectrum = data.offset_flux(
-                data_spectrum, self.configuration.parameters
-            )
-            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(
-                self.configuration.parameters
-            )
-
-            if data.external_radtrans_reference is None:
-                # Compute the model
-                model_returned_values = self._call_model_generating_function(
-                    data.model_generating_function,
-                    data.radtrans_object,
-                    self.configuration.parameters,
-                    data_name=data_name,
-                    pt_plot_mode=False,
-                    adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
-                )  # TODO the generating function should always return the same number of values
-
-                if retrieve_uncertainties:
-                    if len(model_returned_values) == 4:
-                        wavelengths_model, spectrum_model, beta, additional_log_l = (
-                            model_returned_values
-                        )
-                    else:
-                        wavelengths_model, spectrum_model, beta = model_returned_values
-                        additional_log_l = 0.0
-                else:
-                    if data.variability_atmospheric_column_model_flux_return_mode:
-                        (
-                            wavelengths_model,
-                            spectrum_model,
-                            additional_log_l,
-                            atmospheric_model_column_fluxes,
-                        ) = model_returned_values
-                    elif len(model_returned_values) == 3:
-                        wavelengths_model, spectrum_model, additional_log_l = (
-                            model_returned_values
-                        )
-                    else:
-                        wavelengths_model, spectrum_model = model_returned_values
-                        additional_log_l = 0.0
-
-                if additional_log_l is None:
-                    additional_log_l = 0
-
-                # Ensure that the spectrum model has no masked values, so that no conversion to NaN is required
-                if isinstance(spectrum_model, np.ma.MaskedArray):
-                    spectrum_model = spectrum_model.filled(0)
-
-                # Sanity checks on outputs
-                if spectrum_model is None:
-                    # -np.inf (and anything <1e-100) seemed to cause issues with Multinest.
-                    # This particular check probably wasn't the underlying cause, and could
-                    # use a better default value.
-                    return invalid_value
-
-                # Calculate log likelihood
-                if not isinstance(data.spectrum, float) and data.spectrum.dtype == "O":
-                    if jnp.ndim(data.spectrum) == 1:
-                        # Convolution and rebin are *not* cared of in get_log_likelihood
-                        # Second dimension of data must be a function of wavelength
-                        for i, spectrum_data in enumerate(data.spectrum):
-                            if jnp.isnan(spectrum_model[i][~data.mask[i]]).any():
-                                return invalid_value
-
-                            log_likelihood += data.log_likelihood(
-                                spectrum_model[i][~data.mask[i]],
-                                spectrum_data,
-                                data.uncertainties[i],
-                                beta=beta,
-                                beta_mode=beta_mode,
-                            )
-                    elif jnp.ndim(data.spectrum) == 2:
-                        # Convolution and rebin are *not* cared of in get_log_likelihood
-                        # Third dimension of data must be a function of wavelength
-                        for i, detector in enumerate(data.spectrum):
-                            for j, spectrum_data in enumerate(detector):
-                                if jnp.isnan(
-                                    spectrum_model[i, j][~data.mask[i, j]]
-                                ).any():
-                                    return invalid_value
-
-                                log_likelihood += data.log_likelihood(
-                                    spectrum_model[i, j][~data.mask[i, j]],
-                                    spectrum_data,
-                                    data.uncertainties[i, j],
-                                    beta=beta,
-                                    beta_mode=beta_mode,
-                                )
-                    else:
-                        raise ValueError(
-                            f"observation is an array containing object, "
-                            f"and have {jnp.ndim(data.spectrum)} dimensions, "
-                            f"but must have 1 to 2"
-                        )
-                else:
-                    if jnp.isnan(spectrum_model).any():
-                        return invalid_value
-
-                    if (
-                        isinstance(data.spectrum, float) or jnp.ndim(data.spectrum) == 1
-                    ) and jnp.ndim(spectrum_model) == 1:
-
-                        if data.fit_instrumental_resolution:
-                            # Convolve and rebin if fitting for resolution
-                            resolution_slope = self.configuration.parameters[
-                                data.name + "_R_slope"
-                            ].value
-                            resolution_intersect = self.configuration.parameters[
-                                data.name + "_R_int"
-                            ].value
-                            resolution_array = (
-                                data.wavelengths * resolution_slope
-                            ) + resolution_intersect
-                            model_spectrum_rebinned = (
-                                convolve_and_sample_variable_resolution_breads(
-                                    data.wavelengths,
-                                    resolution_array,
-                                    data.wavelengths,
-                                    spectrum_model,
-                                )
-                            )
-                        model_spectrum_convolved = spectrum_model
-                        if data.data_resolution is not None:
-                            # Convolve and rebin the model spectrum to the data resolution
-                            model_spectrum_convolved = convolve(
-                                wavelengths_model, spectrum_model, data.data_resolution
-                            )
-                        if (
-                            data_name + "_radial_velocity"
-                            in self.configuration.parameters.keys()
-                        ):
-                            # RV in km/s -> multiply by 1e5 to cm/s
-                            # wavelengths_model in micron
-                            # cst.c in cm/s
-                            radial_velocity = (
-                                self.configuration.parameters[
-                                    data.name + "_radial_velocity"
-                                ].value
-                                * 1e5
-                            )
-                            wavelengths_model *= shift_wavelengths_by_radial_velocity(
-                                radial_velocity
-                            )
-
-                        elif (
-                            "system_radial_velocity"
-                            in self.configuration.parameters.keys()
-                        ):
-                            radial_velocity = (
-                                self.configuration.parameters[
-                                    "system_radial_velocity"
-                                ].value
-                                * 1e5
-                            )
-                            wavelengths_model *= shift_wavelengths_by_radial_velocity(
-                                radial_velocity
-                            )
-
-                        if np.size(wavelengths_model) == np.size(
-                            data.wavelengths
-                        ) and np.all(wavelengths_model == data.wavelengths):
-                            model_spectrum_rebinned = copy.deepcopy(
-                                model_spectrum_convolved
-                            )
-                        else:
-                            model_spectrum_rebinned = rebin_spectrum_bin(
-                                wavelengths_model,
-                                model_spectrum_convolved,
-                                data.wavelengths,
-                                data.wavelength_bin_widths,
-                            )
-
-                        # Convolution and rebin are cared of in get_chisq
-                        log_likelihood += (
-                            LogLikelihood(
-                                model_spectrum=model_spectrum_rebinned,
-                                data_spectrum=data_spectrum,
-                                data_uncertainties=data_uncertainties,
-                                data_covariance=data_covariance,
-                                n_free_parameters=self._n_free_params_total_retrieval,
-                            ).calculate_log_likelihood()
-                            + additional_log_l
-                        )
-
-                    elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 2:
-                        log_likelihood += data.log_likelihood(
-                            spectrum_model[0, :],
-                            data.spectrum,
-                            data.uncertainties,
-                            beta=beta,
-                            beta_mode=beta_mode,
-                        )
-                    elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 3:
-                        log_likelihood += data.log_likelihood(
-                            spectrum_model[0, 0, :],
-                            data.spectrum,
-                            data.uncertainties,
-                            beta=beta,
-                            beta_mode=beta_mode,
-                        )
-                    elif jnp.ndim(data.spectrum) == 2:
-                        # Convolution and rebin are *not* cared of in get_log_likelihood
-                        # Second dimension of data must be a function of wavelength
-                        for i, spectrum_data in enumerate(data.spectrum):
-                            log_likelihood += data.log_likelihood(
-                                spectrum_model[i, ~data.mask[i, :]],
-                                spectrum_data,
-                                data.uncertainties[i],
-                                beta=beta,
-                                beta_mode=beta_mode,
-                            )
-                    elif jnp.ndim(data.spectrum) == 3:
-                        # Convolution and rebin are *not* cared of in get_log_likelihood
-                        # Third dimension of data must be a function of wavelength
-                        for i, detector in enumerate(data.spectrum):
-                            for j, spectrum_data in enumerate(detector):
-                                log_likelihood += data.log_likelihood(
-                                    spectrum_model[i, j, ~data.mask[i, j, :]],
-                                    spectrum_data,
-                                    data.uncertainties[i, j],
-                                    beta=beta,
-                                    beta_mode=beta_mode,
-                                )
-            else:
-                wavelengths_model = None
-                spectrum_model = None
-                additional_log_l = None
-
-            # Check for data using the same pRT object
-            # Calculate log likelihood
-            for data_name_2, data_2 in self.configuration.data.items():
-                if data_2.external_radtrans_reference is not None:
-                    data_2_spectrum = data_2.spectrum
-
-                    data_2_spectrum = data_2.apply_flux_scaling(
-                        data_2_spectrum, self.configuration.parameters
-                    )
-                    data_2_spectrum = data_2.offset_flux(
-                        data_2_spectrum, self.configuration.parameters
-                    )
-                    data_2_uncertainties, data_2_covariance = (
-                        data.scale_and_inflate_uncertainties(
-                            self.configuration.parameters
-                        )
-                    )
-
-                    if data_2.external_radtrans_reference == data_name:
-                        if spectrum_model is None:
-                            return invalid_value
-
-                        if np.isnan(spectrum_model).any():
-                            return invalid_value
-
-                        if data.fit_instrumental_resolution:
-                            # Convolve and rebin if fitting for resolution
-                            resolution_slope = self.configuration.parameters[
-                                data.name + "_R_slope"
-                            ].value
-                            resolution_intersect = self.configuration.parameters[
-                                data.name + "_R_int"
-                            ].value
-                            resolution_array = (
-                                data.wavelengths * resolution_slope
-                            ) + resolution_intersect
-                            model_spectrum_rebinned = (
-                                convolve_and_sample_variable_resolution_breads(
-                                    data.wavelengths,
-                                    resolution_array,
-                                    data.wavelengths,
-                                    spectrum_model,
-                                )
-                            )
-
-                        model_spectrum_convolved = spectrum_model
-                        if data.data_resolution is not None:
-                            # Convolve and rebin the model spectrum to the data resolution
-                            model_spectrum_convolved = convolve(
-                                wavelengths_model, spectrum_model, data.data_resolution
-                            )
-                        if (
-                            data_name + "_radial_velocity"
-                            in self.configuration.parameters.keys()
-                        ):
-                            # RV in km/s -> multiply by 1e5 to cm/s
-                            # wavelengths_model in micron
-                            # cst.c in cm/s
-                            radial_velocity = (
-                                self.configuration.parameters[
-                                    data.name + "_radial_velocity"
-                                ].value
-                                * 1e5
-                            )
-                            wavelengths_model *= shift_wavelengths_by_radial_velocity(
-                                radial_velocity
-                            )
-
-                        elif (
-                            "system_radial_velocity"
-                            in self.configuration.parameters.keys()
-                        ):
-                            radial_velocity = (
-                                self.configuration.parameters[
-                                    "system_radial_velocity"
-                                ].value
-                                * 1e5
-                            )
-                            wavelengths_model *= shift_wavelengths_by_radial_velocity(
-                                radial_velocity
-                            )
-
-                        if np.size(wavelengths_model) == np.size(
-                            data.wavelengths
-                        ) and np.all(wavelengths_model == data.wavelengths):
-                            model_spectrum_rebinned = copy.deepcopy(spectrum_model)
-                        else:
-                            model_spectrum_rebinned = rebin_spectrum_bin(
-                                wavelengths_model,
-                                model_spectrum_convolved,
-                                data.wavelengths,
-                                data.wavelength_bin_widths,
-                            )
-
-                        # Convolution and rebin are cared of in get_chisq
-                        log_likelihood += (
-                            LogLikelihood(
-                                model_spectrum=model_spectrum_rebinned,
-                                data_spectrum=data_2_spectrum,
-                                data_uncertainties=data_2_uncertainties,
-                                data_covariance=data_2_covariance,
-                                n_free_parameters=self._n_free_params_total_retrieval,
-                            ).calculate_log_likelihood()
-                            + additional_log_l
-                        )
-
-        if "log_prior_weight" in self.configuration.parameters.keys():
-            log_prior += self.configuration.parameters[
-                "log_prior_weight"
-            ].value
-
-        if log_likelihood + log_prior < invalid_value:
-            return invalid_value
-
-        if jnp.abs(log_likelihood + log_prior) < tiny:
-            log_likelihood = tiny
-            log_prior = 0
-
-        if not return_model:
-            if self.print_log_likelihood_for_debugging:
-                print("log_likelihood + log_prior", log_likelihood + log_prior)
-            return log_likelihood + log_prior
-        else:
-            return (
-                log_likelihood + log_prior,
-                wavelengths_models,
-                spectrum_models,
-                beta,
-                additional_log_ls,
-            )
-
     def _set_free_parameter_values(self, values: npt.ArrayLike) -> None:
-        """Copy sampled free-parameter values into the active retrieval configuration."""
+        """Copy sampled free-parameter values into the active retrieval configuration.
+
+        This is a legacy method to update ``self.configuration.parameters``.
+        Fixed parameters are skipped and left untouched. Input may be a numpy array,
+        a JAX array, a Python sequence, or a PyMultiNest ctypes buffer (see
+        :meth:`_flatten_free_parameter_values`).
+
+        Note that the likelihood path no longer calls this. ``log_likelihood``
+        evaluates through ``RetrievalRuntime`` on an immutable
+        ``PhysicalParams`` built by
+        ``self.parameter_layout.physical_params_from_vector(cube)``, so evaluating a
+        likelihood leaves ``configuration.parameters`` unchanged. Call this
+        explicitly if you need the configuration itself updated -- for instance
+        before reading parameter values back off the configuration, or before
+        invoking a legacy model function that reads them.
+
+        If you only need a parameter mapping to hand to a model function, prefer the
+        non-mutating builders instead of changing global state:
+
+        * :meth:`build_param_dict(sample, free_param_names)` -- returns a fresh dict
+          of ``Parameter`` objects (free values from ``sample``, plus the fixed
+          parameters) without touching ``self.configuration``.
+        * ``self.parameter_layout.build_legacy_parameter_dict(physical_params)`` --
+          the same thing starting from a ``PhysicalParams`` instance.
+        """
         flat_values = self._flatten_free_parameter_values(values)
         index = 0
 
@@ -4546,7 +3800,7 @@ class Retrieval:
             physical_params = parameter_layout.physical_params_from_free_values(
                 free_parameter_values
             )
-            return runtime.evaluate_per_datapoint_jax(physical_params)
+            return runtime.evaluate_likelihood_per_datapoint_jax(physical_params)
 
         batched_evaluate = jit(vmap(evaluate_single))
         self._batched_per_datapoint_evaluate_cache = (
@@ -4558,12 +3812,19 @@ class Retrieval:
         return batched_evaluate
 
     def _has_only_legacy_model_groups(self) -> bool:
+        """Check if the retrieval contains only legacy (non-differentiable) model groups.
+        Groups share a single radtrans object across multiple datasets.
+        """
         runtime = self._get_runtime()
         return bool(runtime.model_groups) and all(
             group.model_contract != "differentiable" for group in runtime.model_groups
         )
 
     def _ensure_jax_sampler_model_support(self, sampler_name: str) -> None:
+        """Check if the retrieval contains no differentiable model groups.
+        Groups share a single radtrans object across multiple datasets.
+        Gradient-guided samplers require differentiable models.
+        """
         if self._has_only_legacy_model_groups():
             raise ValueError(
                 f"{sampler_name} requires at least one differentiable model group; "
@@ -4571,6 +3832,8 @@ class Retrieval:
             )
 
     def _get_ultranest_vectorization_disable_reason(self) -> str | None:
+        """ Error checking for Ultranest
+        """
         runtime = self._get_runtime()
 
         if any(
@@ -4587,6 +3850,14 @@ class Retrieval:
         return None
 
     def _resolve_ultranest_vectorized_mode(self, requested: bool) -> bool:
+        """Determine whether UltraNest vectorized mode should be enabled.
+
+        Args:
+            requested (bool): Whether vectorized mode was requested by the user.
+
+        Returns:
+            bool: True if vectorized mode is enabled, False otherwise.
+        """
         if not requested:
             return False
 
@@ -4600,394 +3871,6 @@ class Retrieval:
             return False
 
         return True
-
-    def log_likelihood_jax(
-        self,
-        parameters=None,
-        configuration=None,
-        log_l_per_datapoint_dict: dict = None,
-        return_model: bool = False,
-        uncertainties_mode: str = "default",
-        generate_mock_data: bool = False,
-        print_log_likelihood_for_debugging: bool = False,
-        *,
-        physical_params: "PhysicalParams | None" = None,
-    ):
-        """JAX-compatible log likelihood computation.
-
-        Uses the pre-built ``RetrievalRuntime`` stored on ``self`` instead of
-        reconstructing it on every call.  Accepts either a legacy *parameters*
-        dict (for backward compatibility) or a *physical_params* instance.
-
-        Falls back to the legacy implementation when *return_model* or
-        *generate_mock_data* are requested. When *log_l_per_datapoint_dict* is
-        a dict, the per-datapoint log-likelihood vector of each dataset is
-        appended to the corresponding dict entry and the dict is returned.
-        """
-        if return_model or generate_mock_data:
-            if configuration is None:
-                configuration = self.configuration
-            if parameters is None and physical_params is not None:
-                parameters = self._get_parameter_layout().build_legacy_parameter_dict(
-                    physical_params
-                )
-            return Retrieval._log_likelihood_jax_legacy(
-                parameters=parameters,
-                configuration=configuration,
-                return_model=return_model,
-                uncertainties_mode=uncertainties_mode,
-                generate_mock_data=generate_mock_data,
-                print_log_likelihood_for_debugging=print_log_likelihood_for_debugging,
-            )
-
-        runtime = self._get_runtime()
-
-        if physical_params is None:
-            if parameters is None:
-                raise ValueError(
-                    "Either 'parameters' or 'physical_params' must be provided."
-                )
-            physical_params = PhysicalParams.from_mapping(
-                {
-                    parameter_name: (
-                        parameter.value if hasattr(parameter, "value") else parameter
-                    )
-                    for parameter_name, parameter in parameters.items()
-                }
-            )
-
-        if isinstance(log_l_per_datapoint_dict, dict):
-            per_datapoint_log_likelihoods = runtime.evaluate_per_datapoint_jax(
-                physical_params
-            )
-
-            for data_name, values in per_datapoint_log_likelihoods.items():
-                log_l_per_datapoint_dict.setdefault(data_name, []).append(
-                    np.asarray(values)[runtime.per_datapoint_keep_mask(data_name)]
-                )
-
-            return log_l_per_datapoint_dict
-
-        return runtime.evaluate_jax(
-            physical_params=physical_params,
-            uncertainties_mode=uncertainties_mode,
-            print_log_likelihood_for_debugging=print_log_likelihood_for_debugging,
-        )
-
-    @staticmethod
-    def _log_likelihood_jax_legacy(
-        parameters,
-        configuration,
-        return_model: bool = False,
-        uncertainties_mode: str = "default",
-        generate_mock_data: bool = False,
-        print_log_likelihood_for_debugging: bool = False,
-    ):
-        # === Constants and Configuration ===
-        invalid_value = -1e99
-        tiny = 1e-99
-
-        # === Uncertainties Mode Parse ===
-        retrieve_uncertainties = False
-        beta_mode = "multiply"
-        beta = 1.0
-
-        if uncertainties_mode == "default":
-            beta = 1.0
-        elif uncertainties_mode == "optimize":
-            warnings.warn(
-                "automatically optimizing for uncertainties, be sure of what you are doing..."
-            )
-            beta = None
-        elif uncertainties_mode == "retrieve":
-            warnings.warn(
-                "retrieving uncertainties (multiply mode), be sure of what you are doing..."
-            )
-            retrieve_uncertainties = True
-            beta_mode = "multiply"
-        elif uncertainties_mode == "retrieve_add":
-            warnings.warn(
-                "retrieving uncertainties (add mode), be sure of what you are doing..."
-            )
-            retrieve_uncertainties = True
-            beta_mode = "add"
-        else:
-            raise ValueError(
-                f"uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
-                f"but was '{uncertainties_mode}'"
-            )
-
-        # === Setup ===
-        # Count free parameters (outside loops)
-        n_free_parameters = sum(
-            1 for parameter in parameters if parameters[parameter].is_free_parameter
-        )
-
-        # Collect log likelihood contributions (functional approach)
-        log_likelihood_contributions = []
-        log_prior = 0.0
-
-        # === Main Data Iteration ===
-        for data_name, data in configuration.data.items():
-            # Pre-extract spectrum parameters to avoid repeated lookups
-            spectrum_params = extract_spectrum_parameters(parameters, data_name)
-
-            # Prepare spectrum data
-            data_spectrum = data.spectrum
-            data_spectrum = data.apply_flux_scaling(data_spectrum, parameters)
-            data_spectrum = data.offset_flux(data_spectrum, parameters)
-            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(
-                parameters
-            )
-
-            dataset_contribution = 0.0
-
-            # === Process Primary Data Source ===
-            if data.external_radtrans_reference is None:
-                # Compute model spectrum
-                model_returned_values = Retrieval._call_model_generating_function(
-                    data.model_generating_function,
-                    data.radtrans_object,
-                    parameters,
-                    data_name=data_name,
-                    pt_plot_mode=False,
-                    adaptive_mesh_refinement=configuration.adaptive_mesh_refinement,
-                )
-
-                # Unpack model output using helper
-                wavelengths_model, spectrum_model, beta_model, additional_log_l, _ = (
-                    unpack_model_output(
-                        model_returned_values,
-                        retrieve_uncertainties,
-                        data.variability_atmospheric_column_model_flux_return_mode,
-                    )
-                )
-
-                # Update beta if it was retrieved
-                if retrieve_uncertainties and beta_model is not None:
-                    beta = beta_model
-
-                # Validate model output
-                is_valid = validate_model_output(spectrum_model, wavelengths_model)
-                # if not is_valid:
-                #    warnings.warn("spectrum_model contains NaN values")
-                #    return invalid_value
-                invalid_log_like = lax.cond(
-                    is_valid,
-                    lambda: 0.0,  # valid output contributes 0 to logL (neutral element)
-                    lambda: invalid_value,  # invalid output contributes -1e99 to logL
-                )
-                log_likelihood_contributions.append(invalid_log_like)
-
-                # Handle masked arrays (JAX compatibility)
-                if isinstance(spectrum_model, np.ma.MaskedArray):
-                    spectrum_model = spectrum_model.filled(0)
-
-                spectrum_model = ensure_jax_array(spectrum_model)
-
-                # === Compute Log Likelihood Based on Data Structure ===
-                if (
-                    not isinstance(data.spectrum, float)
-                    and hasattr(data.spectrum, "dtype")
-                    and data.spectrum.dtype == "O"
-                ):
-                    # Object array: loop over object entries
-                    dataset_contribution += (
-                        Retrieval._compute_object_array_log_likelihood(
-                            data, spectrum_model, beta, beta_mode
-                        )
-                    )
-                else:
-                    # Standard array: use spectrum processing pipeline
-                    if (
-                        isinstance(data.spectrum, float) or jnp.ndim(data.spectrum) == 1
-                    ) and jnp.ndim(spectrum_model) == 1:
-                        # Process spectrum through full pipeline
-                        model_spectrum_processed = process_spectrum_pipeline(
-                            wavelengths_model,
-                            spectrum_model,
-                            data,
-                            parameters,
-                            data_name,
-                            spectrum_params,
-                            convolve_function=convolve,
-                            variable_resolution_binning_function=convolve_and_sample_variable_resolution_breads,
-                            rebin_spectrum_bin_function=rebin_spectrum_bin,
-                        )
-
-                        # Compute log likelihood
-                        log_l = LogLikelihood(
-                            model_spectrum=model_spectrum_processed,
-                            data_spectrum=data_spectrum,
-                            data_uncertainties=data_uncertainties,
-                            data_covariance=data_covariance,
-                            n_free_parameters=n_free_parameters,
-                        ).calculate_log_likelihood()
-
-                        dataset_contribution += log_l + additional_log_l
-
-                    elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 2:
-                        # 1D data, 2D model: take first row
-                        dataset_contribution += data.log_likelihood(
-                            spectrum_model[0, :],
-                            data.spectrum,
-                            data.uncertainties,
-                            beta=beta,
-                            beta_mode=beta_mode,
-                        )
-                    elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 3:
-                        # 1D data, 3D model: take first [0, 0, :]
-                        dataset_contribution += data.log_likelihood(
-                            spectrum_model[0, 0, :],
-                            data.spectrum,
-                            data.uncertainties,
-                            beta=beta,
-                            beta_mode=beta_mode,
-                        )
-                    elif jnp.ndim(data.spectrum) == 2:
-                        # 2D data: loop over first dimension
-                        for i, spectrum_data in enumerate(data.spectrum):
-                            if ~data.mask[i, :] is not None:
-                                dataset_contribution += data.log_likelihood(
-                                    spectrum_model[i, ~data.mask[i, :]],
-                                    spectrum_data,
-                                    data.uncertainties[i],
-                                    beta=beta,
-                                    beta_mode=beta_mode,
-                                )
-                    elif jnp.ndim(data.spectrum) == 3:
-                        # 3D data: loop over first two dimensions
-                        for i, detector in enumerate(data.spectrum):
-                            for j, spectrum_data in enumerate(detector):
-                                if ~data.mask[i, j, :] is not None:
-                                    dataset_contribution += data.log_likelihood(
-                                        spectrum_model[i, j, ~data.mask[i, j, :]],
-                                        spectrum_data,
-                                        data.uncertainties[i, j],
-                                        beta=beta,
-                                        beta_mode=beta_mode,
-                                    )
-
-            # === Process External Data Using Same pRT Object ===
-            for data_name_2, data_2 in configuration.data.items():
-                if data_2.external_radtrans_reference == data_name and data_name in [
-                    dn for dn, _ in configuration.data.items()
-                ]:
-                    # This data references the spectrum computed above
-                    if wavelengths_model is None or spectrum_model is None:
-                        return invalid_value
-
-                    # Prepare secondary data
-                    data_2_spectrum = data_2.spectrum
-                    data_2_spectrum = data_2.apply_flux_scaling(
-                        data_2_spectrum, parameters
-                    )
-                    data_2_spectrum = data_2.offset_flux(data_2_spectrum, parameters)
-                    data_2_uncertainties, data_2_covariance = (
-                        data_2.scale_and_inflate_uncertainties(parameters)
-                    )
-
-                    # Process spectrum for secondary data
-                    model_spectrum_processed_2 = process_spectrum_pipeline(
-                        wavelengths_model,
-                        spectrum_model,
-                        data_2,
-                        parameters,
-                        data_name_2,
-                        spectrum_params,
-                        convolve_function=convolve,
-                        variable_resolution_binning_function=convolve_and_sample_variable_resolution_breads,
-                        rebin_spectrum_bin_function=rebin_spectrum_bin,
-                    )
-
-                    # Compute log likelihood for secondary data
-                    log_l_2 = LogLikelihood(
-                        model_spectrum=model_spectrum_processed_2,
-                        data_spectrum=data_2_spectrum,
-                        data_uncertainties=data_2_uncertainties,
-                        data_covariance=data_2_covariance,
-                        n_free_parameters=n_free_parameters,
-                    ).calculate_log_likelihood()
-
-                    dataset_contribution += log_l_2
-
-            log_likelihood_contributions.append(dataset_contribution)
-
-        # === Compute Total Log Likelihood ===
-        log_likelihood = jnp.sum(jnp.array(log_likelihood_contributions))
-
-        # === Apply Prior Weight ===
-        if "log_prior_weight" in parameters.keys():
-            log_prior += parameters["log_prior_weight"].value
-
-        # === JAX-Compatible Clamping ===
-        log_likelihood, log_prior = lax.cond(
-            log_likelihood + log_prior < invalid_value,
-            lambda: (invalid_value, 0.0),
-            lambda: (log_likelihood, log_prior),
-        )
-
-        log_likelihood, log_prior = lax.cond(
-            jnp.abs(log_likelihood + log_prior) < tiny,
-            lambda: (tiny, 0.0),
-            lambda: (log_likelihood, log_prior),
-        )
-
-        return log_likelihood + log_prior
-
-    @staticmethod
-    def _compute_object_array_log_likelihood(
-        data, spectrum_model: jnp.ndarray, beta: float, beta_mode: str
-    ) -> float:
-        """
-        Helper method to compute log likelihood for object array spectra.
-
-        This extracts the complex object array handling logic to improve clarity.
-
-        Args:
-            data: Data object with object array spectra
-            spectrum_model: Model spectrum
-            beta: Uncertainty scaling parameter
-            beta_mode: Mode for applying beta
-
-        Returns:
-            Total log likelihood for all object array entries
-        """
-        log_l = 0.0
-        spectrum_ndim = jnp.ndim(data.spectrum)
-
-        if spectrum_ndim == 1:
-            # 1D object array
-            for i, spectrum_data in enumerate(data.spectrum):
-                if jnp.isnan(spectrum_model[i][~data.mask[i]]).any():
-                    return -1e99
-                log_l += data.log_likelihood(
-                    spectrum_model[i][~data.mask[i]],
-                    spectrum_data,
-                    data.uncertainties[i],
-                    beta=beta,
-                    beta_mode=beta_mode,
-                )
-        elif spectrum_ndim == 2:
-            # 2D object array
-            for i, detector in enumerate(data.spectrum):
-                for j, spectrum_data in enumerate(detector):
-                    if jnp.isnan(spectrum_model[i, j][~data.mask[i, j]]).any():
-                        return -1e99
-                    log_l += data.log_likelihood(
-                        spectrum_model[i, j][~data.mask[i, j]],
-                        spectrum_data,
-                        data.uncertainties[i, j],
-                        beta=beta,
-                        beta_mode=beta_mode,
-                    )
-        else:
-            raise ValueError(
-                f"Object array spectrum has {spectrum_ndim} dimensions, "
-                f"but must have 1 or 2"
-            )
-
-        return log_l
 
     def prior(
         self, cube: npt.NDArray[float], ndim: int = 0, nparams: int = 0
@@ -5059,7 +3942,7 @@ class Retrieval:
 
         def log_likelihood_wrapper(*args):
             physical_params = parameter_layout.physical_params_from_free_values(args)
-            return runtime.evaluate_jax(
+            return runtime.evaluate_likelihood_jax(
                 physical_params=physical_params,
                 uncertainties_mode=self.uncertainties_mode,
                 print_log_likelihood_for_debugging=False,
@@ -5111,7 +3994,7 @@ class Retrieval:
                 tuple(physical_position)
             )
 
-            return runtime.evaluate_jax(
+            return runtime.evaluate_likelihood_jax(
                 physical_params=physical_params,
                 uncertainties_mode=self.uncertainties_mode,
                 print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging,
