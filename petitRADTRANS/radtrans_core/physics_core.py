@@ -19,20 +19,24 @@ def _compute_planck_frequency_cubed_term(frequencies):
     return (frequencies / cst.c) * frequencies**2
 
 
-def _compute_planck_spectral_radiance_matrix(temperatures, frequencies):
+@jit
+def compute_planck_function(temperatures, frequencies):
+    """Planck spectral radiance B_nu for every temperature and frequency.
+
+    https://en.wikipedia.org/wiki/Planck%27s_law
+
+    Args:
+        temperatures: 1D array of temperatures in Kelvin
+        frequencies: array of frequencies in Hertz
+
+    Returns:
+        (len(frequencies), len(temperatures)) matrix of the spectral radiance.
+    """
     temperatures = _as_planck_temperature_array(temperatures)
     frequencies = jnp.asarray(frequencies)
 
     exponent = (cst.h / cst.kB) * frequencies[..., None] / temperatures[None, :]
-    # Clamp the Planck exponent so expm1 cannot overflow to +inf in the Wien
-    # tail. The forward value (prefactor/inf -> 0) is harmless, but the
-    # reverse-mode derivative is -prefactor * exp(x) / expm1(x)**2, which becomes
-    # inf/inf**2 = NaN once expm1(x) overflows -- and because the Planck function
-    # feeds the source function at every frequency/layer, a single deep-Wien
-    # cell turned the entire log-posterior gradient into NaN at the prior median.
-    # The threshold keeps expm1(x)**2 (the gradient denominator) finite; beyond
-    # it the emitted flux is ~0 with ~0 sensitivity, so the clamp is physically
-    # negligible and only flattens an already-vanishing tail.
+    # Clamp the Planck exponent so expm1 cannot overflow to +inf in the Wien tail.
     max_exponent = 0.5 * jnp.log(jnp.finfo(exponent.dtype).max) - 1.0
     exponent = jnp.minimum(exponent, max_exponent)
     prefactor = (2.0 * cst.h / cst.c) * _compute_planck_frequency_cubed_term(
@@ -59,16 +63,16 @@ def _compute_boole_sample_frequencies(frequencies):
     )
 
 
-def _compute_boole_planck_flux_matrix(temperatures, frequencies):
+@jit
+def _compute_planck_function_integral(temperatures, frequencies):
+    """Bin-integrated Planck function, (len(temperatures), len(frequencies) - 1)."""
     sample_frequencies = _compute_boole_sample_frequencies(frequencies)
     boole_weights = jnp.asarray(
         (7.0, 32.0, 12.0, 32.0, 7.0), dtype=sample_frequencies.dtype
     )
-    sample_flux = _compute_planck_spectral_radiance_matrix(
-        temperatures, sample_frequencies
-    )
+    sample_flux = compute_planck_function(temperatures, sample_frequencies)
 
-    return jnp.sum(boole_weights[:, None, None] * sample_flux, axis=0) / 90.0
+    return (jnp.sum(boole_weights[:, None, None] * sample_flux, axis=0) / 90.0).T
 
 
 @jit
@@ -117,18 +121,20 @@ def compute_rosseland_opacities(
     scattering_in_emission,
     continuum_opacities_scattering,
 ):
-    """_summary_
+    """Rosseland mean opacity, optionally including continuum scattering.
 
     Args:
-        total_opacity (_type_): _description_
-        temperature (_type_): _description_
-        w_gauss (_type_): _description_
-        border_freqs (_type_): _description_
-        do_scat_emis (_type_): _description_
-        continuum_opacity_scattering_emis (_type_): _description_
+        opacities: absorption opacities, shape (n_g, n_frequencies, n_layers).
+        temperature: temperature of each layer, shape (n_layers,).
+        weights_gauss: correlated-k quadrature weights, shape (n_g,).
+        frequencies_bin_edges: frequency bin edges, shape (n_frequencies + 1,).
+        scattering_in_emission: if True, add ``continuum_opacities_scattering``
+            to the total opacity before taking the mean. Static argument.
+        continuum_opacities_scattering: continuum scattering opacity,
+            shape (n_frequencies, n_layers).
 
     Returns:
-        _type_: _description_
+        Rosseland mean opacity of each layer, shape (n_layers,).
     """
 
     if scattering_in_emission:
@@ -140,23 +146,6 @@ def compute_rosseland_opacities(
         opacities_use, frequencies_bin_edges, temperature, weights_gauss
     )
     return kappa_rosse
-
-
-@jit
-def compute_planck_function(T, nu):
-    """
-    Calculates B_ν https://en.wikipedia.org/wiki/Planck%27s_law
-    For every temperature and frequency provided.
-
-    Args:
-        T (ndarray): 1D array of temperature in Kelvin
-        nu (ndarray): 1D array of frequencies in Hertz
-
-    Returns:
-        B_nu (ndarray): (len(nu),len(T)) matrix of the spectral radiance (ie flux) as calculated from
-                        Planck's law for each frequency and temperature.
-    """
-    return _compute_planck_spectral_radiance_matrix(T, nu)
 
 
 @jit
@@ -209,11 +198,6 @@ def compute_planck_function_integral(temperatures, frequencies):
 
 
 @jit
-def _compute_planck_function_integral(temperatures, frequencies):
-    return _compute_boole_planck_flux_matrix(temperatures, frequencies).T
-
-
-@jit
 def star_planck(T, nu):
     """
     Calculates B_ν https://en.wikipedia.org/wiki/Planck%27s_law
@@ -229,52 +213,3 @@ def star_planck(T, nu):
                         Planck's law for each frequency and temperature.
     """
     return compute_planck_function_integral(T, nu).T
-
-
-def compute_pressure_hydrostatic_equilibrium(
-    mean_molar_masses,
-    reference_gravity,
-    planet_radius,
-    p0,
-    temperature,
-    radii,
-    rk4=True,
-):
-    p0 = p0 * 1e6
-    vs = 1.0 / radii
-    r_pl_sq = planet_radius**2
-
-    def integrand(press):
-        temp = temperature(press)
-        mu = mean_molar_masses(press / 1e6, temp)
-        if not jnp.isscalar(mu):
-            mu = mu[0]
-
-        integral = mu * cst.amu * reference_gravity * r_pl_sq / cst.kB / temp
-        return integral
-
-    pressures = [p0]
-    dvs = jnp.diff(vs)
-    press1 = p0
-    chi1 = jnp.log(p0)
-    for dv in dvs:
-        k1 = integrand(press1)
-
-        if rk4:
-            chi2 = chi1 + 0.5 * dv * k1
-            press2 = jnp.exp(chi2)
-            k2 = integrand(press2)
-            chi3 = chi1 + 0.5 * dv * k2
-            press3 = jnp.exp(chi3)
-            k3 = integrand(press3)
-            chi4 = chi1 + dv * k3
-            press4 = jnp.exp(chi4)
-            k4 = integrand(press4)
-            chi1 = chi1 + 1.0 / 6.0 * (k1 + 2 * k2 + 2 * k3 + k4) * dv
-        else:
-            chi1 = chi1 + dv * k1
-
-        press1 = jnp.exp(chi1)
-        pressures.append(press1)
-
-    return jnp.array(pressures) / 1e6

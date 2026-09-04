@@ -30,6 +30,8 @@ from petitRADTRANS.chemistry.vapour_pressures import (
     vapour_pressure_caal12o19,
     vapour_pressure_sio2,
 )
+from .utils import _as_static_float
+
 
 # metal species
 __metals = [
@@ -160,10 +162,8 @@ def _calculate_cloud_base_pressure_generic(pressures, temperatures, cond_func_ar
 
     The intersection between the condensation curve and the temperature profile
     is located by linear interpolation in ``log P`` across the bracketing layer
-    pair, rather than being snapped to the layer midpoint. Snapping would make
-    the cloud base a staircase function of temperature, metallicity and mean
-    molar mass, which is a step discontinuity in every parameter those depend
-    on; interpolating makes it continuous.
+    pair, rather than being snapped to the layer midpoint to ensure smooth
+    gradients.
 
     Note:
         The deepest intersection is still selected discretely. When the
@@ -241,29 +241,6 @@ def _get_cloud_species_base_name(name):
 # Cloud vertical profile
 # ============================================================================
 
-def _as_static_float(name, value):
-    """Return ``value`` as a plain float, or ``None``.
-
-    The cloud-base smoothing width selects between the smooth and the legacy
-    hard-cutoff profile, so it must be a static scalar rather than a traced
-    JAX value.
-    """
-    if value is None:
-        return None
-
-    if isinstance(value, Tracer):
-        raise TypeError(
-            f"'{name}' controls the cloud profile discretisation and must be a "
-            f"static scalar, not a traced JAX value."
-        )
-
-    value = float(value)
-
-    if value < 0.0:
-        raise ValueError(f"'{name}' must be non-negative, but was {value}.")
-
-    return value
-
 
 def resolve_cloud_base_smoothing_width(smoothing_width=None):
     """Resolve the cloud-base smoothing width, in dex.
@@ -280,12 +257,6 @@ def resolve_cloud_base_smoothing_width(smoothing_width=None):
     # layers over 6-9 decades, i.e. 0.05-0.07 dex per layer), which keeps the
     # cloud base resolved by the grid it is sampled on without materially
     # widening it.
-    #
-    # A fixed value rather than one derived from the grid: the width selects
-    # between the smooth and the hard-cutoff profile, so it must be static, and
-    # inside a jit trace the pressure grid is not readable as a concrete array.
-    # Pass :func:`cloud_base_smoothing_from_pressure_grid` evaluated outside the
-    # traced region to tie it to a specific grid.
     default_smoothing_width = 0.03
 
     smoothing_width = _as_static_float("cloud_base_smoothing", smoothing_width)
@@ -303,10 +274,6 @@ def cloud_base_smoothing_from_pressure_grid(pressures, layers=0.5):
     the cloud profile is sampled on, so on an unusually coarse or fine grid it is
     worth scaling the width with the layer spacing instead of taking the default
     of :func:`resolve_cloud_base_smoothing_width`.
-
-    Call this once during model setup and pass the result as
-    ``cloud_base_smoothing``: the width has to be a static value, and inside a
-    jit trace the pressure grid is not readable as a concrete array.
 
     Args:
         pressures:
@@ -336,21 +303,13 @@ def cloud_base_smoothing_mass_normalisation(f_sed, smoothing_width):
     smoothing.  ``smoothing_width`` is the user-facing ``w``; the effective width
     is derived here.
 
-    The identity holds for ``a * w < 1``; beyond that the taper is wider than
-    the profile's own scale height and no finite normalisation exists, so the
-    factor is clamped to 1 and the smoothing is left un-normalised.
-
     Note:
         This is *not* applied by default, because total column mass is the
         wrong invariant to hold fixed. The mass the taper adds sits in its tail
         below the cloud base, which is optically thick and unobservable, whereas
         the rescaling it demands (15% at ``f_sed = 5``, ``w = 0.03``) applies to
-        the whole profile including the observable upper cloud. Measured on a
-        cloudy transmission spectrum over four cloud-base pressures, leaving the
-        smoothing un-normalised moves the transit depth by at most 7.7 ppm
-        relative to the hard cutoff, while normalising it moves it by up to
-        86 ppm. Use it only when ``log_X_cb`` has to be calibrated against a
-        total condensate mass budget.
+        the whole profile including the observable upper cloud. Use it only when
+        ``log_X_cb`` has to be calibrated against a total condensate mass budget.
     """
     taper_width = smoothing_width / (1.0 + jnp.log(10.0) * f_sed * smoothing_width)
     a_w = jnp.log(10.0) * (f_sed + 1.0) * taper_width
@@ -371,12 +330,7 @@ def cloud_vertical_profile(
     """Build the vertical mass-fraction profile of a sedimenting cloud.
 
     The Ackerman & Marley (2001) profile decays as ``(P / P_base) ** f_sed``
-    above the cloud base and is zero below it.  Truncating it at the base with a
-    hard cutoff makes the *sampled* profile a step function of ``P_base``: as the
-    base crosses a pressure-grid point, that layer flips between zero and the
-    full base abundance, which changes the spectrum discontinuously.  Any
-    gradient-based method then sees an infinite derivative at every grid
-    boundary, and optimisers settle exactly on one.
+    above the cloud base and is zero below it.
 
     This function instead tapers the profile through the base with a logistic in
     ``log10 P``:
@@ -389,26 +343,8 @@ def cloud_vertical_profile(
                    \\frac{\\log_{10}(P_\\mathrm{base} / P)}{w}
                \\right),
 
-    which is infinitely differentiable in both ``P`` and ``P_base``.  The width
-    ``w`` sets the physical thickness of the cloud base.  It should stay
-    comparable to the pressure-grid spacing: much narrower and the sampled
-    profile is smooth but still effectively a cliff, much wider and the base is
-    no longer where ``P_base`` says it is.
-
-    The taper is steepened to ``w' = w / (1 + ln(10) f_sed w)`` so that it always
-    out-runs the power law, which is still growing downwards at ``ln(10) f_sed``
-    per dex: the profile then decays below the base with an e-folding length of
-    ``w`` dex for every ``f_sed``, and is unchanged above it.  Substituting
-    ``w'`` and rearranging turns the product into the reciprocal form evaluated
-    below, in which that cancellation is exact rather than a difference of large
-    numbers.
-
-    Evaluating it through ``logaddexp`` also keeps the deep layers in range,
-    where the hard-cutoff form evaluates ``(P / P_base) ** f_sed`` at
-    overflow-scale arguments before discarding it -- reaching ``1e87`` at
-    ``f_sed = 20`` and overflowing single precision to a NaN gradient -- and it
-    maps the non-finite ``f_sed`` sentinel, used when no ``f_sed`` parameter is
-    given, back onto a zero cloud rather than a NaN.
+    which is differentiable in both ``P`` and ``P_base``.  The width
+    ``w`` sets the physical thickness of the cloud base.
 
     Args:
         pressures:
@@ -418,12 +354,7 @@ def cloud_vertical_profile(
         cloud_abundance:
             Cloud mass fraction at the base.
         f_sed:
-            Sedimentation efficiency setting the decay above the base. Must be
-            finite: a non-finite value makes ``f_sed * log10(P / P_base)`` a NaN
-            on a layer sitting exactly on the base, and guarding that product
-            would flatten the derivative on precisely the grid points this
-            function exists to make differentiable. Callers use a zero cloud
-            abundance to express "no cloud configured".
+            Sedimentation efficiency setting the decay above the base. Must be finite.
         smoothing_width:
             Width of the base taper in dex.  ``None`` takes the default of
             :func:`resolve_cloud_base_smoothing_width`; ``0`` restores the legacy
@@ -456,15 +387,6 @@ def cloud_vertical_profile(
     # Reciprocal form of the tapered profile:
     #
     #     X = X_cb / ( (P / P_base) ** -f_sed  +  10 ** (d / w) ),
-    #
-    # which is algebraically the power law times the logistic, with the taper
-    # already steepened so that it out-runs the power law. Evaluating it through
-    # logaddexp keeps both terms out of the overflow range, and makes the two
-    # limits exact rather than a difference of large numbers: above the base the
-    # first term dominates and gives the untouched power law, below it the second
-    # dominates and gives a decay of e-folding length `smoothing_width` in dex,
-    # for every f_sed. It is also what keeps a non-finite f_sed sentinel (no
-    # f_sed parameter given) returning a zero cloud instead of inf - inf.
     log_profile = -jnp.logaddexp(
         -jnp.log(10.0) * f_sed * log_pressure_ratio,
         log_pressure_ratio / smoothing_width,

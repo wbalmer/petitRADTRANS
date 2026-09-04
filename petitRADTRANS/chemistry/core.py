@@ -1297,9 +1297,7 @@ def calculate_cloud_mass_fractions(
 
         if not _has_cloud_fsed(cloud_name, parameter_keys):
             # No sedimentation efficiency configured, so there is no cloud
-            # profile to build. The unresolved f_sed sentinel is not forwarded:
-            # it is a non-finite value, and the profile is only well defined for
-            # a finite f_sed.
+            # profile to build.
             mass_fractions[cloud] = jnp.zeros_like(pressures)[pressure_indices]
             continue
 
@@ -1320,7 +1318,6 @@ def calculate_cloud_mass_fractions(
     return mass_fractions, p_bases, pressure_indices
 
 
-# @jit(static_argnames=['line_species', 'cloud_species',])
 def get_abundances(
     pressures: typing.ArrayLike,
     temperatures: typing.ArrayLike,

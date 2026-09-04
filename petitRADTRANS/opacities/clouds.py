@@ -857,13 +857,7 @@ def _assemble_cloud_opacity_outputs(
     )
 
     # Both terms are already computed above for continuum_opacities and
-    # cloud_opacities, so splitting them out is free. pRT3 left them at None
-    # unless the photospheric-cloud parametrization was active, and the port of
-    # that gate was inert (it tested a sanitized value against None), which left
-    # these zeroed for every caller with sum_opacities False -- including the
-    # arrays that return_opacities hands back. The only arithmetic consumer,
-    # compute_optical_depths, does its own gating on the caller's
-    # photospheric_cloud_optical_depths, so pass the real values through.
+    # cloud_opacities, so splitting them out is free.
     cloud_anisotropic_scattering_opacities = (
         cloud_anisotropic_extinctions - cloud_final_absorption_opacities
     )

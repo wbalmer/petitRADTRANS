@@ -23,31 +23,38 @@ DEFAULT_BREADS_FILTER_SIZE = 201
 def compute_bins_edges(middle_bin_points: ArrayLike) -> ArrayLike:
     """Calculate bin edges for middle bin points.
 
+    Interior edges are the midpoints between consecutive points; the two outer
+    edges extrapolate the first and last half-spacing.
+
     Args:
         middle_bin_points: array of size N containing the middle bin points to calculate the bin edges of
 
     Returns:
         array of size N+1 containing the bins edges
     """
-    bin_edges = [
-        middle_bin_points[0] - (middle_bin_points[1] - middle_bin_points[0]) / 2
-    ]
+    middle_bin_points = jnp.asarray(middle_bin_points)
+    midpoints = (middle_bin_points[:-1] + middle_bin_points[1:]) * 0.5
 
-    for i in range(int(len(middle_bin_points)) - 1):
-        bin_edges.append(
-            middle_bin_points[i] + (middle_bin_points[i + 1] - middle_bin_points[i]) / 2
+    return jnp.concatenate(
+        (
+            (1.5 * middle_bin_points[0] - 0.5 * middle_bin_points[1])[None],
+            midpoints,
+            (1.5 * middle_bin_points[-1] - 0.5 * middle_bin_points[-2])[None],
         )
-
-    bin_edges.append(
-        middle_bin_points[len(middle_bin_points) - 1]
-        + (
-            middle_bin_points[len(middle_bin_points) - 1]
-            - middle_bin_points[len(middle_bin_points) - 2]
-        )
-        / 2
     )
 
-    return jnp.array(bin_edges)
+
+def _lookup(parameters: dict, *keys: str, default=None):
+    """First present key's value, unwrapping objects that expose ``.value``.
+
+    ``keys`` are tried in order; ``None`` entries are skipped so callers can pass
+    an optional ``f"{name}_..."`` prefix without guarding it.
+    """
+    for key in keys:
+        if key is not None and key in parameters:
+            return getattr(parameters[key], "value", parameters[key])
+
+    return default
 
 
 def continuum_subtract_spectrum(
@@ -57,118 +64,93 @@ def continuum_subtract_spectrum(
     method: str = "spline",
     name: str = None,
 ) -> ArrayLike:
+    """Apply a continuum-removal filter to a spectrum.
+
+    The function dispatches to one of three continuum-subtraction methods,
+    selected by ``method``:
+
+    - ``"spline"``: fit a smooth spline continuum and return the residuals. The
+      spline node locations come from ``parameters`` using the first matching
+      key below:
+
+      - ``f"{name}_nodes"``: number of evenly spaced spline nodes across the
+        wavelength range.
+      - ``f"{name}_node_array"``: explicit spline node coordinates.
+      - ``"continuum_subtract_nodes"``: fallback number of evenly spaced spline
+        nodes across the wavelength range.
+
+      At least one of these keys must be present or a ``ValueError`` is raised.
+
+    - ``"medfilt"``: estimate the continuum with a median filter and subtract it
+      from the spectrum. The filter width is ``f"{name}_median_filter_width"``,
+      then ``"median_filter_width"``, defaulting to ``10``.
+
+    - ``"savgol"``: estimate the continuum with a Savitzky-Golay filter and
+      subtract it from the spectrum. Settings are ``f"{name}_savgol_window_length"``
+      / ``"savgol_window_length"`` (default ``10``) and
+      ``f"{name}_savgol_polyorder"`` / ``"savgol_polyorder"`` (default ``3``).
+
+    Values in ``parameters`` may be provided directly or as objects exposing a
+    ``value`` attribute.
+
+    Args:
+        wavelengths: Wavelength grid of the input spectrum.
+        spectrum: Spectrum to continuum-subtract.
+        parameters: Parameter mapping used to configure the selected method.
+        method: Continuum-subtraction method. Supported values are
+            ``"spline"``, ``"medfilt"``, and ``"savgol"``.
+        name: Optional prefix for method-specific parameter keys.
+
+    Returns:
+        Continuum-subtracted spectrum on the original wavelength grid.
     """
-        Apply a continuum-removal filter to a spectrum.
-
-        The function dispatches to one of three continuum-subtraction methods,
-        selected by ``method``:
-
-        - ``"spline"``: fit a smooth spline continuum and return the residuals.
-            The spline node locations come from ``parameters`` using the first
-            matching key below:
-            - ``f"{name}_nodes"``: number of evenly spaced spline nodes across the
-                wavelength range.
-            - ``f"{name}_node_array"``: explicit spline node coordinates.
-            - ``"continuum_subtract_nodes"``: fallback number of evenly spaced spline
-                nodes across the wavelength range.
-            At least one of these keys must be present or a ``ValueError`` is raised.
-
-        - ``"medfilt"``: estimate the continuum with a median filter and subtract
-            it from the spectrum. The filter width is taken from the first matching
-            key below, defaulting to ``10`` if neither is present:
-            - ``f"{name}_median_filter_width"``
-            - ``"median_filter_width"``
-
-        - ``"savgol"``: estimate the continuum with a Savitzky-Golay filter and
-            subtract it from the spectrum. The filter settings are read from the
-            first matching keys below, with defaults ``window_length=10`` and
-            ``polyorder=3``:
-            - ``f"{name}_savgol_window_length"`` or ``"savgol_window_length"``
-            - ``f"{name}_savgol_polyorder"`` or ``"savgol_polyorder"``
-
-        Values in ``parameters`` may be provided directly or as objects exposing a
-        ``value`` attribute.
-
-        Args:
-                wavelengths: Wavelength grid of the input spectrum.
-                spectrum: Spectrum to continuum-subtract.
-                parameters: Parameter mapping used to configure the selected method.
-                method: Continuum-subtraction method. Supported values are
-                        ``"spline"``, ``"medfilt"``, and ``"savgol"``.
-                name: Optional prefix for method-specific parameter keys.
-
-        Returns:
-                Continuum-subtracted spectrum on the original wavelength grid.
-    """
+    prefix = (lambda suffix: f"{name}_{suffix}") if name is not None else (lambda _: None)
 
     if method == "spline":
-        nodes = wavelengths[0]
-        if name is not None and +(name + "_nodes" in parameters.keys()):
-            nodes = getattr(
-                parameters[name + "_nodes"], "value", parameters[name + "_nodes"]
-            )
+        nodes = _lookup(parameters, prefix("nodes"))
+        node_array = _lookup(parameters, prefix("node_array"))
+
+        if nodes is not None:
             x_nodes = jnp.linspace(wavelengths[0], wavelengths[-1], nodes)
-        elif name is not None and +(name + "_node_array" in parameters.keys()):
-            x_nodes = getattr(
-                parameters[name + "_node_array"],
-                "value",
-                parameters[name + "_node_array"],
-            )
-        elif "continuum_subtract_nodes" in parameters.keys():
-            nodes = getattr(
-                parameters["continuum_subtract_nodes"],
-                "value",
-                parameters["continuum_subtract_nodes"],
-            )
-            x_nodes = jnp.linspace(wavelengths[0], wavelengths[-1], nodes)
+        elif node_array is not None:
+            x_nodes = node_array
         else:
-            raise ValueError("No nodes available to create spline.")
+            nodes = _lookup(parameters, "continuum_subtract_nodes")
+
+            if nodes is None:
+                raise ValueError("No nodes available to create spline.")
+
+            x_nodes = jnp.linspace(wavelengths[0], wavelengths[-1], nodes)
 
         return filter_spectrum_with_spline(wavelengths, spectrum, x_nodes=x_nodes)
-    elif method == "medfilt":
-        median_filter_width = 10
-        if name is not None and +(name + "_median_filter_width" in parameters.keys()):
-            median_filter_width = getattr(
-                parameters[name + "_median_filter_width"],
-                "value",
-                parameters[name + "_median_filter_width"],
-            )
-        elif "median_filter_width" in parameters.keys():
-            median_filter_width = getattr(
-                parameters["median_filter_width"],
-                "value",
-                parameters["median_filter_width"],
-            )
-        return median_filter_spectrum(jnp.array(spectrum), size=median_filter_width)
-    elif method == "savgol":
-        window_length = 10
-        polyorder = 3
-        if name is not None and +(name + "_savgol_window_length" in parameters.keys()):
-            window_length = getattr(
-                parameters[name + "_savgol_window_length"],
-                "value",
-                parameters[name + "_savgol_window_length"],
-            )
-        elif "savgol_window_length" in parameters.keys():
-            window_length = getattr(
-                parameters["savgol_window_length"],
-                "value",
-                parameters["savgol_window_length"],
-            )
 
-        if name is not None and +(name + "_savgol_polyorder" in parameters.keys()):
-            polyorder = getattr(
-                parameters[name + "_savgol_polyorder"],
-                "value",
-                parameters[name + "_savgol_polyorder"],
-            )
-        elif "savgol_polyorder" in parameters.keys():
-            polyorder = getattr(
-                parameters["savgol_polyorder"], "value", parameters["savgol_polyorder"]
-            )
-        return savgol_filter_spectrum(
-            jnp.array(spectrum), window_length=window_length, polyorder=polyorder
+    if method == "medfilt":
+        return median_filter_spectrum(
+            jnp.array(spectrum),
+            size=_lookup(
+                parameters,
+                prefix("median_filter_width"),
+                "median_filter_width",
+                default=10,
+            ),
         )
+
+    if method == "savgol":
+        return savgol_filter_spectrum(
+            jnp.array(spectrum),
+            window_length=_lookup(
+                parameters, prefix("savgol_window_length"), "savgol_window_length",
+                default=10,
+            ),
+            polyorder=_lookup(
+                parameters, prefix("savgol_polyorder"), "savgol_polyorder", default=3
+            ),
+        )
+
+    raise ValueError(
+        f"unknown continuum-subtraction method '{method}'; "
+        f"expected one of 'spline', 'medfilt', 'savgol'"
+    )
 
 
 def convolve_constant_resolution(
@@ -230,17 +212,6 @@ def convolve_variable_resolution(
     Based on implementation from Ben Burningham for Brewster.
     https://github.com/fwang23nh/brewster_v2/blob/master/bbconv.f90
 
-    Memory-bounded sliding-window implementation: the original built the full
-    dense (N x N) Gaussian-LSF matrix over the entire input grid, which is
-    O(N_model^2) in memory and made reverse-mode AD (NUTS gradients) allocate
-    hundreds of GB at line-by-line model resolution. Because a Gaussian LSF has
-    finite support, each output channel only needs the model points within a few
-    sigma of it, so we evaluate the kernel on a fixed +/-half_window slice of the
-    grid centred on each channel. This is O(N_model * (2*half_window + 1)) and
-    returns the same result as the full-matrix version to within the negligible
-    far-wing contribution (window edges carry weight ~exp(-half_window^2/...) ~ 0).
-    Output grid == input grid, so the surrounding RV-shift / rebin pipeline is
-    unchanged.
 
     Args:
         input_wavelength - units of micron (the model grid; also the output grid)
@@ -388,9 +359,7 @@ def _convolve_running(input_spectrum, sigma_lsf_gauss_filter, **kwargs):
     # Replace non-valid convolved values by non-convolved values (inaccurate but better than 'reflect' or 0 padding)
     # For edge bins where the full kernel would extend beyond the array bounds,
     # replace the convolved values with the original spectrum values. We build
-    # an index mask for the left and right edges and write them back. This
-    # implementation avoids changing array shapes and uses operations that are
-    # compatible with JIT when ``input_length`` is static.
+    # an index mask for the left and right edges and write them back.
     # Use lax.cond to handle the case where central_index > 0 in a JIT-friendly way.
     predicate = jnp.asarray(central_index > 0)
 
@@ -513,7 +482,7 @@ def filter_spectrum_with_spline(
         uncertainties = jnp.ones(fluxes.shape)
 
     if m_spline is None:
-        m_spline = linear_spline_interpolation(x_nodes, wavelengths, spline_degree=3)
+        m_spline = linear_spline_interpolation(x_nodes, wavelengths)
 
     normalised_spline_matrix = m_spline / uncertainties[:, None]
     weighted_fluxes = fluxes / uncertainties
@@ -539,7 +508,7 @@ def filter_spectrum_with_spline(
     return high_pass_filtered_fluxes  # ,LPF_spec
 
 
-def linear_spline_interpolation(x_knots, x_samples, spline_degree=3):
+def linear_spline_interpolation(x_knots, x_samples):
     """
     From BREADS, BSD 3-Clause License
 
@@ -551,28 +520,20 @@ def linear_spline_interpolation(x_knots, x_samples, spline_degree=3):
 
     Uses interpax (JAX-native) for spline basis evaluation instead of SciPy's InterpolatedUnivariateSpline.
     This enables JIT compilation and GPU acceleration. Note: interpax uses natural cubic splines while
-    the original SciPy implementation used B-splines, resulting in different basis functions. However,
-    the practical impact on spectrum fitting is negligible (~0.01 mean difference in fitted spectra).
+    the original SciPy implementation used B-splines, resulting in different basis functions.
 
     Args:
         x_knots: List of nodes for the spline interpolation as jnp.ndarray in the same units as x_samples.
             x_knots can also be a list of ndarrays/list to model discontinous functions.
         x_samples: Vector of x values. ie, the sampling of the data.
-        spline_degree: Degree of the spline interpolation (default: 3).
-            if jnp.size(x_knots) <= spline_degree, then spline_degree = jnp.size(x_knots)-1
 
     Returns:
         M: Matrix of size (D,N) with D the size of x_samples and N the total number of nodes.
     """
-    if type(x_knots[0]) is list or type(x_knots[0]) is jnp.ndarray:
+    if isinstance(x_knots[0], (list, jnp.ndarray)):
         x_knots_list = x_knots
     else:
         x_knots_list = [x_knots]
-
-    # Adjust spline degree based on number of nodes in first knot set
-    first_knot_set = jnp.asarray(x_knots_list[0])
-    if jnp.size(first_knot_set) <= spline_degree:
-        spline_degree = jnp.size(first_knot_set) - 1
 
     def _process_one_knot_set(nodes):
         """Process a single knot set. Vectorizes basis evaluation using vmap."""
@@ -620,10 +581,8 @@ def median_filter_spectrum(spectrum, size=10, mode="nearest"):
 
 
 def rebinning_interpolation(
-    input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin
+    input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high
 ):
-    del n_rebin  # inferred from the output bin arrays
-
     rebin_dtype = jnp.result_type(
         input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high
     )
@@ -671,13 +630,6 @@ def rebinning_interpolation(
     )
 
 
-def _raise_small_size(x):
-    if x < 2:
-        raise ValueError(
-            f"Error: output wavelength array size must be >= 2, but is of size {x}"
-        )
-
-
 def _raise_incomplete_wavelength_range(args):
     input_array, output_array = args
     half_bin_width_low = (output_array[1] - output_array[0]) * 0.5
@@ -705,9 +657,11 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
     rebinned_wavelengths = jnp.asarray(rebinned_wavelengths, dtype=rebin_dtype)
 
     n_rebin = rebinned_wavelengths.size
-    rebinned_spectrum = jnp.zeros(n_rebin, dtype=rebin_dtype)
 
-    debug.callback(_raise_small_size, n_rebin)
+    if n_rebin < 2:
+        raise ValueError(
+            f"Error: output wavelength array size must be >= 2, but is of size {n_rebin}"
+        )
 
     rebin_bin_low = jnp.zeros(n_rebin, dtype=rebin_dtype)
     rebin_bin_high = jnp.zeros(n_rebin, dtype=rebin_dtype)
@@ -731,10 +685,9 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
         _raise_incomplete_wavelength_range, (input_wavelengths, rebinned_wavelengths)
     )
 
-    rebinned_spectrum = rebinning_interpolation(
-        input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin
+    return rebinning_interpolation(
+        input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high
     )
-    return rebinned_spectrum
 
 
 def rebin_spectrum_bin(
@@ -749,7 +702,6 @@ def rebin_spectrum_bin(
     bin_widths = jnp.asarray(bin_widths, dtype=rebin_dtype)
 
     n_rebin = rebinned_wavelengths.size
-    rebinned_spectrum = jnp.zeros(n_rebin, dtype=rebin_dtype)
 
     if n_rebin < 2:
         raise ValueError(
@@ -759,16 +711,9 @@ def rebin_spectrum_bin(
     rebin_bin_low = rebinned_wavelengths - (bin_widths * 0.5)
     rebin_bin_high = rebinned_wavelengths + (bin_widths * 0.5)
 
-    # if (input_wavelengths[0] >= rebin_bin_low[0]) or (input_wavelengths[-1] <= rebin_bin_high[-1]):
-    #    raise ValueError(f"Error: input wavelength array needs to extend at least half a "
-    #                     f"bin width further than output wavelength array on both sides:\n"
-    #                     f"input interval: {input_wavelengths[0]} -- {input_wavelengths[-1]}\n"
-    #                     f"required interval: {rebin_bin_low[0]} -- {rebin_bin_high[-1]}")
-
-    rebinned_spectrum = rebinning_interpolation(
-        input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin
+    return rebinning_interpolation(
+        input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high
     )
-    return rebinned_spectrum
 
 
 def savgol_filter_spectrum(
