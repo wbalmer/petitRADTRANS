@@ -398,6 +398,7 @@ def _refinement_predictive_comparison(
     refined_result: Any,
     amortized_result: Any,
     max_crps_ratio: float,
+    refined_samples: Any = None,
 ) -> dict[str, Any]:
     """Compare a refined target predictive against the amortized one.
 
@@ -414,14 +415,36 @@ def _refinement_predictive_comparison(
     Returns the numbers behind the comparison and whether the refinement earns
     delivery.
     """
+    # Degeneracy is checked BEFORE the score, and vetoes it. A refinement that
+    # has collapsed onto a single point produces an *excellent* predictive: the
+    # maximum-likelihood parameter pushed through the forward model, with the
+    # observational noise supplying all of the spread. CRPS scores the
+    # observable forecast and cannot see that the parameter posterior has zero
+    # width, so it actively prefers the collapse. Measured on emission run
+    # 20260729T121612Z, whose importance sampling put all 16384 weights on one
+    # particle: CRPS 1.70e-17 for the collapsed artifact against 6.39e-17 for
+    # the honest amortized posterior -- 3.7x "better". Every credible interval
+    # in that artifact was meaningless.
+    degenerate = (
+        0 if refined_samples is None else _count_degenerate_marginals(refined_samples)
+    )
     refined_crps = _predictive_crps(refined_result)
     amortized_crps = _predictive_crps(amortized_result)
     comparison: dict[str, Any] = {
+        "refined_degenerate_marginals": int(degenerate),
         "criterion": "mean predictive CRPS (proper scoring rule; lower is better)",
         "refined_crps": refined_crps,
         "amortized_crps": amortized_crps,
         "max_crps_ratio": float(max_crps_ratio),
     }
+    if degenerate:
+        comparison["refined_is_better"] = False
+        comparison["note"] = (
+            f"{degenerate} delivered marginal(s) have zero width: a repeated "
+            "point estimate, not a distribution"
+        )
+        return comparison
+
     if refined_crps is None or amortized_crps is None or amortized_crps <= 0.0:
         # Nothing to compare against: keep the threshold gate's decision rather
         # than inventing one.
@@ -2024,19 +2047,28 @@ def run_sbi(config: SBIConfig) -> Path:
             result,
             amortized_result,
             max_crps_ratio=float(refinement.max_refinement_crps_ratio),
+            refined_samples=np.asarray(result.posterior.samples, dtype=float),
         )
         refinement_verdict["predictive_comparison"] = comparison
         if not comparison["refined_is_better"]:
             refinement_verdict["accepted"] = False
             refinement_verdict["status"] = "rejected"
-            reason = (
-                f"the refined predictive scores worse than the amortized one: "
-                f"CRPS {comparison['refined_crps']:.4g} vs "
-                f"{comparison['amortized_crps']:.4g} "
-                f"(ratio {comparison['crps_ratio']:.2f} > "
-                f"{comparison['max_crps_ratio']:.2f}) -- delivering the "
-                "refinement would ship the worse of the two artifacts computed"
-            )
+            if comparison.get("refined_degenerate_marginals"):
+                reason = (
+                    f"{comparison['refined_degenerate_marginals']} refined "
+                    "marginal(s) have zero width: the refinement collapsed to a "
+                    "point estimate, which scores well on any predictive metric "
+                    "while carrying no parameter uncertainty"
+                )
+            else:
+                reason = (
+                    f"the refined predictive scores worse than the amortized one: "
+                    f"CRPS {comparison['refined_crps']:.4g} vs "
+                    f"{comparison['amortized_crps']:.4g} "
+                    f"(ratio {comparison['crps_ratio']:.2f} > "
+                    f"{comparison['max_crps_ratio']:.2f}) -- delivering the "
+                    "refinement would ship the worse of the two artifacts computed"
+                )
             refinement_verdict["reasons"].append(reason)
             print(f"  REFINEMENT REJECTED ({refinement.method}): {reason}")
             _save_rejected_refinement_samples(
