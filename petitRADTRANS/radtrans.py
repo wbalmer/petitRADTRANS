@@ -2051,6 +2051,8 @@ class Radtrans:
         """Compute transmission-spectrum radii for the prepared opacity state.
 
         Args:
+            pressures:
+                Pressure at each atmospheric level in cgs units.
             temperatures:
                 Atmospheric temperature profile in K.
             mean_molar_masses:
@@ -4026,7 +4028,7 @@ class Radtrans:
                     as input, and returns an isotropic scattering opacity matrix in units of cm^2/g, in the shape of
                     number of wavelength points x number of pressure points.
                     This opacity will then be added to the atmospheric absorption opacity.
-                    It may be used to add simple cloud absorption laws, for example, which
+                    It may be used to add simple cloud scattering laws, for example, which
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
                     This is a static (compile-time) argument: pass a stable, module-level function reference;

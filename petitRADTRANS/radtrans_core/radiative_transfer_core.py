@@ -2785,24 +2785,30 @@ def compute_transit_radii(
     ) - _safe_sqrt_positive(lower_shell_boundaries - impact_radius_squared)
     diff_s_active = jnp.asarray(diff_s_active, dtype=WORKING_JAX_DTYPE)
 
+    # Calculate optical depths
     optical_depths_active = jnp.einsum(
         "gfsl,ml->gfsm", pair_transparencies, diff_s_active, optimize=True
     )
+    # Calculate transmittances (exp(-optical_depths)
     transparencies = jnp.exp(
         -jnp.pad(optical_depths_active, ((0, 0), (0, 0), (0, 0), (1, 0)))
     )
 
     if weights_gauss.size == 1:
-        transparencies = transparencies[0]
+        transparencies = transparencies[0] # (frequencies, species, layers)
     else:
+        # Integrate over correlated-k's g-coordinate
         transparencies = jnp.einsum(
-            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True
+            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True # (frequencies, species, layers)
         )
 
+    # get rid of species dimension
+    # remove axis 1 (species) if only single species
     if transparencies.shape[1] == 1:
-        transparencies = transparencies[:, 0, :]
+        transparencies = transparencies[:, 0, :] # (frequencies, layers)
+    # combine transmission of several species (exp(-tau1) * exp(-tau2)...)
     else:
-        transparencies = jnp.prod(transparencies, axis=1)
+        transparencies = jnp.prod(transparencies, axis=1)  # (frequencies, layers)
 
     # Calculate transparencies (1 - transmittances)
     transparencies = 1.0 - transparencies
@@ -2817,7 +2823,7 @@ def compute_transit_radii(
         transparencies[:, 1:] * radius_hydrostatic_equilibrium[None, 1:]
         + transparencies[:, :-1] * radius_hydrostatic_equilibrium[None, :-1]
     )
-    transit_radii = jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1)
+    transit_radii = jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1) # (frequencies)
 
     # Transform area to transmission radius
     transit_radii = jnp.sqrt(transit_radii + radius_hydrostatic_equilibrium[-1] ** 2.0)
@@ -2938,21 +2944,25 @@ def compute_transit_radii_summed(
     ) - _safe_sqrt_positive(lower_shell_boundaries - impact_radius_squared)
     diff_s_active = jnp.asarray(diff_s_active, dtype=WORKING_JAX_DTYPE)
 
+    # Calculate optical depths
     optical_depths_active = jnp.einsum(
         "gfsl,ml->gfsm", pair_transparencies, diff_s_active, optimize=True
     )
+    # Calculate transmittances (exp(-optical_depths)
     transparencies = jnp.exp(
         -jnp.pad(optical_depths_active, ((0, 0), (0, 0), (0, 0), (1, 0)))
     )
 
     if weights_gauss.size == 1:
-        transparencies = transparencies[0]
+        transparencies = transparencies[0] # (frequencies, species, layers)
     else:
+        # Integrate over correlated-k's g-coordinate
         transparencies = jnp.einsum(
-            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True
+            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True # (frequencies, species, layers)
         )
 
-    transparencies = transparencies[:, 0, :]
+    # get rid of species dimension -> remove axis 1 (species) because all species already combined there
+    transparencies = transparencies[:, 0, :] # (frequencies, layers)
 
     # Calculate transparencies (1 - transmittances)
     transparencies = 1.0 - transparencies
@@ -2967,7 +2977,7 @@ def compute_transit_radii_summed(
         transparencies[:, 1:] * radius_hydrostatic_equilibrium[None, 1:]
         + transparencies[:, :-1] * radius_hydrostatic_equilibrium[None, :-1]
     )
-    transit_radii = jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1)
+    transit_radii = jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1) # (frequencies)
 
     # Transform area to transmission radius
     transit_radii = jnp.sqrt(transit_radii + radius_hydrostatic_equilibrium[-1] ** 2.0)
