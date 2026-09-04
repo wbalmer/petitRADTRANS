@@ -175,7 +175,7 @@ class SimulationRuntime(RetrievalRuntime):
 
         # Groups in case a Data object uses an external prt reference
         for group in self.model_groups:
-            model_result = self._evaluate_model_group(group, physical_params)
+            model_result = self._calculate_model_group_spectrum(group, physical_params)
 
             if not model_result.spectrum_is_valid():
                 raise ValueError(
@@ -592,7 +592,7 @@ class BatchedSimulator(Simulator):
     """Runtime-backed simulator that prefers vectorized task execution.
 
     The class intentionally exposes only interfaces at this stage. Concrete
-    implementations can back this with ``RetrievalRuntime.evaluate_vectorized_jax``
+    implementations can back this with ``RetrievalRuntime.evaluate_likelihood_vectorized_jax``
     or a fallback scalar loop when JAX batching is unavailable.
     """
 
@@ -1168,7 +1168,7 @@ class RuntimeSimulator(BatchedSimulator):
             if self.task.simulation_config.store_per_datapoint_log_likelihood:
                 # Reuse the batched evaluator for per-sample log-likelihoods.
                 batched_log_likelihood = jnp.asarray(
-                    self.runtime.evaluate_jax_batched(parameter_matrix), dtype=FEAUTRIER_JAX_DTYPE
+                    self.runtime.evaluate_likelihood_jax_batched(parameter_matrix), dtype=FEAUTRIER_JAX_DTYPE
                 )
 
             diagnostics_batched = {
@@ -1241,7 +1241,7 @@ class RuntimeSimulator(BatchedSimulator):
 
             if log_likelihood is not None:
                 log_likelihood.append(
-                    self.runtime.evaluate_scalar(
+                    self.runtime.evaluate_likelihood_scalar(
                         physical_params=physical_params,
                     )
                 )
