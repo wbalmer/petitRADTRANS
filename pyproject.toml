@@ -89,7 +89,7 @@ retrieval = [
     "matplotlib",
     "arviz",
     "corner",
-    "jaxns>=3.0.0"
+    "jaxns>=3.0.0",
     "dynesty>=3.0.0",
     "pymultinest",
     "blackjax",
