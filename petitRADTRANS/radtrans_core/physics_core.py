@@ -245,7 +245,7 @@ def compute_pressure_hydrostatic_equilibrium(
     r_pl_sq = planet_radius**2
 
     def integrand(press):
-        temp = temperature(press)
+        temp = temperature(press / 1e6)
         mu = mean_molar_masses(press / 1e6, temp)
         if not jnp.isscalar(mu):
             mu = mu[0]
