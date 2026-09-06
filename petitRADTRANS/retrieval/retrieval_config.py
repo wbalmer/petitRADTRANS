@@ -1,11 +1,13 @@
 import logging
 import os
+from typing import Callable
 
 import numpy as np
 
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import Parameter
+from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity
 
 # MPI Multiprocessing
 rank = 0
@@ -167,7 +169,7 @@ class RetrievalConfig:
         prt_path = petitradtrans_config_parser.get_input_data_path()
 
         files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/lines/correlated_k/")]
-        files = set([f.split('_R_')[0] for f in files])
+        files = set([f.split('.R')[0] for f in files])
         print("\ncorrelated-k opacities")
 
         for f in files:
@@ -222,7 +224,7 @@ class RetrievalConfig:
         opacities of the model. The values in the list are strings, with the names matching
         the pRT opacity names, which vary between the c-k line opacities and the line-by-line opacities.
 
-        NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
+        NOTE: As of pRT version 2.4.9, the behavior of this function has changed. In previous versions the
         abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
         so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
 
@@ -247,11 +249,13 @@ class RetrievalConfig:
         self.line_species = linelist
 
         if not eq:
-            for spec in self.line_species:
-                spec = spec.split('.', 1)[0]  # remove possible previous spectral info
-
-                self.parameters[spec] = Parameter(
-                    spec,
+            for species in self.line_species:
+                Opacity.check_name(species)
+                species_opacity = Opacity([species])
+                species_full_name = species_opacity.get_full_name().split('.R')[0]
+                print(species, species_full_name)
+                self.parameters[species_full_name] = Parameter(
+                    species_full_name,
                     True,
                     transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
                 )
@@ -284,7 +288,7 @@ class RetrievalConfig:
         The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
         opacities.
 
-        NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
+        NOTE: As of pRT version 2.4.9, the behavior of this function has changed. In previous versions the
         abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
         so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
 
@@ -309,15 +313,21 @@ class RetrievalConfig:
                 f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
             )
 
-        self.line_species.append(species)
+        Opacity.check_name(species)
+        species_opacity = Opacity([species])
+        species_full_name = species_opacity.get_full_name().split('.R')[0]
+
+        self.line_species.append(species_full_name)
         if not eq:
             if fixed_abund is not None:
-                self.parameters[species] = Parameter(species, False,
-                                                     value=fixed_abund)
+                self.parameters[species_full_name] = Parameter(
+                    species_full_name,
+                    is_free_parameter=False,
+                    value=fixed_abund)
             else:
-                self.parameters[species] = Parameter(
-                    species,
-                    True,
+                self.parameters[species_full_name] = Parameter(
+                    species_full_name,
+                    is_free_parameter=True,
                     transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
                 )
 
@@ -364,58 +374,60 @@ class RetrievalConfig:
                 The prior range on the log pressure of the pressure nodes in log bar, only used if pressure_spacing is
                 'absolute' or 'relative'.
             fixed_pressure_node_species: str
-                If pressure_spacing is 'fixed', this species' pressure nodes will be used as the pressure nodes.
+                If pressure_spacing is 'fixed', this species pressure nodes will be used as the pressure nodes.
                 Note that this species must already have been added to the retrieval with
                 add_pressure_varying_line_species.
         """
-
+        Opacity.check_name(species)
+        species_opacity = Opacity([species])
+        species_full_name = species_opacity.get_full_name().split('.R')[0]
         # parameter passed through loglike is log10 abundance
         if abund_lim[1] > 0.0:
             raise ValueError(
                 f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
             )
 
-        self.parameters[f"{species}_{mode}_abundance_profile"] = Parameter(
-            name=f"{species}_linear_abundance_profile",
+        self.parameters[f"{species_full_name}_{mode}_abundance_profile"] = Parameter(
+            name=f"{species_full_name}_linear_abundance_profile",
             is_free_parameter=False,
             value=True
         )
-        self.parameters[f"{species}_n_abundance_nodes"] = Parameter(
-            name=f"{species}_n_abundance_nodes",
+        self.parameters[f"{species_full_name}_n_abundance_nodes"] = Parameter(
+            name=f"{species_full_name}_n_abundance_nodes",
             is_free_parameter=False,
             value=n_nodes
         )
-        self.parameters[f"{species}_n_pressure_nodes"] = Parameter(
-            name=f"{species}_n_pressure_nodes",
+        self.parameters[f"{species_full_name}_n_pressure_nodes"] = Parameter(
+            name=f"{species_full_name}_n_pressure_nodes",
             is_free_parameter=False,
             value=n_nodes-2
         )
-        self.parameters[f"{species}_interpolation_mode"] = Parameter(
-            name=f"{species}_interpolation_mode",
+        self.parameters[f"{species_full_name}_interpolation_mode"] = Parameter(
+            name=f"{species_full_name}_interpolation_mode",
             is_free_parameter=False,
             value=pressure_spacing
         )
 
-        self.line_species.append(species)
+        self.line_species.append(species_full_name)
 
         for i in range(n_nodes - 2):
             if not pressure_spacing == 'fixed':
-                self.parameters[f"{species}_pressure_node_{i}"] = Parameter(
-                    name=f"{species}_pressure_node_{i}",
+                self.parameters[f"{species_full_name}_pressure_node_{i}"] = Parameter(
+                    name=f"{species_full_name}_pressure_node_{i}",
                     is_free_parameter=True,
                     transform_prior_cube_coordinate=lambda x: log_pressure_range_prior[0] +
                     log_pressure_range_prior[1] * x
                 )
             else:
-                self.parameters[f"{species}_pressure_node_{i}"] = Parameter(
+                self.parameters[f"{species_full_name}_pressure_node_{i}"] = Parameter(
                     name=f"{fixed_pressure_node_species}_pressure_node_{i}",
                     is_free_parameter=False,
                     value=self.parameters[f"{fixed_pressure_node_species}_pressure_node_{i}"].value
                 )
 
         for i in range(n_nodes):
-            self.parameters[f"{species}_abundance_node_{i}"] = Parameter(
-                name=f"{species}_abundance_node_{i}",
+            self.parameters[f"{species_full_name}_abundance_node_{i}"] = Parameter(
+                name=f"{species_full_name}_abundance_node_{i}",
                 is_free_parameter=True,
                 transform_prior_cube_coordinate=lambda x: abund_lim[0] +
                 (abund_lim[1] - abund_lim[0]) * x
@@ -433,11 +445,15 @@ class RetrievalConfig:
                 If true, the retrieval should use free chemistry, and Parameters for the abundance of the
                 species will be removed to the retrieval
         """
-
+        remove_opacity = Opacity([species])
+        species_full_name = remove_opacity.get_full_name().split('.R')[0]
         if species in self.line_species:
             self.line_species.remove(species)
+        elif species_full_name in self.line_species:
+            self.line_species.remove(species_full_name)
         if free:
             self.parameters.pop(species, None)
+            self.parameters.pop(species_full_name, None)
 
     def add_cloud_species(self, species, eq=True, abund_lim=(-3.5, 1.5), p_base_lim=None, fixed_abund=None,
                           scaling_factor=None, fixed_base=None):
@@ -481,12 +497,15 @@ class RetrievalConfig:
             logging.warning("Ensure you set the cloud particle shape, typically with the _cd tag!")
             logging.warning(species + " was not added to the list of cloud species")
             return
+        cloud_opacity = CloudOpacity([species], natural_abundance=False)
+        species_full_name = cloud_opacity.species_full_name
+        cloud_name = species_full_name.split('_')[0]
 
-        self.cloud_species.append(species)
-        cname = species.split('_')[0]
+        # print(species, species_full_name, cloud_opacity.species_isotopologue_name, cloud_name)
+        self.cloud_species.append(cloud_opacity.species_full_name)
         if scaling_factor is not None:
-            self.parameters['eq_scaling_' + cname] = Parameter(
-                'eq_scaling_' + cname, True,
+            self.parameters['eq_scaling_' + cloud_name] = Parameter(
+                'eq_scaling_' + cloud_name, True,
                 transform_prior_cube_coordinate=lambda x: scaling_factor[0] + (
                    scaling_factor[1] - scaling_factor[
                     0]
@@ -499,32 +518,34 @@ class RetrievalConfig:
                 )
 
             if fixed_abund is None:
-                self.parameters['log_X_cb_' + cname] = Parameter(
-                    'log_X_cb_' + cname,
+                self.parameters['log_X_cb_' + cloud_name] = Parameter(
+                    'log_X_cb_' + cloud_name,
                     True,
                     transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
                 )
             else:
-                self.parameters['log_X_cb_' + cname] = Parameter(
-                    'log_X_cb_' + cname,
+                self.parameters['log_X_cb_' + cloud_name] = Parameter(
+                    'log_X_cb_' + cloud_name,
                     False,
                     value=fixed_abund
                 )
 
         if p_base_lim is not None or fixed_base is not None:
             if fixed_base is None:
-                self.parameters['log_Pbase_' + cname] = Parameter(
-                    'log_Pbase_' + cname,
+                self.parameters['log_Pbase_' + cloud_name] = Parameter(
+                    'log_Pbase_' + cloud_name,
                     True,
                     transform_prior_cube_coordinate=lambda x: p_base_lim[0] + (p_base_lim[1] - p_base_lim[0]) * x
                 )
             else:
-                self.parameters['log_Pbase_' + cname] = Parameter(
-                    'log_Pbase_' + cname,
+                self.parameters['log_Pbase_' + cloud_name] = Parameter(
+                    'log_Pbase_' + cloud_name,
                     False,
                     value=fixed_base
                 )
 
+    # TODO @Evert complete docstring
+    # TODO [4.0.0] remove radvel as it is not used
     def add_data(self,
                  name,
                  path_to_observations,
@@ -557,7 +578,7 @@ class RetrievalConfig:
                  atmospheric_column_flux_mixer=None):
         """
         Create a Data class object.
-        # TODO complete docstring
+
         Args:
             name : str
                 Identifier for this data set.
@@ -623,15 +644,18 @@ class RetrievalConfig:
             atmospheric_column_flux_mixer=atmospheric_column_flux_mixer
         )
 
-    def add_photometry(self, path,
-                       model_generating_function,
-                       model_resolution=10,
-                       distance=None,
-                       scale=False,
-                       wlen_range_micron=None,
-                       photometric_transformation_function=None,
-                       external_prt_reference=None,
-                       opacity_mode='c-k'):
+    def add_photometry(
+        self,
+        path: str,
+        model_generating_function: Callable,
+        model_resolution: float = 10.0,
+        distance: float | None = None,
+        scale: bool = False,
+        wlen_range_micron: tuple[float, float] = None,
+        photometric_transformation_function: Callable = None,
+        external_prt_reference: object = None,
+        opacity_mode: str = 'c-k'
+    ) -> None:
         """
         Create a Data class object for each photometric point in a photometry file.
         The photometry file must be a csv file and have the following structure:
@@ -656,7 +680,7 @@ class RetrievalConfig:
                 be scaled to the same distance before running the retrieval, which can be done using the
                 scale_to_distance method in the Data class.
             wlen_range_micron : Tuple
-                A pair of wavelenths in units of micron that determine the lower and upper boundaries of
+                A pair of wavelengths in units of micron that determine the lower and upper boundaries of
                 the model computation.
             external_prt_reference : str
                 The name of an existing Data object. This object's prt_object will be used to calculate the
@@ -664,34 +688,39 @@ class RetrievalConfig:
                 one model computation is required to compute the log likelihood of both datasets.
             photometric_transformation_function : method
                 A function that will transform a spectrum into an average synthetic photometric point,
-                typicall accounting for filter transmission.
+                typically accounting for filter transmission.
             opacity_mode: str
                 Opacity mode.
         """
-
         with open(path) as photometry:
             if photometric_transformation_function is None:
                 try:
                     import species as sp
-                    from species.phot.syn_phot import SyntheticPhotometry
-
-                    sp.SpeciesInit()
-                except ModuleNotFoundError:  # TODO find what error is expected here
-                    logging.error(
+                except ModuleNotFoundError as e:
+                    e.add_note(
                         "Please provide a function to transform a spectrum into photometry, or pip install species"
                     )
+                    raise e
+
+                from species.phot.syn_phot import SyntheticPhotometry
+
+                sp.SpeciesInit()
+            else:
+                # Prevent potential reference before assignment
+                class SyntheticPhotometry:
+                    ...
 
             for line in photometry:
                 # # must be the comment character
                 if line[0] == '#':
                     continue
 
-                vals = line.split(',')
-                name = vals[0]
-                wlow = float(vals[1])
-                whigh = float(vals[2])
-                flux = float(vals[3])
-                err = float(vals[4])
+                columns = line.split(',')
+                name = columns[0]
+                wavelengths_low = float(columns[1])
+                wavelengths_high = float(columns[2])
+                flux = float(columns[3])
+                uncertainties = float(columns[4])
 
                 if photometric_transformation_function is None:
                     if comm is not None and comm.Get_size() > 1:
@@ -706,27 +735,35 @@ class RetrievalConfig:
                     transform = photometric_transformation_function
 
                 if wlen_range_micron is None:
-                    wbins = [0.95 * wlow, 1.05 * whigh]
+                    wbins = [0.95 * wavelengths_low, 1.05 * wavelengths_high]
                 else:
                     wbins = wlen_range_micron
 
                 if opacity_mode == 'lbl':
                     logging.warning("Are you sure you want a high resolution model for photometry?")
 
+                data_resolution: float = (
+                    np.array(
+                        [wavelengths_low, wavelengths_high]
+                    ).mean()
+                    / (wavelengths_high - wavelengths_low)
+                )
+
                 self.data[name] = Data(
-                    name,
-                    path,
+                    name=name,
+                    path_to_observations=path,
                     model_generating_function=model_generating_function,
                     system_distance=distance,
                     photometry=True,
                     wavelength_boundaries=wbins,
-                    photometric_bin_edges=[wlow, whigh],
-                    data_resolution=np.mean([wlow, whigh]) / (whigh - wlow),
+                    photometric_bin_edges=(wavelengths_low, wavelengths_high),
+                    data_resolution=data_resolution,
                     model_resolution=model_resolution,
                     scale=scale,
                     photometric_transformation_function=transform,
                     external_radtrans_reference=external_prt_reference,
                     line_opacity_mode=opacity_mode
                 )
+                self.data[name].wavelengths = np.mean(np.vstack((wavelengths_low, wavelengths_high)), axis=0)
                 self.data[name].spectrum = flux
-                self.data[name].uncertainties = err
+                self.data[name].uncertainties = uncertainties

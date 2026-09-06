@@ -3,6 +3,7 @@ import copy
 import os
 import re
 import warnings
+from typing import cast
 
 from molmass import Formula
 
@@ -324,10 +325,17 @@ def _get_base_line_by_line_names():
     })
 
 
-def _get_input_file(path_input_data, sub_path, files=None, filename=None,
-                    expect_spectral_information=False, expect_default_file_exists=True,
-                    find_all=False, display_other_files=False):
-    full_path = os.path.join(path_input_data, sub_path)
+def _get_input_file(
+    path_input_data: str,
+    sub_path: str,
+    files: list[str] | None = None,
+    filename: str | None = None,
+    expect_spectral_information: bool = False,
+    expect_default_file_exists: bool = True,
+    find_all: bool = False,
+    display_other_files: bool = False
+) -> str | list[str]:
+    full_path: str = os.path.join(path_input_data, sub_path)
 
     if files is None:
         files = [f for f in os.listdir(full_path) if os.path.isfile(os.path.join(full_path, f))]
@@ -1081,14 +1089,18 @@ def get_cia_aliases(name: str) -> str:
 
 
 def get_cia_opacity_file_extension():
-    """Return petitRADTRANS' CIA opacity files extension."""
+    """Return petitRADTRANS CIA opacity files extension."""
     return 'ciatable.petitRADTRANS.h5'
 
 
 def get_cloud_aliases(name: str) -> str:
-    cloud_opacities_path = os.path.join(
-        petitradtrans_config_parser.get_input_data_path(),
-        get_input_data_subpaths()['clouds_opacities']
+    # [IDE] casting because LockedDict type is not well interpreted by PyCharm (maybe fixable)
+    cloud_opacities_path: str = cast(
+        str,
+        os.path.join(
+            petitradtrans_config_parser.get_input_data_path(),
+            get_input_data_subpaths()['clouds_opacities']
+        )
     )
 
     cloud_directories = []
@@ -1216,12 +1228,12 @@ def get_cloud_aliases(name: str) -> str:
 
 
 def get_cloud_opacity_file_extension():
-    """Return petitRADTRANS' cloud opacity files extension."""
+    """Return petitRADTRANS cloud opacity files extension."""
     return 'cotable.petitRADTRANS.h5'
 
 
 def get_correlated_k_opacity_file_extension():
-    """Return petitRADTRANS' correlated-k opacity files extension."""
+    """Return petitRADTRANS correlated-k opacity files extension."""
     return 'ktable.petitRADTRANS.h5'
 
 
@@ -1306,14 +1318,14 @@ def get_input_file(file: str, path_input_data: str, sub_path: str = None, expect
 
 
 def get_line_by_line_opacity_file_extension():
-    """Return petitRADTRANS' line-by-line opacity files extension."""
+    """Return petitRADTRANS line-by-line opacity files extension."""
     return 'xsec.petitRADTRANS.h5'
 
 
 def get_opacity_directory(species: str, category: str,
                           path_input_data: str = None, full: bool = False):
     if path_input_data is None:
-        path_input_data = petitradtrans_config_parser.get_input_data_path()
+        path_input_data: str = petitradtrans_config_parser.get_input_data_path()
 
     check_opacity_name(species)
 
@@ -1343,7 +1355,8 @@ def get_opacity_directory(species: str, category: str,
         keys = list(sub_paths.keys())
         raise KeyError(f"category must be {'|'.join(keys)}, but was '{category}'")
 
-    sub_path = os.path.join(sub_paths[category], basename, directory)
+    # [IDE] casting because LockedDict type is not well interpreted by PyCharm (maybe fixable)
+    sub_path = os.path.join(cast(str, sub_paths[category]), basename, directory)
     full_path = os.path.abspath(os.path.join(path_input_data, sub_path))
 
     if full:
@@ -1407,11 +1420,17 @@ def get_resolving_power_from_string(string: str) -> int:
     return int(string.split('R', 1)[1])
 
 
-def get_resolving_power_string(resolving_power: [int, float]) -> str:
+def get_resolving_power_string(resolving_power: int | float) -> str | None:
     if isinstance(resolving_power, int):
         return f"R{resolving_power}"
     elif isinstance(resolving_power, float):
         return f"R{resolving_power:.0e}".replace('e+', 'e').replace('e0', 'e')
+
+    return None  # TODO I do not remember why we do not raise an error if the type is incorrect as below?
+    # else:
+    #     raise TypeError(
+    #         f"resolving power must be an integer or a float, but is of type '{type(resolving_power)}'"
+    #     )
 
 
 def get_species_basename(species: str, join: bool = False) -> str:

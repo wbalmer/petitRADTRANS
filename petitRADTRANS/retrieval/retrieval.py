@@ -1,24 +1,25 @@
-
-import sys
-import os
 import copy
 import json
+import os
+import sys
 import traceback
 import warnings
+from typing import Callable
+
 import dill
 import numpy as np
 import numpy.typing as npt
 from scipy.stats import binned_statistic
 
 import petitRADTRANS
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 # noinspection PyUnresolvedReferences
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.math import convolve, running_mean, filter_spectrum_with_spline
-from petitRADTRANS.opacities import CorrelatedKOpacity
+from petitRADTRANS.math import convolve, filter_spectrum_with_spline, running_mean
+from petitRADTRANS.opacities.opacities import CloudOpacity, CorrelatedKOpacity, Opacity
 from petitRADTRANS.physics import wavelength2frequency
-import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
@@ -296,8 +297,8 @@ class Retrieval:
         species = []
 
         for line in self.configuration.line_species:
-            _line = line.split('.', 1)[0]  # remove possible previous spectral info
-
+            # _line = line.split('.', 1)[0]  # remove possible previous spectral info
+            _line = Opacity.get_species_isotopologue_name(line)
             matches = CorrelatedKOpacity.find(
                 path_input_data=self.path,
                 category='correlated_k_opacities',
@@ -332,7 +333,7 @@ class Retrieval:
         resume,
         max_iters,
         frac_remain,
-        l_epsilon
+        l_epsilon  # TODO [4.0.0] remove as it is not used
     ):
         """
         Run mode for the class. Uses ultranest to sample parameter space
@@ -395,12 +396,11 @@ class Retrieval:
                         dlogz=log_z_convergence,
                         max_iters=max_iters,
                         frac_remain=frac_remain,
-                        l_epsilon=l_epsilon,
                         region_class=RobustEllipsoidRegion)
             sampler.print_results()
             sampler.plot_corner()
 
-    def build_param_dict(self, sample: npt.NDArray[float], free_param_names: list[str]) -> dict[str, Parameter]:
+    def build_param_dict(self, sample: npt.NDArray[np.floating], free_param_names: list[str]) -> dict[str, Parameter]:
         """
         This function builds a dictionary of parameters that can be passed to the
         model building functions. It requires a numpy array with the same length
@@ -958,7 +958,7 @@ class Retrieval:
             self.configuration.retrieval_name
         )
 
-    def get_best_fit_chi2(self, samples: npt.NDArray[float]) -> float:
+    def get_best_fit_chi2(self, samples: npt.NDArray[np.floating]) -> float:
         """
         Get the 𝛘^2 of the best fit model - removing normalization term from log L
 
@@ -1001,7 +1001,7 @@ class Retrieval:
         return (-log_l - norm) * 2
 
     @staticmethod
-    def get_best_fit_likelihood(samples: npt.NDArray[float], print_value: bool = True) -> (float, int):
+    def get_best_fit_likelihood(samples: npt.NDArray[np.floating], print_value: bool = True) -> tuple[float, int]:
         """
         Get the log likelihood of the best fit model
 
@@ -1012,7 +1012,7 @@ class Retrieval:
                 If True, print the best fit likelihood value.
         """
         log_l = samples[-1, :]
-        best_fit_index = np.argmax(log_l)
+        best_fit_index = int(np.argmax(log_l))
 
         if print_value:
             print(f"Best fit likelihood = {log_l[best_fit_index]:.2f}")
@@ -1021,12 +1021,12 @@ class Retrieval:
 
     def get_best_fit_model(
         self,
-        best_fit_params: npt.NDArray[float],
+        best_fit_params: npt.NDArray[np.floating],
         parameters_read: list[str],
         ret_name: str = None,
         contribution: bool = False,
         prt_reference: str = None,
-        model_generating_function: callable = None,
+        model_generating_function: Callable = None,
         refresh: bool = True,
         mode: str = 'bestfit',
         save: bool = True
@@ -1074,7 +1074,7 @@ class Retrieval:
         self.best_fit_parameters = parameters
 
         if self.configuration.amr:
-            _ = self.configuration._setup_pres()  # TODO this function should not be private
+            _ = self.configuration._setup_pres()  # TODO _setup_pres should not be private
             self.best_fit_parameters["pressure_scaling"] = self.configuration.parameters["pressure_scaling"]
             self.best_fit_parameters["pressure_width"] = self.configuration.parameters["pressure_width"]
             self.best_fit_parameters["pressure_simple"] = self.configuration.parameters["pressure_simple"]
@@ -1171,7 +1171,7 @@ class Retrieval:
             for parameter_name, value in samples.items()
         }
 
-    def get_chi2(self, sample: npt.NDArray[float]) -> float:
+    def get_chi2(self, sample: npt.NDArray[np.floating]) -> float:
         """
         Get the 𝛘^2 of the given sample relative to the data - removing normalization term from log L
 
@@ -1216,7 +1216,7 @@ class Retrieval:
 
         return 2 * (-log_l - norm)
 
-    def get_chi2_normalisation(self, sample: npt.NDArray[float]) -> float:
+    def get_chi2_normalisation(self, sample: npt.NDArray[np.floating]) -> float:
         """
         Get the 𝛘^2 normalization term from log L
 
@@ -1334,7 +1334,7 @@ class Retrieval:
 
         return elpd_tot, elpd, pareto_k, delta_elpd
 
-    def get_evidence(self, ret_name: str = "") -> (float, float):
+    def get_evidence(self, ret_name: str = "") -> tuple[float, float]:
         """
         Get the log10 Z and error for the retrieval
 
@@ -1358,7 +1358,7 @@ class Retrieval:
     def get_full_range_model(
         self,
         parameters: dict[str, Parameter],
-        model_generating_function: callable = None,
+        model_generating_function: Callable = None,
         contribution: bool = False,
         prt_object: Radtrans = None,
         prt_reference: Data = None
@@ -1386,7 +1386,7 @@ class Retrieval:
 
         # Set up the pRT object
         if self.configuration.amr:
-            p = self.configuration._setup_pres()
+            p = self.configuration._setup_pres()  # TODO _setup_pres should not be private
             parameters["pressure_scaling"] = self.configuration.parameters["pressure_scaling"]
             parameters["pressure_width"] = self.configuration.parameters["pressure_width"]
             parameters["pressure_simple"] = self.configuration.parameters["pressure_simple"]
@@ -1466,7 +1466,7 @@ class Retrieval:
 
         return wavelength, spectrum, contribution
 
-    def get_log_likelihood_per_datapoint(self, samples_use: npt.NDArray[float], ret_name: str = None):
+    def get_log_likelihood_per_datapoint(self, samples_use: npt.NDArray[np.floating], ret_name: str = None):
         if ret_name is None:
             ret_name = self.configuration.retrieval_name
 
@@ -1490,7 +1490,7 @@ class Retrieval:
                 log_l_per_datapoint_dict[name]
             )
 
-    def get_mass_fractions(self, sample: npt.NDArray[float], parameters_read: list[str] = None):
+    def get_mass_fractions(self, sample: npt.NDArray[np.floating], parameters_read: list[str] = None):
         """
         This function returns the mass fraction abundances of each species as a function of pressure
 
@@ -1521,8 +1521,8 @@ class Retrieval:
             name = self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
         species = [
-            spec.split('.')[0]
-            for spec in self.configuration.data[name].radtrans_object.line_species
+            Opacity([species]).get_full_name().split('.R')[0]
+            for species in self.configuration.data[name].radtrans_object.line_species
         ]
         abundances, mmw, _, _ = get_abundances(
             pressures,
@@ -1535,7 +1535,7 @@ class Retrieval:
 
         return abundances, mmw
 
-    def get_max_likelihood_params(self, best_fit_params: npt.NDArray[float], parameters_read: list[str]):
+    def get_max_likelihood_params(self, best_fit_params: npt.NDArray[np.floating], parameters_read: list[str]):
         # TODO misnamed function as this does not return the max likelihood parameters, but is instead a wrapper for build_param_dict # noqa: E501
         """
         This function converts the sample from the post_equal_weights file with the maximum
@@ -1557,7 +1557,7 @@ class Retrieval:
 
         return self.best_fit_parameters
 
-    def get_median_params(self, samples: npt.NDArray[float], parameters_read: list[str], return_array=False):
+    def get_median_params(self, samples: npt.NDArray[np.floating], parameters_read: list[str], return_array=False):
         """
         This function builds a parameter dictionary based on the median value
         of each parameter. This will update the best_fit_parameter dictionary!
@@ -1589,7 +1589,7 @@ class Retrieval:
 
         return self.best_fit_parameters
 
-    def get_parameters_prior_mid_range_values(self) -> npt.NDArray[float]:
+    def get_parameters_prior_mid_range_values(self) -> npt.NDArray[np.floating]:
         """Return the prior mid-range values of the free parameters.
         """
         n_free_parameters = 0
@@ -1617,7 +1617,7 @@ class Retrieval:
         samples = self.get_samples_dict(return_likelihood=False)
 
         return {
-            parameter_name: np.quantile(value, quantile)
+            parameter_name: float(np.quantile(value, quantile))
             for parameter_name, value in samples.items()
         }
 
@@ -1667,6 +1667,7 @@ class Retrieval:
                                     subtract_n_parameters=False,
                                     verbose=False,
                                     show_chi2=False):
+        # TODO @Evert add missing 'parameters' docstring
         """
         Get the 𝛘^2/DoF of the supplied spectrum - divide chi^2 by DoF
 
@@ -1688,7 +1689,6 @@ class Retrieval:
         d_o_f = 0
 
         for name, data in self.configuration.data.items():
-            add = 0.0
             if isinstance(data.data_resolution, np.ndarray):
                 data.initialise_data_resolution(wlen_model)
 
@@ -1754,7 +1754,7 @@ class Retrieval:
         names: list[str] = None,
         output_directory: str = os.getcwd(),
         ret_names: list[str] = None
-    ) -> (dict[str, npt.NDArray[float]], dict[str, list[str]]):
+    ) -> tuple[dict[str, npt.NDArray[np.floating]], dict[str, list[str]]]:
         """Get the samples of the requested retrievals.
 
         Args:
@@ -1820,7 +1820,7 @@ class Retrieval:
 
         return samples, param_dict
 
-    def get_samples_dict(self, return_likelihood: bool = False) -> dict[str, npt.NDArray[float]]:
+    def get_samples_dict(self, return_likelihood: bool = False) -> dict[str, npt.NDArray[np.floating]]:
         """Return the samples of this retrieval as a dict.
 
         Args:
@@ -1852,7 +1852,7 @@ class Retrieval:
     def get_special_parameters() -> set[str]:
         return {'_spectrum_scaling', '_spectrum_offset', '_uncertainty_scaling'}
 
-    def get_volume_mixing_ratios(self, sample: npt.NDArray[float], parameters_read: list[str] = None):
+    def get_volume_mixing_ratios(self, sample: npt.NDArray[np.floating], parameters_read: list[str] = None):
         """
         This function returns the VMRs of each species as a function of pressure.
 
@@ -1872,14 +1872,18 @@ class Retrieval:
         mass_fractions, mean_molar_masses = self.get_mass_fractions(sample, parameters_read)
         mass_fractions_no_clouds = copy.deepcopy(mass_fractions)
         for cloud in self.configuration.cloud_species:
-            del mass_fractions_no_clouds[cloud]
+            cloud_opacity = CloudOpacity([cloud])
+            cloud_name = cloud_opacity.species_isotopologue_name.split('_')[0]
+            if cloud_name in mass_fractions_no_clouds.keys():
+                del mass_fractions_no_clouds[cloud_name]
         volume_mixing_ratios = mass_fractions2volume_mixing_ratios(mass_fractions_no_clouds)
 
         return volume_mixing_ratios, mean_molar_masses
 
+    # TODO [4.0.0] remove unused parameters ndim and nparam
     def log_likelihood(
         self,
-        cube: npt.NDArray[float],
+        cube: npt.NDArray[np.floating],
         ndim: int = 0,
         nparam: int = 0,
         log_l_per_datapoint_dict: dict = None,
@@ -2211,7 +2215,8 @@ class Retrieval:
         else:
             return log_likelihood + log_prior, wavelengths_models, spectrum_models, beta, additional_log_ls
 
-    def prior(self, cube: npt.NDArray[float], ndim: int = 0, nparams: int = 0) -> npt.NDArray[float]:
+    # TODO [4.0.0] remove unused parameters ndim and nparam
+    def prior(self, cube: npt.NDArray[np.floating], ndim: int = 0, nparams: int = 0) -> npt.NDArray[np.floating]:
         """
         pyMultinest Prior function. Transforms unit hypercube into physical space.
         """
@@ -2224,7 +2229,7 @@ class Retrieval:
 
         return cube
 
-    def prior_ultranest(self, cube: npt.NDArray[float]) -> npt.NDArray[float]:
+    def prior_ultranest(self, cube: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
         """
         pyMultinest Prior function. Transforms unit hypercube into physical space.
         """
@@ -2504,7 +2509,7 @@ class Retrieval:
             )
 
         if self.configuration.amr:
-            pressures = self.configuration._setup_pres()
+            pressures = self.configuration._setup_pres()  # TODO _setup_pres should not be private
         else:
             pressures = self.configuration.pressures
 
@@ -2683,8 +2688,7 @@ class Retrieval:
             spectrum_model = None
 
             if data.external_radtrans_reference is None:
-                # Only calculate spectra within a given
-                # wavelengths range once
+                # Only calculate spectra within a given wavelengths range once
                 if data.scale or data.scale_err:
                     data.scale_factor = parameters[name + "_scale_factor"].value
 
@@ -2734,13 +2738,16 @@ class Retrieval:
             for name_2, data_2 in self.configuration.data.items():
                 if data_2.external_radtrans_reference is not None:
                     if data_2.external_radtrans_reference == name:
-                        if (data_2.variability_atmospheric_column_model_flux_return_mode
-                                and atmospheric_model_column_fluxes is not None):
+                        if (
+                            data_2.variability_atmospheric_column_model_flux_return_mode
+                            and atmospheric_model_column_fluxes is not None
+                        ):
                             spectrum_model_2 = data_2.atmospheric_column_flux_mixer(
                                 atmospheric_model_column_fluxes,
                                 parameters,
                                 data_2.name
                             )
+
                             if data.data_resolution_array_model is not None:
                                 data.initialise_data_resolution(wavelengths_model)
                                 spectrum_model_2 = convolve(
@@ -2752,6 +2759,7 @@ class Retrieval:
                                     wavelengths_model,
                                     spectrum_model_2,
                                     data.data_resolution)
+
                             binned_2 = frebin.rebin_spectrum_bin(
                                 wavelengths_model,
                                 spectrum_model_2,
@@ -2760,6 +2768,9 @@ class Retrieval:
                             )
                             self.best_fit_spectra[name_2] = [data.wavelengths, binned_2]
                         else:
+                            # TODO @Evert 'binned' may not be assigned if data.external_radtrans_reference is not None
+                            #  , fix the condition and the other now useless (?) variables marked "prevent reference
+                            #  befor assignment"
                             self.best_fit_spectra[name_2] = [data.wavelengths, binned]
 
         for name, data in self.configuration.data.items():
@@ -2812,7 +2823,10 @@ class Retrieval:
                 name = self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-            species = [spec.split(".R")[0] for spec in self.configuration.data[name].radtrans_object.line_species]
+            species = [
+                Opacity([species]).get_full_name().split('.R')[0]
+                for species in self.configuration.data[name].radtrans_object.line_species
+                ]
 
             samples_use = sample_dict[ret].T
             parameters_read = parameter_dict[ret]
@@ -2874,7 +2888,10 @@ class Retrieval:
                 name = self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-            species = [spec.split(".R")[0] for spec in self.configuration.data[name].radtrans_object.line_species]
+            species = [
+                Opacity([species]).get_full_name().split('.R')[0]
+                for species in self.configuration.data[name].radtrans_object.line_species
+                ]
 
             samples_use = sample_dict[ret].T
             parameters_read = parameter_dict[ret]
@@ -3065,9 +3082,9 @@ class Retrieval:
                         self.configuration.plot_kwargs["take_PTs_from"]
                     ].radtrans_object.line_species
 
-            # Set up colours - abundances usually have a lot of species,
-            # so let's use the default matplotlib colour scheme rather
-            # than the pRT colours.
+            # Set up colors - abundances usually have a lot of species,
+            # so let's use the default matplotlib color scheme rather
+            # than the pRT colors.
             prop_cycle = plt.rcParams['axes.prop_cycle']
             colors = prop_cycle.by_key()['color']
 
@@ -3078,7 +3095,8 @@ class Retrieval:
             if sample_posteriors:
                 abundances = {}
                 for species in species_to_plot:
-                    abundances[species.split('.')[0]] = []
+                    species = Opacity([species]).get_full_name().split('.R')[0]
+                    abundances[species] = []
 
                 # Go through EVERY sample to find the abundance distribution.
                 # Very slow.
@@ -3088,20 +3106,22 @@ class Retrieval:
                     else:
                         abund_dict, mmw = self.get_mass_fractions(sample[:-1], parameters_read)
                     for species in species_to_plot:
-                        abundances[species.split('.')[0]].append(
-                            abund_dict[species.split('.')[0]]
+                        species = Opacity([species]).get_full_name().split('.R')[0]
+                        abundances[species].append(
+                            abund_dict[species]
                         )
 
                 # Plot median and 1sigma contours
                 for i, species in enumerate(species_to_plot):
+                    species = Opacity([species]).get_full_name().split('.R')[0]
                     low, med, high = np.quantile(
-                        np.array(abundances[species.split('.')[0]]),
+                        np.array(abundances[species]),
                         [0.159, 0.5, 0.841],
                         axis=0
                     )
                     ax.plot(med,
                             pressures,
-                            label=species.split('_')[0],
+                            label=Opacity.get_species_scientific_name(species),
                             color=colors[i % len(colors)],
                             zorder=0,
                             linewidth=2)
@@ -3129,12 +3149,13 @@ class Retrieval:
                     abund_dict, mmw = self.get_volume_mixing_ratios(sample_use, parameters_read)
                 else:
                     abund_dict, mmw = self.get_mass_fractions(sample_use, parameters_read)
-                for i, spec in enumerate(species_to_plot):
-                    if np.min(abund_dict[spec.split('.')[0]]) < min_xaxis:
-                        min_xaxis = 0.9*np.min(abund_dict[spec.split('.')[0]])
-                    ax.plot(abund_dict[spec.split('.')[0]],
+                for i, species in enumerate(species_to_plot):
+                    species = Opacity([species]).get_full_name().split('.R')[0]
+                    if np.min(abund_dict[species]) < min_xaxis:
+                        min_xaxis = 0.9*np.min(abund_dict[species])
+                    ax.plot(abund_dict[species],
                             pressures,
-                            label=spec.split('_')[0],
+                            label=Opacity.get_species_scientific_name(species),
                             color=colors[i % len(colors)],
                             zorder=0,
                             linewidth=2)
@@ -3416,7 +3437,7 @@ class Retrieval:
                 current set of parameters stored in self.configuration.parameters. This should be the same model
                 function used in the retrieval.
             log_scale_contribution : bool
-                If true, take the log10 of the contribution function to visualise faint features.
+                If true, take the log10 of the contribution function to visualize faint features.
             n_contour_levels : int
                 Number of contour levels to pass to the matplotlib contourf function.
             refresh : bool
@@ -3904,7 +3925,7 @@ class Retrieval:
             except Exception:  # TODO find what is expected here
                 ax.set_ylim([pressures[-1] * 1.03, pressures[0] / 1.03])
 
-            # Labelling and output
+            # Labeling and output
             ax.set_xlabel('Temperature [K]')
             ax.set_ylabel('Pressure [bar]')
             ax.legend(loc='best')
@@ -4005,11 +4026,11 @@ class Retrieval:
                     wavelength_max = data.wavelength_boundaries[1]
 
             # Set up the pRT object
-            p = None
             if self.configuration.amr:
-                p = self.configuration._setup_pres()
+                p = self.configuration._setup_pres()  # TODO _setup_pres should not be private
             else:
                 p = self.configuration.pressures
+
             species = copy.copy(
                 self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species
@@ -4034,6 +4055,7 @@ class Retrieval:
                 n_samples = self.configuration.plot_kwargs["nsample"]
 
             random_ints = np.random.randint(low=0, high=len_samples, size=int(n_samples))
+            parameters = {}  # prevent potential reference before assignment
 
             for i_sample, random_index in enumerate(random_ints):
                 file = os.path.join(path, "posterior_sampled_spectra_" + str(random_index).zfill(5))
@@ -4177,85 +4199,95 @@ class Retrieval:
         from matplotlib.ticker import AutoMinorLocator, MultipleLocator, NullFormatter
 
         # Defining helper functions for plotting
-        def rebin_data(resolution, wavelengths, spectrum, uncertainties, data_wavelength_bins):
-            resolution_data = np.mean(wavelengths[1:] / np.diff(wavelengths))
-            if resolution is not None and resolution < resolution_data:
-                ratio = resolution_data / resolution
-                flux, edges, _ = binned_statistic(
-                    wavelengths,
-                    spectrum,
-                    'mean',
-                    wavelengths.shape[0] / ratio)
-                error, _, _ = (
-                    binned_statistic(
-                        wavelengths,
-                        uncertainties,
-                        'mean',
-                        wavelengths.shape[0] / ratio)
-                    / np.sqrt(ratio)
-                )
-                error = np.array(error)
-                wavelengths = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
-                wavelengths_bins = np.zeros_like(wavelengths)
-                wavelengths_bins[:-1] = np.diff(wavelengths)
-                wavelengths_bins[-1] = wavelengths_bins[-2]
-            else:
-                flux = spectrum
-                error = uncertainties
-                wavelengths_bins = data_wavelength_bins
-            return wavelengths, flux, error, wavelengths_bins
+        def __rebin_data(_resolution, _wavelengths, _spectrum, _uncertainties, _data_wavelength_bins):
+            _resolution_data = np.mean(_wavelengths[1:] / np.diff(_wavelengths))
 
-        def add_data_to_axis(
-                ax,
-                data,
-                wavelengths,
-                flux,
-                error,
-                wavelengths_bins,
-                marker,
-                markersize,
-                markerfacecolors,
-                ecolor,
-                y_axis_scaling,
-                label,
-                alpha):
+            if _resolution is not None and _resolution < _resolution_data:
+                _ratio = _resolution_data / _resolution
+                _flux, _edges, _ = binned_statistic(
+                    _wavelengths,
+                    _spectrum,
+                    'mean',
+                    _wavelengths.shape[0] / _ratio)
+
+                _error, _, _ = (
+                    binned_statistic(
+                        _wavelengths,
+                        _uncertainties,
+                        'mean',
+                        _wavelengths.shape[0] / _ratio
+                    )
+                )
+                _error = np.array(_error) / np.sqrt(_ratio)
+                _wavelengths = np.array(
+                    [
+                        (_edges[_i] + _edges[_i + 1]) * 0.5
+                        for _i in range(_edges.shape[0] - 1)
+                    ]
+                )
+                _wavelengths_bins = np.zeros_like(_wavelengths)
+                _wavelengths_bins[:-1] = np.diff(_wavelengths)
+                _wavelengths_bins[-1] = _wavelengths_bins[-2]
+            else:
+                _flux = _spectrum
+                _error = _uncertainties
+                _wavelengths_bins = _data_wavelength_bins
+
+            return _wavelengths, _flux, _error, _wavelengths_bins
+
+        def __add_data_to_axis(
+            _ax,
+            _data,
+            _wavelengths,
+            _flux,
+            _error,
+            _wavelengths_bins,
+            _marker,
+            _markersize,
+            _markerfacecolors,
+            _ecolor,
+            _y_axis_scaling,
+            _label,
+            _alpha
+        ):
             """
             Add the data used in the retrieval to the ax object
             """
             xerr = None
-            if data.photometry:
-                xerr = wavelengths_bins/2
-            ax.errorbar(
-                wavelengths,
-                flux * y_axis_scaling,
-                yerr=error * y_axis_scaling,
+            if _data.photometry:
+                xerr = _wavelengths_bins / 2
+            _ax.errorbar(
+                _wavelengths,
+                _flux * _y_axis_scaling,
+                yerr=_error * _y_axis_scaling,
                 xerr=xerr,
-                marker=marker,
-                markersize=markersize,
-                markerfacecolor=markerfacecolors,
-                ecolor=ecolor,
+                marker=_marker,
+                markersize=_markersize,
+                markerfacecolor=_markerfacecolors,
+                ecolor=_ecolor,
                 markeredgecolor='k',
                 linewidth=0,
                 elinewidth=2,
-                label=label,
+                label=_label,
                 zorder=10,
-                alpha=alpha)
+                alpha=_alpha)
 
         def plot_best_fit_model(
-                ax,
-                best_fit_wavelengths,
-                best_fit_spectrum,
-                y_axis_scaling,
-                chi2,
-                mode):
+            _ax,
+            _best_fit_wavelengths,
+            _best_fit_spectrum,
+            _y_axis_scaling,
+            _chi2,
+            _mode
+        ):
             """
             Add the model used in the retrieval to the ax object
             """
-            spectrum_type_label = "Best fit" if mode == 'bestfit' else "Median"
-            ax.plot(
-                best_fit_wavelengths,
-                best_fit_spectrum * y_axis_scaling,
-                label=rf'{spectrum_type_label} model, $\chi^2/\nu=${chi2:.2f}',
+            _spectrum_type_label = "Best fit" if _mode == 'bestfit' else "Median"
+            _ax.plot(
+                _best_fit_wavelengths,
+                _best_fit_spectrum * _y_axis_scaling,
+                label=rf'{_spectrum_type_label} model, $\chi^2/\nu=${_chi2:.2f}',
                 linewidth=4,
                 alpha=0.5,
                 color='r')
@@ -4278,7 +4310,8 @@ class Retrieval:
                 nrows=2,
                 ncols=1,
                 sharex='col',
-                sharey=False,
+                # [IDE] Type hint of subplots(sharey) is incorrect
+                sharey=False,  # type: ignore
                 gridspec_kw={'height_ratios': [2.5, 1],
                              'hspace': 0.1},
                 figsize=(18, 9))
@@ -4355,7 +4388,7 @@ class Retrieval:
 
             for name, data in self.configuration.data.items():
                 if not data.photometry:
-                    wavelengths, flux, error, wavelengths_bins = rebin_data(
+                    wavelengths, flux, error, wavelengths_bins = __rebin_data(
                         self.configuration.plot_kwargs["resolution"],
                         data.wavelengths,
                         data.spectrum,
@@ -4403,13 +4436,13 @@ class Retrieval:
                 else:
                     if data.external_radtrans_reference is None:
                         best_fit_binned = self.best_fit_spectra[name][1]
-                        if len(best_fit_binned).shape > 1:
+                        if isinstance(best_fit_binned, tuple) or isinstance(best_fit_binned, np.ndarray):
                             best_fit_binned = best_fit_binned[0]
                     else:
                         best_fit_binned = data.photometric_transformation_function(
                             self.best_fit_spectra[data.external_radtrans_reference][0],
                             self.best_fit_spectra[data.external_radtrans_reference][1])
-                        if len(best_fit_binned).shape > 1:
+                        if isinstance(best_fit_binned, tuple) or isinstance(best_fit_binned, np.ndarray):
                             best_fit_binned = best_fit_binned[0]
 
                 if data.subtract_continuum:
@@ -4460,36 +4493,36 @@ class Retrieval:
                         ecolor = 'k'
 
                     # Data to top panel
-                    add_data_to_axis(
+                    __add_data_to_axis(
                         ax,
                         data,
-                        wavelengths=wavelengths[i],
-                        flux=flux[i],
-                        error=error[i],
-                        wavelengths_bins=wavelengths_bins[i],
-                        marker=marker,
-                        markersize=markersize,
-                        markerfacecolors=color_i,
-                        ecolor=ecolor,
-                        y_axis_scaling=self.configuration.plot_kwargs["y_axis_scaling"],
-                        label=label,
-                        alpha=alpha)
+                        _wavelengths=wavelengths[i],
+                        _flux=flux[i],
+                        _error=error[i],
+                        _wavelengths_bins=wavelengths_bins[i],
+                        _marker=marker,
+                        _markersize=markersize,
+                        _markerfacecolors=color_i,
+                        _ecolor=ecolor,
+                        _y_axis_scaling=self.configuration.plot_kwargs["y_axis_scaling"],
+                        _label=label,
+                        _alpha=alpha)
 
                     # Residuals to bottom panel
-                    add_data_to_axis(
+                    __add_data_to_axis(
                         ax_r,
                         data,
-                        wavelengths=wavelengths[i],
-                        flux=(flux[i]-best_fit_binned[i])/error[i],
-                        error=1,
-                        wavelengths_bins=wavelengths_bins[i],
-                        marker=marker,
-                        markersize=markersize,
-                        markerfacecolors=color_i,
-                        ecolor=ecolor,
-                        y_axis_scaling=1.0,
-                        label=None,
-                        alpha=alpha)
+                        _wavelengths=wavelengths[i],
+                        _flux=(flux[i] - best_fit_binned[i]) / error[i],
+                        _error=1,
+                        _wavelengths_bins=wavelengths_bins[i],
+                        _marker=marker,
+                        _markersize=markersize,
+                        _markerfacecolors=color_i,
+                        _ecolor=ecolor,
+                        _y_axis_scaling=1.0,
+                        _label=None,
+                        _alpha=alpha)
 
             plot_best_fit_model(
                 ax,

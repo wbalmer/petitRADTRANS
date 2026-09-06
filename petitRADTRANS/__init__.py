@@ -6,7 +6,7 @@ __version__ = importlib.metadata.version("petitRADTRANS")
 
 # Windows fixes
 if sys.platform == 'win32':
-    # Overrides default HDF5 behaviour to prevent crashes when loading HDF5 files
+    # Overrides default HDF5 behavior to prevent crashes when loading HDF5 files
     if 'HDF5_USE_FILE_LOCKING' not in os.environ:
         print("No HDF5 file locking handling explicitly setup by an environment variable, "
               "setting 'HDF5_USE_FILE_LOCKING' to 'FALSE'...")

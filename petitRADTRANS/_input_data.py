@@ -1,5 +1,6 @@
 import os
 import warnings
+from typing import Callable
 
 from petitRADTRANS.cli.prt_cli import download_input_data, get_keeper_files_url_paths
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
@@ -141,7 +142,7 @@ def default_file_selection(files: tuple[str, ...] | list[str], full_path: str, s
         f"{files_str}"
     )
 
-    new_default_file = user_input(
+    new_default_file: int | None = user_input(
         introduction_message=introduction_message,
         input_message=f"Select which file to set as the default file for '{sub_path}'",
         failure_message=f"failure to enter new default file for '{sub_path}'",
@@ -154,13 +155,13 @@ def default_file_selection(files: tuple[str, ...] | list[str], full_path: str, s
         raise ValueError(f"no default file selected for path '{sub_path}'")
 
     new_default_file -= 1
-    new_default_file = files[new_default_file]
+    new_default_file: str = files[new_default_file]
 
     return new_default_file
 
 
 def find_input_file(file: str, path_input_data: str, sub_path: str = None,
-                    match_function: callable = None, find_all: bool = False, search_online: bool = True):
+                    match_function: Callable = None, find_all: bool = False, search_online: bool = True):
     if match_function is None:
         match_function = match_function_default
 
@@ -311,7 +312,7 @@ def select_default_file(files: tuple[str, ...], full_path: str, sub_path: str) -
         f"{files_str}"
     )
 
-    new_default_file = user_input(
+    new_default_file: int | None = user_input(
         introduction_message=introduction_message,
         input_message=f"Select which file to set as the default file for '{sub_path}'",
         failure_message=f"failure to enter new default file for '{sub_path}'",
@@ -324,7 +325,7 @@ def select_default_file(files: tuple[str, ...], full_path: str, sub_path: str) -
         raise ValueError(f"no default file selected for path '{sub_path}'")
 
     new_default_file -= 1
-    new_default_file = files[new_default_file]
+    new_default_file: str = files[new_default_file]
 
     return new_default_file
 

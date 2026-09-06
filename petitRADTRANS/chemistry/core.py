@@ -18,7 +18,7 @@ from petitRADTRANS.chemistry.utils import (
     linear_spline_profile,
     stepped_profile,
 )
-from petitRADTRANS.opacities.opacities import Opacity
+from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity
 
 
 def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, amr=False):
@@ -68,13 +68,13 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         # Actual equilibrium chemistry
         # Can retrieve atomic abundances
 
-        # Calling it abundances_interp to be consistent w poor mans
+        # Calling it abundances_interp to be consistent with poor man's
         abundances_interp = get_exoatmos_abundances(pressures,
                                                     temperatures,
                                                     parameters)
         mmw = abundances_interp['MMW']
     elif "C/O" in parameters.keys():
-        # Check C/O AFTER easychem check -> need to use poor mans
+        # Check C/O AFTER easychem check -> need to use poor man's
 
         # Interpolated Equilibrium chemistry
         # Make the abundance profile
@@ -102,18 +102,19 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     # Free chemistry species
     for species in line_species:
-        isotopologue_name = Opacity.get_species_isotopologue_name(species)
+        species_opacity = Opacity([species])
+        species_full_name = species_opacity.get_full_name().split('.R')[0]
         species_basename = Opacity.get_species_base_name(species)
         # Vertically constant abundance
-        if isotopologue_name in abundances_interp.keys():
-            msum -= abundances_interp[isotopologue_name]
+        if species_full_name in abundances_interp.keys():
+            msum -= abundances_interp[species_full_name]
         if species_basename in abundances_interp.keys():
             msum -= abundances_interp[species_basename]
 
-        if isotopologue_name in parameters.keys():
-            abund = 10 ** parameters[isotopologue_name].value
-            abundances_interp[isotopologue_name] = abund * np.ones_like(pressures)
-            msum += abundances_interp[isotopologue_name]
+        if species_full_name in parameters.keys():
+            abund = 10 ** parameters[species_full_name].value
+            abundances_interp[species_full_name] = abund * np.ones_like(pressures)
+            msum += abundances_interp[species_full_name]
             continue
         elif species_basename in parameters.keys():
             abund = 10 ** parameters[species_basename].value
@@ -191,31 +192,33 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     abundances = {}
 
     for cloud in cloud_species:
-        cname = cloud.split("_")[0]
+        cloud_opacity = CloudOpacity([cloud], natural_abundance=False)
+        species_full_name = cloud_opacity.species_full_name
+        cloud_name = species_full_name.split('_')[0]
 
         if 'use_easychem' in parameters.keys():
             # AMR CANNOT BE USED WITH EASYCHEM RIGHT NOW
-            clouds[cname] = abundances_interp[cname]
+            clouds[cloud_name] = abundances_interp[cloud_name]
             continue
 
-        if "eq_scaling_" + cname in parameters.keys():
+        if "eq_scaling_" + cloud_name in parameters.keys():
             # equilibrium cloud abundance
             x_cloud = fc.return_cloud_mass_fraction(cloud, parameters['Fe/H'].value, parameters['C/O'].value)
             # Scaled by a constant factor
-            clouds[cname] = 10 ** parameters['eq_scaling_' + cname].value * x_cloud
+            clouds[cloud_name] = 10 ** parameters['eq_scaling_' + cloud_name].value * x_cloud
         else:
             # Free cloud abundance
-            clouds[cname] = 10 ** parameters['log_X_cb_' + cname].value
+            clouds[cloud_name] = 10 ** parameters['log_X_cb_' + cloud_name].value
 
         # Free cloud bases
-        if 'log_Pbase_' + cname in parameters.keys():
-            p_bases[cname] = 10 ** parameters['log_Pbase_' + cname].value
-        elif 'Pbase_' + cname in parameters.keys():
-            p_bases[cname] = parameters['Pbase_' + cname].value
+        if 'log_Pbase_' + cloud_name in parameters.keys():
+            p_bases[cloud_name] = 10 ** parameters['log_Pbase_' + cloud_name].value
+        elif 'Pbase_' + cloud_name in parameters.keys():
+            p_bases[cloud_name] = parameters['Pbase_' + cloud_name].value
         # Equilibrium locations
         elif 'Fe/H' in parameters.keys():
-            p_bases[cname] = fc.simple_cdf(
-                cname,
+            p_bases[cloud_name] = fc.simple_cdf(
+                cloud_name,
                 pressures,
                 temperatures,
                 parameters['Fe/H'].value,
@@ -223,11 +226,11 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 np.mean(mmw)
             )
         else:
-            p_bases[cname] = fc.simple_cdf_free(
-                cname,
+            p_bases[cloud_name] = fc.simple_cdf_free(
+                cloud_name,
                 pressures,
                 temperatures,
-                10 ** parameters['log_X_cb_' + cname].value,
+                10 ** parameters['log_X_cb_' + cloud_name].value,
                 mmw[0]
             )
 
@@ -244,27 +247,28 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     fseds = {}
 
     if 'use_easychem' not in parameters.keys():
-        cname = None
-
         for cloud in copy.copy(cloud_species):
-            cname = cloud.split('_')[0]
+            cloud_opacity = CloudOpacity([cloud], natural_abundance=False)
+            species_full_name = cloud_opacity.species_full_name
+            cloud_name = species_full_name.split('_')[0]
 
             # Set up fseds per-cloud
-            if 'fsed_' + cname in parameters.keys():
-                fseds[cname] = parameters['fsed_' + cname].value
+            if 'fsed_' + cloud_name in parameters.keys():
+                fseds[cloud_name] = parameters['fsed_' + cloud_name].value
             else:
-                fseds[cname] = parameters['fsed'].value
+                fseds[cloud_name] = parameters['fsed'].value
 
-            abundances[cloud] = np.zeros_like(temperatures)
-            abundances[cloud][pressures < p_bases[cname]] = \
-                clouds[cname] * (
-                        pressures[pressures <= p_bases[cname]] / p_bases[cname]
-                ) ** fseds[cname]
+            abundances[species_full_name] = np.zeros_like(temperatures)
+            abundances[species_full_name][pressures < p_bases[cloud_name]] = \
+                clouds[cloud_name] * (
+                        pressures[pressures <= p_bases[cloud_name]] / p_bases[cloud_name]
+                ) ** fseds[cloud_name]
 
-            abundances[cloud] = abundances[cloud][pressure_indices]
+            abundances[species_full_name] = abundances[species_full_name][pressure_indices]
 
     for species in line_species:
-        isotopologue_name = Opacity.get_species_isotopologue_name(species)
+        species_opacity = Opacity([species])
+        species_full_name = species_opacity.get_full_name().split('.R')[0]
         species_basename = Opacity.get_species_base_name(species)
 
         # Depending on easychem vs interpolated and different versions of pRT
@@ -281,7 +285,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             if not_found:
                 continue
 
-        if 'FeH' in species:
+        if 'FeH' in species_basename:
             # Magic factor for FeH opacity - off by factor of 2
             abunds_change_rainout = copy.copy(abundances_interp[species_basename] / 2.)
 
@@ -289,12 +293,12 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 index_ro = pressures < p_bases['Fe(c)']  # Must have iron cloud
                 abunds_change_rainout[index_ro] = 0.
 
-            abundances[species] = abunds_change_rainout[pressure_indices]
+            abundances[species_full_name] = abunds_change_rainout[pressure_indices]
 
         if species_basename in abundances_interp.keys():
-            abundances[species] = abundances_interp[species_basename][pressure_indices]
+            abundances[species_full_name] = abundances_interp[species_basename][pressure_indices]
         else:
-            abundances[species] = abundances_interp[isotopologue_name][pressure_indices]
+            abundances[species_full_name] = abundances_interp[species_full_name][pressure_indices]
 
     abundances['H2'] = abundances_interp['H2'][pressure_indices]
     abundances['He'] = abundances_interp['He'][pressure_indices]

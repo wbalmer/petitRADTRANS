@@ -1,8 +1,12 @@
 """Test petitRADTRANS utility functions.
 """
+
 import numpy as np
 
+import petitRADTRANS.physical_constants as cst
+from .benchmark import Benchmark
 from .context import petitRADTRANS
+from .test_radtrans_correlated_k import init_radtrans_correlated_k
 from .utils import reference_filenames, test_parameters, temperature_guillot_2010
 
 relative_tolerance = 1e-6
@@ -83,4 +87,21 @@ def test_stellar_model():
         reference_spectral_radiosity,
         rtol=relative_tolerance,
         atol=0
+    )
+
+wavelengths = np.load(reference_filenames['simple_spectrum'])['wavelengths']
+wavelengths = wavelengths * 1e-4  # um to cm
+
+def test_stellar_spot_correction():
+
+    benchmark = Benchmark(
+        function=petitRADTRANS.stellar_spectra.stellar_spot_correction.rackham_stellar_spot_correction,
+        relative_tolerance=relative_tolerance
+    )
+
+    benchmark.run(
+        wavelength_bin_edges=wavelengths,
+        star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
+        star_spot_effective_temperature=(test_parameters['stellar_parameters']['effective_temperature'] - 300),
+        spot_coverage=test_parameters['stellar_parameters']['spot_coverage'],
     )

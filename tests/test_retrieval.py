@@ -9,7 +9,7 @@ import os
 import numpy as np
 
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
-from petitRADTRANS.opacities import CorrelatedKOpacity
+from petitRADTRANS.opacities.opacities import Opacity, CorrelatedKOpacity
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.utils import gaussian_prior
 
@@ -84,7 +84,7 @@ def init_run():
         transform_prior_cube_coordinate=prior_temperature
     )
 
-    # Include a grey cloud as well to see what happens
+    # Include a gray cloud as well to see what happens
     run_definition_simple.add_parameter(
         "log_Pcloud",
         True,
@@ -153,7 +153,7 @@ def init_run():
     run_definition_simple.parameters['log_Pcloud'].corner_ranges = [-6, 2]
 
     for spec in run_definition_simple.line_species:
-        spec = spec.split(Data.resolving_power_str)[0]  # deal with the naming scheme for binned down opacities
+        spec = Opacity([spec]).get_full_name().split('.R')[0]  # deal with the naming scheme for binned down opacities
         run_definition_simple.parameters[spec].plot_in_corner = True
         run_definition_simple.parameters[spec].corner_ranges = [-6.0, 0.0]
 
@@ -175,6 +175,7 @@ def init_run():
 
 
 # Atmospheric model
+# noinspection PyUnusedLocal
 def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=False):
     """
     This model computes a transmission spectrum based on free retrieval chemistry
@@ -190,7 +191,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=Fals
                 R_pl : planet radius [cm]
                 Temperature : Isothermal temperature [K]
                 species : Log abundances for each species used in the retrieval
-                log_Pcloud : optional, cloud base pressure of a grey cloud deck.
+                log_Pcloud : optional, cloud base pressure of a gray cloud deck.
         pt_plot_mode:
             Return only the pressure-temperature profile for plotting. Evaluate mode only. Mandatory.
         amr:
@@ -211,8 +212,8 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=Fals
     m_sum = 0.0  # Check that the total mass fraction of all species is <1
 
     for species in prt_object.line_species:
-        spec = species.split(Data.resolving_power_str)[0]  # deal with the naming scheme for binned down opacities
-        abundances[species] = 10 ** parameters[spec].value * np.ones_like(pressures)
+        spec = Opacity([species]).get_full_name().split('.R')[0]  # deal with the naming scheme for binned down opacities
+        abundances[spec] = 10 ** parameters[spec].value * np.ones_like(pressures)
         m_sum += 10 ** parameters[spec].value
 
     abundances['H2'] = test_parameters['mass_fractions_correlated_k']['H2'] * (1.0 - m_sum) * np.ones_like(pressures)
@@ -263,7 +264,8 @@ def test_simple_retrieval():
         seed=test_parameters['retrieval_parameters']['seed']
     )
 
-    # Just check if get_samples works
+    # Check if 'get_samples' works
+    # noinspection PyUnusedLocal
     sample_dict, parameter_dict = retrieval.get_samples(
         ultranest=False,
         names=retrieval.corner_files,

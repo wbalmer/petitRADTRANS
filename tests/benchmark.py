@@ -7,6 +7,7 @@ import importlib.util
 import inspect
 import os
 import sys
+from typing import Callable
 
 import h5py
 
@@ -160,7 +161,7 @@ class Benchmark:
     _make_reference_file = False
     _reference_file_rewrite = False
 
-    def __init__(self, function: callable, absolute_tolerance: float = 0., relative_tolerance: float = 1e-6,
+    def __init__(self, function: Callable, absolute_tolerance: float = 0., relative_tolerance: float = 1e-6,
                  name: str = None):
         if name is None:
             name = inspect.currentframe().f_back.f_code.co_name  # the name of the function that instantiated Benchmark
@@ -299,7 +300,7 @@ class Benchmark:
             **kwargs: tested function parameters.
 
         Returns:
-            A dictionary with one key per returned output, labelled '0', '1', ..., and their values.
+            A dictionary with one key per returned output, labeled '0', '1', ..., and their values.
         """
         outputs = self.function(**kwargs)
 
@@ -356,7 +357,7 @@ class Benchmark:
     def run(self, **kwargs) -> None:
         """Test the Benchmark function.
         Write the reference file if their generation is activated.
-        After writing the reference file, the function test is performed to ensure that the test behaviour is stable.
+        After writing the reference file, the function test is performed to ensure that the test behavior is stable.
         """
         if Benchmark._make_reference_file:
             self.write_reference_file(**kwargs)

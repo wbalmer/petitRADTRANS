@@ -67,7 +67,7 @@ class PetitradtransConfigParser(configparser.ConfigParser):
     def directory(self):
         return self._directory
 
-    def get_input_data_path(self):
+    def get_input_data_path(self) -> str:
         return self['Paths']['prt_input_data_path']
 
     def get_input_data_subpath(self, path, path_input_data=None, strict=True):
@@ -211,7 +211,7 @@ class PetitradtransConfigParser(configparser.ConfigParser):
             self.save()
 
 
-def get_input_data_subpaths() -> LockedDict[str, str]:
+def get_input_data_subpaths() -> LockedDict:
     return LockedDict.build_and_lock({
         "cia_opacities": os.path.join("opacities", "continuum", "collision_induced_absorptions"),
         "clouds_opacities": os.path.join("opacities", "continuum", "clouds"),
