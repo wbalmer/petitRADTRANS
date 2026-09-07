@@ -4,7 +4,7 @@ calculations, transforms from mass to number fractions, and fits file output.
 Helper functions for JAX-compatible log likelihood computation.
 
 These functions are designed to be JIT-compilable and to improve the clarity
-and maintainability of the log_likelihood_jax method.
+and maintainability of the RetrievalRuntime evaluation paths.
 
 """
 
@@ -338,7 +338,7 @@ def process_spectrum_pipeline(
     Execute the spectrum processing pipeline: convolution, rebin, RV shift, continuum subtraction.
 
     This consolidates all the repetitive spectrum processing logic that appears multiple times
-    in log_likelihood_jax.
+    across the RetrievalRuntime dataset-scoring paths.
 
     Args:
         wavelengths_model: Model wavelength array

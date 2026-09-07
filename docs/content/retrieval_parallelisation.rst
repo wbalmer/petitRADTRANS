@@ -509,6 +509,14 @@ convergence diagnostics. It is implemented in
 :mod:`petitRADTRANS.retrieval.multichain` and exposed on
 :class:`~petitRADTRANS.retrieval.retrieval.Retrieval`.
 
+The ``Retrieval`` methods shown below are thin wrappers: the same functions can be
+called directly on the module, with identical signatures and without needing a
+``Retrieval`` instance, e.g. ``multichain.run_multichain(build_config, ...)`` or
+``multichain.combine_chains(output_directory, sampler_type, base_name)``. That
+matters most for the combine step, which is pure NumPy and file I/O — it reads the
+per-chain archives without loading opacities or building a forward model, so it can
+run as a small, short job.
+
 Because a single NUTS/HMC chain cannot use many cores and device sharding gives
 no speedup on CPU, the scalable way to run these samplers on CPU hardware — on one
 node *or across nodes* — is **process-level parallelism**: independent

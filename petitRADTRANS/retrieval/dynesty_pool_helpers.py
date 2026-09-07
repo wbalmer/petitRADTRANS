@@ -94,7 +94,7 @@ class DynestyPoolLogLikelihood:
             physical_params = parameter_layout.physical_params_from_vector(
                 free_parameter_values
             )
-            return runtime.evaluate_jax(
+            return runtime.evaluate_likelihood_jax(
                 physical_params=physical_params,
                 uncertainties_mode=uncertainties_mode,
                 print_log_likelihood_for_debugging=print_log_likelihood,
@@ -125,7 +125,7 @@ class DynestyPoolLogLikelihood:
         physical_params = self._parameter_layout.physical_params_from_vector(
             free_parameter_values
         )
-        return self._runtime.evaluate_scalar(
+        return self._runtime.evaluate_likelihood_scalar(
             physical_params=physical_params,
             uncertainties_mode=self._uncertainties_mode,
             print_log_likelihood_for_debugging=self._print_log_likelihood_for_debugging,

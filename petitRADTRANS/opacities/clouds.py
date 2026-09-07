@@ -722,10 +722,12 @@ def _validate_missing_cloud_radius_arguments(
     ):
         missing_arguments.append("'cloud_particle_radius_distribution_std'")
 
-    if cloud_f_sed is None or cloud_f_sed is _MISSING_FLOAT:
+    if cloud_particle_radius_distribution != "custom" and (
+        cloud_f_sed is None or cloud_f_sed is _MISSING_FLOAT
+    ):
         missing_arguments.append("'cloud_f_sed'")
 
-    if (
+    if cloud_particle_radius_distribution != "custom" and (
         eddy_diffusion_coefficients is None
         or eddy_diffusion_coefficients is _MISSING_FLOAT
     ):
@@ -1387,7 +1389,9 @@ def _compute_cloud_opacities(
         parameter_name="cloud_particle_radius_distribution_std",
     )
 
-    if cloud_particle_mean_radii is not None or cloud_hansen_a is not None:
+    if (cloud_particle_mean_radii is not None or cloud_hansen_a is not None
+            or cloud_particle_number_density_grid is not None):
+
         (
             clouds_total_absorption_opacities,
             clouds_total_scattering_opacities,
