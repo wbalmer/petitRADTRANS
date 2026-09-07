@@ -92,6 +92,7 @@ def test_line_by_line_emission_partial_cloud_calculated_radius():
             test_parameters["cloud_parameters"]["cloud_species"].values()
         )[0]["sigma_log_normal"],
         frequencies_to_wavelengths=False,
+        patchy_clouds=tuple(test_parameters["cloud_parameters"]["cloud_species"].keys())
     )
 
 

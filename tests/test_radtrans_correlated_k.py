@@ -198,6 +198,7 @@ def test_correlated_k_emission_partial_cloud_calculated_radius():
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
         cloud_fraction=test_parameters["cloud_parameters"]["cloud_fraction"],
+        patchy_clouds=tuple(test_parameters["cloud_parameters"]["cloud_species"].keys()),
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         temperatures=temperature_guillot_2010,

@@ -69,8 +69,8 @@ def _warn_partial_cloud_coverage_without_patchy_clouds(
 
     if has_partial_cloud_coverage:
         warnings.warn(
-            "cloud_fraction is less than 1, but there are no patchy clouds. "
-            "Please add cloud species with partial coverage to 'patchy_clouds'.",
+            "A cloud_fraction < 1. was requested, but patchy_clouds is empty and"
+            "make_analytical_clouds_patchy is False!",
             UserWarning,
             stacklevel=3,
         )
@@ -80,8 +80,9 @@ def _warn_opaque_cloud_top_pressure_with_scattering(
     opaque_cloud_top_pressure: Optional[float],
     scattering_in_emission: bool,
 ):
-    '''Check whether opaque_cloud_top_pressure is used together with scattering.
-    '''
+    """Check whether opaque_cloud_top_pressure is used together with scattering.
+    """
+
     if opaque_cloud_top_pressure is not None and scattering_in_emission:
         warnings.warn(
             "the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "

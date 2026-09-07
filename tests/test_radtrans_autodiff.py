@@ -111,7 +111,7 @@ def _calculate_non_scattering_cloud_flux(cloud_fraction):
         mean_molar_masses=flux_inputs["mean_molar_masses"],
         reference_gravity=flux_inputs["reference_gravity"],
         cloud_fraction=cloud_fraction,
-        patchy_clouds=None,
+        patchy_clouds=atmosphere_ck.cloud_species,
         **flux_inputs["cloud_parameters"],
         frequencies_to_wavelengths=False,
     )

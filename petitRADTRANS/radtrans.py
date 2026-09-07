@@ -54,7 +54,7 @@ from petitRADTRANS.validation import (
     _check_wavelength_boundaries,
     _handle_grid_misalignment,
     _warn_partial_cloud_coverage_without_patchy_clouds,
-    _warn_opaque_cloud_top_pressure_with_scattering,
+    _warn_opaque_cloud_top_pressure_with_scattering
 )
 
 # pRT does its computation at single precision, where possible,
@@ -152,7 +152,6 @@ def _interpolate_linear_sorted(x_grid, y_grid, x_query):
 _SPECTRAL_STATIC_ARGNAMES_COMMON = (
     "cloud_particle_radius_distribution",
     "patchy_clouds",
-    "complete_coverage_clouds",
     "additional_absorption_opacities_function",
     "additional_scattering_opacities_function",
     "frequencies_to_wavelengths",
@@ -187,7 +186,7 @@ _TRANSIT_RADII_STATIC_ARGNAMES = _SPECTRAL_STATIC_ARGNAMES_COMMON + (
     "return_particle_densities",
 )
 
-_CLOUD_SPECIES_SEQUENCE_ARGNAMES = ("patchy_clouds", "complete_coverage_clouds")
+_CLOUD_SPECIES_SEQUENCE_ARGNAMES = ("patchy_clouds",)
 
 # Traced scalar arguments, normalized to strongly-typed JAX arrays *before* the
 # compiled call. This must happen outside the jit boundary: otherwise a Python
@@ -301,7 +300,7 @@ def _compile_spectral_function(static_argnames):
             # Remove self as argument from the dictionary, store in self
             self = arguments.pop("self")
 
-            # Look for patchy_clouds or complete_coverage_clouds:
+            # Look for patchy_clouds:
             # These must be converted into tuples, which is required
             # for having them static arguments (lists are not hashable!)
             # Technically, any hashable but mutable container works
@@ -332,7 +331,6 @@ def _compile_spectral_function(static_argnames):
                 cloud_fraction=arguments.get("cloud_fraction", 1.0),
                 patchy_clouds=self._normalize_patchy_clouds(
                     patchy_clouds=arguments.get("patchy_clouds"),
-                    complete_coverage_clouds=arguments.get("complete_coverage_clouds"),
                 ),
                 has_partial_coverage_analytical_cloud=(
                     self._has_partial_coverage_analytical_cloud(
@@ -879,44 +877,14 @@ class Radtrans:
         )
 
     def _normalize_patchy_clouds(
-        self, patchy_clouds=None, complete_coverage_clouds=None
+        self, patchy_clouds=None
     ):
         """Make sure that patchy_clouds is always normalized to be a tuple,
         to be consumed by the jitted radiative transfer kernels.
-        What is more, all clouds are patchy by default, but the default coverage
-        (cloud_fraction) is 1. That means one can change the coverage and it will
-        affect all clouds, without having to worry about specifying patchy
-        clouds. In case that a given cloud species should be homogeneous, so
-        not participate in the mixing, this is achieved by handing a patchy_clouds
-        list or tuple to the calculate_flux function contains the species that
-        should be patchy, but omits the one that should not be patchy.
         """
-        if complete_coverage_clouds is not None:
-            warnings.warn(
-                "The 'complete_coverage_clouds' argument is deprecated; use 'patchy_clouds' instead.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-
-            if patchy_clouds is not None:
-                raise ValueError(
-                    "received both deprecated argument 'complete_coverage_clouds' and canonical argument "
-                    "'patchy_clouds'; use only 'patchy_clouds'"
-                )
-
-            if isinstance(complete_coverage_clouds, (str, bytes)):
-                complete_coverage_clouds = (complete_coverage_clouds,)
-            else:
-                complete_coverage_clouds = tuple(complete_coverage_clouds)
-
-            return tuple(
-                species
-                for species in self._cloud_species
-                if species not in complete_coverage_clouds
-            )
 
         if patchy_clouds is None:
-            return tuple(self._cloud_species)
+            return tuple()
 
         if isinstance(patchy_clouds, (str, bytes)):
             patchy_clouds = (patchy_clouds,)
@@ -960,19 +928,13 @@ class Radtrans:
         self,
         is_emission,
         patchy_clouds=None,
-        complete_coverage_clouds=None,
     ):
         """Initializations common to calculate_flux and calculate_transit_radii."""
 
-        # By default, all clouds are patchy clouds.
-        # By default, their coverage fraction is 100 %.
-        # This setup ensures that all clouds can take
-        # be downscaled with cloud_fraction if the user wants that.
         # Here patchy_clouds are turned into a tuple, regardless
         # of the user input.
         patchy_clouds = self._normalize_patchy_clouds(
-            patchy_clouds=patchy_clouds,
-            complete_coverage_clouds=complete_coverage_clouds,
+            patchy_clouds=patchy_clouds
         )
 
         # Determine whether opacities will / should be mixed into one "super species".
@@ -2809,7 +2771,6 @@ class Radtrans:
         cloud_photosphere_median_optical_depth: float = None,
         cloud_fraction: float = 1.0,
         patchy_clouds: list[str] | tuple[str] = None,
-        complete_coverage_clouds: list[str] = None,
         irradiation_geometry: str = "dayside_ave",
         stellar_intensities: ArrayLike = None,
         star_effective_temperature: float = None,
@@ -2919,8 +2880,6 @@ class Radtrans:
                 List of cloud species affected by ``cloud_fraction``.
                 Analytic cloud sources such as power-law clouds and opaque
                 cloud decks are always mixed by ``cloud_fraction``.
-            complete_coverage_clouds:
-                Deprecated alias for the complement of ``patchy_clouds``.
             irradiation_geometry (Optional[string]):
                 if equal to ``'dayside_ave'``: use the dayside average geometry.
                 If equal to ``'planetary_ave'``: use the planetary average geometry.
@@ -3061,7 +3020,6 @@ class Radtrans:
         ) = self._init_spectral_function(
             is_emission=True,
             patchy_clouds=patchy_clouds,
-            complete_coverage_clouds=complete_coverage_clouds,
         )
 
         return self._calculate_flux_kernel(
@@ -3902,7 +3860,6 @@ class Radtrans:
         gray_opacity: float = None,
         cloud_fraction: float = 1.0,
         patchy_clouds: list[str] | tuple[str] = None,
-        complete_coverage_clouds: list[str] = None,
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
         frequencies_to_wavelengths: bool = True,
@@ -4010,8 +3967,6 @@ class Radtrans:
                     List of cloud species affected by ``cloud_fraction``.
                     Runtime-only cloud sources such as power-law clouds and opaque
                     cloud decks are always mixed by ``cloud_fraction``.
-                complete_coverage_clouds:
-                    Deprecated alias for the complement of ``patchy_clouds``.
                 additional_absorption_opacities_function (Optional[function]):
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an absorption opacity matrix in units of cm^2/g, in the shape of

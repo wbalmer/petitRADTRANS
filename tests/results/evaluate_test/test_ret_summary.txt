@@ -1,5 +1,5 @@
 test
-2026-09-03, 17:30:53
+2026-09-07, 11:34:22
 pRT v4.0.0b2
 /Users/molliere/Documents/pRT_source/petitRADTRANS/tests/results
 
