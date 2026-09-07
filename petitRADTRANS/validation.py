@@ -69,7 +69,7 @@ def _warn_partial_cloud_coverage_without_patchy_clouds(
 
     if has_partial_cloud_coverage:
         warnings.warn(
-            "A cloud_fraction < 1. was requested, but patchy_clouds is empty and"
+            "A cloud_fraction < 1. was requested, but patchy_clouds is empty and "
             "make_analytical_clouds_patchy is False!",
             UserWarning,
             stacklevel=3,
