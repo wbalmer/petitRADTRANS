@@ -369,6 +369,20 @@ def _compile_spectral_function(static_argnames):
             ):
                 _handle_invalid_reference_gravity(float(reference_gravity))
 
+            # Validate user-supplied pressures here while still concrete (same
+            # reasoning as for reference_gravity above). A None value means the
+            # pressures the Radtrans object was initialized with are to be used
+            # instead, which have already been checked in __init__/the pressures
+            # setter, so there is nothing to do here in that case.
+            pressures = arguments.get("pressures")
+
+            if (
+                arguments.get("validate_inputs", True)
+                and pressures is not None
+                and not isinstance(pressures, jax_core.Tracer)
+            ):
+                _check_pressures(pressures)
+
             # Must happen outside the compiled call: see _SPECTRAL_SCALAR_ARGNAMES,
             # otherwise we won't benefit from it
             for argname in _SPECTRAL_SCALAR_ARGNAMES:
@@ -3014,11 +3028,6 @@ class Radtrans:
         if ck_chunk_size is None:
             ck_chunk_size = radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE
 
-        # TODO: currently no check is done whether pressures are sorted
-        #   in increasing order, if the pressures are supplied not during
-        #   Radtrans initialization, but during calculate_flux() call.
-        #   Outsource to the thin shell wrapper?
-
         # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)
 
@@ -4045,9 +4054,6 @@ class Radtrans:
                     False by default. If True, analytical clouds (opaque cloud top pressure,
                     power law opacity) will be treated as patchy clouds.
             """
-
-        # TODO: currently no check is done whether pressures are sorted
-        #   in increasing order. Outsource to the thin shell wrapper?
 
         # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)

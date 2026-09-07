@@ -209,3 +209,20 @@ def test_invalid_reference_gravity_raises():
             raise AssertionError(
                 "expected ValueError for negative reference gravity"
             )
+
+
+def test_unsorted_call_time_pressures_raise():
+    unsorted_pressures = test_parameters["pressures"][::-1]
+
+    for calculate, arguments in (
+        (atmosphere_ck.calculate_flux, _flux_arguments),
+        (atmosphere_ck.calculate_transit_radii, _transit_arguments),
+    ):
+        try:
+            calculate(**arguments(pressures=unsorted_pressures))
+        except ValueError as error:
+            assert "increasing order" in str(error)
+        else:
+            raise AssertionError(
+                "expected ValueError for pressures not in increasing order"
+            )
