@@ -140,4 +140,5 @@ def test_line_by_line_transmission_spectrum_partial_gray_cloud():
             "reference_pressure"
         ],
         frequencies_to_wavelengths=False,
+        make_analytical_clouds_patchy=True,
     )

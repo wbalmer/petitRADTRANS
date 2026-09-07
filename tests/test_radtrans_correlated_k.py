@@ -210,6 +210,7 @@ def test_correlated_k_emission_partial_cloud_calculated_radius():
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         frequencies_to_wavelengths=False,
+        make_analytical_clouds_patchy=True,
     )
 
 
@@ -301,6 +302,7 @@ def test_correlated_k_transmission_spectrum_partial_gray_cloud():
             "reference_pressure"
         ],
         frequencies_to_wavelengths=False,
+        make_analytical_clouds_patchy=True,
     )
 
 
