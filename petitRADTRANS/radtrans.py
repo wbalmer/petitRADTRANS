@@ -1235,10 +1235,6 @@ class Radtrans:
 
         return jnp.asarray(pressures, dtype=FEAUTRIER_JAX_DTYPE) * 1e6
 
-    # TODO: Paul to continue from here.
-    #   But: I will actually go and start from calculate_flux() below, which passes by this function
-    #   instead.
-
     def _calculate_flux(
         self,
         pressures,
@@ -1327,14 +1323,12 @@ class Radtrans:
             relative_cloud_scaling_factor)`` on the internal frequency grid.
         """
 
-        # if sum_opacities is None:
-        #    sum_opacities = self.__sum_opacities
-
         (
             optical_depths,
             photon_destruction_probabilities,
             relative_cloud_scaling_factor,
-        ) = compute_optical_depths(
+        ) = compute_optical_depths( # TODO review left for David
+                                    #   remove TODO when done.
             pressures=pressures,
             reference_gravity=reference_gravity,
             opacities=opacities,
@@ -1354,7 +1348,8 @@ class Radtrans:
         angle_dependent_intensities = None
         if self._scattering_in_emission:
             flux, emission_contribution, angle_dependent_intensities = (
-                radiative_transfer_core.compute_feautrier_radiative_transfer(
+                radiative_transfer_core.compute_feautrier_radiative_transfer( # TODO review left for David
+                                                                              #     remove TODO when done.
                     frequencies_bin_edges=jnp.asarray(
                         self._frequency_bins_edges, dtype=FEAUTRIER_JAX_DTYPE
                     ),
@@ -1404,9 +1399,10 @@ class Radtrans:
             if self._line_opacity_mode == "lbl" and len(self._line_species) > 1:
                 _optical_depths = optical_depths[:, :, :1, :]
             else:
-                _optical_depths = optical_depths.view()
+                _optical_depths = optical_depths
 
-            flux, emission_contribution = radiative_transfer_core.compute_ck_flux(
+            flux, emission_contribution = radiative_transfer_core.compute_ck_flux( # TODO review left for David
+                                                                                   #     remove TODO when done.
                 self._frequencies,
                 temperatures,
                 self._lines_loaded_opacities["weights_gauss"],
@@ -1724,7 +1720,7 @@ class Radtrans:
             products.
         """
         if patchy_clouds is None:
-            patchy_clouds = tuple(self._cloud_species)
+            patchy_clouds = tuple()
         else:
             patchy_clouds = tuple(patchy_clouds)
 
@@ -3247,8 +3243,8 @@ class Radtrans:
         else:
             should_compute_opacities_without_patchy_clouds = False
 
-        # Unless the clear spectrum is explicitly requested, defer the
-        # clear-column opacity combination to the cloud_fraction < 1 branch
+        # Unless the "clear" spectrum (the one without patchy clouds, which may still be clear)
+        # is explicitly requested, defer the clear-column opacity combination to the cloud_fraction < 1 branch
         defer_clear_opacity_combination = (
             should_compute_opacities_without_patchy_clouds and not return_clear_spectrum
         )
@@ -3265,7 +3261,7 @@ class Radtrans:
             clear_continuum_opacities_scattering,
             clear_cloud_anisotropic_scattering_opacities,
             clear_cloud_absorption_opacities,
-        ) = self._calculate_opacities(
+        ) = self._calculate_opacities( # TODO Paul: review in here once radtrans.py itself is reviewed otherwise.
             pressures=pressures,
             temperatures=temperatures,
             mass_fractions=mass_fractions,
@@ -3345,6 +3341,8 @@ class Radtrans:
             feautrier_chunk_size=feautrier_chunk_size,
             thomas_min_batch=thomas_min_batch,
         )
+
+        # TODO aul continue from here.
 
         # --- Cloud blending for partial coverage ---
         flux_clear = flux  # default: clear == cloudy when no partially covering cloud source is active
