@@ -3184,7 +3184,12 @@ class Radtrans:
         anisotropic_cloud_scattering=None,
         make_analytical_clouds_patchy=False
     ):
+
+        # TODO Paul: look into sanitizing functions below
+
         """JIT-compiled kernel for calculate_flux. See calculate_flux for parameter docs."""
+        # This is star_irradiation_cos_angle, stellar_intensities, reflectances, emissivities
+        # (normalized)
         emission_inputs = _sanitize_emission_surface_inputs(
             frequencies=self._frequencies,
             scattering_in_emission=self._scattering_in_emission,
@@ -3237,14 +3242,14 @@ class Radtrans:
             len(partial_coverage_cloud_species) > 0
             or has_partial_coverage_analytical_cloud
         ):
-            should_compute_clear_opacities = True # todo naming?
+            should_compute_opacities_without_patchy_clouds = True
         else:
-            should_compute_clear_opacities = False
+            should_compute_opacities_without_patchy_clouds = False
 
         # Unless the clear spectrum is explicitly requested, defer the
         # clear-column opacity combination to the cloud_fraction < 1 branch
         defer_clear_opacity_combination = (
-            should_compute_clear_opacities and not return_clear_spectrum
+            should_compute_opacities_without_patchy_clouds and not return_clear_spectrum
         )
 
         (
@@ -3299,7 +3304,7 @@ class Radtrans:
             additional_scattering_opacities_function=sanitized_inputs[
                 "additional_scattering_opacities_function"
             ],
-            compute_clear_opacities=should_compute_clear_opacities,
+            compute_clear_opacities=should_compute_opacities_without_patchy_clouds,
             defer_clear_opacity_combination=defer_clear_opacity_combination,
             return_opacities=return_opacities,
             sum_opacities=sum_opacities,
@@ -3342,7 +3347,7 @@ class Radtrans:
 
         # --- Cloud blending for partial coverage ---
         flux_clear = flux  # default: clear == cloudy when no partially covering cloud source is active
-        if should_compute_clear_opacities:
+        if should_compute_opacities_without_patchy_clouds:
             if return_clear_spectrum:
                 # Always compute clear flux when the caller requested it.
                 flux_clear, _, _, _, _ = self._calculate_flux( # TODO return "less cloudy spectrum"
@@ -4223,14 +4228,14 @@ class Radtrans:
             len(partial_coverage_cloud_species) > 0
             or has_partial_coverage_analytical_cloud
         ):
-            should_compute_clear_opacities = True
+            should_compute_opacities_without_patchy_clouds = True
         else:
-            should_compute_clear_opacities = False
+            should_compute_opacities_without_patchy_clouds = False
 
         # Unless the clear spectrum is explicitly requested, defer the
         # clear-column opacity combination to the cloud_fraction < 1 branch
         defer_clear_opacity_combination = (
-            should_compute_clear_opacities and not return_clear_spectrum
+            should_compute_opacities_without_patchy_clouds and not return_clear_spectrum
         )
 
         (
@@ -4285,7 +4290,7 @@ class Radtrans:
             additional_scattering_opacities_function=sanitized_inputs[
                 "additional_scattering_opacities_function"
             ],
-            compute_clear_opacities=should_compute_clear_opacities,
+            compute_clear_opacities=should_compute_opacities_without_patchy_clouds,
             defer_clear_opacity_combination=defer_clear_opacity_combination,
             return_opacities=return_opacities,
             sum_opacities=sum_opacities,
@@ -4313,7 +4318,7 @@ class Radtrans:
 
         # --- Cloud blending for partial coverage ---
         transit_radii_clear = transit_radii
-        if should_compute_clear_opacities:
+        if should_compute_opacities_without_patchy_clouds:
             if return_clear_spectrum:
                 # Always compute clear radii when the caller requested it.
                 transit_radii_clear, _, _ = self._calculate_transit_radii(
