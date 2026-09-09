@@ -936,7 +936,8 @@ class Radtrans:
         """Return the tuple of patchy cloud species.
         """
         if patchy_clouds is None:
-            return tuple(self._cloud_species)
+            return tuple() # Unreachable since patchy_clouds will have been changed to an empty tuple
+                           # elsewhere, if it was None.
 
         return tuple(
             species for species in self._cloud_species if species in patchy_clouds
