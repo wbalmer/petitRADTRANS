@@ -457,7 +457,7 @@ def _sanitize_flux_opacity_inputs(
     - cloud_f_sed into dictionary (one f_sed per species),
     - cloud particle porosity into dictionary, replacing values with "missing_neg_inf" where
     not provided
-    - Sets values to correct data types
+    - Sets variables to correct data types and adds correct sentinel valus if not defined.
     """
     if cloud_f_sed is None:
         cloud_f_sed_norm = {}
@@ -520,8 +520,6 @@ def _sanitize_flux_opacity_inputs(
         # a float32 round-trip moves the comparison by ~1e-4 relative, which is
         # enough to flip a layer that lies exactly at the cloud top.
 
-        # TODO: Paul continue from here!
-
         "opaque_cloud_top_pressure": _normalize_optional_scalar(
             opaque_cloud_top_pressure, missing_float, dtype=FEAUTRIER_JAX_DTYPE
         ),
@@ -537,10 +535,8 @@ def _sanitize_flux_opacity_inputs(
             power_law_opacity_coefficient,
             missing_float,
         ),
-        "gray_opacity": (
-            jnp.array(0.0, dtype=WORKING_JAX_DTYPE)
-            if gray_opacity is None
-            else jnp.array(gray_opacity, dtype=WORKING_JAX_DTYPE)
+        "gray_opacity": _normalize_optional_scalar(
+            gray_opacity, jnp.array(0.0, dtype=WORKING_JAX_DTYPE)
         ),
         "cloud_photosphere_median_optical_depth": _normalize_optional_scalar(
             cloud_photosphere_median_optical_depth,
@@ -560,15 +556,11 @@ def _sanitize_flux_opacity_inputs(
             if additional_scattering_opacities_function is not None
             else additional_opacities_placeholder_fn
         ),
-        "target_particle_radii": (
-            None
-            if target_particle_radii is None
-            else jnp.array(target_particle_radii, dtype=FEAUTRIER_JAX_DTYPE)
+        "target_particle_radii": _normalize_optional_scalar(
+            target_particle_radii, None, dtype=FEAUTRIER_JAX_DTYPE
         ),
-        "target_pressure": (
-            None
-            if target_pressure is None
-            else jnp.array(target_pressure, dtype=FEAUTRIER_JAX_DTYPE)
+        "target_pressure": _normalize_optional_scalar(
+            target_pressure, None, dtype=FEAUTRIER_JAX_DTYPE
         ),
     }
 
