@@ -1504,7 +1504,7 @@ class SpectralModel(Radtrans):
         emissivities: npt.NDArray[np.floating] = None,
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
-        adaptive_feautrier_iterations: bool = False,
+        adaptive_feautrier_iterations: bool = True,
         chunk_feautrier: bool = None,
         feautrier_chunk_size: int = None,
         thomas_min_batch: int = None,

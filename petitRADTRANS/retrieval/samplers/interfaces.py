@@ -212,8 +212,10 @@ def build_jaxns_prior_model(context: SamplerContext):
             build_distributed_prior_model,
         )
 
+        # This process evaluates the model itself, so reuse its runtime rather
+        # than rebuilding a second copy of every opacity table from the factory.
         free_parameter_names, prior_model, _spec_path = build_distributed_prior_model(
-            context
+            context, reuse_runtime=True
         )
         return free_parameter_names, prior_model
 

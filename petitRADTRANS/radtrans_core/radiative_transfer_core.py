@@ -4,11 +4,12 @@ JAX implementation of fortran_core.core
 """
 
 from functools import partial
-from typing import Literal, NamedTuple, Optional, overload
+from typing import Callable, Literal, NamedTuple, Optional, overload
 
 import jax
 import jax.numpy as jnp
 from jax import custom_vjp, jit, lax, vmap
+from jax.scipy.sparse.linalg import gmres
 from jax.typing import ArrayLike
 import petitRADTRANS.physical_constants as cst
 import petitRADTRANS.radtrans_core.physics_core as physics_core
@@ -35,143 +36,30 @@ DEFAULT_CK_CHUNK_SIZE = 0
 DEFAULT_CHUNK_FEAUTRIER = True
 DEFAULT_FEAUTRIER_CHUNK_SIZE = 1536
 
-# 1e-2 was too loose for gradient calculations.
-# Overridable so 1e-6 vs 1e-8 can be A/B'd without editing the source; the
-# default is upstream's value, so behaviour is unchanged unless asked for.
-# 1e-6 is still too loose once the optimiser has actually converged. A/B at the
-# v10mc MAP, identical in every other respect (jobs 5188309 vs 5188359):
-#
-#   coordinate      1e-6      1e-8
-#   planet_radius   1.0000    1.0000   <- control
-#   NIRSpec_b       1.0000    1.0000   <- control
-#   12C-16O         1.0058    0.9998
-#   K__Allard       0.9302    0.9717
-#   1H2-16O         0.7238    0.9715
-#   PTslope_3       1.3312    1.0470
-#
-# (ratio autodiff / finite-difference). The FINITE DIFFERENCES barely moved
-# between the two -- PTslope_3 19.514 -> 19.544, K 16.984 -> 16.983 -- while
-# AUTODIFF moved 21-34%. So the function was already converged at 1e-6 and only
-# the derivative was not: exactly the detached-Ng-accelerator signature, since
-# stop_gradient() at the source update is exact only AT the fixed point.
-# Costs a little time and no extra memory (SCATTERING_ITER_MAX caps the tape).
-import os as _os
-SCATTERING_CONVERGENCE_THRESHOLD = float(
-    _os.environ.get("PRT_SCATTERING_CONVERGENCE", "1e-8")
-)
+# Relative flux-change tolerance of the scattering iteration. The implicit gradient is exact only at the
+# fixed point of the iteration, so the tolerance is tight
+SCATTERING_CONVERGENCE_THRESHOLD = 1e-8
 
-# Length of the ALI/Feautrier scan. lax.scan traces a FIXED SCATTERING_ITER_MAX+1
-# steps whatever the early exit does, and reverse-mode AD stores residuals for
-# every one, so this -- not the convergence threshold -- sets the memory cost of
-# any Hessian. At 100 a single Hessian-vector product asked for 928.8 GB and was
-# OOM-killed on a 480 GB node (jobs 5179785, 5187579); that is 9.20 GB per
-# stored sweep. The early exit saves TIME, not MEMORY.
-#
-# 30 is not a compromise: measured at the v10mc MAP (jobs 5187007-5187012), the
-# log-density and the full gradient are identical to every printed digit at 30,
-# 50 and 100 sweeps, so the solution is fully converged by 30.
-#
-#   sweeps   log-density        |grad|_2     wall
-#       10   692,644.840064   4.3795e+03     5:49
-#       15   692,645.534282   7.1609e+02     5:51
-#       20   692,645.561142   6.7520e+02     6:05
-#       30   692,645.561153   6.5857e+02     6:30
-#       50   692,645.561153   6.5857e+02     7:18
-#      100   692,645.561153   6.5857e+02     9:56
-#
-# 30 needs ~285 GB for the Hessian (fits 480 GB) and is ~35% faster than 100.
-#
-# NB this is a hard-coded module constant. VHS1256b_warmup.sbatch exports
-# PRT_ALI_ITER_MAX expecting it to take effect; nothing reads that variable.
-# Made overridable here so the knob the sbatch believes in actually exists.
-SCATTERING_ITER_MAX = int(_os.environ.get("PRT_ALI_ITER_MAX", "30"))
+# Maximum number of scattering iterations. The iteration exits once converged, so a generous budget costs
+# little. When differentiating through the iteration instead of implicitly, reverse-mode memory scales with
+# this value
+SCATTERING_ITER_MAX = 100
 
-# --- diagnostic: did the ALI iteration actually reach its fixed point? --------
-# The solver computes `all_converged` and can return it via
-# return_solver_diagnostics, but NOTHING outside this module consumes either.
-# The convergence tolerance was calibrated at the MAP; the sampler visits the
-# typical set ~5.5 Mahalanobis units away, where the single-scattering albedo and
-# hence the contraction rate of the iteration differ. A solver that silently
-# stops converging there reproduces exactly the v02mc-v09mc pathology, and there
-# is currently no way to notice.
-#
-# Setting PRT_ALI_DEBUG=1 prints, per solver invocation:
-#   converged : did every (g,f) column meet the tolerance?
-#   solves    : sweeps actually executed (vs. the traced scan length)
-#   noop      : scan steps skipped after convergence
-# This is a jax.debug.print, so it works inside jit/scan/grad and costs nothing
-# when the flag is off (the branch resolves at trace time).
-_ALI_DEBUG = _os.environ.get("PRT_ALI_DEBUG", "0") == "1"
+# Obtain the gradient of the converged scattering solution implicitly, from its fixed-point equation, instead
+# of by differentiating through the iteration. Differentiating through the Ng-accelerated iteration gives an
+# inaccurate gradient, because the derivative converges more slowly than the accelerated solution whose
+# convergence ends the iteration
+SCATTERING_IMPLICIT_GRADIENT = True
 
-# --- PRT_ALI_DISABLE_NG: turn the Ng accelerator off entirely ----------------
-# Diagnostic / fallback for the residual gradient error measured at the v10mc MAP
-# (autodiff vs finite difference: up to 1.083 on log_cloud_radius_MgSiO3, 1.103
-# along the stiffest metric eigenvector, while post-transfer controls are 1.0000).
-#
-# Job 5192163 showed the iteration converges its VALUE on 7291/7291 solver calls
-# using at most 23 of 31 sweeps, so the residual is NOT budget exhaustion. The
-# mechanism is the asymmetry below: the Ng accelerator makes the VALUE converge
-# fast, while `source_ali + stop_gradient(next - source_ali)` routes the
-# DERIVATIVE through the un-accelerated plain ALI recursion, which converges much
-# more slowly. The convergence test watches the accelerated value, so it exits
-# while the derivative recursion is still far from its fixed point.
-#
-# With Ng off, value and derivative follow the SAME recursion, so the convergence
-# test gates both and the gradient is correct -- at the cost of more sweeps.
-# This is the cheap, low-risk fallback if implicit differentiation proves
-# intractable, and the A/B that proves the mechanism.
-_ALI_DISABLE_NG = _os.environ.get("PRT_ALI_DISABLE_NG", "0") == "1"
+# Relative residual tolerance of the generalized minimal residual method (GMRES) for the implicit gradient
+SCATTERING_IMPLICIT_GRADIENT_TOLERANCE = 1e-12
 
-# --- PRT_ALI_GRAD_SWEEPS: two-phase (Christianson) fixed-point differentiation -
-# K > 0 enables the correct gradient. The forward solve runs to its fixed point
-# with the Ng accelerator and is then DETACHED; K plain, differentiable ALI sweeps
-# are re-applied from that point, accumulating
-#     sum_{k<K} (dT/dS)^k dT/dtheta  ->  (I - dT/dS)^-1 dT/dtheta,
-# i.e. the implicit-function-theorem derivative as a truncated Neumann series.
-# See the long comment at the call site in _run_adaptive_iterations.
-#
-# Choosing K: the series converges geometrically at the ALI contraction rate. The
-# forward solve needs 5-23 sweeps to reach 1e-8 (job 5192163), which brackets the
-# rate, so K ~ 25-30 should give a derivative as converged as the value. K also
-# sets the reverse-mode tape length -- and it is now the ONLY thing that does,
-# since phase 1 is untaped -- so it is the direct memory knob for the Hessian.
-# 0 = off (legacy behaviour, wrong gradient); left off by default so nothing else
-# in the package changes behaviour without being asked.
-_ALI_GRAD_SWEEPS = int(_os.environ.get("PRT_ALI_GRAD_SWEEPS", "0"))
+# Krylov subspace size of the restarted GMRES solve that yields the implicit gradient. Memory scales with this
+# value, as one copy of the scattering state is stored per Krylov vector
+SCATTERING_IMPLICIT_GRADIENT_KRYLOV_SIZE = 20
 
-# --- PRT_ALI_GRAD_MODE: how the fixed-point derivative is obtained ------------
-#   "off"      legacy: unroll the Ng-accelerated forward pass with the accelerator
-#              detached. Measured wrong by up to 16.6% (job 5192155).
-#   "unroll"   two-phase Neumann: detach the forward solve, re-apply
-#              PRT_ALI_GRAD_SWEEPS plain sweeps. Correct only if rho(dT/dS) < 1,
-#              with truncation error rho^K.
-#   "implicit" solve the linearised fixed-point system, via lax.custom_root with a
-#              matrix-free stationary (Richardson) tangent solve. Needs no explicit
-#              bundling of the upstream theta-dependent quantities, because
-#              custom_root differentiates with respect to CLOSED-OVER variables by
-#              the implicit function theorem. Unlike "unroll", the iteration lives
-#              in the tangent/cotangent solve, so the traced graph and the tape are
-#              O(1) in the iteration count -- which is what makes a generous count
-#              affordable, and what "unroll" cannot do (its K=30 run was killed in
-#              XLA compilation, graph size being O(K)).
-#
-# "unroll" is retained ONLY as a diagnostic. It must not be used in production: it
-# is non-monotone in K and its compile cost grows with K.
-_ALI_GRAD_MODE = _os.environ.get(
-    "PRT_ALI_GRAD_MODE", "unroll" if _ALI_GRAD_SWEEPS > 0 else "off"
-)
-# Iteration count for the "implicit" tangent solve. FIXED, not tolerance-driven:
-# lax.fori_loop has a static trip count, which is what keeps the solve cheaply
-# transposable and the graph O(1). A tolerance-driven lax.while_loop would also be
-# legal inside custom_linear_solve (JAX never differentiates the solver itself) and
-# would save time once converged; it is left as a future refinement rather than
-# changed under the validated configuration.
-#
-# There is deliberately NO companion PRT_ALI_GRAD_TOL. An earlier draft defined one
-# and never read it -- the same dead-knob mistake as PRT_ALI_ITER_MAX and
-# PRT_WORKING_FLOAT64, both of which were exported by sbatch scripts in the belief
-# that they did something.
-_ALI_GRAD_MAXITER = int(_os.environ.get("PRT_ALI_GRAD_MAXITER", "200"))
+# Maximum number of GMRES restarts. Strongly scattering atmospheres converge more slowly and may require more
+SCATTERING_IMPLICIT_GRADIENT_MAX_RESTARTS = 10
 
 
 def resolve_feautrier_chunking(
@@ -999,6 +887,116 @@ def _ng_accelerated_batched(
 
 
 # ---------------------------------------------------------------------------
+# Implicit differentiation of the scattering fixed point
+# ---------------------------------------------------------------------------
+
+
+def _differentiate_scattering_fixed_point(
+    advance_state: Callable,
+    converged_state: _ScatterState,
+) -> _ScatterState:
+    """Attach implicit gradients to a converged scattering-iteration state.
+
+    At convergence, the source function S and the upward surface intensity I of the scattering iteration
+    satisfy the fixed-point equation (S, I) = T(S, I), where T is one non-accelerated ALI sweep. The
+    gradient is obtained from this equation through the implicit function theorem, using
+    ``lax.custom_root``, which differentiates with respect to the variables closed over by T. This is
+    exact at the fixed point, independently of how the forward iteration converged, and requires no
+    reverse-mode storage of the iteration.
+
+    The linear system of the implicit function theorem is solved with restarted generalized minimal
+    residual method, see the SCATTERING_IMPLICIT_GRADIENT_* constants.
+
+    Parameters
+    ----------
+    advance_state : callable
+        One scattering sweep, called as ``advance_state(state, iteration_index)`` and returning the next
+        state and the convergence metric. An integer ``iteration_index`` of 0 disables the Ng acceleration.
+    converged_state : _ScatterState
+        State at the end of the forward scattering iteration.
+
+    Returns
+    -------
+    _ScatterState
+        ``converged_state`` with its source function, surface intensities and fluxes replaced by values
+        carrying the implicit gradient.
+    """
+    # prevents the flow of gradients during forward or reverse-mode automatic differentiation
+    fixed_point_state = lax.stop_gradient(converged_state)
+
+    def _sweep(source_lm: ArrayLike, I_plus_surface_ga: ArrayLike) -> _ScatterState:
+        next_state, _ = advance_state(
+            fixed_point_state._replace(
+                source_lm=source_lm,
+                I_plus_surface_ga=I_plus_surface_ga,
+            ),
+            0,
+        )
+
+        return next_state
+
+    def _compute_residual(fixed_point: tuple[ArrayLike, ArrayLike]) -> tuple[ArrayLike, ArrayLike]:
+        next_state = _sweep(*fixed_point)
+
+        return (
+            next_state.source_lm - fixed_point[0],
+            next_state.I_plus_surface_ga - fixed_point[1],
+        )
+
+    def _solve_gmres(
+        linear_operator: Callable,
+        right_hand_side: tuple[ArrayLike, ArrayLike],
+    ) -> tuple[ArrayLike, ArrayLike]:
+        solution, _ = gmres(
+            linear_operator,
+            right_hand_side,
+            tol=SCATTERING_IMPLICIT_GRADIENT_TOLERANCE,
+            atol=0.0,
+            restart=SCATTERING_IMPLICIT_GRADIENT_KRYLOV_SIZE,
+            maxiter=SCATTERING_IMPLICIT_GRADIENT_MAX_RESTARTS,
+            solve_method="incremental",
+        )
+
+        return solution
+
+    def _solve_tangent(
+        linear_operator: Callable,
+        right_hand_side: tuple[ArrayLike, ArrayLike],
+    ) -> tuple[ArrayLike, ArrayLike]:
+        # The solver sets its tolerance from the norm of the right-hand side, which cannot be transposed, so
+        # it is wrapped in a linear solve with an explicit transpose to support reverse-mode differentiation
+        return lax.custom_linear_solve(
+            linear_operator,
+            right_hand_side,
+            solve=_solve_gmres,
+            transpose_solve=_solve_gmres,
+        )
+
+    # Differentiably solve for the roots of a function
+    # Gradients of custom_root() are defined with respect to closed-over variables
+    # from the provided function _compute_residual via the implicit function theorem:
+    # https://en.wikipedia.org/wiki/Implicit_function_theorem
+    source_lm, I_plus_surface_ga = lax.custom_root(
+        _compute_residual,
+        (fixed_point_state.source_lm, fixed_point_state.I_plus_surface_ga),
+        solve=lambda _, initial_guess: initial_guess,  # the forward problem is already solved
+        tangent_solve=_solve_tangent,
+    )
+
+    # One sweep from the differentiable fixed point carries the gradient to the fluxes and surface
+    # intensities. At convergence, it changes their values by less than the convergence threshold
+    next_state = _sweep(source_lm, I_plus_surface_ga)
+
+    return fixed_point_state._replace(
+        source_lm=next_state.source_lm,
+        I_plus_surface_ga=next_state.I_plus_surface_ga,
+        flux_gf=next_state.flux_gf,
+        I_minus_gf=next_state.I_minus_gf,
+        I_H_top=next_state.I_H_top,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main function
 # ---------------------------------------------------------------------------
 
@@ -1007,7 +1005,8 @@ def _ng_accelerated_batched(
 # diagnostics (e.g. how many steps were required for convergence)
 #
 # We use the decorator because python doesn't natively allow
-# us to overload a function definition.
+# us to overload a function definition. We start by declaring the
+# overloaded function signatures, which are implemented below.
 @overload
 def _compute_feautrier_radiative_transfer_chunk(
     frequencies_bin_edges: ArrayLike,
@@ -1047,13 +1046,14 @@ def _compute_feautrier_radiative_transfer_chunk(
     adaptive_feautrier_iterations: bool = True,
     irradiation_geometry_str: str = "dayside_ave",
     return_contribution: bool = False,
-    return_solver_diagnostics: Literal[True] = True,
+    return_solver_diagnostics: Literal[True] = True, # With diagnostics
     iter_scat_max: int = SCATTERING_ITER_MAX,
     convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]: ...
 
 
+# This is the actual non-diagnostic definition
 @jit(
     static_argnames=(
         "irradiation_geometry_str",
@@ -1114,8 +1114,10 @@ def _compute_feautrier_radiative_transfer_chunk(
     emissivities : jax.Array, shape (n_freq_bins,)
         Surface or lower-boundary emissivity.
     adaptive_feautrier_iterations : bool, optional
-        Adapt the minimum number of scattering iterations to the local photon
-        destruction probability.
+        If True, iterate until the flux has converged (see SCATTERING_CONVERGENCE_THRESHOLD), with a
+        minimum number of iterations set by the local photon destruction probability, and obtain the
+        gradient by implicit differentiation (see SCATTERING_IMPLICIT_GRADIENT). If False, use a fixed
+        number of iterations without convergence test.
     irradiation_geometry_str : {"dayside_ave", "planetary_ave", "non-isotropic"}, optional
         Illumination geometry used for the stellar source term.
     return_contribution : bool, optional
@@ -1182,7 +1184,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         ).reshape(n_gf)
 
         # Accumulate each angle contribution in sequence to avoid a full
-        # (layer, gf, angle) exponential cube.
+        # (layer, gf, angle) exponential cube (saves memory).
         def _accumulate_stellar_angle(
             carry: tuple[ArrayLike, ArrayLike],
             angle_inputs: tuple[ArrayLike, ArrayLike, ArrayLike],
@@ -1322,6 +1324,9 @@ def _compute_feautrier_radiative_transfer_chunk(
         I_minus_boundary_gf: ArrayLike,
     ) -> tuple[ArrayLike, ArrayLike, ArrayLike]:
         """
+        This function calls out to the actual tridiagonal solver to compute the
+        radiative transfer solution for the given source function and boundary conditions.
+
         Returns J_bol_lm (l, gf), I_H_top (gf, a), new_I_plus_surface (gf, a).
         """
         r_surf_ga = 0.5 * (
@@ -1380,6 +1385,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         state: _ScatterState,
         iter_idx: ArrayLike,
     ) -> tuple[_ScatterState, ArrayLike]:
+        """Advance the scattering state by one iteration. """
         current_source_lm = state.source_lm
         current_I_plus_surface_ga = state.I_plus_surface_ga
         current_flux_gf_prev = state.flux_gf
@@ -1405,6 +1411,7 @@ def _compute_feautrier_radiative_transfer_chunk(
 
         slot_index = iter_idx % 4
 
+        # Rotate the history slots based on the current iteration index.
         def _slot0(_: None):
             next_hist0 = source_ali
             return (
@@ -1479,6 +1486,7 @@ def _compute_feautrier_radiative_transfer_chunk(
 
         do_ng = (iter_idx > 0) & ((iter_idx + 1) % 4 == 0)
 
+        # Determine if Ng acceleration should be applied on this iteration.
         def _apply_ng(_: None) -> ArrayLike:
             return _ng_accelerated_batched(tn, tn1, tn2, tn3, source_ali)
 
@@ -1497,24 +1505,11 @@ def _compute_feautrier_radiative_transfer_chunk(
         # discarded ill-conditioned rows) that silently zeroed the warm-start
         # gradient at the prior median. Route the gradient through the
         # numerically clean ALI source update instead, keeping the accelerated
-        # value only in the forward pass. At the fixed point the accelerated and
-        # ALI sources coincide, so dS*/dtheta is unchanged
-        #
-        # CAVEAT (measured, jobs 5192155 / 5192163): "at the fixed point" is doing
-        # all the work in that last sentence, and the solver does not stop at the
-        # fixed point -- it stops when the ACCELERATED value stops changing, which
-        # happens much sooner. The derivative, routed through the un-accelerated
-        # recursion, is still converging at that moment. Hence the residual
-        # autodiff error of up to ~10%. See _ALI_DISABLE_NG at the top of the
-        # module.
-        if _ALI_DISABLE_NG:
-            # Value and derivative follow the same (plain ALI) recursion, so the
-            # convergence test gates both. Slower, but self-consistent.
-            next_source_lm = source_ali
-        else:
-            next_source_lm = source_ali + lax.stop_gradient(
-                next_source_lm - source_ali
-            )
+        # value only in the forward pass. The resulting gradient is approximate, as
+        # the derivative converges more slowly than the accelerated value; the
+        # adaptive iteration therefore uses the implicit gradient instead (see
+        # SCATTERING_IMPLICIT_GRADIENT)
+        next_source_lm = source_ali + lax.stop_gradient(next_source_lm - source_ali)
 
         flux_gf_cur = -jnp.einsum("ba,a->b", I_H_top, mu_weight_a)  # (gf,)
         conv_val_gf = jnp.abs(
@@ -1573,6 +1568,11 @@ def _compute_feautrier_radiative_transfer_chunk(
         ArrayLike,
         ArrayLike,
     ]:
+        """Run the radiative transfer calculation without scattering.
+            This path is used when scattering is neglected:
+                (no_atmospheric_scattering = jnp.all(one_minus_pdp_lm <= no_scattering_pdp_tol)
+                non_reflective_lower_boundary = jnp.all(jnp.abs(reflectances) <= TINIEST))
+        """
         direct_I_minus_gf = I_surface_no_scatter_gf
         _, direct_I_H_top, _ = _feautrier_solve(
             planck_lm,
@@ -1678,160 +1678,12 @@ def _compute_feautrier_radiative_transfer_chunk(
             jnp.arange(iter_scat_max + 1, dtype=jnp.int32),
         )
 
-        if _ALI_GRAD_MODE == "implicit":
-            # --- implicit differentiation of the fixed point -------------------
-            # The forward solve above is a pure value computation; we detach it and
-            # define the derivative by the implicit function theorem applied to
-            #     R(S, Ip) = T(S, Ip) - (S, Ip) = 0,
-            # where T is ONE plain (un-accelerated) ALI sweep. `lax.custom_root`
-            # differentiates with respect to the closed-over theta-dependent
-            # quantities (pdp_lm, planck_lm, solver_state, lambda_loc_lm, ...) via
-            # the IFT, so nothing has to be bundled into explicit arguments.
-            #
-            # The tangent system (I - dT/dS) x = y is solved matrix-free, one
-            # linearised sweep per operator application. NB the solver used is a
-            # stationary (Richardson) iteration, which -- like the Neumann series
-            # that "unroll" sums -- does require rho(dT/dS) < 1; that is measured,
-            # not assumed (job 5192264). The gain over "unroll" is not a weaker
-            # convergence requirement but that the iteration sits in the tangent
-            # solve, so graph size and tape are O(1) in the iteration count and the
-            # count can be set far higher than any unrollable K.
-            detached = lax.stop_gradient(final_carry)
-
-            def _plain_step(pair):
-                s_lm, ip_ga = pair
-                st = detached._replace(source_lm=s_lm, I_plus_surface_ga=ip_ga)
-                nxt, _ = _advance_state(st, 0)   # int 0 => Ng off, plain ALI
-                return (nxt.source_lm, nxt.I_plus_surface_ga)
-
-            def _residual(pair):
-                new_s, new_ip = _plain_step(pair)
-                return (new_s - pair[0], new_ip - pair[1])
-
-            root0 = (detached.source_lm, detached.I_plus_surface_ga)
-
-            if _ALI_DEBUG:
-                # THE ASSUMPTION THIS WHOLE SCHEME RESTS ON: that the accelerated
-                # forward solve landed on a fixed point of the PLAIN map. The
-                # convergence test watches a relative FLUX change, which is not the
-                # same thing, so verify it rather than assume it. If this residual
-                # is not tiny, both "unroll" and "implicit" are linearising about
-                # the wrong point and every derivative below is meaningless.
-                _r_s, _r_ip = _residual(root0)
-                jax.debug.print(
-                    "[ALI-fp] |T(S)-S|_inf={a:.3e} rel={b:.3e}  "
-                    "|T(Ip)-Ip|_inf={c:.3e}",
-                    a=jnp.max(jnp.abs(_r_s)),
-                    b=jnp.max(jnp.abs(_r_s))
-                    / jnp.maximum(jnp.max(jnp.abs(root0[0])), TINIEST),
-                    c=jnp.max(jnp.abs(_r_ip)),
-                )
-
-            def _tangent_solve(g, y):
-                """Solve the linearised system g(x) = y.
-
-                NOT bicgstab: `jax.scipy.sparse.linalg` builds on
-                `lax.custom_linear_solve` without a transpose rule, and
-                `custom_root` needs to TRANSPOSE the tangent solve to give a
-                reverse-mode gradient. That raises NotImplementedError (observed,
-                job 5192272).
-
-                Instead: Richardson iteration, wrapped in an explicit
-                `custom_linear_solve` that is handed its own transpose solver.
-                With g(x) = A x - x (the linearised residual of T(S) - S), the
-                iteration
-                    x <- A x - y  ==  matvec(x) + x - y
-                converges whenever rho(A) < 1, which job 5192264 established
-                (rho <~ 0.77 by sweep count, though the effective rate along some
-                parameter directions is nearer 0.94 -- see the note on choosing
-                _ALI_GRAD_MAXITER). The transposed system has the same spectral
-                radius, so the identical iteration serves as transpose_solve.
-
-                Unlike the "unroll" mode, this lives entirely in the tangent/
-                cotangent solve: it costs linear operator applications, not taped
-                forward sweeps, so memory is O(1) in the iteration count and the
-                count can be set generously.
-                """
-                def _richardson(matvec, rhs):
-                    zero = jax.tree.map(jnp.zeros_like, rhs)
-
-                    def body(_, x):
-                        mv = matvec(x)
-                        return jax.tree.map(
-                            lambda m, xx, r: m + xx - r, mv, x, rhs
-                        )
-
-                    return lax.fori_loop(0, _ALI_GRAD_MAXITER, body, zero)
-
-                return lax.custom_linear_solve(
-                    g, y, solve=_richardson, transpose_solve=_richardson
-                )
-
-            root = lax.custom_root(
-                _residual,
-                root0,
-                # The forward problem is already solved; `solve` just returns it.
-                solve=lambda _f, x0: x0,
-                tangent_solve=_tangent_solve,
-            )
-            # One differentiable sweep from the solved fixed point recovers the
-            # flux and surface intensities. At the fixed point this leaves the
-            # VALUE unchanged, and the derivative is consistent because
-            # dS* = (dT/dS) dS* + dT/dtheta by construction.
-            _st = detached._replace(source_lm=root[0], I_plus_surface_ga=root[1])
-            _out, _ = _advance_state(_st, 0)
-            final_carry = detached._replace(
-                source_lm=_out.source_lm,
-                I_plus_surface_ga=_out.I_plus_surface_ga,
-                flux_gf=_out.flux_gf,
-                I_minus_gf=_out.I_minus_gf,
-                I_H_top=_out.I_H_top,
-            )
-        elif _ALI_GRAD_SWEEPS > 0:
-            # --- two-phase (Christianson) differentiation of the fixed point ---
-            #
-            # Phase 1 (above) is now a pure FORWARD solve: its result is detached,
-            # so none of its sweeps are taped and the Ng accelerator -- which is
-            # what makes the value converge quickly -- cannot contaminate the
-            # derivative.
-            #
-            # Phase 2 re-applies the PLAIN ALI update K times starting from that
-            # fixed point. Passing a Python int 0 as iter_idx makes `do_ng` resolve
-            # False at trace time, so `_advance_state` reduces to the plain,
-            # cleanly differentiable ALI sweep (the stop_gradient line degenerates
-            # to `source_ali + stop_gradient(0)`).
-            #
-            # Because S is already at the fixed point, the VALUE is unchanged by
-            # these sweeps (to solver tolerance). The DERIVATIVE, however, starts
-            # at zero and accumulates
-            #     dS_K/dtheta = sum_{k<K} (dT/dS)^k dT/dtheta
-            #                -> (I - dT/dS)^-1 dT/dtheta   as K -> infinity,
-            # which is exactly the implicit-function-theorem derivative, obtained
-            # as a truncated Neumann series without ever forming or solving a
-            # linear system. Convergence is geometric at the same rate as the ALI
-            # iteration itself.
-            #
-            # WHY THIS IS NEEDED (jobs 5192155, 5192163): the solver converges its
-            # value on 7291/7291 calls using at most 23 of 31 sweeps, yet autodiff
-            # disagreed with finite differences by up to 10%. Truncating an
-            # un-accelerated derivative recursion at the point where an
-            # ACCELERATED value recursion converged is the whole defect.
-            #
-            # Memory is now set by K, not by the scan length: phase 1 is untaped.
-            detached = lax.stop_gradient(final_carry)
-            grad_carry = detached
-            for _k in range(_ALI_GRAD_SWEEPS):
-                grad_carry, _ = _advance_state(grad_carry, 0)
-            # Rebuild from `detached`, not from `final_carry`, so that NOTHING
-            # differentiable from phase 1 can reach the output. Relying on dead-code
-            # elimination to drop the phase-1 residuals would be a silent-failure
-            # risk of exactly the kind this whole exercise is about.
-            final_carry = detached._replace(
-                source_lm=grad_carry.source_lm,
-                I_plus_surface_ga=grad_carry.I_plus_surface_ga,
-                flux_gf=grad_carry.flux_gf,
-                I_minus_gf=grad_carry.I_minus_gf,
-                I_H_top=grad_carry.I_H_top,
+        # The implicit gradient requires a converged solution, so it is only applied to the
+        # convergence-tested (adaptive) iteration
+        if SCATTERING_IMPLICIT_GRADIENT:
+            final_carry = _differentiate_scattering_fixed_point(
+                advance_state=_advance_state,
+                converged_state=final_carry,
             )
 
         return (
@@ -1867,22 +1719,6 @@ def _compute_feautrier_radiative_transfer_chunk(
         loop_runner,
         operand=None,
     )
-
-    if _ALI_DEBUG:
-        # See the _ALI_DEBUG note at the top of this module. `solve_count` is the
-        # number of sweeps actually executed; if it equals the traced scan length
-        # (iter_scat_max + 1) with converged=0, the iteration ran out of budget
-        # and BOTH the value and -- far more importantly -- the derivative are
-        # untrustworthy at this point in parameter space.
-        jax.debug.print(
-            "[ALI] converged={c} solves={s}/{b} noop={n} n_gf={g} adaptive={a}",
-            c=final_all_converged.astype(jnp.int32),
-            s=solve_count,
-            b=configured_iter_budget_out,
-            n=noop_count,
-            g=n_gf,
-            a=int(adaptive_feautrier_iterations),
-        )
 
     # ------------------------------------------------------------------
     # 14. Flux  (n_freq_bins,)
@@ -2101,8 +1937,10 @@ def compute_feautrier_radiative_transfer(
     emissivities : jax.Array, shape (n_freq_bins,)
         Surface or lower-boundary emissivity.
     adaptive_feautrier_iterations : bool, optional
-        Adapt the minimum number of scattering iterations to the local photon
-        destruction probability.
+        If True, iterate until the flux has converged (see SCATTERING_CONVERGENCE_THRESHOLD), with a
+        minimum number of iterations set by the local photon destruction probability, and obtain the
+        gradient by implicit differentiation (see SCATTERING_IMPLICIT_GRADIENT). If False, use a fixed
+        number of iterations without convergence test.
     irradiation_geometry_str : {"dayside_ave", "planetary_ave", "non-isotropic"}, optional
         Illumination geometry used for the stellar source term.
     return_contribution : bool, optional
@@ -2269,7 +2107,6 @@ def compute_feautrier_radiative_transfer(
             angle_dependent_intensities_chunks,
         ) = chunk_outputs
 
-
     # flux per chunk: (cs,)            -> (n_freq_bins,),           freq axis 0
     # angle per chunk: (cs, n_angles)  -> (n_freq_bins, n_angles),  freq axis 0
     # contribution per chunk: (n_layers, cs) -> (n_layers, n_freq_bins), freq axis 1
@@ -2365,13 +2202,7 @@ def compute_optical_depths(
         total_opac = _opacities[:, :, 0, :]
         # Floor the denominator at sqrt(tiny), not tiny. absorptive/total has
         # gradient ~ -absorptive/total**2, and for total just above WORKING_TINIEST
-        # the square underflows to 0 -> inf gradient, which the outer jnp.where
-        # then turns into 0*inf = NaN. Because this photon-destruction
-        # probability feeds the scattering source at every (g, f, layer), that
-        # single NaN propagated into essentially every parameter's gradient at
-        # the prior median. sqrt(tiny) keeps total**2 normal; cells with such
-        # negligible opacity are physically irrelevant, so the forward is
-        # unchanged in practice.
+        # the square underflows to 0 -> inf gradient
         safe_total_opac = jnp.maximum(
             total_opac, jnp.sqrt(WORKING_TINIEST)
         )
@@ -2794,17 +2625,17 @@ def compute_transit_radii(
     )
 
     if weights_gauss.size == 1:
-        transparencies = transparencies[0] # (frequencies, species, layers)
+        transparencies = transparencies[0]  # (frequencies, species, layers)
     else:
         # Integrate over correlated-k's g-coordinate
         transparencies = jnp.einsum(
-            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True # (frequencies, species, layers)
+            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True  # (frequencies, species, layers)
         )
 
     # get rid of species dimension
     # remove axis 1 (species) if only single species
     if transparencies.shape[1] == 1:
-        transparencies = transparencies[:, 0, :] # (frequencies, layers)
+        transparencies = transparencies[:, 0, :]  # (frequencies, layers)
     # combine transmission of several species (exp(-tau1) * exp(-tau2)...)
     else:
         transparencies = jnp.prod(transparencies, axis=1)  # (frequencies, layers)
@@ -2822,7 +2653,7 @@ def compute_transit_radii(
         transparencies[:, 1:] * radius_hydrostatic_equilibrium[None, 1:]
         + transparencies[:, :-1] * radius_hydrostatic_equilibrium[None, :-1]
     )
-    transit_radii = jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1) # (frequencies)
+    transit_radii = jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1)  # (frequencies)
 
     # Transform area to transmission radius
     transit_radii = jnp.sqrt(transit_radii + radius_hydrostatic_equilibrium[-1] ** 2.0)

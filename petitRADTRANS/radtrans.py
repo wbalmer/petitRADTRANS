@@ -1322,8 +1322,8 @@ class Radtrans:
                 Cloud absorption opacity contribution used by the optical-depth
                 calculation.
             adaptive_feautrier_iterations:
-                Whether to adapt the number of scattering iterations in the
-                Feautrier solver.
+                If True, the Feautrier solver iterates until the flux has converged. If False, a
+                fixed number of iterations is used, without convergence test.
             return_contribution:
                 If ``True``, also return the emission contribution function.
             return_angle_dependent_intensities:
@@ -2964,8 +2964,11 @@ class Radtrans:
                 passing a freshly created lambda or closure on each call forces a full recompilation
                 of the spectral kernel.
             adaptive_feautrier_iterations (Optional[bool]):
-                If True, adapt the number of iterations of the Feautrier scattering-method
-                (scattering_in_emission=True) based on the photon destruction probability.
+                If True (default), the Feautrier scattering method (scattering_in_emission=True)
+                iterates until the flux has converged, with a minimum number of iterations set by the
+                photon destruction probability. If False, a fixed number of iterations is used, without
+                convergence test; the flux is then less accurate, and its gradient is not obtained by
+                implicit differentiation.
             chunk_feautrier (Optional[bool]):
                 If True, evaluate the Feautrier solver in frequency chunks. If None (default),
                 resolves to True.

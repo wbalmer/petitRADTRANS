@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   and optax MAP warm-up. Behaviour and file formats are unchanged.
 - `scattering_in_emission=True` now raises `ValueError` unless JAX is running in
   64-bit mode.
+- The convergence threshold of the Feautrier scattering iteration is tightened from 1e-6 to 1e-8.
+- `RetrievalConfig` and `SpectralModel.calculate_emission_spectrum` now default to
+  `adaptive_feautrier_iterations=True`, as `Radtrans.calculate_flux` already did.
 ### Fixed
 - Removed `debug.callbacks` from opacities and validation.
 - dtype mismatch in patchy cloud opacity conditional.
@@ -29,6 +32,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - CIA opacities being set to 0 due to 32-bit underflow.
 - `return_opacities=True` returned all-zero `cloud_absorption_opacities` and
   `cloud_anisotropic_scattering_opacities` whenever `sum_opacities` was False.
+- Inaccurate gradients of the emission flux with `scattering_in_emission=True`. Differentiating through the
+  Ng-accelerated scattering iteration gave an unconverged derivative. The gradient is now obtained by implicit
+  differentiation of the converged scattering solution.
+- NaN emission flux with `scattering_in_emission=True` when the lowest layer is optically thick and strongly
+  scattering, caused by an unstable surface term of the approximate Lambda operator.
 
 ### Removed
 - autodiff versions of `calculate_flux` and `calculate_transit_radii`

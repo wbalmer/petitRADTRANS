@@ -254,7 +254,7 @@ class ModelContext:
     return_abundances: bool = False
     scattering_in_emission: bool = False
     chunk_feautrier: bool = True
-    adaptive_feautrier_iterations: bool = False
+    adaptive_feautrier_iterations: bool = True
     feautrier_chunk_size: int | None = None
     parameter_units: Mapping[str, Any] = field(default_factory=dict)
     model_metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -523,7 +523,7 @@ class RetrievalRuntime:
         feautrier_chunk_size: int | None = None,
         scattering_in_emission: bool = False,
         chunk_feautrier: bool = True,
-        adaptive_feautrier_iterations: bool = False,
+        adaptive_feautrier_iterations: bool = True,
     ) -> "RetrievalRuntime":
         """Build a runtime from retrieval data objects.
 
@@ -697,7 +697,7 @@ class RetrievalRuntime:
             ),
             chunk_feautrier=getattr(configuration, "chunk_feautrier", True),
             adaptive_feautrier_iterations=getattr(
-                configuration, "adaptive_feautrier_iterations", False
+                configuration, "adaptive_feautrier_iterations", True
             ),
         )
 

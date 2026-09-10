@@ -1927,6 +1927,158 @@ def test_spec_backed_prior_model_primes_runtime_before_jit(monkeypatch):
     assert rebuilds == [spec_path, spec_path]
 
 
+def _spec_backed_model_context(monkeypatch, tmp_path, factory_reference):
+    """A minimal SamplerContext for the spec-backed JAXNS prior model."""
+    from petitRADTRANS.retrieval.samplers import interfaces
+
+    prior = SimpleNamespace(realise=lambda periodic: jnp.asarray(2.0))
+    monkeypatch.setattr(
+        interfaces,
+        "collect_jaxns_priors",
+        lambda context: (["amplitude"], ((prior, False),)),
+    )
+    runtime = SimpleNamespace(
+        evaluate_likelihood_jax=lambda **kwargs: 3.0 * jnp.sum(
+            jnp.stack(kwargs["physical_params"])
+        )
+    )
+    return SimpleNamespace(
+        configuration=SimpleNamespace(
+            jaxns_config_factory=factory_reference,
+            jaxns_config_factory_kwargs=None,
+        ),
+        parameter_layout=SimpleNamespace(
+            free_parameter_names=["amplitude"],
+            physical_params_from_free_values=lambda values: values,
+        ),
+        runtime=runtime,
+        uncertainties_mode="default",
+        output_directory=str(tmp_path),
+        retrieval_name="reuse_runtime",
+    )
+
+
+def _importable_factory(monkeypatch, name="prt_test_jaxns_factory_module"):
+    module = ModuleType(name)
+
+    def build_config():
+        pytest.fail("the configuration factory must not be called")
+
+    module.build_config = build_config
+    monkeypatch.setitem(sys.modules, name, module)
+    return f"{name}:build_config"
+
+
+def test_single_process_jaxns_reuses_the_live_runtime(monkeypatch, tmp_path):
+    """A checkpointable single-process run must not load the opacities twice.
+
+    Setting jaxns_config_factory switches the single-process backend to the
+    picklable spec-backed model. That model must reuse the runtime this process
+    already owns -- also after a checkpoint unpickles it -- instead of
+    rebuilding it from the factory and keeping a second copy of every opacity
+    table resident for the whole run.
+    """
+    from petitRADTRANS.retrieval.samplers import interfaces, jaxns_worker
+
+    monkeypatch.setattr(jaxns_worker, "_RUNTIME_CACHE", {})
+    rebuilds = []
+    monkeypatch.setattr(jaxns_worker, "_rebuild_locked", rebuilds.append)
+    context = _spec_backed_model_context(
+        monkeypatch, tmp_path, _importable_factory(monkeypatch)
+    )
+
+    free_parameter_names, prior_model = interfaces.build_jaxns_prior_model(context)
+
+    assert free_parameter_names == ["amplitude"]
+    assert isinstance(prior_model, jaxns_worker.SpecBackedPriorModel)
+    assert rebuilds == []
+    assert jaxns_worker._RUNTIME_CACHE[prior_model.spec_path][2] is context.runtime
+    assert os.path.exists(prior_model.spec_path)
+    assert prior_model_is_picklable(prior_model)
+    assert np.asarray(jax.jit(lambda: prior_model())()).item() == 6.0
+
+    # Resuming unpickles the model in a process that has already seeded its
+    # cache the same way; that must not trigger a rebuild either.
+    restored = pickle.loads(pickle.dumps(prior_model))
+    assert rebuilds == []
+    assert np.asarray(jax.jit(lambda: restored())()).item() == 6.0
+
+
+def test_distributed_prior_model_still_validates_by_rebuilding(monkeypatch, tmp_path):
+    """The distributed coordinator keeps its eager rebuild.
+
+    That rebuild is the check that workers -- which have no live runtime --
+    will construct the same model from the factory.
+    """
+    from petitRADTRANS.retrieval.samplers import jaxns_worker
+
+    monkeypatch.setattr(jaxns_worker, "_RUNTIME_CACHE", {})
+    rebuilds = []
+
+    def rebuild(spec_path):
+        rebuilds.append(spec_path)
+        rebuilt = ((), None, None, "default")
+        jaxns_worker._RUNTIME_CACHE[spec_path] = rebuilt
+        return rebuilt
+
+    monkeypatch.setattr(jaxns_worker, "_rebuild_locked", rebuild)
+    context = _spec_backed_model_context(
+        monkeypatch, tmp_path, _importable_factory(monkeypatch)
+    )
+
+    _, _, spec_path = jaxns_worker.build_distributed_prior_model(context)
+
+    assert rebuilds == [spec_path]
+
+
+def test_runtime_reuse_still_rejects_an_unimportable_factory(monkeypatch, tmp_path):
+    """Skipping the rebuild must not defer a bad factory reference to resume time."""
+    from petitRADTRANS.retrieval.samplers import jaxns_worker
+
+    monkeypatch.setattr(jaxns_worker, "_RUNTIME_CACHE", {})
+    context = _spec_backed_model_context(
+        monkeypatch, tmp_path, "prt_no_such_module_for_jaxns_factory:build_config"
+    )
+
+    with pytest.raises(ImportError, match="could not import module"):
+        jaxns_worker.build_distributed_prior_model(context, reuse_runtime=True)
+    assert jaxns_worker._RUNTIME_CACHE == {}
+
+
+def test_jaxns_goal_boundary_logs_progress_and_keeps_or_semantics(capsys):
+    """Goal boundaries are the run's only heartbeat, and its checkpoint points."""
+    sampler = JAXNSSampler.__new__(JAXNSSampler)
+    run_config = JAXNSSampler._resolve_run_config(
+        {"ess": 100, "max_num_likelihood_evaluations": 1000}
+    )
+    goal_cond = sampler._build_goal_condition(run_config)
+
+    def state(iteration, ess, likelihood_evaluations):
+        return SimpleNamespace(
+            goal_loop_iter=iteration,
+            num_samples=10,
+            total_num_likelihood_evaluations=likelihood_evaluations,
+            log_L_supremum=3.25,
+            expected_log_Z_uncert=0.4,
+            to_result=lambda: SimpleNamespace(ess=ess),
+        )
+
+    assert goal_cond(state(0, 1e6, 1e6)) is False
+    assert capsys.readouterr().out == ""
+
+    assert goal_cond(state(1, 50.0, 500)) is False
+    line = capsys.readouterr().out
+    assert "[pRT-JAXNS] goal boundary: iter 1" in line
+    assert "L-evals=500" in line and "max logL=3.25" in line
+    assert "ess=50 (goal 100)" in line
+    assert "goal reached" not in line
+
+    # Either criterion alone ends the run, as the removed TerminationCondition did.
+    assert goal_cond(state(2, 50.0, 1500)) is True
+    assert goal_cond(state(3, 150.0, 500)) is True
+    assert capsys.readouterr().out.count("goal reached") == 2
+
+
 def test_parameter_layout_free_parameter_ordering_matches_all_sampler_interfaces():
     retrieval = object.__new__(petitRADTRANS.retrieval.retrieval.Retrieval)
 

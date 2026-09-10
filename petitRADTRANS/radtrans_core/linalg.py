@@ -17,10 +17,16 @@ _USE_GPU = default_backend() != "cpu"
 
 # Batch threshold (n_gf * n_angles) above which the Thomas-factorisation
 # Feautrier path is preferred over parallel cyclic reduction (PCR) on GPU.
-# The Thomas method for solving a tridiagonal system is  what was
+# The Thomas method for solving a tridiagonal system is  what was
 # used in the Fortran implementation, however, here we do some
 # pre-processing to make the computations more efficient and parallelizable.
 DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH = 16384
+
+# Diagonal of the approximate Lambda operator at the surface. The surface row of the Feautrier system imposes
+# the boundary intensity, so the mean intensity there does not depend on the local source function. A non-zero
+# value makes the ALI update of the surface source function unstable when the lowest layer is optically thick
+# and strongly scattering, which overflows to NaN after enough iterations
+_SURFACE_LAMBDA_DIAGONAL = 0.0
 
 
 def _feautrier_use_thomas(
@@ -254,10 +260,10 @@ def _prepare_feautrier_system_lm_cpu(
         b_mid_safe = jnp.where(
             jnp.abs(b_mid) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, b_mid
         )
-        lam_branch = jnp.where(
-            is_top, b_top, jnp.where(is_surf, 1.0 + 2.0 * f2**2, b_mid_safe)
-        )
-        lam_k = jnp.sum(w / lam_branch, axis=1)  # (n_gf,)
+        lam_branch = jnp.where(is_top, b_top, b_mid_safe)
+        lam_k = jnp.where(
+            is_surf, _SURFACE_LAMBDA_DIAGONAL, jnp.sum(w / lam_branch, axis=1)
+        )  # (n_gf,)
 
         # Thomas forward elimination of the freshly built row.
         denom = b_k.reshape(batch) - a_k_row.reshape(batch) * c_prev
@@ -328,7 +334,7 @@ def _prepare_feautrier_system_lm_gpu(
     b_mid_safe = jnp.where(jnp.abs(b_mid) < GRAD_SAFE_DENOM, GRAD_SAFE_DENOM, b_mid)
     lam_top = jnp.sum(w / b_top, axis=1)  # (n_gf,)
     lam_mid = jnp.sum(w[None] / b_mid_safe, axis=2)  # (n-2, n_gf)
-    lam_surf = jnp.sum(w / (1.0 + 2.0 * f2_all[-1] ** 2), axis=1)  # (n_gf,)
+    lam_surf = jnp.full_like(lam_top, _SURFACE_LAMBDA_DIAGONAL)  # (n_gf,)
     lambda_loc_lm = jnp.concatenate(
         [lam_top[None], lam_mid, lam_surf[None]], axis=0
     )  # (n, n_gf)

@@ -32,6 +32,7 @@ import dataclasses
 import gc
 import json
 import os
+import time
 import warnings
 from typing import Any
 
@@ -162,6 +163,44 @@ _JAXNS_REMOVED_SAMPLER_KWARGS = {
         "with a jaxns-cli worker pool for multi-device runs."
     ),
 }
+
+
+def _log_goal_boundary(state, observed, started_at, *, reached):
+    """Print one progress line per completed goal boundary.
+
+    Goal boundaries are also the only points where JAXNS may checkpoint, so this
+    line is the run's heartbeat: without it a multi-day run is silent until it
+    finishes. Reads only cheap State scalars (plus whatever the goal already
+    computed), and tolerates DistributedState lacking any of them.
+    """
+
+    def scalar(name):
+        value = getattr(state, name, None)
+        if value is None:
+            return float("nan")
+        try:
+            return float(np.asarray(value))
+        except (TypeError, ValueError):
+            return float("nan")
+
+    elapsed_h = (time.monotonic() - started_at) / 3600.0
+    parts = [
+        f"iter {int(state.goal_loop_iter)}",
+        f"samples={scalar('num_samples'):.0f}",
+        f"L-evals={scalar('total_num_likelihood_evaluations'):.0f}",
+        f"max logL={scalar('log_L_supremum'):.2f}",
+        f"expected dlogZ={scalar('expected_log_Z_uncert'):.3f}",
+    ]
+    parts += [
+        f"{name}={current:.4g} (goal {target:.4g})"
+        for name, (current, target) in observed.items()
+        if name not in ("num_samples", "total_num_likelihood_evaluations",
+                        "log_L_supremum", "expected_log_Z_uncert")
+    ]
+    parts.append(f"elapsed={elapsed_h:.2f} h")
+    if reached:
+        parts.append("goal reached")
+    print("[pRT-JAXNS] goal boundary: " + ", ".join(parts), flush=True)
 
 
 class JAXNSSampler(Sampler):
@@ -1239,6 +1278,7 @@ class JAXNSSampler(Sampler):
             checks.append((attribute_name, comparison, needs_result, float(value)))
 
         needs_result = any(check[2] for check in checks)
+        started_at = time.monotonic()
 
         def goal_cond(state):
             # Iteration 0 has no completed allocation round to judge; JAXNS'
@@ -1249,22 +1289,26 @@ class JAXNSSampler(Sampler):
             if depth_reached is not None and bool(
                 depth_reached(state, depth_condition)
             ):
+                _log_goal_boundary(state, {}, started_at, reached=True)
                 return True
 
             # Only materialise the result tree when a criterion needs it
             # (currently just 'ess'); the State scalars are the cheap path.
             result = state.to_result() if needs_result else None
 
+            reached = False
+            observed = {}
             for attribute_name, comparison, from_result, target in checks:
                 source = result if from_result else state
                 current = float(np.asarray(getattr(source, attribute_name)))
+                observed[attribute_name] = (current, target)
                 if comparison == "at_least":
-                    if current >= target:
-                        return True
-                elif current <= target:
-                    return True
+                    reached = reached or current >= target
+                else:
+                    reached = reached or current <= target
 
-            return False
+            _log_goal_boundary(state, observed, started_at, reached=reached)
+            return reached
 
         return goal_cond
 
