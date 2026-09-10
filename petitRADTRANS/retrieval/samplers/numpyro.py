@@ -34,6 +34,24 @@ from petitRADTRANS.retrieval.samplers.interfaces import (
 )
 
 
+class WarmupChunkComplete(Exception):
+    """Raised when a managed warmup has run its per-process iteration budget.
+
+    NOT an error. It exists because the XLA CPU runtime leaks ~7,790 memory
+    mappings per `kernel.sample` call (measured: sd 1.1 over five iterations, and
+    independent of the leapfrog count), against a `vm.max_map_count` of 65,530 on
+    this cluster. A process therefore survives only ~6 warmup iterations before
+    `mmap` starts returning ENOMEM and LLVM aborts with
+    "Unable to allocate section memory" -- which is a mapping-count failure, not an
+    out-of-memory, and shows up even with 240 GB granted and 7.5 GB in use.
+
+    Since the managed warmup checkpoints and resumes exactly, the practical answer
+    is to stop before the ceiling, exit cleanly, and let a fresh process continue
+    from the checkpoint. Set PRT_WARMUP_ITERS_PER_PROCESS to the chunk size and
+    have the caller re-invoke until the warmup completes.
+    """
+
+
 class NumPyroSamplingResults(MCMCSamplingResults):
     """Results of a NumPyro run. See :class:`MCMCSamplingResults`."""
 
@@ -95,11 +113,16 @@ def dense_inverse_mass_from_hessian(
     The dense analogue of :func:`_diagonal_inverse_mass_from_hessian`: the inverse
     mass matrix is the full posterior covariance, estimated as the inverse of the
     precision ``-Hessian`` at the MAP. The (symmetrised) precision is eigen-floored
-    to a small positive value so the returned covariance is symmetric
-    positive-definite even where the curvature is flat or slightly indefinite;
-    if the Hessian is non-finite the whole matrix falls back to the identity,
-    leaving NUTS' warmup to adapt it. Returns an ``(n, n)`` NumPy array (the dense
-    metric used when ``is_mass_matrix_diagonal=False``).
+    at ``eigenvalue_floor`` so the returned covariance is symmetric
+    positive-definite even where the curvature is flat or slightly indefinite. If
+    the Hessian is non-finite the whole matrix falls back to the identity, leaving
+    NUTS' warmup to adapt it. Returns an ``(n, n)`` NumPy array (the dense metric
+    used when ``is_mass_matrix_diagonal=False``).
+
+    ``eigenvalue_floor`` defaults to 1.0, which is the exact prior precision for
+    Normal priors in the unconstrained space but is too stiff for logit-mapped
+    Uniform ones -- see the extended note at the flooring step before relying on
+    the default.
     """
     _opt.require_jax()
     from jax import grad as _grad, jvp as _jvp
@@ -127,10 +150,33 @@ def dense_inverse_mass_from_hessian(
     # |curvature|.
     eigvals = jnp.abs(eigvals)
 
-    # Floor the PRECISION at roughly the prior precision (1.0), not at ~0.
-    # The unconstrained priors have unit-ish scale (N(0,1) for affine-mapped
-    # parameters, logistic with std 1.81 for cube-mapped ones), so a precision
-    # floor of 1 caps the metric's widest direction at about the prior width.
+    # Floor the PRECISION so a direction carrying no likelihood information gets
+    # (at most) its prior width rather than an unbounded one.
+    #
+    # CAUTION -- the default of 1.0 is right for only SOME priors, and the
+    # justification previously given here was wrong. In the unconstrained
+    # parameterisation:
+    #
+    #   Normal(mu, tau)  ->  x = mu + tau*z, log-prior -z^2/2,
+    #                        prior precision = 1.0 exactly.
+    #   Uniform(a, b)    ->  x = a + (b-a)*sigmoid(z), log-Jacobian ln[s(1-s)],
+    #                        prior precision = -d2/dz2 ln[s(1-s)] = 2*s*(1-s),
+    #                        which PEAKS AT 0.5 (at z=0) and decays in the tails.
+    #
+    # So 1.0 is exact for Normal priors, 2x too stiff for a logit-mapped Uniform at
+    # the centre of its range, and much worse out in the tails: at z = +3.78
+    # (cloud_fraction's position at the v10mc MAP) the true prior precision is
+    # 0.043, i.e. the floor is 23x too stiff there. A metric that is too NARROW in a
+    # soft direction makes the sampler under-estimate how far it must travel, which
+    # delays the U-turn criterion and lengthens trajectories -- the tree-depth
+    # saturation symptom.
+    #
+    # This is currently BENIGN for the VHS1256b setup: the only two modes at the
+    # floor are dominated by PTslope_4 and PTslope_5, both Normal priors, where 1.0
+    # is correct. It stops being benign the moment a Uniform-prior direction becomes
+    # the softest, so callers whose softest directions are logit-mapped should pass
+    # eigenvalue_floor = min over coordinates of 2*s*(1-s) evaluated at the
+    # expansion point, or the smallest eigenvalue of the analytic prior Hessian.
     floor = float(eigenvalue_floor)
     safe_eigvals = jnp.where(jnp.isfinite(eigvals) & (eigvals > floor), eigvals, floor)
     covariance = (eigvecs * (1.0 / safe_eigvals)) @ eigvecs.T
@@ -386,6 +432,223 @@ class NumPyroSampler(GradientSampler):
     def _concat_or_none(chunks):
         return np.concatenate(chunks, axis=0) if chunks else None
 
+    # --- managed warmup: resumable, window-free step-size adaptation ---------
+    def _run_managed_warmup(
+        self,
+        *,
+        kernel,
+        initial_position,
+        rng_key,
+        num_warmup,
+        num_samples,
+        target_accept_prob,
+        warmup_block,
+        checkpoint,
+    ):
+        """Run `num_warmup` adaptation iterations under our own dual averaging.
+
+        WHY THIS EXISTS
+        ---------------
+        `mcmc.warmup()` is atomic -- it cannot be resumed, so a warmup longer than
+        the queue limit produces nothing at all. That alone would justify a custom
+        driver. But there is a second, worse problem.
+
+        NumPyro builds its windowed adaptation schedule from ``num_warmup``
+        REGARDLESS of ``adapt_mass_matrix``, and at the end of every middle window
+        ``_update_at_window_end`` fires. That function is gated on
+        ``adapt_step_size``, not on ``adapt_mass_matrix``::
+
+            if adapt_step_size:
+                step_size = find_reasonable_step_size(...)      # heuristic search
+                ss_state  = ss_init(log(10) + log(step_size))   # DA state RESET
+
+        So with a frozen mass matrix and ``num_warmup=60`` the schedule is
+        ``[(0,8), (9,53), (54,59)]``: at iteration 53 the sampler discards 45
+        iterations of adaptation, re-derives the step size from scratch, and hands
+        sampling a step size averaged over the final SIX iterations. Measured on a
+        surrogate posterior, the step size jumps by a factor of 2.3 at exactly that
+        boundary.
+
+        For an expensive forward model that is ruinous: it is ~99 h of compute to
+        buy six iterations of dual averaging, and six iterations is precisely what
+        had already failed (mean acceptance 0.066, 4/4 divergences).
+
+        HOW IT WORKS
+        ------------
+        The kernel is built with ``adapt_step_size=False``, which makes NumPyro's
+        window machinery inert, and we drive ``kernel.sample`` ourselves. NumPyro's
+        OWN ``dual_averaging()`` recursion is reused, so the update is identical to
+        what NumPyro would compute -- only the windowing is removed.
+
+        Resumability rests on where NumPyro keeps its state: ``wa_steps`` lives in
+        the kernel closure and is re-established identically from ``num_warmup``,
+        while the iteration counter ``i`` lives in the HMCState and is carried. So
+        a fresh process that rebuilds the kernel with the same ``num_warmup`` and
+        restores the state continues exactly where it stopped. Validated
+        bit-for-bit against an uninterrupted run (max|delta| = 0 over the entire
+        state, the dual-averaging state, and the per-iteration traces), to the same
+        standard as the post-warmup checkpoint.
+
+        REQUIREMENT: ``num_warmup`` must not change between blocks. NumPyro
+        substitutes the averaged step size on iteration ``num_warmup - 1`` only, so
+        changing it mid-flight would silently change the adaptation schedule. The
+        stale-checkpoint guard in the caller already enforces this.
+        """
+        _opt.require_numpyro()
+        from numpyro.infer.hmc_util import dual_averaging
+
+        jnp = _opt.jnp
+        ss_init, ss_update = dual_averaging()
+
+        if checkpoint is not None and checkpoint.get("phase") == "warmup":
+            # ESTABLISH THE KERNEL CLOSURE BEFORE RESTORING THE STATE.
+            #
+            # NumPyro's HMC keeps `wa_steps`, `max_treedepth`, `vv_update` and
+            # `momentum_generator` as nonlocals inside `init_kernel`, and sets
+            # `self._sample_fn` there too. They exist only once `kernel.init()` has
+            # been called. A fresh process that merely restores an HMCState and then
+            # calls `kernel.sample()` dies with
+            #     TypeError: 'NoneType' object is not callable
+            # because `_sample_fn` is still None (observed, job 5194461 run 2).
+            #
+            # So call init to build the closure, then THROW AWAY the state it
+            # returns and use the checkpointed one. This is sound because the
+            # closure depends only on `num_warmup` and the kernel's constructor
+            # arguments -- not on the position -- which is exactly why block-resumed
+            # warmup reproduces an uninterrupted one bit-for-bit. The iteration
+            # counter that drives adaptation lives in the STATE and is carried.
+            kernel.init(
+                rng_key, num_warmup=num_warmup, init_params=initial_position
+            )
+            state = _opt.tree.map(jnp.asarray, checkpoint["warmup_state"])
+            ss_state = _opt.tree.map(jnp.asarray, checkpoint["da_state"])
+            done = int(checkpoint["warmup_done"])
+            trace = list(checkpoint.get("warmup_trace", []))
+            print(
+                f"[warmup] resuming managed warmup for '{self.retrieval_name}' at "
+                f"{done}/{num_warmup} iterations "
+                f"(step_size={float(np.asarray(state.adapt_state.step_size)):.3e}).",
+                flush=True,
+            )
+        else:
+            state = kernel.init(
+                rng_key, num_warmup=num_warmup, init_params=initial_position
+            )
+            step0 = float(np.asarray(state.adapt_state.step_size))
+            ss_state = ss_init(jnp.log(10.0 * step0))
+            done = 0
+            trace = []
+            print(
+                f"[warmup] managed warmup for '{self.retrieval_name}': "
+                f"{num_warmup} iterations, target acceptance {target_accept_prob}, "
+                f"initial step_size={step0:.3e}. Window-free dual averaging; "
+                f"checkpointed every {warmup_block} iterations.",
+                flush=True,
+            )
+
+        done_at_entry = done
+        while done < num_warmup:
+            block_end = min(done + max(1, int(warmup_block)), num_warmup)
+            while done < block_end:
+                state = kernel.sample(state, (), {})
+                # accept_prob is the INSTANTANEOUS acceptance for this iteration.
+                # mean_accept_prob is NumPyro's CUMULATIVE running mean; reporting
+                # that as though it were the instantaneous rate is what caused a
+                # 0.58 reading to be recorded as a healthy warmup when the true
+                # rate at that step size was ~0.07.
+                accept = float(np.asarray(state.accept_prob))
+                ss_state = ss_update(target_accept_prob - accept, ss_state)
+                log_eps, log_eps_avg = ss_state[0], ss_state[1]
+                done += 1
+                # Substitute the dual AVERAGE on the final iteration, exactly as
+                # NumPyro's warmup_adapter does, so the frozen step size is the
+                # average rather than the last raw iterate.
+                eps = jnp.exp(log_eps_avg if done == num_warmup else log_eps)
+                state = state._replace(
+                    adapt_state=state.adapt_state._replace(step_size=eps)
+                )
+                trace.append(
+                    {
+                        "iteration": done,
+                        "step_size": float(eps),
+                        "accept_prob": accept,
+                        "num_steps": int(np.asarray(state.num_steps)),
+                        "diverging": bool(np.asarray(state.diverging)),
+                        "potential_energy": float(
+                            np.asarray(state.potential_energy)
+                        ),
+                    }
+                )
+                diag = ""
+                if os.environ.get("PRT_LOG_MAPS", "0") == "1":
+                    # Diagnostic for the repeated `LLVM ERROR: Unable to allocate
+                    # section memory` aborts (jobs 5194461, 5194769, 5195181). Those
+                    # are NOT out-of-memory: job 5195181 died at 87.5 GB RSS with
+                    # mem=240G granted and the node to itself, failing a 63-BYTE
+                    # suballocation. mmap() also returns ENOMEM when a process
+                    # exceeds vm.max_map_count, which is 65530 here -- so log the
+                    # mapping count, the RSS, and the compile-cache size to separate
+                    # "mappings leak" from "something recompiles every iteration".
+                    try:
+                        with open("/proc/self/maps") as _mf:
+                            _nmaps = sum(1 for _ in _mf)
+                        _rss = 0
+                        with open("/proc/self/status") as _sf:
+                            for _line in _sf:
+                                if _line.startswith("VmRSS:"):
+                                    _rss = int(_line.split()[1]) // 1024
+                                    break
+                        _fn = getattr(kernel, "_sample_fn", None)
+                        _cs = getattr(_fn, "_cache_size", None)
+                        _cache = _cs() if callable(_cs) else -1
+                        diag = (f"  [maps {_nmaps} ({100.0 * _nmaps / 65530:.1f}% of "
+                                f"max_map_count) rss {_rss} MB jit_cache {_cache}]")
+                    except Exception as _e:  # never let a diagnostic kill the run
+                        diag = f"  [map-diag failed: {_e}]"
+                print(
+                    f"[warmup] {done:4d}/{num_warmup}  step_size {float(eps):.6e}  "
+                    f"accept(inst) {accept:.4f}  leapfrog "
+                    f"{int(np.asarray(state.num_steps)):4d}  "
+                    f"div {int(np.asarray(state.diverging))}{diag}",
+                    flush=True,
+                )
+
+            self._save_checkpoint(
+                {
+                    "version": 2,
+                    "phase": "warmup",
+                    "retrieval_name": self.retrieval_name,
+                    "num_warmup": num_warmup,
+                    "num_samples_target": num_samples,
+                    "warmup_done": done,
+                    "warmup_state": _opt.tree.map(np.asarray, state),
+                    "da_state": _opt.tree.map(np.asarray, ss_state),
+                    "warmup_trace": trace,
+                }
+            )
+            # Per-process iteration budget -- see WarmupChunkComplete. Checked only
+            # right after a checkpoint, so stopping here can never lose work.
+            _budget = int(os.environ.get("PRT_WARMUP_ITERS_PER_PROCESS", "0"))
+            if _budget > 0 and done < num_warmup and done - done_at_entry >= _budget:
+                print(
+                    f"[warmup] per-process budget reached "
+                    f"({done - done_at_entry}/{_budget} iterations this process, "
+                    f"{done}/{num_warmup} overall). Checkpointed; exiting cleanly so "
+                    f"a fresh process can continue with a reset mapping count.",
+                    flush=True,
+                )
+                raise WarmupChunkComplete(
+                    f"warmup at {done}/{num_warmup}; re-invoke to continue"
+                )
+            print(
+                f"[checkpoint] '{self.retrieval_name}': warmup {done}/{num_warmup} "
+                f"saved (step_size="
+                f"{float(np.asarray(state.adapt_state.step_size)):.3e}).",
+                flush=True,
+            )
+
+        return state, trace
+
     def _run_checkpointed_nuts(
         self,
         *,
@@ -398,6 +661,9 @@ class NumPyroSampler(GradientSampler):
         progress_bar,
         extra_fields,
         checkpoint_interval,
+        warmup_driver="numpyro",
+        warmup_block=5,
+        target_accept_prob=0.8,
     ):
         """Run a single NUTS chain in blocks, checkpointing after each block.
 
@@ -441,6 +707,13 @@ class NumPyroSampler(GradientSampler):
                 self._remove_checkpoint()
                 checkpoint = None
 
+        # A warmup-phase checkpoint means adaptation was interrupted; hand it to
+        # the managed driver below rather than treating it as sampling progress.
+        warmup_checkpoint = None
+        if checkpoint is not None and checkpoint.get("phase") == "warmup":
+            warmup_checkpoint = checkpoint
+            checkpoint = None
+
         if checkpoint is not None:
             if checkpoint.get("unconstrained_samples") is not None:
                 unc_chunks.append(np.asarray(checkpoint["unconstrained_samples"]))
@@ -470,29 +743,60 @@ class NumPyroSampler(GradientSampler):
         # resubmission resumes at 0 draws instead of restarting from scratch.
         if post_warmup_state is None:
             first_block = min(block, num_samples)
-            mcmc = _opt.NumPyroMCMC(
-                kernel,
-                num_warmup=num_warmup,
-                num_samples=first_block,
-                num_chains=1,
-                thinning=thinning,
-                progress_bar=progress_bar,
-                chain_method="sequential",
-                jit_model_args=False,
-            )
-            mcmc_block = first_block
-            mcmc.warmup(
-                rng_key, init_params=initial_position, extra_fields=extra_fields
-            )
-            post_warmup_state = mcmc.post_warmup_state
-            adapt_state = post_warmup_state.adapt_state
+            if warmup_driver == "managed":
+                # Resumable, window-free adaptation. See _run_managed_warmup for
+                # why mcmc.warmup() is not usable here: it is atomic (so a warmup
+                # longer than the queue limit yields nothing), and its windowed
+                # schedule resets dual averaging near the end even when the mass
+                # matrix is frozen.
+                post_warmup_state, warmup_trace = self._run_managed_warmup(
+                    kernel=kernel,
+                    initial_position=initial_position,
+                    rng_key=rng_key,
+                    num_warmup=num_warmup,
+                    num_samples=num_samples,
+                    target_accept_prob=target_accept_prob,
+                    warmup_block=warmup_block,
+                    checkpoint=warmup_checkpoint,
+                )
+                mcmc = _opt.NumPyroMCMC(
+                    kernel,
+                    num_warmup=num_warmup,
+                    num_samples=first_block,
+                    num_chains=1,
+                    thinning=thinning,
+                    progress_bar=progress_bar,
+                    chain_method="sequential",
+                    jit_model_args=False,
+                )
+                mcmc_block = first_block
+                adapt_state = post_warmup_state.adapt_state
+                self._warmup_trace = warmup_trace
+            else:
+                mcmc = _opt.NumPyroMCMC(
+                    kernel,
+                    num_warmup=num_warmup,
+                    num_samples=first_block,
+                    num_chains=1,
+                    thinning=thinning,
+                    progress_bar=progress_bar,
+                    chain_method="sequential",
+                    jit_model_args=False,
+                )
+                mcmc_block = first_block
+                mcmc.warmup(
+                    rng_key, init_params=initial_position, extra_fields=extra_fields
+                )
+                post_warmup_state = mcmc.post_warmup_state
+                adapt_state = post_warmup_state.adapt_state
             warmup_parameters = {
                 "step_size": np.asarray(adapt_state.step_size),
                 "inverse_mass_matrix": np.asarray(adapt_state.inverse_mass_matrix),
             }
             self._save_checkpoint(
                 {
-                    "version": 1,
+                    "version": 2,
+                    "phase": "sampling",
                     "retrieval_name": self.retrieval_name,
                     "num_warmup": num_warmup,
                     "num_samples_target": num_samples,
@@ -559,7 +863,8 @@ class NumPyroSampler(GradientSampler):
             }
             self._save_checkpoint(
                 {
-                    "version": 1,
+                    "version": 2,
+                    "phase": "sampling",
                     "retrieval_name": self.retrieval_name,
                     "num_warmup": num_warmup,
                     "num_samples_target": num_samples,
@@ -608,9 +913,28 @@ class NumPyroSampler(GradientSampler):
         thinning=1,
         chain_method="vectorized",
         checkpoint_interval=0,
+        warmup_driver="numpyro",
+        warmup_block=5,
         **numpyro_kwargs,
     ):
+        """``warmup_driver``: "numpyro" (default, historic behaviour, atomic
+        ``mcmc.warmup()``) or "managed" (resumable, window-free step-size
+        adaptation driven here -- see ``_run_managed_warmup``). ``warmup_block`` is
+        how many adaptation iterations to run between warmup checkpoints."""
         self.parameter_names = list(parameter_names)
+        if warmup_driver not in ("numpyro", "managed"):
+            raise ValueError(
+                f"warmup_driver must be 'numpyro' or 'managed', got {warmup_driver!r}"
+            )
+        if warmup_driver == "managed" and numpyro_kwargs.get("adapt_step_size", True):
+            # The managed driver owns the step size. Leaving NumPyro's adaptation
+            # on would re-enable the very window machinery this exists to bypass,
+            # and the two would fight over adapt_state.step_size.
+            raise ValueError(
+                "warmup_driver='managed' requires adapt_step_size=False: the "
+                "driver runs dual averaging itself, and NumPyro's windowed "
+                "schedule resets it at each middle-window end."
+            )
         kernel_kwargs = self._prepare_kernel_kwargs(
             algorithm_name=self.algorithm_name,
             log_likelihood_func=self.log_likelihood_func,
@@ -725,6 +1049,9 @@ class NumPyroSampler(GradientSampler):
                 progress_bar=progress_bar,
                 extra_fields=extra_fields,
                 checkpoint_interval=int(checkpoint_interval),
+                warmup_driver=warmup_driver,
+                warmup_block=warmup_block,
+                target_accept_prob=target_acceptance_rate,
             )
             logdensity = -potential_energy if potential_energy is not None else None
         else:
