@@ -1679,7 +1679,8 @@ def _compute_feautrier_radiative_transfer_chunk(
         )
 
         # The implicit gradient requires a converged solution, so it is only applied to the
-        # convergence-tested (adaptive) iteration
+        # convergence-tested (adaptive) iteration. Here we call out to the custom derivative
+        # function to calculate the gradient and attach it to the final value.
         if SCATTERING_IMPLICIT_GRADIENT:
             final_carry = _differentiate_scattering_fixed_point(
                 advance_state=_advance_state,
