@@ -2917,3 +2917,135 @@ def compute_transmission_spectrum_contribution(
     )
 
     return transmission_contribution_final, radius_hydrostatic_equilibrium
+
+
+@jit
+def compute_hydrostatic_interval_integrals(
+    pressures: ArrayLike,
+    inv_rho: ArrayLike,
+) -> ArrayLike:
+    """Compute per-layer hydrostatic integrals over the pressure grid."""
+    core_integrals = integ_parab(
+        pressures[:-2],
+        pressures[1:-1],
+        pressures[2:],
+        inv_rho[:-2],
+        inv_rho[1:-1],
+        inv_rho[2:],
+        pressures[:-2],
+        pressures[1:-1],
+    )
+    tail_integral = (inv_rho[-2] + inv_rho[-1]) * (pressures[-1] - pressures[-2]) * 0.5
+    return jnp.concatenate((core_integrals, tail_integral[None]))
+
+
+@jit(static_argnames=("variable_gravity"))
+def compute_radius_hydrostatic_equilibrium(
+    pressures: ArrayLike,
+    reference_gravity: ArrayLike,
+    atmosphere_densities: ArrayLike,
+    reference_pressure: ArrayLike,
+    planet_radius: ArrayLike,
+    variable_gravity: bool = True,
+) -> ArrayLike:
+    """
+    Calculate the radius at hydrostatic equilibrium for a planetary atmosphere.
+
+    This function integrates the hydrostatic equilibrium equation to compute the radius
+    at each atmospheric layer, given the pressure grid, atmospheric density profile,
+    reference gravity, reference pressure, and planet radius.
+
+    Args:
+        pressures (jax.Array): 1D array of atmospheric pressures in cgs units (dyne/cm^2).
+                               Shape: (n_layers,).
+        reference_gravity (float): Reference gravity in cgs units (cm/s^2).
+        atmosphere_densities (jax.Array): 1D array of atmospheric densities in cgs units (g/cm^3).
+                                          Shape: (n_layers,).
+        reference_pressure (float): Reference pressure in cgs units (dyne/cm^2).
+        planet_radius (float): Planet radius in cm.
+        variable_gravity (bool, optional): If True, gravity varies as 1/r^2 with radius.
+                                           If False, gravity is constant throughout the atmosphere.
+
+    Returns:
+        jax.Array: 1D array of radius values at each atmospheric layer in cm.
+                   Shape: (n_layers,).
+    """
+
+    n_layers = pressures.shape[0]
+    inv_rho = 1.0 / (atmosphere_densities + TINIEST)
+    dtype = pressures.dtype
+
+    if variable_gravity:
+        coefficient = 1.0 / (reference_gravity * (planet_radius**2) + TINIEST)
+    else:
+        coefficient = -1.0 / (reference_gravity + TINIEST)
+
+    interval_integrals = compute_hydrostatic_interval_integrals(
+        pressures=pressures,
+        inv_rho=inv_rho,
+    )
+    radius_hydrostatic_equilibrium = (
+        -coefficient
+        * jnp.cumsum(
+            interval_integrals[::-1],
+            dtype=dtype,
+        )[::-1]
+    )
+    radius_hydrostatic_equilibrium = jnp.concatenate(
+        (radius_hydrostatic_equilibrium, jnp.zeros(1, dtype=dtype))
+    )
+
+    reference_layer_mask = (pressures[:-1] <= reference_pressure) & (
+        pressures[1:] > reference_pressure
+    )
+    reference_index = jnp.argmax(reference_layer_mask)
+
+    def compute_reference_radius_offset() -> ArrayLike:
+
+        def layer_true() -> ArrayLike:
+            return jnp.asarray(
+                radius_hydrostatic_equilibrium[reference_index + 1]
+                - integ_parab(
+                    pressures[reference_index],
+                    pressures[reference_index + 1],
+                    pressures[reference_index + 2],
+                    inv_rho[reference_index],
+                    inv_rho[reference_index + 1],
+                    inv_rho[reference_index + 2],
+                    reference_pressure,
+                    pressures[reference_index + 1],
+                )
+                * coefficient,
+                dtype=dtype,
+            )
+
+        def layer_false() -> ArrayLike:
+            return jnp.asarray(
+                radius_hydrostatic_equilibrium[reference_index + 1]
+                - (
+                    (inv_rho[reference_index] + inv_rho[reference_index + 1])
+                    * (pressures[reference_index + 1] - reference_pressure)
+                    * coefficient
+                    * 0.5
+                ),
+                dtype=dtype,
+            )
+
+        return jnp.asarray(
+            lax.cond(reference_index <= n_layers - 3, layer_true, layer_false),
+            dtype=dtype,
+        )
+
+    R0 = lax.cond(
+        jnp.any(reference_layer_mask),
+        compute_reference_radius_offset,
+        lambda: jnp.asarray(0.0, dtype=dtype),
+    )
+
+    if variable_gravity:
+        R0 = (1.0 / planet_radius) - R0
+        radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium + R0
+        return 1.0 / (radius_hydrostatic_equilibrium + TINIEST)
+
+    R0 = planet_radius - R0
+    return radius_hydrostatic_equilibrium + R0
