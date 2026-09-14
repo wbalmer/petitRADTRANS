@@ -1427,39 +1427,7 @@ class Radtrans:
             relative_cloud_scaling_factor,
         )
 
-    def _maybe_calculate_photosphere_radius(
-        self,
-        planet_radius,
-        return_photosphere_radius,
-        temperatures,
-        mean_molar_masses,
-        reference_gravity,
-        opacities,
-        continuum_opacities_scattering,
-        cloud_f_sed,
-        cloud_photosphere_median_optical_depth,
-        cloud_photosphere_wavelength_boundaries,
-        cloud_anisotropic_scattering_opacities,
-        cloud_absorption_opacities,
-        optical_depths,
-    ):
-        if planet_radius is None or not return_photosphere_radius:
-            return None
-        return self.calculate_photosphere_radius(
-            temperatures=temperatures,
-            mean_molar_masses=mean_molar_masses,
-            reference_gravity=reference_gravity,
-            planet_radius=planet_radius,
-            opacities=opacities,
-            continuum_opacities_scattering=continuum_opacities_scattering,
-            cloud_f_sed=cloud_f_sed,
-            cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
-            cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
-            cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
-            cloud_absorption_opacities=cloud_absorption_opacities,
-            optical_depths=optical_depths,
-        )
-
+    # TODO Assigned to Nora to review
     def _calculate_radius_hydrostatic_equilibrium(
         self,
         pressures,
@@ -1503,6 +1471,7 @@ class Radtrans:
             planet_radius=planet_radius,
         )
 
+    # TODO Review David
     def _get_photosphere_optical_depths(
         self,
         pressures,
@@ -1538,6 +1507,7 @@ class Radtrans:
         )
         return optical_depths
 
+    # TODO Paul_review
     def _interpolate_photosphere_radius_profile(
         self,
         pressures,
@@ -1586,6 +1556,7 @@ class Radtrans:
 
         return jnp.asarray(photosphere_radius, dtype=FEAUTRIER_JAX_DTYPE)
 
+    # TODO Paul_review, except for cloud stuff (--> Annie)
     @jit(
         static_argnames=[
             "cloud_particle_radius_distribution",
@@ -1973,6 +1944,7 @@ class Radtrans:
             clear_cloud_absorption_opacities,
         )
 
+    # TODO Paul_review
     def _combine_deferred_clear_opacities(
         self,
         deferred_clear_opacity_inputs,
@@ -2024,6 +1996,7 @@ class Radtrans:
             ck_chunk_size=ck_chunk_size,
         )
 
+    # TODO Nora review
     def _calculate_transit_radii(
         self,
         pressures,
@@ -2383,6 +2356,7 @@ class Radtrans:
 
         return frequencies, frequency_bins_edges
 
+    # TODO Paul_review
     def _tree_flatten(self):
         cia_children = tuple(
             (
@@ -2431,6 +2405,7 @@ class Radtrans:
         # lookups instead of falling back to per-call dict equality comparisons
         return children, tuple(sorted(aux_data.items()))
 
+    # TODO Paul_review
     @classmethod
     def _tree_unflatten(cls, aux_data, children):
         aux_data = dict(aux_data)
@@ -2490,6 +2465,7 @@ class Radtrans:
         ]
         return instance
 
+    # TODO Paul_review
     def calculate_contribution_spectra(
         self,
         mode,
@@ -3259,7 +3235,7 @@ class Radtrans:
             clear_continuum_opacities_scattering,
             clear_cloud_anisotropic_scattering_opacities,
             clear_cloud_absorption_opacities,
-        ) = self._calculate_opacities( # TODO Paul: review in here once radtrans.py itself is reviewed otherwise.
+        ) = self._calculate_opacities(
             pressures=pressures,
             temperatures=temperatures,
             mass_fractions=mass_fractions,
@@ -3547,9 +3523,7 @@ class Radtrans:
         else:
             return self._frequencies, flux, additional_outputs
 
-    # TODO Paul continue from here, start by going through radtrans.py frm the top and
-    #   adding Paul_review flags for skipped functions that I still need to look into.
-
+    # TODO Paul_review
     def calculate_photosphere_radius(
         self,
         temperatures: ArrayLike,
@@ -3653,6 +3627,7 @@ class Radtrans:
 
         return jnp.zeros(self._frequencies.size, dtype=FEAUTRIER_JAX_DTYPE)
 
+    # TODO Paul_review
     def calculate_rosseland_planck_opacities(
         self,
         temperatures: npt.NDArray[float],
@@ -3864,6 +3839,7 @@ class Radtrans:
 
         return opacities_rosseland, opacities_planck, cloud_particle_mean_radii
 
+    # TODO Paul_review, but Nora will do _calculate_transit_radii
     @_compile_spectral_function(_TRANSIT_RADII_STATIC_ARGNAMES)
     def calculate_transit_radii(
         self,
@@ -4119,6 +4095,7 @@ class Radtrans:
             make_analytical_clouds_patchy=make_analytical_clouds_patchy,
         )
 
+    # TODO Paul_review, but Nora will do _calculate_transit_radii
     @jit(
         static_argnames=[
             "cloud_particle_radius_distribution",
