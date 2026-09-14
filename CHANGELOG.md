@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   and optax MAP warm-up. Behaviour and file formats are unchanged.
 - `scattering_in_emission=True` now raises `ValueError` unless JAX is running in
   64-bit mode.
+- patchy_clouds is now empty by default, and analytical background clouds are also
+  patchy, if not specifically requested.
+
 ### Fixed
 - Removed `debug.callbacks` from opacities and validation.
 - dtype mismatch in patchy cloud opacity conditional.

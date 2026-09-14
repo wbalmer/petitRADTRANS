@@ -47,6 +47,7 @@ from petitRADTRANS.validation import (
     _check_pressures,
     _check_clouds_particle_porosity_factors,
     _check_power_law_opacity_completeness,
+    _check_target_particle_radii_completeness,
     _sanitize_emission_surface_inputs,
     _sanitize_flux_opacity_inputs,
     _check_scattering_in_emission_dtype,
@@ -54,6 +55,7 @@ from petitRADTRANS.validation import (
     _check_wavelength_boundaries,
     _handle_grid_misalignment,
     _warn_partial_cloud_coverage_without_patchy_clouds,
+    _warn_opaque_cloud_top_pressure_with_scattering
 )
 
 # pRT does its computation at single precision, where possible,
@@ -88,7 +90,7 @@ def _convert_scalar_to_strong_type(value):
 
     # TODO for the future:
     #     According to Claude repeated calls of this functions in every model call (say ~10 times, and
-    #     outside of jit, which is what happens in the functions below) may add up to 0.5 ms.
+    #     outside of jit, which is what happens in the wrapper below) may add up to 0.5 ms.
     #     So we may start feeling this in our fastest forward models on the GPU.
 
     if value is None:
@@ -151,7 +153,6 @@ def _interpolate_linear_sorted(x_grid, y_grid, x_query):
 _SPECTRAL_STATIC_ARGNAMES_COMMON = (
     "cloud_particle_radius_distribution",
     "patchy_clouds",
-    "complete_coverage_clouds",
     "additional_absorption_opacities_function",
     "additional_scattering_opacities_function",
     "frequencies_to_wavelengths",
@@ -163,6 +164,7 @@ _SPECTRAL_STATIC_ARGNAMES_COMMON = (
     "return_abundances",
     "return_particle_radii_bins",
     "return_particle_radii",
+    "make_analytical_clouds_patchy",
 )
 
 _FLUX_STATIC_ARGNAMES = _SPECTRAL_STATIC_ARGNAMES_COMMON + (
@@ -176,7 +178,6 @@ _FLUX_STATIC_ARGNAMES = _SPECTRAL_STATIC_ARGNAMES_COMMON + (
     "thomas_min_batch",
     "ck_chunk_size",
     "return_photosphere_radius",
-    "return_rosseland_optical_depths",
     "return_stellar_intensities",
     "return_angle_dependent_intensities",
 )
@@ -187,7 +188,7 @@ _TRANSIT_RADII_STATIC_ARGNAMES = _SPECTRAL_STATIC_ARGNAMES_COMMON + (
     "return_particle_densities",
 )
 
-_CLOUD_SPECIES_SEQUENCE_ARGNAMES = ("patchy_clouds", "complete_coverage_clouds")
+_CLOUD_SPECIES_SEQUENCE_ARGNAMES = ("patchy_clouds",)
 
 # Traced scalar arguments, normalized to strongly-typed JAX arrays *before* the
 # compiled call. This must happen outside the jit boundary: otherwise a Python
@@ -301,7 +302,7 @@ def _compile_spectral_function(static_argnames):
             # Remove self as argument from the dictionary, store in self
             self = arguments.pop("self")
 
-            # Look for patchy_clouds or complete_coverage_clouds:
+            # Look for patchy_clouds:
             # These must be converted into tuples, which is required
             # for having them static arguments (lists are not hashable!)
             # Technically, any hashable but mutable container works
@@ -323,12 +324,15 @@ def _compile_spectral_function(static_argnames):
                 arguments.get("power_law_opacity_350nm"),
                 arguments.get("power_law_opacity_coefficient"),
             )
+            _check_target_particle_radii_completeness(
+                arguments.get("target_particle_radii"),
+                arguments.get("target_pressure"),
+            )
 
             _warn_partial_cloud_coverage_without_patchy_clouds(
                 cloud_fraction=arguments.get("cloud_fraction", 1.0),
                 patchy_clouds=self._normalize_patchy_clouds(
                     patchy_clouds=arguments.get("patchy_clouds"),
-                    complete_coverage_clouds=arguments.get("complete_coverage_clouds"),
                 ),
                 has_partial_coverage_analytical_cloud=(
                     self._has_partial_coverage_analytical_cloud(
@@ -341,8 +345,18 @@ def _compile_spectral_function(static_argnames):
                         power_law_opacity_coefficient=arguments.get(
                             "power_law_opacity_coefficient"
                         ),
+                        make_analytical_clouds_patchy=arguments.get(
+                            "make_analytical_clouds_patchy"
+                        ),
                     )
                 ),
+            )
+
+            # Warn user if they use the opaque cloud top pressure together
+            # in scattering in emission == True mode.
+            _warn_opaque_cloud_top_pressure_with_scattering(
+                opaque_cloud_top_pressure=arguments.get("opaque_cloud_top_pressure"),
+                scattering_in_emission=self._scattering_in_emission,
             )
 
             # Validate the reference gravity here while it is still concrete, so
@@ -355,6 +369,20 @@ def _compile_spectral_function(static_argnames):
                 reference_gravity, jax_core.Tracer
             ):
                 _handle_invalid_reference_gravity(float(reference_gravity))
+
+            # Validate user-supplied pressures here while still concrete (same
+            # reasoning as for reference_gravity above). A None value means the
+            # pressures the Radtrans object was initialized with are to be used
+            # instead, which have already been checked in __init__/the pressures
+            # setter, so there is nothing to do here in that case.
+            pressures = arguments.get("pressures")
+
+            if (
+                arguments.get("validate_inputs", True)
+                and pressures is not None
+                and not isinstance(pressures, jax_core.Tracer)
+            ):
+                _check_pressures(pressures)
 
             # Must happen outside the compiled call: see _SPECTRAL_SCALAR_ARGNAMES,
             # otherwise we won't benefit from it
@@ -866,55 +894,26 @@ class Radtrans:
         opaque_cloud_top_pressure=None,
         power_law_opacity_350nm=None,
         power_law_opacity_coefficient=None,
+        make_analytical_clouds_patchy=False,
     ):
         """Check whether analytical cloud options are requested and
          do therefore participate in cloud_fraction mixing (since
          this is pRT's standard treatment)."""
 
-        return opaque_cloud_top_pressure is not None or (
+        return (opaque_cloud_top_pressure is not None or (
             power_law_opacity_350nm is not None
             and power_law_opacity_coefficient is not None
-        )
+        )) and make_analytical_clouds_patchy
 
     def _normalize_patchy_clouds(
-        self, patchy_clouds=None, complete_coverage_clouds=None
+        self, patchy_clouds=None
     ):
         """Make sure that patchy_clouds is always normalized to be a tuple,
         to be consumed by the jitted radiative transfer kernels.
-        What is more, all clouds are patchy by default, but the default coverage
-        (cloud_fraction) is 1. That means one can change the coverage and it will
-        affect all clouds, without having to worry about specifying patchy
-        clouds. In case that a given cloud species should be homogeneous, so
-        not participate in the mixing, this is achieved by handing a patchy_clouds
-        list or tuple to the calculate_flux function contains the species that
-        should be patchy, but omits the one that should not be patchy.
         """
-        if complete_coverage_clouds is not None:
-            warnings.warn(
-                "The 'complete_coverage_clouds' argument is deprecated; use 'patchy_clouds' instead.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-
-            if patchy_clouds is not None:
-                raise ValueError(
-                    "received both deprecated argument 'complete_coverage_clouds' and canonical argument "
-                    "'patchy_clouds'; use only 'patchy_clouds'"
-                )
-
-            if isinstance(complete_coverage_clouds, (str, bytes)):
-                complete_coverage_clouds = (complete_coverage_clouds,)
-            else:
-                complete_coverage_clouds = tuple(complete_coverage_clouds)
-
-            return tuple(
-                species
-                for species in self._cloud_species
-                if species not in complete_coverage_clouds
-            )
 
         if patchy_clouds is None:
-            return tuple(self._cloud_species)
+            return tuple()
 
         if isinstance(patchy_clouds, (str, bytes)):
             patchy_clouds = (patchy_clouds,)
@@ -947,7 +946,8 @@ class Radtrans:
         """Return the tuple of patchy cloud species.
         """
         if patchy_clouds is None:
-            return tuple(self._cloud_species)
+            return tuple() # Unreachable since patchy_clouds will have been changed to an empty tuple
+                           # elsewhere, if it was None.
 
         return tuple(
             species for species in self._cloud_species if species in patchy_clouds
@@ -958,19 +958,13 @@ class Radtrans:
         self,
         is_emission,
         patchy_clouds=None,
-        complete_coverage_clouds=None,
     ):
         """Initializations common to calculate_flux and calculate_transit_radii."""
 
-        # By default, all clouds are patchy clouds.
-        # By default, their coverage fraction is 100 %.
-        # This setup ensures that all clouds can take
-        # be downscaled with cloud_fraction if the user wants that.
         # Here patchy_clouds are turned into a tuple, regardless
         # of the user input.
         patchy_clouds = self._normalize_patchy_clouds(
-            patchy_clouds=patchy_clouds,
-            complete_coverage_clouds=complete_coverage_clouds,
+            patchy_clouds=patchy_clouds
         )
 
         # Determine whether opacities will / should be mixed into one "super species".
@@ -1251,10 +1245,6 @@ class Radtrans:
 
         return jnp.asarray(pressures, dtype=FEAUTRIER_JAX_DTYPE) * 1e6
 
-    # TODO: Paul to continue from here.
-    #   But: I will actually go and start from calculate_flux() below, which passes by this function
-    #   instead.
-
     def _calculate_flux(
         self,
         pressures,
@@ -1343,14 +1333,12 @@ class Radtrans:
             relative_cloud_scaling_factor)`` on the internal frequency grid.
         """
 
-        # if sum_opacities is None:
-        #    sum_opacities = self.__sum_opacities
-
         (
             optical_depths,
             photon_destruction_probabilities,
             relative_cloud_scaling_factor,
-        ) = compute_optical_depths(
+        ) = compute_optical_depths( # TODO review left for David
+                                    #   remove TODO when done.
             pressures=pressures,
             reference_gravity=reference_gravity,
             opacities=opacities,
@@ -1370,7 +1358,8 @@ class Radtrans:
         angle_dependent_intensities = None
         if self._scattering_in_emission:
             flux, emission_contribution, angle_dependent_intensities = (
-                radiative_transfer_core.compute_feautrier_radiative_transfer(
+                radiative_transfer_core.compute_feautrier_radiative_transfer( # TODO review left for David
+                                                                              #     remove TODO when done.
                     frequencies_bin_edges=jnp.asarray(
                         self._frequency_bins_edges, dtype=FEAUTRIER_JAX_DTYPE
                     ),
@@ -1420,9 +1409,10 @@ class Radtrans:
             if self._line_opacity_mode == "lbl" and len(self._line_species) > 1:
                 _optical_depths = optical_depths[:, :, :1, :]
             else:
-                _optical_depths = optical_depths.view()
+                _optical_depths = optical_depths
 
-            flux, emission_contribution = radiative_transfer_core.compute_ck_flux(
+            flux, emission_contribution = radiative_transfer_core.compute_ck_flux( # TODO review left for David
+                                                                                   #     remove TODO when done.
                 self._frequencies,
                 temperatures,
                 self._lines_loaded_opacities["weights_gauss"],
@@ -1740,7 +1730,7 @@ class Radtrans:
             products.
         """
         if patchy_clouds is None:
-            patchy_clouds = tuple(self._cloud_species)
+            patchy_clouds = tuple()
         else:
             patchy_clouds = tuple(patchy_clouds)
 
@@ -2791,7 +2781,7 @@ class Radtrans:
         cloud_hansen_b: dict[str, ArrayLike] = None,
         cloud_particle_number_density_grid: dict[str, ArrayLike] = None,
         clouds_particle_porosity_factor: dict[str, float] = None,
-        cloud_f_sed: float = None,
+        cloud_f_sed: float | dict[str, float] = None,
         eddy_diffusion_coefficients: ArrayLike = None,
         haze_factor: float = 1.0,
         power_law_opacity_350nm: float = None,
@@ -2801,7 +2791,6 @@ class Radtrans:
         cloud_photosphere_median_optical_depth: float = None,
         cloud_fraction: float = 1.0,
         patchy_clouds: list[str] | tuple[str] = None,
-        complete_coverage_clouds: list[str] = None,
         irradiation_geometry: str = "dayside_ave",
         stellar_intensities: ArrayLike = None,
         star_effective_temperature: float = None,
@@ -2821,7 +2810,6 @@ class Radtrans:
         return_contribution: bool = False,
         return_clear_spectrum: bool = False,
         return_photosphere_radius: bool = False,
-        return_rosseland_optical_depths: bool = False,
         return_cloud_contribution: bool = False,
         return_opacities: bool = False,
         return_abundances: bool = False,
@@ -2830,9 +2818,12 @@ class Radtrans:
         return_particle_radii_bins: bool = False,
         return_particle_radii: bool = False,
         target_particle_radii: ArrayLike = None,
-        pressures: ArrayLike = None,
         target_pressure: ArrayLike = None,
-        validate_inputs: bool = True,
+        pressures: ArrayLike = None,
+        validate_inputs: bool = True, # Validate it used in the _compile_spectral_function
+                                      # decorator, through a wrapper, so don't remove it here,
+                                      # even if it is grayed out and appears to not be used.
+        make_analytical_clouds_patchy=False,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's emitted flux (emission spectrum).
 
@@ -2877,8 +2868,9 @@ class Radtrans:
             clouds_particle_porosity_factor (Optional[dict]):
                 A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
                 are calculated using the Distribution of Hollow Spheres (DHS) method.
-            cloud_f_sed (Optional[float]):
-                Cloud settling parameter.
+            cloud_f_sed (Optional[float | dict[str, float]]):
+                Cloud settling parameter, either use the same for all cloud species or hand over a dictionary
+                that has one value per species, with the cloud species names as keys.
             eddy_diffusion_coefficients (Optional[float]):
                 The atmospheric eddy diffusion coefficient in cgs (i.e. :math:`\\rm cm^2/s`), at each atmospheric
                 layer (1-d numpy array, same length as pressure array).
@@ -2909,8 +2901,6 @@ class Radtrans:
                 List of cloud species affected by ``cloud_fraction``.
                 Analytic cloud sources such as power-law clouds and opaque
                 cloud decks are always mixed by ``cloud_fraction``.
-            complete_coverage_clouds:
-                Deprecated alias for the complement of ``patchy_clouds``.
             irradiation_geometry (Optional[string]):
                 if equal to ``'dayside_ave'``: use the dayside average geometry.
                 If equal to ``'planetary_ave'``: use the planetary average geometry.
@@ -2986,8 +2976,6 @@ class Radtrans:
                 If True, return the clear spectrum in addition to a cloudy spectrum.
             return_photosphere_radius (Optional[bool]):
                 If True, calculate and return the photosphere radius.
-            return_rosseland_optical_depths (Optional[bool]):
-                If True, calculate and return the Rosseland opacities and optical depths.
             return_cloud_contribution (Optional[bool]):
                 If True, calculate the cloud contribution.
             return_opacities (Optional[bool]):
@@ -3016,32 +3004,30 @@ class Radtrans:
                 ``jax.jit`` this check needs a device-to-host callback on every
                 evaluation, which is costly for GPU performance. Set to False
                 for retrievals or if you're sure inputs have already been checked.
-            pressures (Oprional[ArrayLike]):
+            pressures (Optional[ArrayLike]):
                 If not None, these pressures will be used as the vertical structure
                 describing the atmosphere. Pressures must be in units of bar and
                 must be sorted in increasing order. They will be converted to cgs
                 units inside pRT.
+            make_analytical_clouds_patchy (Optional[bool]):
+                False by default. If True, analytical clouds (opaque cloud top pressure,
+                power law opacity) will be treated as patchy clouds.
         """
+
+        # The Feautrier computation is "chunked", so broken into frequency
+        # parts for memory efficiency and to allow for more efficient XLA-threading.
         chunk_feautrier, feautrier_chunk_size = (
             radiative_transfer_core.resolve_feautrier_chunking(
                 chunk_feautrier=chunk_feautrier,
                 feautrier_chunk_size=feautrier_chunk_size,
             )
         )
+        # See docstring for meaning.
         if thomas_min_batch is None:
             thomas_min_batch = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH
+        # See docstring for meaning.
         if ck_chunk_size is None:
             ck_chunk_size = radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE
-        has_partial_coverage_background_cloud = (
-            self._has_partial_coverage_analytical_cloud(
-                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-                power_law_opacity_350nm=power_law_opacity_350nm,
-                power_law_opacity_coefficient=power_law_opacity_coefficient,
-            )
-        )
-
-        # TODO: currently no check is done whether pressures are sorted
-        #   in increasing order. Outsource to the thin shell wrapper?
 
         # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)
@@ -3053,14 +3039,7 @@ class Radtrans:
         ) = self._init_spectral_function(
             is_emission=True,
             patchy_clouds=patchy_clouds,
-            complete_coverage_clouds=complete_coverage_clouds,
         )
-
-        if return_rosseland_optical_depths:
-            debug.print(
-                "return_rosseland_optical_depths is no longer supported in calculate_flux; "
-                "use calculate_rosseland_planck_opacities instead"
-            )
 
         return self._calculate_flux_kernel(
             pressures=solver_pressures,
@@ -3117,6 +3096,7 @@ class Radtrans:
             target_pressure=target_pressure,
             sum_opacities=sum_opacities,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
+            make_analytical_clouds_patchy=make_analytical_clouds_patchy,
         )
 
     @jit(
@@ -3144,6 +3124,7 @@ class Radtrans:
             "return_angle_dependent_intensities",
             "return_particle_radii_bins",
             "return_particle_radii",
+            "make_analytical_clouds_patchy",
         ]
     )
     def _calculate_flux_kernel(
@@ -3202,14 +3183,14 @@ class Radtrans:
         target_pressure=None,
         sum_opacities=True,
         anisotropic_cloud_scattering=None,
+        make_analytical_clouds_patchy=False
     ):
-        """JIT-compiled kernel for calculate_flux. See calculate_flux for parameter docs."""
-        if opaque_cloud_top_pressure is not None and self._scattering_in_emission:
-            debug.print(
-                "the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
-                "is not recommended"
-            )
 
+        # TODO Paul: look into sanitizing functions below
+
+        """JIT-compiled kernel for calculate_flux. See calculate_flux for parameter docs."""
+        # This is star_irradiation_cos_angle, stellar_intensities, reflectances, emissivities
+        # (normalized)
         emission_inputs = _sanitize_emission_surface_inputs(
             frequencies=self._frequencies,
             scattering_in_emission=self._scattering_in_emission,
@@ -3248,27 +3229,28 @@ class Radtrans:
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]
         )
-        has_partial_coverage_background_cloud = (
+        has_partial_coverage_analytical_cloud = (
             self._has_partial_coverage_analytical_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
+                make_analytical_clouds_patchy=make_analytical_clouds_patchy,
             )
         )
 
         # Determine whether clear opacities are needed.
         if (
             len(partial_coverage_cloud_species) > 0
-            or has_partial_coverage_background_cloud
+            or has_partial_coverage_analytical_cloud
         ):
-            should_compute_clear_opacities = True # todo naming?
+            should_compute_opacities_without_patchy_clouds = True
         else:
-            should_compute_clear_opacities = False
+            should_compute_opacities_without_patchy_clouds = False
 
-        # Unless the clear spectrum is explicitly requested, defer the
-        # clear-column opacity combination to the cloud_fraction < 1 branch
+        # Unless the "clear" spectrum (the one without patchy clouds, which may still be clear)
+        # is explicitly requested, defer the clear-column opacity combination to the cloud_fraction < 1 branch
         defer_clear_opacity_combination = (
-            should_compute_clear_opacities and not return_clear_spectrum
+            should_compute_opacities_without_patchy_clouds and not return_clear_spectrum
         )
 
         (
@@ -3283,7 +3265,7 @@ class Radtrans:
             clear_continuum_opacities_scattering,
             clear_cloud_anisotropic_scattering_opacities,
             clear_cloud_absorption_opacities,
-        ) = self._calculate_opacities(
+        ) = self._calculate_opacities( # TODO Paul: review in here once radtrans.py itself is reviewed otherwise.
             pressures=pressures,
             temperatures=temperatures,
             mass_fractions=mass_fractions,
@@ -3323,7 +3305,7 @@ class Radtrans:
             additional_scattering_opacities_function=sanitized_inputs[
                 "additional_scattering_opacities_function"
             ],
-            compute_clear_opacities=should_compute_clear_opacities,
+            compute_clear_opacities=should_compute_opacities_without_patchy_clouds,
             defer_clear_opacity_combination=defer_clear_opacity_combination,
             return_opacities=return_opacities,
             sum_opacities=sum_opacities,
@@ -3364,9 +3346,11 @@ class Radtrans:
             thomas_min_batch=thomas_min_batch,
         )
 
+        # TODO aul continue from here.
+
         # --- Cloud blending for partial coverage ---
         flux_clear = flux  # default: clear == cloudy when no partially covering cloud source is active
-        if should_compute_clear_opacities:
+        if should_compute_opacities_without_patchy_clouds:
             if return_clear_spectrum:
                 # Always compute clear flux when the caller requested it.
                 flux_clear, _, _, _, _ = self._calculate_flux( # TODO return "less cloudy spectrum"
@@ -3906,7 +3890,6 @@ class Radtrans:
         gray_opacity: float = None,
         cloud_fraction: float = 1.0,
         patchy_clouds: list[str] | tuple[str] = None,
-        complete_coverage_clouds: list[str] = None,
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
         frequencies_to_wavelengths: bool = True,
@@ -3920,9 +3903,12 @@ class Radtrans:
         return_particle_radii: bool = False,
         return_particle_densities: bool = False,
         target_particle_radii: ArrayLike = None,
-        pressures: ArrayLike = None,
         target_pressure: ArrayLike = None,
-        validate_inputs: bool = True,
+        pressures: ArrayLike = None,
+        validate_inputs: bool = True, # Validate it used in the _compile_spectral_function
+                                      # decorator, through a wrapper, so don't remove it here,
+                                      # even if it is grayed out and appears to not be used.,
+        make_analytical_clouds_patchy=False,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's transmission radius
         (for the transmission spectrum).
@@ -4012,8 +3998,6 @@ class Radtrans:
                     List of cloud species affected by ``cloud_fraction``.
                     Runtime-only cloud sources such as power-law clouds and opaque
                     cloud decks are always mixed by ``cloud_fraction``.
-                complete_coverage_clouds:
-                    Deprecated alias for the complement of ``patchy_clouds``.
                 additional_absorption_opacities_function (Optional[function]):
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an absorption opacity matrix in units of cm^2/g, in the shape of
@@ -4074,18 +4058,10 @@ class Radtrans:
                     describing the atmosphere. Pressures must be in units of bar and
                     must be sorted in increasing order. They will be converted to cgs
                     units inside pRT.
-        """
-
-        has_partial_coverage_background_cloud = (
-            self._has_partial_coverage_analytical_cloud(
-                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-                power_law_opacity_350nm=power_law_opacity_350nm,
-                power_law_opacity_coefficient=power_law_opacity_coefficient,
-            )
-        )
-
-        # TODO: currently no check is done whether pressures are sorted
-        #   in increasing order. Outsource to the thin shell wrapper?
+                make_analytical_clouds_patchy (Optional[bool]):
+                    False by default. If True, analytical clouds (opaque cloud top pressure,
+                    power law opacity) will be treated as patchy clouds.
+            """
 
         # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)
@@ -4140,6 +4116,7 @@ class Radtrans:
             target_pressure=target_pressure,
             sum_opacities=sum_opacities,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
+            make_analytical_clouds_patchy=make_analytical_clouds_patchy,
         )
 
     @jit(
@@ -4161,6 +4138,7 @@ class Radtrans:
             "return_particle_radii_bins",
             "return_particle_radii",
             "return_particle_densities",
+            "make_analytical_clouds_patchy",
         ]
     )
     def _calculate_transit_radii_full_kernel(
@@ -4206,6 +4184,7 @@ class Radtrans:
         target_pressure=None,
         sum_opacities=False,
         anisotropic_cloud_scattering=None,
+        make_analytical_clouds_patchy=False,
     ):
         """JIT-compiled kernel for calculate_transit_radii. See calculate_transit_radii for parameter docs."""
 
@@ -4233,30 +4212,33 @@ class Radtrans:
             missing_neg_inf=_MISSING_NEG_INF,
             additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
+
         partial_coverage_cloud_species = self._get_partial_coverage_cloud_species(
             sanitized_inputs["patchy_clouds"]
         )
-        has_partial_coverage_background_cloud = (
+
+        has_partial_coverage_analytical_cloud = (
             self._has_partial_coverage_analytical_cloud(
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
+                make_analytical_clouds_patchy=make_analytical_clouds_patchy,
             )
         )
 
         # Determine whether clear opacities are needed.
         if (
             len(partial_coverage_cloud_species) > 0
-            or has_partial_coverage_background_cloud
+            or has_partial_coverage_analytical_cloud
         ):
-            should_compute_clear_opacities = True
+            should_compute_opacities_without_patchy_clouds = True
         else:
-            should_compute_clear_opacities = False
+            should_compute_opacities_without_patchy_clouds = False
 
         # Unless the clear spectrum is explicitly requested, defer the
         # clear-column opacity combination to the cloud_fraction < 1 branch
         defer_clear_opacity_combination = (
-            should_compute_clear_opacities and not return_clear_spectrum
+            should_compute_opacities_without_patchy_clouds and not return_clear_spectrum
         )
 
         (
@@ -4311,7 +4293,7 @@ class Radtrans:
             additional_scattering_opacities_function=sanitized_inputs[
                 "additional_scattering_opacities_function"
             ],
-            compute_clear_opacities=should_compute_clear_opacities,
+            compute_clear_opacities=should_compute_opacities_without_patchy_clouds,
             defer_clear_opacity_combination=defer_clear_opacity_combination,
             return_opacities=return_opacities,
             sum_opacities=sum_opacities,
@@ -4339,7 +4321,7 @@ class Radtrans:
 
         # --- Cloud blending for partial coverage ---
         transit_radii_clear = transit_radii
-        if should_compute_clear_opacities:
+        if should_compute_opacities_without_patchy_clouds:
             if return_clear_spectrum:
                 # Always compute clear radii when the caller requested it.
                 transit_radii_clear, _, _ = self._calculate_transit_radii(

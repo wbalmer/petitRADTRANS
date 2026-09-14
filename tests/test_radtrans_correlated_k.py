@@ -198,6 +198,7 @@ def test_correlated_k_emission_partial_cloud_calculated_radius():
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
         cloud_fraction=test_parameters["cloud_parameters"]["cloud_fraction"],
+        patchy_clouds=tuple(test_parameters["cloud_parameters"]["cloud_species"].keys()),
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         temperatures=temperature_guillot_2010,
@@ -209,6 +210,7 @@ def test_correlated_k_emission_partial_cloud_calculated_radius():
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         frequencies_to_wavelengths=False,
+        make_analytical_clouds_patchy=True,
     )
 
 
@@ -300,6 +302,7 @@ def test_correlated_k_transmission_spectrum_partial_gray_cloud():
             "reference_pressure"
         ],
         frequencies_to_wavelengths=False,
+        make_analytical_clouds_patchy=True,
     )
 
 
@@ -547,6 +550,21 @@ def test_correlated_k_incomplete_power_law_opacity_raises():
             ],
             mean_molar_masses=test_parameters["mean_molar_mass"],
             power_law_opacity_350nm=0.01,
+            frequencies_to_wavelengths=False,
+        )
+
+
+def test_correlated_k_incomplete_target_particle_radii_raises():
+    """Supplying only one of the two selective-bin-disabling parameters must be rejected."""
+    with pytest.raises(RuntimeError, match="target_particle_radii"):
+        atmosphere_ck.calculate_flux(
+            temperatures=temperature_guillot_2010,
+            mass_fractions=test_parameters["mass_fractions_correlated_k"],
+            reference_gravity=test_parameters["planetary_parameters"][
+                "reference_gravity"
+            ],
+            mean_molar_masses=test_parameters["mean_molar_mass"],
+            target_particle_radii=1.0,
             frequencies_to_wavelengths=False,
         )
 
