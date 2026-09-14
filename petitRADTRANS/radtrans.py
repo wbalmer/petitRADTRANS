@@ -1227,7 +1227,7 @@ class Radtrans:
     def _resolve_solver_pressures(self, pressures=None):
         """pRT allows users to specify a pressure array different from the one used
         initialize the pRT object with. Within calculate_flux(), calculate_transit_radii()
-        and calculate_photosphere_radius() this function is called to check whether
+        and _calculate_photosphere_radius() this function is called to check whether
         the user has specified a pressure array or whether the initialization pressure
         is to be used."""
         if pressures is None:
@@ -3458,7 +3458,7 @@ class Radtrans:
         if return_photosphere_radius:
             if planet_radius is not None:
                 additional_outputs["photosphere_radius"] = (
-                    self.calculate_photosphere_radius( # TODO deferred to later, when going through
+                    self._calculate_photosphere_radius( # TODO deferred to later, when going through
                                                        #    radtrans.py further below.
                         pressures=pressures * 1e-6,
                         temperatures=temperatures,
@@ -3524,7 +3524,7 @@ class Radtrans:
             return self._frequencies, flux, additional_outputs
 
     # TODO Paul_review
-    def calculate_photosphere_radius(
+    def _calculate_photosphere_radius(
         self,
         temperatures: ArrayLike,
         mean_molar_masses: ArrayLike,

@@ -67,7 +67,7 @@ def test_correlated_k_photospheric_radius_calculation():
     ReferenceFile.parameters_relative_tolerance = 1e-4
 
     benchmark = Benchmark(
-        function=atmosphere_ck_scattering.calculate_photosphere_radius,
+        function=atmosphere_ck_scattering._calculate_photosphere_radius,
         relative_tolerance=relative_tolerance,
     )
 
