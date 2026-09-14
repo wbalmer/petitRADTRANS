@@ -2508,69 +2508,6 @@ def compute_transit_radii(
     return transit_radii, radius_hydrostatic_equilibrium
 
 
-@jit(static_argnames=("variable_gravity"))
-def compute_transit_radii_summed(
-    opacities: ArrayLike,
-    continuum_opacities_scattering: ArrayLike,
-    pressures: ArrayLike,
-    temperatures: ArrayLike,
-    weights_gauss: ArrayLike,
-    mean_molar_masses: ArrayLike,
-    reference_gravity: ArrayLike,
-    reference_pressure: ArrayLike,
-    planet_radius: ArrayLike,
-    variable_gravity: bool = True,
-) -> tuple[ArrayLike, ArrayLike]:
-    """Compute transmission radii when species opacities are already summed.
-
-    Parameters
-    ----------
-    opacities : jax.Array, shape (n_g, n_frequencies, 1 or n_species, n_layers)
-        Opacity cube whose first species slot already contains the summed absorption
-        opacity used for transmission.
-    continuum_opacities_scattering : jax.Array, shape (n_frequencies, n_layers)
-        Continuum scattering opacity used in transmission.
-    pressures : jax.Array, shape (n_layers,)
-        Pressure grid in bar.
-    temperatures : jax.Array, shape (n_layers,)
-        Atmospheric temperature profile.
-    weights_gauss : jax.Array, shape (n_g,)
-        Correlated-k quadrature weights.
-    mean_molar_masses : jax.Array, shape (n_layers,)
-        Mean molecular mass in amu.
-    reference_gravity : float
-        Gravity at ``reference_pressure`` in cgs units.
-    reference_pressure : float
-        Reference pressure in bar where ``planet_radius`` is defined.
-    planet_radius : float
-        Planet radius at ``reference_pressure`` in cm.
-    variable_gravity : bool, optional
-        If ``True``, vary gravity as $1/r^2$ when reconstructing the hydrostatic radius profile.
-
-    Returns
-    -------
-    tuple[jax.Array, jax.Array]
-        Effective transit radii with shape ``(n_frequencies,)`` and the hydrostatic
-        radius profile with shape ``(n_layers,)``.
-    """
-
-    # The general kernel already special-cases a single species slot (its
-    # ``transparencies.shape[1] == 1`` branch skips the product over species),
-    # so the summed variant is exactly that kernel restricted to slot 0.
-    return compute_transit_radii(
-        opacities=opacities[:, :, :1, :],
-        continuum_opacities_scattering=continuum_opacities_scattering,
-        pressures=pressures,
-        temperatures=temperatures,
-        weights_gauss=weights_gauss,
-        mean_molar_masses=mean_molar_masses,
-        reference_gravity=reference_gravity,
-        reference_pressure=reference_pressure,
-        planet_radius=planet_radius,
-        variable_gravity=variable_gravity,
-    )
-
-
 @jit(static_argnames=["variable_gravity", "scattering_in_transmission"])
 def compute_transmission_spectrum_contribution(
     opacities: ArrayLike,  # (n_g, n_frequencies, n_species, n_layers)

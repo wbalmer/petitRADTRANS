@@ -2095,37 +2095,31 @@ class Radtrans:
             (jnp.size(pressures), self._frequencies.size), dtype=FEAUTRIER_JAX_DTYPE
         )
 
-        # Calculate the transmission spectrum
+        # With summed opacities (line-by-line, several species) the total opacity
+        # sits in the first species slot. The remaining slots still hold the
+        # per-species opacities whenever the species axis was not collapsed
+        # upstream (e.g. return_opacities=True), so only slot 0 may enter the
+        # transmission product -- otherwise every species is counted twice.
         if sum_opacities and len(self._line_species) > 1:
-            transit_radii, radius_hydrostatic_equilibrium = (
-                radiative_transfer_core.compute_transit_radii_summed(
-                    opacities=opacities,
-                    continuum_opacities_scattering=continuum_opacities_scattering,
-                    pressures=pressures * 1e-6,  # cgs to bar
-                    temperatures=temperatures,
-                    weights_gauss=self._lines_loaded_opacities["weights_gauss"],
-                    mean_molar_masses=mean_molar_masses,
-                    reference_gravity=reference_gravity,
-                    reference_pressure=reference_pressure,
-                    planet_radius=planet_radius,
-                    variable_gravity=variable_gravity,
-                )
-            )
+            transit_opacities = opacities[:, :, :1, :]
         else:
-            transit_radii, radius_hydrostatic_equilibrium = (
-                radiative_transfer_core.compute_transit_radii(
-                    opacities=opacities,
-                    continuum_opacities_scattering=continuum_opacities_scattering,
-                    pressures=pressures * 1e-6,  # cgs to bar
-                    temperatures=temperatures,
-                    weights_gauss=self._lines_loaded_opacities["weights_gauss"],
-                    mean_molar_masses=mean_molar_masses,
-                    reference_gravity=reference_gravity,
-                    reference_pressure=reference_pressure,
-                    planet_radius=planet_radius,
-                    variable_gravity=variable_gravity,
-                )
+            transit_opacities = opacities
+
+        # Calculate the transmission spectrum
+        transit_radii, radius_hydrostatic_equilibrium = (
+            radiative_transfer_core.compute_transit_radii(
+                opacities=transit_opacities,
+                continuum_opacities_scattering=continuum_opacities_scattering,
+                pressures=pressures * 1e-6,  # cgs to bar
+                temperatures=temperatures,
+                weights_gauss=self._lines_loaded_opacities["weights_gauss"],
+                mean_molar_masses=mean_molar_masses,
+                reference_gravity=reference_gravity,
+                reference_pressure=reference_pressure,
+                planet_radius=planet_radius,
+                variable_gravity=variable_gravity,
             )
+        )
         if return_contributions:
             transmission_contribution, radius_hydrostatic_equilibrium = (
                 radiative_transfer_core.compute_transmission_spectrum_contribution(

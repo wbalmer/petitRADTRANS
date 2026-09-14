@@ -213,3 +213,52 @@ def star_planck(T, nu):
                         Planck's law for each frequency and temperature.
     """
     return compute_planck_function_integral(T, nu).T
+
+
+def compute_pressure_hydrostatic_equilibrium(
+    mean_molar_masses,
+    reference_gravity,
+    planet_radius,
+    p0,
+    temperature,
+    radii,
+    rk4=True,
+):
+    p0 = p0 * 1e6
+    vs = 1.0 / radii
+    r_pl_sq = planet_radius**2
+
+    def integrand(press):
+        temp = temperature(press / 1e6)
+        mu = mean_molar_masses(press / 1e6, temp)
+        if not jnp.isscalar(mu):
+            mu = mu[0]
+
+        integral = mu * cst.amu * reference_gravity * r_pl_sq / cst.kB / temp
+        return integral
+
+    pressures = [p0]
+    dvs = jnp.diff(vs)
+    press1 = p0
+    chi1 = jnp.log(p0)
+    for dv in dvs:
+        k1 = integrand(press1)
+
+        if rk4:
+            chi2 = chi1 + 0.5 * dv * k1
+            press2 = jnp.exp(chi2)
+            k2 = integrand(press2)
+            chi3 = chi1 + 0.5 * dv * k2
+            press3 = jnp.exp(chi3)
+            k3 = integrand(press3)
+            chi4 = chi1 + dv * k3
+            press4 = jnp.exp(chi4)
+            k4 = integrand(press4)
+            chi1 = chi1 + 1.0 / 6.0 * (k1 + 2 * k2 + 2 * k3 + k4) * dv
+        else:
+            chi1 = chi1 + dv * k1
+
+        press1 = jnp.exp(chi1)
+        pressures.append(press1)
+
+    return jnp.array(pressures) / 1e6
