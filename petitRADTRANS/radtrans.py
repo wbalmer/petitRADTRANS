@@ -1471,7 +1471,6 @@ class Radtrans:
             planet_radius=planet_radius,
         )
 
-    # TODO Review David
     def _get_photosphere_optical_depths(
         self,
         pressures,
@@ -1486,9 +1485,13 @@ class Radtrans:
         cloud_absorption_opacities,
         sum_opacities,
     ):
+        # This is how it is used if _calculate_optical_depths
+        # is called from within calculate_flux().
         if optical_depths is not None:
             return optical_depths
 
+        # This branch never executes in that case but just
+        # calls to create opacities in the normal way.
         optical_depths, _, _ = compute_optical_depths(
             pressures=pressures,
             reference_gravity=reference_gravity,
@@ -1528,6 +1531,7 @@ class Radtrans:
         )
         reaches_tau_target = jnp.max(tau_profiles, axis=1) > tau_target
 
+        # Note: the two statements below
         pressure_tau_23 = vmap(
             lambda tau_profile: _interpolate_linear_sorted(
                 tau_profile,
@@ -1542,12 +1546,26 @@ class Radtrans:
                 pressure_tau_23_i,
             )
         )(pressure_tau_23)
+        # Could be collapsed like this:
+        """
+        photosphere_radius = vmap(
+            lambda tau_profile: _interpolate_linear_sorted(
+                tau_profile,
+                radius_hydrostatic_equilibrium,
+                tau_target,
+            )
+        )(tau_profiles)
+        """
+
         photosphere_radius = jnp.where(
             reaches_tau_target,
             photosphere_radius,
             radius_hydrostatic_equilibrium[-1],
         )
 
+        # TODO Paul: finish by exploring if such
+        # warnings and debug prints could be handled through the
+        # wrapper somehow, through error codes or something similar.
         if not bool(jnp.all(reaches_tau_target)):
             debug.print(
                 'Atmosphere is too transparent for calculating the "photospheric '
@@ -3455,11 +3473,17 @@ class Radtrans:
             else:
                 additional_outputs["clear_spectrum"] = flux_clear
 
+        # TODO this will always be the photospheric radius of the fully cloudy
+        # column, if we are in a patchy cloud scenario.
+        # One could calculate the total effective combined radius by
+        # adding the radii in quadrature, then weighting by the cloud fraction
+        # and then taking the square root. This would give a good representation
+        # of the radius that allows to calculate the emitting area in each
+        # wavelength.
         if return_photosphere_radius:
             if planet_radius is not None:
                 additional_outputs["photosphere_radius"] = (
-                    self._calculate_photosphere_radius( # TODO deferred to later, when going through
-                                                       #    radtrans.py further below.
+                    self._calculate_photosphere_radius(
                         pressures=pressures * 1e-6,
                         temperatures=temperatures,
                         mean_molar_masses=mean_molar_masses,
@@ -3588,23 +3612,28 @@ class Radtrans:
             scattering_in_emission=self._scattering_in_emission,
         )
 
-        # TODO: currently no check is done whether pressures are sorted
-        #   in increasing order. Outsource to the thin shell wrapper?
-
         # Check whether user-specified pressure array is tp be used
         solver_pressures = self._resolve_solver_pressures(pressures)
 
         if planet_radius is not None:
             radius_hydrostatic_equilibrium = (
                 self._calculate_radius_hydrostatic_equilibrium(
-                    pressures=solver_pressures,
+                    pressures=solver_pressures, # pressures[-1] is the reference pressure
+                                                # because within
+                                                # _calculate_radius_hydrostatic_equilibrium()
+                                                # compute_radius_hydrostatic_equilibrium()
+                                                # is called with
+                                                # reference_pressure=pressures[-1]
                     temperatures=temperatures,
                     mean_molar_masses=mean_molar_masses,
                     reference_gravity=reference_gravity,
-                    planet_radius=planet_radius,
+                    planet_radius=planet_radius, # this is the reference radius
                 )
             )
 
+            # In the current call pattern where _calculate_photosphere_radius is only
+            # called from within calculate_flux, nothing happens here, since
+            # optical_depths is already handed over from calculate_flux().
             optical_depths = self._get_photosphere_optical_depths(
                 pressures=solver_pressures,
                 optical_depths=optical_depths,
@@ -3619,6 +3648,7 @@ class Radtrans:
                 sum_opacities=sum_opacities,
             )
 
+            # TODO Paul continue from here
             return self._interpolate_photosphere_radius_profile(
                 pressures=solver_pressures,
                 optical_depths=optical_depths,
