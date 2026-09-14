@@ -17,6 +17,30 @@ from petitRADTRANS.chemistry.prt_molmass import (
 from petitRADTRANS.opacities.opacities import Opacity
 
 
+def _as_static_float(name, value):
+    """Return ``value`` as a plain float, or ``None``.
+
+    The cloud-base smoothing width selects between the smooth and the legacy
+    hard-cutoff profile, so it must be a static scalar rather than a traced
+    JAX value.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, Tracer):
+        raise TypeError(
+            f"'{name}' controls the cloud profile discretisation and must be a "
+            f"static scalar, not a traced JAX value."
+        )
+
+    value = float(value)
+
+    if value < 0.0:
+        raise ValueError(f"'{name}' must be non-negative, but was {value}.")
+
+    return value
+
+
 def build_adaptive_pressure_grid(
     pressures: ArrayLike,
     cloud_base_pressures: ArrayLike,

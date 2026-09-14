@@ -45,9 +45,18 @@ from petitRADTRANS.retrieval.utils import (
     extract_spectrum_parameters,
     process_spectrum_pipeline,
 )
-from petitRADTRANS.retrieval.sampler import (
+from petitRADTRANS.retrieval.samplers import (
+    # SAMPLER_DISPATCH is re-exported: registering a custom sampler through
+    # `from petitRADTRANS.retrieval.retrieval import SAMPLER_DISPATCH` is the
+    # documented extension point, and it is the same object either way.
+    SAMPLER_DISPATCH,  # noqa: F401
     Sampler,
     SamplerContext,
+    resolve_sampler_class,
+)
+from petitRADTRANS.retrieval.samplers.interfaces import (
+    build_jaxns_prior_model,
+    build_unconstrained_mcmc_interface,
 )
 from petitRADTRANS.retrieval.log_likelihood import (
     LogLikelihood,
@@ -61,44 +70,6 @@ from petitRADTRANS.utils import list_str2str
 
 from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 
-_SAMPLER_CLASS_NAMES: dict[str, str] = {
-    "pymultinest": "PymultinestSampler",
-    "ultranest": "UltranestSampler",
-    "dynesty": "DynestySampler",
-    "blackjaxhmc": "BlackJAXHMCSampler",
-    "blackjax_hmc": "BlackJAXHMCSampler",
-    "hmc": "BlackJAXHMCSampler",
-    "blackjaxnuts": "BlackJAXNUTSSampler",
-    "blackjax_nuts": "BlackJAXNUTSSampler",
-    "nuts": "BlackJAXNUTSSampler",
-    "numpyrohmc": "NumPyroHMCSampler",
-    "numpyro_hmc": "NumPyroHMCSampler",
-    "numpyronuts": "NumPyroNUTSSampler",
-    "numpyro_nuts": "NumPyroNUTSSampler",
-    "jaxnestedsampler": "JAXNSSampler",
-    "jaxns": "JAXNSSampler",
-    "jaxnsshardedstaticnestedsampler": "JAXNSShardedStaticNestedSampler",
-    "jaxnsshardedstaticsestedsampler": "JAXNSShardedStaticNestedSampler",
-    "optimal_estimation": "OptimalEstimationSampler",
-    "optimalestimation": "OptimalEstimationSampler",
-    "optax": "OptimalEstimationSampler",
-    "map": "OptimalEstimationSampler",
-}
-
-# Samplers that live outside sampler.py. Maps sampler_type -> module to import the
-# class from (default: the main sampler module). Keeping the optimiser in its own
-# module avoids an import cycle (optimal_estimation imports from sampler).
-_SAMPLER_MODULE_NAMES: dict[str, str] = {
-    "optimal_estimation": "petitRADTRANS.retrieval.optimal_estimation",
-    "optimalestimation": "petitRADTRANS.retrieval.optimal_estimation",
-    "optax": "petitRADTRANS.retrieval.optimal_estimation",
-    "map": "petitRADTRANS.retrieval.optimal_estimation",
-}
-
-# Backward-compatible mutable sampler registry used by tests, docs, and
-# external extensions that register custom sampler backends at runtime.
-SAMPLER_DISPATCH: dict[str, type[Sampler]] = {}
-
 _VMAP_FALLBACK_JAX_ERRORS = (jax_errors.ConcretizationTypeError,)
 
 for _error_name in (
@@ -109,27 +80,6 @@ for _error_name in (
     _error_type = getattr(jax_errors, _error_name, None)
     if _error_type is not None:
         _VMAP_FALLBACK_JAX_ERRORS += (_error_type,)
-
-
-def _resolve_sampler_class(sampler_type: str) -> type[Sampler] | None:
-    sampler_type_normalized = sampler_type.lower()
-
-    sampler_class = SAMPLER_DISPATCH.get(sampler_type_normalized)
-    if sampler_class is not None:
-        return sampler_class
-
-    sampler_class_name = _SAMPLER_CLASS_NAMES.get(sampler_type_normalized)
-
-    if sampler_class_name is None:
-        return None
-
-    module_name = _SAMPLER_MODULE_NAMES.get(
-        sampler_type_normalized, "petitRADTRANS.retrieval.sampler"
-    )
-    sampler_module = importlib.import_module(module_name)
-    sampler_class = getattr(sampler_module, sampler_class_name)
-    SAMPLER_DISPATCH.setdefault(sampler_type_normalized, sampler_class)
-    return sampler_class
 
 
 class Retrieval:
@@ -243,7 +193,9 @@ class Retrieval:
         self.path = petitradtrans_config_parser.get_input_data_path()
 
         # Setup Directories
-        if "pymultinest" in self.configuration.sampler_type.lower():
+        if self._uses_pymultinest():
+            # MultiNest writes from every MPI rank, so its folder must exist
+            # before the sampler itself is constructed.
             os.makedirs(os.path.join(self.output_directory, "out_PMN"), exist_ok=True)
 
         os.makedirs(
@@ -1657,7 +1609,7 @@ class Retrieval:
             return None, parameter_names
 
         parameter_samples = self._get_results_field(
-            results, "samples", "parametrised_samples"
+            results, "samples", "X_samples", "parametrised_samples"
         )
         matrix, parameter_names = self._coerce_parameter_sample_matrix(
             parameter_samples, parameter_names
@@ -1801,17 +1753,19 @@ class Retrieval:
             and the log-likelihood array. Returns (None, parameter_names, None) if the
             results cannot be loaded or are invalid.
         """
+        # JAXNS 3 persists its immutable result pytree with pickle
+        # (PureDataclassPytree.save), replacing the JAXNS 2 JSON format.
         raw_results_path = os.path.join(
             output_directory,
             "out_JAXNS",
-            f"{ret_name}_jaxns_results.json",
+            f"{ret_name}_jaxns_results.pkl",
         )
 
         if not os.path.exists(raw_results_path):
             return None, parameter_names, None
 
         try:
-            from jaxns import load_results as jaxns_load_results
+            from jaxns.results import NestedSamplerResults
         except Exception as error:
             warnings.warn(
                 f"Unable to import JAXNS while recovering samples for '{ret_name}': {error}",
@@ -1820,7 +1774,7 @@ class Retrieval:
             return None, parameter_names, None
 
         try:
-            raw_results = jaxns_load_results(raw_results_path)
+            raw_results = NestedSamplerResults.load(raw_results_path)
         except Exception as error:
             warnings.warn(
                 f"Unable to load raw JAXNS results for '{ret_name}': {error}",
@@ -1828,8 +1782,10 @@ class Retrieval:
             )
             return None, parameter_names, None
 
+        from petitRADTRANS.retrieval.samplers.jaxns import JAXNSSampler
+
         parameter_matrix, parameter_names = self._coerce_parameter_sample_matrix(
-            self._get_results_field(raw_results, "samples", "parametrised_samples"),
+            JAXNSSampler._get_named_samples_mapping(raw_results),
             parameter_names,
         )
 
@@ -1838,12 +1794,11 @@ class Retrieval:
 
         log_likelihood = self._get_results_field(
             raw_results,
-            "log_L_samples",
+            "log_L",
             "log_likelihood",
             "log_likelihoods",
             "logL",
             "logl",
-            "log_L",
         )
 
         if log_likelihood is None:
@@ -1869,7 +1824,7 @@ class Retrieval:
         if samples is not None and parameter_names is not None:
             return samples, parameter_names
 
-        if self.configuration.sampler_type.lower() == "pymultinest":
+        if self._uses_pymultinest():
             samples_dict = get_pymultinest_sample_dict(
                 output_dir=self.output_directory,
                 name=self.configuration.retrieval_name,
@@ -1923,7 +1878,7 @@ class Retrieval:
         self.sampler = sampler
         self.latest_sampler_results = results
 
-        if self.configuration.sampler_type.lower() == "pymultinest":
+        if self._uses_pymultinest():
             analyzer = None
 
             if results is not None and hasattr(results, "get_stats") and callable(
@@ -1987,7 +1942,7 @@ class Retrieval:
                 The name of the retrieval that prepends all the PMN
                 output files.
         """
-        if "pymultinest" not in self.configuration.sampler_type.lower():
+        if not self._uses_pymultinest():
             return None
 
         if not ret_name and self.analyzer is not None:
@@ -3016,13 +2971,7 @@ class Retrieval:
         """Return the prior mid-range values of the free parameters."""
         cube = []
         use_distribution = False
-        sampler_type = getattr(self.configuration, "sampler_type", "")
-
-        if (
-            ("jaxns" in sampler_type.lower())
-            or ("blackjax" in sampler_type.lower())
-            or ("numpyro" in sampler_type.lower())
-        ):
+        if self._sampler_class_attribute("uses_distribution_priors", False):
             use_distribution = True
 
         for parameter_name, parameter in self.configuration.parameters.items():
@@ -3233,213 +3182,8 @@ class Retrieval:
             param_dict[name] = list(archived_parameter_names)
             return True
 
-        sampler_type = self.configuration.sampler_type.lower()
-        if sampler_type in {
-            "blackjaxhmc",
-            "blackjax_hmc",
-            "hmc",
-            "blackjaxnuts",
-            "blackjax_nuts",
-            "nuts",
-        }:
-            for name in names:
-                if name == current_ret_name and current_sampler_samples is not None:
-                    samples[name] = current_sampler_samples
-                    param_dict[name] = list(current_parameter_names)
-                    continue
+        sampler_class = self._get_sampler_class()
 
-                if _add_archived_samples_if_available(name):
-                    continue
-
-                params_file = os.path.join(
-                    output_directory, "out_BlackJAX", name + "_params.json"
-                )
-                samples_file = os.path.join(
-                    output_directory, "out_BlackJAX", name + "_samples.npz"
-                )
-
-                with open(params_file, "r") as handle:
-                    parameters_read = json.load(handle)
-
-                chain = np.load(samples_file)
-                log_values = (
-                    chain["model_log_likelihood"]
-                    if "model_log_likelihood" in chain.files
-                    else chain["logdensity"]
-                )
-                samples[name] = np.vstack(
-                    (chain["samples"].T, log_values[np.newaxis, :])
-                )
-                param_dict[name] = parameters_read
-
-            return samples, param_dict
-
-        if sampler_type in {"numpyrohmc", "numpyro_hmc", "numpyronuts", "numpyro_nuts"}:
-            for name in names:
-                if name == current_ret_name and current_sampler_samples is not None:
-                    samples[name] = current_sampler_samples
-                    param_dict[name] = list(current_parameter_names)
-                    continue
-
-                if _add_archived_samples_if_available(name):
-                    continue
-
-                params_file = os.path.join(
-                    output_directory, "out_NumPyro", name + "_params.json"
-                )
-                samples_file = os.path.join(
-                    output_directory, "out_NumPyro", name + "_samples.npz"
-                )
-
-                with open(params_file, "r") as handle:
-                    parameters_read = json.load(handle)
-
-                chain = np.load(samples_file)
-                log_values = (
-                    chain["model_log_likelihood"]
-                    if "model_log_likelihood" in chain.files
-                    else chain["logdensity"]
-                )
-                samples[name] = np.vstack(
-                    (chain["samples"].T, log_values[np.newaxis, :])
-                )
-                param_dict[name] = parameters_read
-
-            return samples, param_dict
-
-        if sampler_type in {"dynesty"}:
-            for name in names:
-                if name == current_ret_name and current_sampler_samples is not None:
-                    samples[name] = current_sampler_samples
-                    param_dict[name] = list(current_parameter_names)
-                    continue
-
-                if _add_archived_samples_if_available(name):
-                    continue
-
-                params_file = os.path.join(
-                    output_directory, "out_Dynesty", name + "_params.json"
-                )
-                samples_file = os.path.join(
-                    output_directory, "out_Dynesty", name + "_samples.npz"
-                )
-
-                with open(params_file, "r") as handle:
-                    parameters_read = json.load(handle)
-
-                chain = np.load(samples_file)
-                log_values = (
-                    chain["log_likelihood"]
-                    if "log_likelihood" in chain.files
-                    else chain["weighted_log_likelihood"]
-                )
-                samples[name] = np.vstack(
-                    (chain["samples"].T, np.asarray(log_values)[np.newaxis, :])
-                )
-                param_dict[name] = parameters_read
-
-            return samples, param_dict
-
-        if sampler_type in {
-            "ultranest",
-            "jaxnestedsampler",
-            "jaxns",
-            "jaxnsshardedstaticnestedsampler",
-            "jaxnsshardedstaticsestedsampler",
-        }:
-            for name in names:
-                if name == current_ret_name and current_sampler_samples is not None:
-                    samples[name] = current_sampler_samples
-                    param_dict[name] = list(current_parameter_names)
-                    continue
-
-                if _add_archived_samples_if_available(name):
-                    continue
-
-                params_file = os.path.join(
-                    output_directory, "out_JAXNS", name + "_params.json"
-                )
-                samples_file = os.path.join(
-                    output_directory, "out_JAXNS", name + "_samples.npz"
-                )
-
-                if not os.path.exists(params_file) or not os.path.exists(samples_file):
-                    raise FileNotFoundError(
-                        f"Sampler outputs for '{name}' are not available in memory for sampler '{sampler_type}'."
-                    )
-
-                with open(params_file, "r") as handle:
-                    parameters_read = json.load(handle)
-
-                with np.load(samples_file, allow_pickle=False) as chain:
-                    if "sample_matrix" in chain.files:
-                        sample_matrix = np.asarray(chain["sample_matrix"], dtype=float)
-                    elif "samples" in chain.files:
-                        sample_matrix = np.asarray(chain["samples"], dtype=float)
-                    else:
-                        raise FileNotFoundError(
-                            f"JAXNS sample file '{samples_file}' does not contain posterior samples."
-                        )
-
-                    if "log_likelihood" in chain.files:
-                        log_values = np.asarray(chain["log_likelihood"], dtype=float)
-                    elif "weighted_log_likelihood" in chain.files:
-                        log_values = np.asarray(
-                            chain["weighted_log_likelihood"], dtype=float
-                        )
-                    else:
-                        raise FileNotFoundError(
-                            f"JAXNS sample file '{samples_file}' does not contain log likelihood values."
-                        )
-
-                sample_matrix, parameters_read = self._coerce_parameter_sample_matrix(
-                    sample_matrix,
-                    parameters_read,
-                )
-                log_values = np.asarray(log_values, dtype=float).reshape(-1)
-
-                if sample_matrix is None or log_values.shape[0] != sample_matrix.shape[0]:
-                    recovered_matrix, recovered_parameters, recovered_log_values = (
-                        self._load_jaxns_raw_results_samples(
-                            output_directory=output_directory,
-                            ret_name=name,
-                            parameter_names=parameters_read,
-                        )
-                    )
-
-                    if recovered_matrix is None or recovered_log_values is None:
-                        raise ValueError(
-                            f"JAXNS samples for '{name}' are malformed: posterior sample matrix shape "
-                            f"{None if sample_matrix is None else sample_matrix.shape} does not match "
-                            f"log-likelihood shape {log_values.shape}."
-                        )
-
-                    sample_matrix = recovered_matrix
-                    parameters_read = recovered_parameters
-                    log_values = recovered_log_values
-
-                    try:
-                        np.savez(
-                            samples_file,
-                            parameter_names=np.asarray(parameters_read, dtype=str),
-                            sample_matrix=np.asarray(sample_matrix, dtype=float),
-                            log_likelihood=np.asarray(log_values, dtype=float),
-                        )
-                        with open(params_file, "w") as handle:
-                            json.dump(list(parameters_read), handle, indent=4)
-                    except OSError as error:
-                        warnings.warn(
-                            f"Recovered JAXNS samples for '{name}' but failed to rewrite the repaired archive: {error}",
-                            RuntimeWarning,
-                        )
-
-                samples[name] = np.vstack((sample_matrix.T, log_values[np.newaxis, :]))
-                param_dict[name] = parameters_read
-                continue
-
-            return samples, param_dict
-
-        # pymultinest
         for name in names:
             if name == current_ret_name and current_sampler_samples is not None:
                 samples[name] = current_sampler_samples
@@ -3449,17 +3193,108 @@ class Retrieval:
             if _add_archived_samples_if_available(name):
                 continue
 
-            samples_ = get_pymultinest_sample_dict(
-                output_dir=output_directory,
-                name=name,
-                add_log_likelihood=True,
-                add_stats=False,
+            sample_matrix, log_values, parameters_read = self._load_backend_samples(
+                sampler_class, output_directory, name
             )
-
-            samples[name] = np.array(list(samples_.values()))
-            param_dict[name] = list(samples_.keys())[:-1]  # do not add the likelihood
+            samples[name] = np.vstack(
+                (sample_matrix.T, np.asarray(log_values)[np.newaxis, :])
+            )
+            param_dict[name] = parameters_read
 
         return samples, param_dict
+
+    def _load_backend_samples(self, sampler_class, output_directory, ret_name):
+        """Read one retrieval's posterior from its sampler's own output files.
+
+        Each ``Sampler`` subclass knows its own on-disk layout, so this only has
+        to ask; the sole special case is the JAXNS repair below, which is
+        self-guarding (it does nothing unless a JAXNS raw-results file exists).
+
+        Returns:
+            ``(sample_matrix, log_likelihood, parameter_names)``.
+        """
+        if sampler_class is None:
+            raise ValueError(
+                f"Cannot load samples for '{ret_name}': "
+                f"unknown sampler_type {self.configuration.sampler_type!r}."
+            )
+
+        load_samples_archive = getattr(sampler_class, "load_samples_archive", None)
+        archive = (
+            None if load_samples_archive is None
+            else load_samples_archive(output_directory, ret_name)
+        )
+
+        if archive is None:
+            raise FileNotFoundError(
+                f"Sampler outputs for '{ret_name}' are not available in memory and "
+                f"{sampler_class.__name__} wrote no readable archive under "
+                f"'{output_directory}'."
+            )
+
+        sample_matrix, log_values, parameters_read = archive
+        sample_matrix, parameters_read = self._coerce_parameter_sample_matrix(
+            sample_matrix, parameters_read
+        )
+        log_values = np.asarray(log_values, dtype=float).reshape(-1)
+
+        if sample_matrix is not None and log_values.shape[0] == sample_matrix.shape[0]:
+            return sample_matrix, log_values, parameters_read
+
+        # A JAXNS run interrupted mid-write can leave a sample archive whose
+        # matrix and log-likelihood disagree. The raw results are authoritative,
+        # so rebuild from them and repair the archive in place.
+        recovered_matrix, recovered_parameters, recovered_log_values = (
+            self._load_jaxns_raw_results_samples(
+                output_directory=output_directory,
+                ret_name=ret_name,
+                parameter_names=parameters_read,
+            )
+        )
+
+        if recovered_matrix is None or recovered_log_values is None:
+            raise ValueError(
+                f"Samples for '{ret_name}' are malformed: posterior sample matrix shape "
+                f"{None if sample_matrix is None else sample_matrix.shape} does not match "
+                f"log-likelihood shape {log_values.shape}."
+            )
+
+        self._rewrite_repaired_samples_archive(
+            sampler_class,
+            output_directory,
+            ret_name,
+            recovered_matrix,
+            recovered_parameters,
+            recovered_log_values,
+        )
+        return recovered_matrix, recovered_log_values, recovered_parameters
+
+    @staticmethod
+    def _rewrite_repaired_samples_archive(
+        sampler_class, output_directory, ret_name, sample_matrix, parameter_names, log_values
+    ):
+        """Persist recovered samples so the next read does not repeat the repair."""
+        output_subdirectory = getattr(sampler_class, "output_subdirectory", None)
+        if output_subdirectory is None:
+            return
+
+        prefix = os.path.join(output_directory, output_subdirectory, ret_name)
+
+        try:
+            np.savez(
+                f"{prefix}_samples.npz",
+                parameter_names=np.asarray(parameter_names, dtype=str),
+                sample_matrix=np.asarray(sample_matrix, dtype=float),
+                log_likelihood=np.asarray(log_values, dtype=float),
+            )
+            with open(f"{prefix}_params.json", "w") as handle:
+                json.dump(list(parameter_names), handle, indent=4)
+        except OSError as error:
+            warnings.warn(
+                f"Recovered samples for '{ret_name}' but failed to rewrite the "
+                f"repaired archive: {error}",
+                RuntimeWarning,
+            )
 
     def get_samples_dict(
         self, return_likelihood: bool = False
@@ -3890,8 +3725,40 @@ class Retrieval:
         return self._get_parameter_layout().prior_transform_numpy(cube)
 
     def prior_model_jaxns(self):
-        _, prior_model, _ = self._build_jaxns_sampler_interface()
-        return (yield from prior_model())
+        """Return the JAXNS 3 prior model for this retrieval.
+
+        JAXNS 3 models are plain callables that realise their JAXCTX priors and
+        return the scalar log likelihood, so this is no longer a generator and
+        no longer has a separate likelihood function beside it.
+        """
+        _, prior_model = self._build_jaxns_sampler_interface()
+        return prior_model
+
+    def _get_sampler_class(self):
+        """The ``Sampler`` subclass for this retrieval's ``sampler_type``, or ``None``.
+
+        Lenient on purpose: this is used to *ask* a backend about itself (which
+        output folder it owns, whether it needs distribution priors), so an
+        unknown or retired ``sampler_type`` must not raise here. ``run()``
+        resolves strictly and raises.
+        """
+        sampler_type = getattr(self.configuration, "sampler_type", "") or ""
+        return resolve_sampler_class(sampler_type, strict=False)
+
+    def _uses_pymultinest(self) -> bool:
+        return self._sampler_class_attribute("sampler_type") == "pymultinest"
+
+    def _sampler_class_attribute(self, name, default=None):
+        """Read a class-level declaration off this retrieval's sampler class.
+
+        Custom backends registered in ``SAMPLER_DISPATCH`` are duck-typed and
+        need not subclass ``Sampler``, so a missing declaration is normal and
+        falls back to ``default``.
+        """
+        sampler_class = self._get_sampler_class()
+        if sampler_class is None:
+            return default
+        return getattr(sampler_class, name, default)
 
     def _build_sampler_context(self) -> SamplerContext:
         """Build a SamplerContext from the current Retrieval state."""
@@ -3912,108 +3779,52 @@ class Retrieval:
             n_free_parameters=parameter_layout.n_free_parameters,
         )
 
-    def _build_jaxns_sampler_interface(self):
-        self._ensure_jax_sampler_model_support("JAXNS")
+    def _build_interface_sampler_context(self) -> SamplerContext:
+        """Build a SamplerContext for *inspecting* a sampler interface.
+
+        The interface builders need only the parameter layout, the runtime and
+        the priors. Going through :meth:`_build_sampler_context` would demand
+        run-level state -- output paths, the retrieval name, the legacy scalar
+        callbacks -- that these helpers have never used and that a Retrieval
+        assembled purely to inspect an interface need not carry.
+
+        :meth:`_build_sampler_context` deliberately stays strict: on the real
+        run path a missing output directory is a bug worth surfacing, not
+        something to paper over with a default.
+        """
         parameter_layout = self._get_parameter_layout()
-        runtime = self._get_runtime()
-        free_parameter_names = list(parameter_layout.free_parameter_names)
+        return SamplerContext(
+            parameter_layout=parameter_layout,
+            runtime=self._get_runtime(),
+            configuration=self.configuration,
+            output_directory=getattr(self, "output_directory", ""),
+            retrieval_name=getattr(
+                self.configuration, "retrieval_name", "retrieval"
+            ),
+            uncertainties_mode=getattr(self, "uncertainties_mode", "default"),
+            print_log_likelihood_for_debugging=getattr(
+                self, "print_log_likelihood_for_debugging", False
+            ),
+            free_parameter_names=list(parameter_layout.free_parameter_names),
+            n_free_parameters=parameter_layout.n_free_parameters,
+        )
 
-        if len(free_parameter_names) < 1:
-            raise ValueError("JAXNS samplers require at least one free parameter.")
+    def _build_jaxns_sampler_interface(self):
+        """Build ``(free_parameter_names, prior_model)`` for a JAXNS 3 run.
 
-        priors = []
-        for parameter_name in free_parameter_names:
-            parameter = self.configuration.parameters[parameter_name]
-            if parameter.distribution is None:
-                raise ValueError(
-                    f"JAXNS samplers require distribution-backed free parameters; "
-                    f"'{parameter_name}' has no distribution."
-                )
-            priors.append(parameter.set_prior())
-
-        priors = tuple(priors)
-
-        def prior_model():
-            values = []
-            for prior in priors:
-                value = yield prior
-                values.append(value)
-            return tuple(values)
-
-        def log_likelihood_wrapper(*args):
-            physical_params = parameter_layout.physical_params_from_free_values(args)
-            return runtime.evaluate_likelihood_jax(
-                physical_params=physical_params,
-                uncertainties_mode=self.uncertainties_mode,
-                print_log_likelihood_for_debugging=False,
-            )
-
-        return free_parameter_names, prior_model, log_likelihood_wrapper
+        Delegates to the shared builder in
+        :mod:`petitRADTRANS.retrieval.samplers.interfaces` so the Retrieval-facing helper
+        and JAXNSSampler.prepare() cannot drift apart.
+        """
+        self._ensure_jax_sampler_model_support("JAXNS")
+        return build_jaxns_prior_model(self._build_interface_sampler_context())
 
     def _build_unconstrained_mcmc_interface(self):
+        """Unconstrained log-posterior and transforms, as the gradient samplers see them."""
         self._ensure_jax_sampler_model_support("Gradient-based JAX samplers")
-        parameter_layout = self._get_parameter_layout()
-        runtime = self._get_runtime()
-        free_parameter_names = list(parameter_layout.free_parameter_names)
-
-        if len(free_parameter_names) < 1:
-            raise ValueError(
-                "Gradient-based samplers require at least one free parameter."
-            )
-
-        free_parameters = [
-            self.configuration.parameters[name] for name in free_parameter_names
-        ]
-        for parameter_name, parameter in zip(free_parameter_names, free_parameters):
-            if (
-                parameter.distribution is None
-                and parameter.transform_prior_cube_coordinate is None
-            ):
-                raise ValueError(
-                    f"Free parameter '{parameter_name}' has neither a JAX distribution nor a prior transform."
-                )
-
-        def transform_single(unconstrained_position):
-            return parameter_layout.transform_unconstrained(unconstrained_position)
-
-        def transform_positions(unconstrained_positions):
-            if jnp.ndim(unconstrained_positions) == 1:
-                return transform_single(unconstrained_positions)
-
-            return vmap(transform_single)(unconstrained_positions)
-
-        def log_jacobian_single(unconstrained_position):
-            return parameter_layout.log_jacobian_single(unconstrained_position)
-
-        def log_jacobian(unconstrained_positions):
-            return parameter_layout.log_jacobian(unconstrained_positions)
-
-        def logdensity(unconstrained_position):
-            physical_position = transform_single(unconstrained_position)
-            physical_params = parameter_layout.physical_params_from_free_values(
-                tuple(physical_position)
-            )
-
-            return runtime.evaluate_likelihood_jax(
-                physical_params=physical_params,
-                uncertainties_mode=self.uncertainties_mode,
-                print_log_likelihood_for_debugging=self.print_log_likelihood_for_debugging,
-            ) + log_jacobian_single(unconstrained_position)
-
-        initial_position = jnp.zeros(
-            parameter_layout.n_free_parameters, dtype=FEAUTRIER_JAX_DTYPE
+        return build_unconstrained_mcmc_interface(
+            self._build_interface_sampler_context()
         )
-
-        return (
-            free_parameter_names,
-            initial_position,
-            logdensity,
-            transform_positions,
-            log_jacobian,
-        )
-
-    def _build_blackjax_logdensity_interface(self):
-        return self._build_unconstrained_mcmc_interface()
 
     def run(self, sampler_object: Sampler = None, **sampler_kwargs):
         """
@@ -4058,7 +3869,7 @@ class Retrieval:
 
         if run_mode == "evaluate":
             if sampler_object is None:
-                sampler_cls = _resolve_sampler_class(sampler_type_normalized)
+                sampler_cls = resolve_sampler_class(sampler_type_normalized)
                 if sampler_cls is None:
                     raise ValueError(f"Unknown sampler_type: {sampler_type}")
 
@@ -4135,7 +3946,7 @@ class Retrieval:
             results = sampler.run_sampler(**sampler_kwargs)
             return self._finalize_sampler_run(sampler, results)
 
-        sampler_cls = _resolve_sampler_class(sampler_type_normalized)
+        sampler_cls = resolve_sampler_class(sampler_type_normalized)
         if sampler_cls is None:
             raise ValueError(f"Unknown sampler_type: {sampler_type}")
 

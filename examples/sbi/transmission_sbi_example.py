@@ -33,11 +33,14 @@ THE THREE NUMBERS TO READ FIRST
 -------------------------------
 1. ``sbc_normalized_mean_rank_error`` -- calibration. Should be well under ~0.15
    for every parameter. Large values mean the posterior is the wrong shape.
-2. ``posterior_contraction`` -- informativeness. A value near 1.0 means that
-   parameter came back at the prior, i.e. the run learned nothing about it.
+2. ``posterior_prior_width_ratio`` -- informativeness. Posterior width over
+   prior width, so LOW means informative; a value near 1.0 means that parameter
+   came back at the prior, i.e. the run learned nothing about it.
 3. ``target_predictive_summary.median_interval_width_over_uncertainty`` -- does
    the posterior reproduce the data? Values in the low single digits are healthy;
    hundreds mean the posterior is not respecting the observation.
+4. ``prior_edge_report`` -- does any marginal pile against a prior bound? SBC
+   cannot see this failure, because it draws its truths from the same prior.
 """
 
 from __future__ import annotations
@@ -409,12 +412,14 @@ def main() -> None:
             # Test-time refinement is gated twice: on absolute thresholds, and on
             # whether it actually beats the amortized posterior by CRPS. It is
             # only delivered if it wins.
-            refinement=RefinementConfig(
-                method='map_laplace',
-                map_covariance_method='hessian',
-                test_time_validation=True,
-                test_time_validation_cases=8,
-            ),
+            # Refinement is off. Both per-observation refiners were measured
+            # against the amortized posterior they would replace and both lost
+            # every time: importance sampling collapsed to ESS ~1 of 16384
+            # proposals, and MAP+Laplace reached only 0.73 coverage at a nominal
+            # 0.90 (intervals ~1.7x too narrow), so the delivery gate rejected
+            # them and shipped the amortized posterior anyway. Set
+            # method='map_laplace' to re-enable and re-measure.
+            refinement=RefinementConfig(method='none'),
             truth_parameter_values=TRUTH_PARAMETER_VALUES,
         )
     )

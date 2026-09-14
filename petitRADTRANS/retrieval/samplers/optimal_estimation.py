@@ -2,8 +2,8 @@
 
 This module provides an optax-powered maximum-a-posteriori (MAP) optimiser that
 operates on the unconstrained-space log-posterior built by
-``petitRADTRANS.retrieval.sampler._build_unconstrained_mcmc_interface``. It is
-used in two ways:
+:func:`petitRADTRANS.retrieval.samplers.interfaces.build_unconstrained_mcmc_interface`.
+It is used in two ways:
 
 * As a stand-alone "sampler" selectable with ``sampler_type="optimal_estimation"``
   (alias ``"optax"`` / ``"map"``): :class:`OptimalEstimationSampler` runs the
@@ -28,11 +28,10 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
-from petitRADTRANS.retrieval.sampler import (
-    Sampler,
-    SamplerContext,
-    _build_unconstrained_mcmc_interface,
-    _require_jax,
+from petitRADTRANS.retrieval.samplers import _optional_imports as _opt
+from petitRADTRANS.retrieval.samplers.base import Sampler, SamplerContext
+from petitRADTRANS.retrieval.samplers.interfaces import (
+    build_unconstrained_mcmc_interface,
 )
 
 # Lazily-populated JAX / optax handles (kept module-global so the heavy imports
@@ -42,12 +41,13 @@ jnp = None
 optax = None
 
 
-def _require_jax_local():
-    """Populate the module-level ``jax`` / ``jnp`` handles."""
+def _require_jax_handles():
+    """Populate this module's own ``jax`` / ``jnp`` handles."""
     global jax, jnp
     if jnp is not None:
         return
-    _require_jax()  # validates the JAX install and raises a helpful error if missing
+    # Validates the JAX install and raises a helpful error if it is missing.
+    _opt.require_jax()
     import jax as _jax
     import jax.numpy as _jnp
 
@@ -188,7 +188,7 @@ def optimize_unconstrained_position(
     Returns:
         An :class:`OptimizeResult`.
     """
-    _require_jax_local()
+    _require_jax_handles()
     _require_optax()
 
     initial_position = jnp.asarray(initial_position)
@@ -337,7 +337,7 @@ def _lbfgs_polish(logdensity, position, n_steps, verbose=True):
     callback such as the reference-gravity check aborting an over-long line
     search step), so a late crash cannot discard the polish gains.
     """
-    _require_jax_local()
+    _require_jax_handles()
     _require_optax()
 
     def loss(z):
@@ -403,7 +403,7 @@ def make_walker_inits(position, num_chains, *, jitter=0.0, seed=0):
     Gaussian jitter of width ``jitter`` so multi-chain convergence diagnostics
     such as R-hat remain meaningful).
     """
-    _require_jax_local()
+    _require_jax_handles()
     position = jnp.asarray(position)
 
     if num_chains is None or num_chains <= 1:
@@ -454,7 +454,7 @@ def report_and_save_map_warmup(
     Returns:
         The path to the saved ``.npz`` file.
     """
-    _require_jax_local()
+    _require_jax_handles()
 
     parameter_names = list(parameter_names)
     best_unconstrained = jnp.asarray(optimize_result.best_position)
@@ -516,13 +516,11 @@ def laplace_covariance(logdensity, position, *, eigenvalue_floor=1e-8):
     floored at ``eigenvalue_floor`` before inversion and ``is_positive_definite``
     is ``False``.
     """
-    _require_jax_local()
+    _require_jax_handles()
     position = jnp.asarray(position)
 
     # Build the Hessian column by column with Hessian-vector products rather
-    # than jax.hessian: the latter's forward-over-reverse pass materialises the
-    # whole matrix tape at once and OOMed a 40 GB A100 on the time-series model
-    # (job 1869275). An HVP costs ~2 gradients and uses gradient-like memory.
+    # than jax.hessian to save memory
     negative_logdensity = lambda z: -logdensity(z)  # noqa: E731
 
     @jax.jit
@@ -623,14 +621,15 @@ class OptimalEstimationSampler(Sampler):
     returns the single MAP point.
     """
 
+    sampler_type = "optimal_estimation"
+    aliases = ("optimalestimation", "optax", "map")
+    output_subdirectory = "out_OptimalEstimation"
+    uses_distribution_priors = True
+
     def __init__(self, log_likelihood_func, prior_func, output_directory, retrieval_name):
         super().__init__(log_likelihood_func, prior_func, output_directory, retrieval_name)
-        _require_jax_local()
+        _require_jax_handles()
         _require_optax()
-        os.makedirs(
-            os.path.join(self.output_directory, "out_OptimalEstimation"), exist_ok=True
-        )
-        self.results = None
         self.logdensity = None
         self.transform_positions = None
         self.parameter_names = None
@@ -643,7 +642,7 @@ class OptimalEstimationSampler(Sampler):
             logdensity,
             transform_positions,
             log_jacobian,
-        ) = _build_unconstrained_mcmc_interface(context)
+        ) = build_unconstrained_mcmc_interface(context)
 
         run_kwargs = {
             "initial_position": sampler_kwargs.pop("initial_position", initial_position),
@@ -807,11 +806,6 @@ class OptimalEstimationSampler(Sampler):
     # ------------------------------------------------------------------ #
     # Persistence / reporting
     # ------------------------------------------------------------------ #
-    def _get_output_prefix(self):
-        return os.path.join(
-            self.output_directory, "out_OptimalEstimation", self.retrieval_name
-        )
-
     def _save_results(self, results: "OptimalEstimationResults"):
         prefix = self._get_output_prefix()
         arrays = {
