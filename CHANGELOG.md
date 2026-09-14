@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0b2] - 2026-08-25
+## [4.0.0b2] - 2026-09-07
 ### Changed
 - `calculate_flux` and `calculate_transit_radii` now fully JIT compiled for
   improved performance (about 30% faster).
@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Moved SBI module to `experimental`. SBI now works for both emission and transmission.
   Recommended setup is to use a neural autoregressive flow for both, with more details
   in README.
+- patchy_clouds is now empty by default, and analytical background clouds are also
+  patchy, if not specifically requested.
 
 ### Fixed
 - Removed `debug.callbacks` from opacities and validation.

@@ -411,6 +411,7 @@ def test_correlated_k_emission_spectrum_partial_cloud_calculated_radius_stellar_
         star_irradiation_angle=test_parameters["stellar_parameters"]["incidence_angle"],
         return_stellar_intensities=True,
         frequencies_to_wavelengths=False,
+        patchy_clouds=tuple(test_parameters["cloud_parameters"]["cloud_species"].keys())
     )
 
 
@@ -525,4 +526,5 @@ def test_correlated_k_transmission_spectrum_partial_cloud_calculated_radius_scat
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         frequencies_to_wavelengths=False,
+        patchy_clouds=tuple(test_parameters["cloud_parameters"]["cloud_species"].keys())
     )

@@ -69,8 +69,24 @@ def _warn_partial_cloud_coverage_without_patchy_clouds(
 
     if has_partial_cloud_coverage:
         warnings.warn(
-            "cloud_fraction is less than 1, but there are no patchy clouds. "
-            "Please add cloud species with partial coverage to 'patchy_clouds'.",
+            "A cloud_fraction < 1. was requested, but patchy_clouds is empty and "
+            "make_analytical_clouds_patchy is False!",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
+def _warn_opaque_cloud_top_pressure_with_scattering(
+    opaque_cloud_top_pressure: Optional[float],
+    scattering_in_emission: bool,
+):
+    """Check whether opaque_cloud_top_pressure is used together with scattering.
+    """
+
+    if opaque_cloud_top_pressure is not None and scattering_in_emission:
+        warnings.warn(
+            "the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
+            "is not recommended",
             UserWarning,
             stacklevel=3,
         )
@@ -217,7 +233,9 @@ def _check_power_law_opacity_completeness(
 
     Must be called from the un-jitted entry point, where "not supplied" is still
     visible as ``None``; inside the kernels it has already been replaced by a
-    sentinel and the values are tracers.
+    sentinel and the values are tracers. This happens in the thin shell
+    wrapper that augmenting the nominal jit() function of JAX, which is
+    called _compile_spectral_function in radtrans.py
     """
     # This works even during tracing, when wanting to calculate a gradient
     # with respect to the power law cloud parameters, since tracers are never None.
@@ -234,6 +252,30 @@ def _check_power_law_opacity_completeness(
         )
 
 
+def _check_target_particle_radii_completeness(target_particle_radii, target_pressure):
+    """Check that the parameters that allow the user to disable a specific particle radius and pressure
+       are supplied as a pair.
+
+    Must be called from the un-jitted entry point, where "not supplied" is still
+    visible as ``None``; inside the kernels it has already been replaced by a
+    sentinel and the values are tracers. This happens in the thin shell
+    wrapper that augmenting the nominal jit() function of JAX, which is
+    called _compile_spectral_function in radtrans.py
+    """
+    a_missing = target_particle_radii is None
+    b_missing = target_pressure is None
+
+    if a_missing ^ b_missing:
+        none_parameter = (
+            "target_particle_radii" if a_missing else "target_pressure"
+        )
+        raise RuntimeError(
+            f"to selectively disable a cloud opacity bin, both parameters "
+            f"'target_particle_radii' and 'target_pressure' must be provided; "
+            f"missing '{none_parameter}'"
+        )
+
+
 def _sanitize_frequency_surface_input(
     values, frequencies, default_value, quantity_name
 ):
@@ -247,8 +289,6 @@ def _sanitize_frequency_surface_input(
     if jnp.ndim(values) == 0:
         return values * jnp.ones_like(frequencies, dtype=WORKING_JAX_DTYPE)
 
-    # In the past a debug.callback was used here.
-    # But since _sanitize is called before the kernels, in the non-jitted part,
     # this error raising will always only happen at compile time,
     # since if the emissivity shape is changed a new compile is triggered.
     if jnp.size(values) != frequencies.size:
@@ -271,6 +311,13 @@ def _sanitize_emission_surface_inputs(
     reflectances,
     emissivities,
 ):
+    """Returns star_irradiation_cos_angle, stellar_intensities, reflectances, emissivities
+    They are normalized in the _sanitization function here, somewhat sanitized where
+    necesssary and filled with requested values (stellar intensities if none are given
+    but they are requested via provided stellar parameters.
+    TODO: remove stellar parameteres from static argnames, adjust stellar flux loading
+    accordingly.
+    """
     star_irradiation_cos_angle = jnp.cos(jnp.deg2rad(star_irradiation_angle))
     star_irradiation_cos_angle = jnp.where(
         star_irradiation_cos_angle <= 0.0, 1e-8, star_irradiation_cos_angle
@@ -286,7 +333,14 @@ def _sanitize_emission_surface_inputs(
             and star_effective_temperature is not None
             and orbit_semi_major_axis is not None
         ):
-            stellar_intensities = compute_star_spectrum(
+            stellar_intensities = compute_star_spectrum( # TODO: make stellar parameters not
+                                                         # static anymore. Requires changes to
+                                                         # stellar_spectra/phoenix.py
+                                                         # and its cache key treatment
+                                                         # we want to load the full stellar
+                                                         # spectrum table and then just
+                                                         # interpolate in it, using the traced
+                                                         # stellar parameters.
                 star_effective_temperature=star_effective_temperature,
                 orbit_semi_major_axis=orbit_semi_major_axis,
                 frequencies=frequencies,
@@ -364,7 +418,8 @@ def _normalize_optional_mapping_or_scalar(
 
 def _normalize_cloud_species_selection(selection, default_species):
     if selection is None:
-        return tuple(default_species)
+        return tuple() # this branch is never used, since cloud species is never
+                       # None when _normalize_cloud_species_selection is called.
 
     if isinstance(selection, (str, bytes)):
         selection = (selection,)
@@ -398,6 +453,12 @@ def _sanitize_flux_opacity_inputs(
     missing_neg_inf,
     additional_opacities_placeholder_fn: Callable,
 ):
+    """Normalizes
+    - cloud_f_sed into dictionary (one f_sed per species),
+    - cloud particle porosity into dictionary, replacing values with "missing_neg_inf" where
+    not provided
+    - Sets variables to correct data types and adds correct sentinel valus if not defined.
+    """
     if cloud_f_sed is None:
         cloud_f_sed_norm = {}
     elif isinstance(cloud_f_sed, dict):
@@ -414,10 +475,10 @@ def _sanitize_flux_opacity_inputs(
     clouds_particle_porosity_factor_norm = {
         species: missing_neg_inf for species in cloud_species
     }
-    # NOTE: this sanitiser runs inside the jitted spectral kernels, so values are
+    # NOTE: this sanitizer runs inside the jitted spectral kernels, so values are
     # tracers here and cannot be range-checked. The [0, 1) check lives in
-    # _check_clouds_particle_porosity_factors, called from the un-jitted
-    # Radtrans entry points.
+    # _check_clouds_particle_porosity_factors, called in the thin wrapper
+    # around the flux calculation functions.
     if clouds_particle_porosity_factor is not None:
         for key, value in list(clouds_particle_porosity_factor.items()):
             clouds_particle_porosity_factor_norm[key] = jnp.array(
@@ -458,6 +519,7 @@ def _sanitize_flux_opacity_inputs(
         # precision: it is compared against that grid to place the cloud deck, and
         # a float32 round-trip moves the comparison by ~1e-4 relative, which is
         # enough to flip a layer that lies exactly at the cloud top.
+
         "opaque_cloud_top_pressure": _normalize_optional_scalar(
             opaque_cloud_top_pressure, missing_float, dtype=FEAUTRIER_JAX_DTYPE
         ),
@@ -473,10 +535,8 @@ def _sanitize_flux_opacity_inputs(
             power_law_opacity_coefficient,
             missing_float,
         ),
-        "gray_opacity": (
-            jnp.array(0.0, dtype=WORKING_JAX_DTYPE)
-            if gray_opacity is None
-            else jnp.array(gray_opacity, dtype=WORKING_JAX_DTYPE)
+        "gray_opacity": _normalize_optional_scalar(
+            gray_opacity, jnp.array(0.0, dtype=WORKING_JAX_DTYPE)
         ),
         "cloud_photosphere_median_optical_depth": _normalize_optional_scalar(
             cloud_photosphere_median_optical_depth,
@@ -496,15 +556,11 @@ def _sanitize_flux_opacity_inputs(
             if additional_scattering_opacities_function is not None
             else additional_opacities_placeholder_fn
         ),
-        "target_particle_radii": (
-            None
-            if target_particle_radii is None
-            else jnp.array(target_particle_radii, dtype=FEAUTRIER_JAX_DTYPE)
+        "target_particle_radii": _normalize_optional_scalar(
+            target_particle_radii, None, dtype=FEAUTRIER_JAX_DTYPE
         ),
-        "target_pressure": (
-            None
-            if target_pressure is None
-            else jnp.array(target_pressure, dtype=FEAUTRIER_JAX_DTYPE)
+        "target_pressure": _normalize_optional_scalar(
+            target_pressure, None, dtype=FEAUTRIER_JAX_DTYPE
         ),
     }
 
