@@ -3182,8 +3182,6 @@ class Radtrans:
         make_analytical_clouds_patchy=False
     ):
 
-        # TODO Paul: look into sanitizing functions below
-
         """JIT-compiled kernel for calculate_flux. See calculate_flux for parameter docs."""
         # This is star_irradiation_cos_angle, stellar_intensities, reflectances, emissivities
         # (normalized)
@@ -3342,10 +3340,11 @@ class Radtrans:
             thomas_min_batch=thomas_min_batch,
         )
 
-        # TODO aul continue from here.
-
         # --- Cloud blending for partial coverage ---
-        flux_clear = flux  # default: clear == cloudy when no partially covering cloud source is active
+        flux_clear = flux  # default: clear flux just means all patchy clouds are turned off.
+                           # so a clear flux may be affected by clouds.
+                           # what is called flux_clear is still the nominal patchy flux,
+                           # however, it will be overwritten below.
         if should_compute_opacities_without_patchy_clouds:
             if return_clear_spectrum:
                 # Always compute clear flux when the caller requested it.
@@ -3401,7 +3400,7 @@ class Radtrans:
                     # _calculate_opacities and runs here, inside the branch,
                     # so it is skipped entirely when cloud_fraction == 1.
                     combined_clear_opacities = (
-                        self._combine_deferred_clear_opacities(
+                        self._combine_deferred_clear_opacities( # TODO Paul look into here when reviewing opacity stuff
                             clear_opacities, sum_opacities, ck_chunk_size
                         )
                     )
@@ -3483,7 +3482,8 @@ class Radtrans:
         if return_photosphere_radius:
             if planet_radius is not None:
                 additional_outputs["photosphere_radius"] = (
-                    self.calculate_photosphere_radius(
+                    self.calculate_photosphere_radius( # TODO deferred to later, when going through
+                                                       #    radtrans.py further below.
                         pressures=pressures * 1e-6,
                         temperatures=temperatures,
                         mean_molar_masses=mean_molar_masses,
@@ -3506,7 +3506,8 @@ class Radtrans:
 
         if return_cloud_contribution and len(self._cloud_species) > 0:
             additional_outputs["cloud_contribution"] = (
-                clouds.compute_species_optical_depths(
+                clouds.compute_species_optical_depths( # TODO Annie, since cloud related.
+                                                       #    remove when done.
                     reference_gravity=reference_gravity,
                     pressures=pressures,
                     cloud_opacities=cloud_opacities,
@@ -3545,6 +3546,9 @@ class Radtrans:
             )
         else:
             return self._frequencies, flux, additional_outputs
+
+    # TODO Paul continue from here, start by going through radtrans.py frm the top and
+    #   adding Paul_review flags for skipped functions that I still need to look into.
 
     def calculate_photosphere_radius(
         self,
