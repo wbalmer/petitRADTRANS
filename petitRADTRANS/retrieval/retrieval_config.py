@@ -68,6 +68,14 @@ class RetrievalConfig:
             Whether the Feautrier scattering solver adaptively sets the number of iterations based
             on the photon destruction probability. Only relevant when ``scattering_in_emission`` is
             True. Forwarded to the ``ModelContext`` objects.
+        jaxns_config_factory : str, optional
+            JAXNS only. A ``"package.module:function"`` reference to a module-level
+            function that rebuilds this ``RetrievalConfig`` from scratch. Required for
+            JAXNS checkpoint/resume and for the ``jaxns_distributed`` backend, because
+            JAXNS serialises the model (which otherwise closes over the loaded opacity
+            tables). The named module must be importable by every worker process.
+        jaxns_config_factory_kwargs : dict, optional
+            Keyword arguments passed to ``jaxns_config_factory``. Must be JSON-serialisable.
     """
 
     def __init__(
@@ -81,6 +89,8 @@ class RetrievalConfig:
         feautrier_chunk_size: int | None = None,
         chunk_feautrier: bool = True,
         adaptive_feautrier_iterations: bool = False,
+        jaxns_config_factory: str | None = None,
+        jaxns_config_factory_kwargs: dict | None = None,
         # --- deprecated arguments ---
         amr=_UNSET,
     ):
@@ -96,6 +106,12 @@ class RetrievalConfig:
         self.retrieval_name = retrieval_name
         self.run_mode = run_mode
         self.sampler_type = sampler_type
+        # JAXNS 3 pickles the model into its checkpoints, and ships it to
+        # distributed workers. A pRT likelihood closes over the opacity-bearing
+        # RetrievalRuntime, so those paths instead carry a tiny spec naming this
+        # factory and rebuild the configuration wherever it is needed.
+        self.jaxns_config_factory = jaxns_config_factory
+        self.jaxns_config_factory_kwargs = jaxns_config_factory_kwargs
 
         if self.run_mode != "retrieval" and self.run_mode != "evaluate":
             raise ValueError(
@@ -784,15 +800,8 @@ class RetrievalConfig:
         it will add parameters to allow for a retrieval using an ackermann-marley model.
         If an equilibrium condensation model is used in th retrieval model function (use_equilibrium_chemistry=True),
         then a parameter is added that scales the equilibrium cloud abundance, as in Molliere (2020).
-        If eq is false, two parameters are added, the cloud abundnace and the cloud base pressure.
+        If use_equilibrium_chemistry is False, two parameters are added, the cloud abundnace and the cloud base pressure.
         The limits set the prior ranges, both on a log scale.
-
-        NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
-        abundance limits were set from free_mass_fraction_limits[0] to
-        (free_mass_fraction_limits[0] + free_mass_fraction_limits[1]). This has been changed
-        so that the limits of the prior range are from free_mass_fraction_limits[0] to
-        free_mass_fraction_limits[1] (ie the actual boundaries).
-        The same is true for PBase_lim.
 
         Args:
             species : str
@@ -1476,6 +1485,177 @@ class RetrievalConfig:
                 is_free_parameter=False,
                 value=n_model_timesteps,
             )
+
+    def add_linearised_time_series_data(
+        self,
+        name: str,
+        observation_times: ArrayLike,
+        model_generating_function: Callable,
+        modulated_parameters: dict,
+        *,
+        n_harmonics: int = 3,
+        reference_bin: int = 0,
+        n_phase_bins: int = 24,
+        period_parameter: str = "period",
+        nominal_period: float | None = None,
+        static_offset_scale: float | None = 0.05,
+        noise_correlation_time: float | None = None,
+        **kwargs,
+    ):
+        """Register a time series whose modulation is marginalised, not sampled.
+
+        The amplitudes of the harmonic modulation enter the model linearly, so
+        with Gaussian priors they can be integrated out in closed form.  The
+        sampler is then left with the static reference state alone -- eighteen
+        parameters rather than forty-eight, and the well-behaved ones.
+
+        This constructor is deliberately separate from
+        :meth:`add_time_series_data` rather than another flag on it: the two
+        use different arguments, and overloading one method would
+        leave ``mean_divide`` and ``modulated_parameters`` silently
+        incompatible.
+
+        Everything that depends only on the observation -- the reference set,
+        the logarithm of the data and its variance, the noise normalisation --
+        is computed once here and stored, never rebuilt inside the likelihood.
+
+        Args:
+            modulated_parameters : dict
+                ``{parameter_name: prior_standard_deviation}``.  A mapping and
+                not a list, because the prior width enters the marginal
+                likelihood directly and is therefore part of the model
+                definition; the interface must not let it be supplied by
+                omission.  Note that a Bayes factor from this framework is
+                sensitive to these widths -- widening all of them by a factor
+                ``f`` moves ``ln Z`` by ``M ln f`` for ``M`` amplitudes -- so no
+                model comparison should be reported without the sensitivity
+                scan in ``linearised.evidence_prior_scan``.
+            n_harmonics : int
+                Highest retained harmonic of the rotation frequency.
+            reference_bin, n_phase_bins : int
+                Which phase bin defines the reference state.  Bins hold equal
+                COUNTS, so none can be empty.  The set is chosen once at the
+                nominal period and then held fixed: re-deriving it as the period
+                varies would move epochs between bins discretely and put a step
+                into an otherwise smooth objective.
+            nominal_period : float, optional
+                Period in seconds used to select the reference set.  Defaults to
+                the initial value of ``period_parameter``.
+            static_offset_scale : float or None
+                The fractional static forward-model error tolerated, ``s``.  A
+                free per-wavelength offset with this prior width absorbs any
+                static spectral error, however it is correlated in wavelength,
+                and simultaneously supplies the absolute-flux constraint that
+                would otherwise need a separate likelihood factor built from the
+                same data.  ``None`` means an infinitely wide offset: shape-only
+                inference, with the absolute flux discarded.
+            noise_correlation_time : float or None
+                Correlation time of the NOISE in units of epochs, modelled as a
+                first-order autoregressive process.  ``None`` is independent
+                noise.  Supplied because the residual correlation on this
+                dataset is not settled, not because a value is known.
+
+        Other keyword arguments are passed through to
+        :meth:`add_time_series_data`.
+        """
+        from petitRADTRANS.retrieval import linearised as _lin
+
+        if not modulated_parameters:
+            raise ValueError(
+                "modulated_parameters must name at least one parameter and give "
+                "each a prior width; the width enters the evidence directly."
+            )
+        for parameter_name, width in modulated_parameters.items():
+            if not np.isfinite(width) or width <= 0.0:
+                raise ValueError(
+                    f"prior width for '{parameter_name}' must be finite and "
+                    f"positive, got {width!r}"
+                )
+
+        _lin.require_double_precision()
+
+        self.add_time_series_data(
+            name=name,
+            observation_times=observation_times,
+            model_generating_function=model_generating_function,
+            n_model_timesteps=1,
+            time_varying_parameters=[],
+            sinusoidal_parameters=[],
+            **kwargs,
+        )
+        data_object = self.data[name]
+
+        times = jnp.asarray(np.asarray(observation_times, dtype=float))
+        spectrum = jnp.asarray(np.asarray(data_object.spectrum, dtype=float))
+        uncertainties = jnp.asarray(
+            np.asarray(data_object.uncertainties, dtype=float)
+        )
+        if nominal_period is None:
+            if period_parameter not in self.parameters:
+                raise ValueError(
+                    f"nominal_period was not given and '{period_parameter}' is "
+                    "not a registered parameter, so the reference set cannot be "
+                    "chosen. Add the period parameter first."
+                )
+            nominal_period = float(self.parameters[period_parameter].value)
+
+        reference_indices = _lin.reference_bin_indices(
+            times, float(nominal_period), n_phase_bins, reference_bin
+        )
+        reference_weights = _lin.collapse_reference_weights(
+            _lin.reference_weights(uncertainties, reference_indices)
+        )
+        log_spectrum, var_point = _lin.log_observation(spectrum, uncertainties)
+        offset_variance = (
+            jnp.inf if static_offset_scale is None
+            else float(static_offset_scale) ** 2
+        )
+        correlation_rho = (
+            0.0 if noise_correlation_time is None
+            else float(np.exp(-1.0 / float(noise_correlation_time)))
+        )
+        noise_log_determinant, n_constrained = _lin.noise_log_determinant(
+            var_point, offset_variance, correlation_rho
+        )
+        names = tuple(modulated_parameters)
+        prior_variance = jnp.asarray(
+            [float(modulated_parameters[n]) ** 2 for n in names
+             for _ in range(2 * n_harmonics)]
+        )
+
+        data_object.time_series_config.update({
+            "modulated_parameters": names,
+            "n_harmonics": int(n_harmonics),
+            "period_parameter": period_parameter,
+            "linearised": {
+                "times": times,
+                "log_spectrum": log_spectrum,
+                "var_point": var_point,
+                "reference_indices": reference_indices,
+                "reference_weights": reference_weights,
+                "prior_variance": prior_variance,
+                "offset_variance": offset_variance,
+                "correlation_rho": correlation_rho,
+                "n_harmonics": int(n_harmonics),
+                "period_parameter": period_parameter,
+                # Constant in the reference state, so a sampler exploring one
+                # model never needs it; it does NOT cancel between different
+                # offset widths or correlation times, so it is carried.
+                "noise_normalisation": float(
+                    -0.5 * noise_log_determinant
+                    - 0.5 * n_constrained * np.log(2.0 * np.pi)
+                ),
+                "n_constrained": int(n_constrained),
+            },
+        })
+        print(
+            f"[linearised] '{name}': {len(names)} modulated parameters x "
+            f"{2 * n_harmonics} amplitudes = {len(names) * 2 * n_harmonics} "
+            f"marginalised analytically; reference set "
+            f"{reference_indices.shape[0]} epochs of bin {reference_bin}/"
+            f"{n_phase_bins}; offset scale "
+            f"{'infinite' if static_offset_scale is None else static_offset_scale}"
+        )
 
     def add_photometry(
         self,

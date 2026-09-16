@@ -1,8 +1,9 @@
+subdir('samplers')
+
 py.install_sources([
     '_mpi.py',
     'covariance.py',
     'data.py',
-    'dynesty_pool_helpers.py',
     'runtime.py',
     'models.py',
     'multichain.py',
@@ -10,12 +11,10 @@ py.install_sources([
     'parameter_aliases.py',
     'plotting.py',
     'log_likelihood.py',
-    'optimal_estimation.py',
     'preparing.py',
     'psis.py',
     'retrieval.py',
     'retrieval_config.py',
-    'sampler.py',
     'utils.py',
     '__init__.py',
     ],

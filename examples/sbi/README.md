@@ -21,13 +21,24 @@ Every run writes `amortized_summary.json`. Three numbers first:
 
 1. `sbc_normalized_mean_rank_error` -- calibration. Well under ~0.15 per
    parameter, or the posterior has the wrong shape.
-2. `posterior_contraction` -- informativeness. Near 1.0 means that parameter
-   came back at the prior.
+2. `posterior_prior_width_ratio` -- informativeness. This is posterior width
+   divided by prior width, so LOW means informative; near 1.0 means that
+   parameter came back at the prior.
 3. `target_predictive_summary.median_interval_width_over_uncertainty` -- does the
    posterior reproduce the data? Low single digits are healthy.
 
 These are complementary. A posterior that returns the prior is perfectly
 calibrated and useless, so calibration alone never demonstrates success.
+
+Then read `prior_edge_report`. It flags parameters whose posterior mass piles
+against a prior bound, which is the failure SBC structurally cannot see: SBC
+draws its truths from the prior, so it is calibrated by construction in exactly
+the regime where a truth near or outside a bound goes wrong. A flag means check
+the prior range, not that the run is broken.
+
+`parameter_units` records the unit of each posterior column. Priors declared
+with `units=` yield samples in that unit (e.g. R_jup) while undeclared ones
+yield cgs, and the saved arrays do not carry that distinction otherwise.
 
 Do not use the validation loss as a quality proxy: in this module's benchmarks it
 has repeatedly moved opposite to delivered posterior quality.

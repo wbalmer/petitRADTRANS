@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0b2] - 2026-09-07
+## [4.0.0b3] - 2026-09-03
 ### Changed
 - `calculate_flux` and `calculate_transit_radii` now fully JIT compiled for
   improved performance (about 30% faster).
@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Moved SBI module to `experimental`. SBI now works for both emission and transmission.
   Recommended setup is to use a neural autoregressive flow for both, with more details
   in README.
+- The retrieval samplers now live in the package
+  `petitRADTRANS.retrieval.samplers`, one module per backend, replacing `petitRADTRANS/retrieval/sampler.py`.
+- The BlackJAX and NumPyro samplers now share a `GradientSampler` base holding
+  their (previously duplicated) results dataclass, saving, reloading, summary
+  and optax MAP warm-up. Behaviour and file formats are unchanged.
+- `scattering_in_emission=True` now raises `ValueError` unless JAX is running in
+  64-bit mode.
 - patchy_clouds is now empty by default, and analytical background clouds are also
   patchy, if not specifically requested.
 
@@ -20,6 +27,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Removed `debug.callbacks` from opacities and validation.
 - dtype mismatch in patchy cloud opacity conditional.
 - lambda functions in JIT compiled functions which results in extra compilations.
+- `Retrieval.get_samples()` read the outputs of an `ultranest` retrieval from
+  the `out_JAXNS` directory, which is not where UltraNest writes them.
+- CIA opacities being set to 0 due to 32-bit underflow.
+- `return_opacities=True` returned all-zero `cloud_absorption_opacities` and
+  `cloud_anisotropic_scattering_opacities` whenever `sum_opacities` was False.
 
 ### Removed
 - autodiff versions of `calculate_flux` and `calculate_transit_radii`
