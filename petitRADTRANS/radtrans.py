@@ -2400,7 +2400,6 @@ class Radtrans:
 
         return frequencies, frequency_bins_edges
 
-    # TODO Paul_review
     def _tree_flatten(self):
         cia_children = tuple(
             (
@@ -2447,9 +2446,9 @@ class Radtrans:
         }
         # A tuple of items keeps the treedef hashable, so jit dispatch uses hash
         # lookups instead of falling back to per-call dict equality comparisons
+        # This is needed to make cashe lookups fast or even enable them in the first place.
         return children, tuple(sorted(aux_data.items()))
 
-    # TODO Paul_review
     @classmethod
     def _tree_unflatten(cls, aux_data, children):
         aux_data = dict(aux_data)
