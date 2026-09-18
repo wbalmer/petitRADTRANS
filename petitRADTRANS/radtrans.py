@@ -2914,8 +2914,6 @@ class Radtrans:
                 By default, assume a full cloud cover.
             patchy_clouds:
                 List of cloud species affected by ``cloud_fraction``.
-                Analytic cloud sources such as power-law clouds and opaque
-                cloud decks are always mixed by ``cloud_fraction``.
             irradiation_geometry (Optional[string]):
                 if equal to ``'dayside_ave'``: use the dayside average geometry.
                 If equal to ``'planetary_ave'``: use the planetary average geometry.
@@ -2938,7 +2936,8 @@ class Radtrans:
                 Reflectances of the surface (layer with the highest pressure).
             emissivities (Optional):
                 Emissivities of the surface (layer with the highest pressure).
-            additional_absorption_opacities_function (Optional[function]):
+            additional_absorption_opacities_function (Optional[function]): # TODO: this keyword arg doesn't do anything atm. Fix!
+                                                                           #    when looking into opacity functions.
                 A python function that takes wavelength arrays in microns and pressure arrays in bars
                 as input, and returns an absorption opacity matrix in units of cm^2/g, in the shape of
                 number of wavelength points x number of pressure points.
@@ -2948,10 +2947,12 @@ class Radtrans:
                 It may be used to add simple cloud absorption laws, for example, which
                 have opacities that vary only slowly with wavelength, such that the current
                 model resolution is sufficient to resolve any variations.
-                This is a static (compile-time) argument: pass a stable, module-level function reference;
-                passing a freshly created lambda or closure on each call forces a full recompilation
-                of the spectral kernel.
-            additional_scattering_opacities_function (Optional[function]):
+                This is a static (compile-time) argument: pass a stable function reference.
+                Passing a freshly created lambda or closure (e.g., the product of a function factory)
+                on each call forces a full recompilation of the spectral kernel.
+                Relatedly, make sure that your function is jax.jit compilable.
+            additional_scattering_opacities_function (Optional[function]): # TODO: this keyword arg doesn't do anything atm. Fix!
+                                                                           #    when looking into opacity functions.
                 A python function that takes wavelength arrays in microns and pressure arrays in bars
                 as input, and returns an isotropic scattering opacity matrix in units of cm^2/g, in the shape of
                 number of wavelength points x number of pressure points.
@@ -2959,9 +2960,10 @@ class Radtrans:
                 It may be used to add simple cloud absorption laws, for example, which
                 have opacities that vary only slowly with wavelength, such that the current
                 model resolution is sufficient to resolve any variations.
-                This is a static (compile-time) argument: pass a stable, module-level function reference;
-                passing a freshly created lambda or closure on each call forces a full recompilation
-                of the spectral kernel.
+                This is a static (compile-time) argument: pass a stable function reference.
+                Passing a freshly created lambda or closure (e.g., the product of a function factory)
+                on each call forces a full recompilation of the spectral kernel.
+                Relatedly, make sure that your function is jax.jit compilable.
             adaptive_feautrier_iterations (Optional[bool]):
                 If True, adapt the number of iterations of the Feautrier scattering-method
                 (scattering_in_emission=True) based on the photon destruction probability.
@@ -3009,10 +3011,10 @@ class Radtrans:
             return_particle_radii (Optional[bool]):
                 If True, return the particle radii.
             target_particle_radii (Optional[ArrayLike]:
-                Particle radius to target for selective bin disabling. Radius bin closest
+                Particle radius to target for selective cloud bin disabling. Radius bin closest
                 the input value will be disabled.
             target_pressure (Optional[ArrayLike]:
-                Pressure to target for selective bin disabling. Pressure bin closest to
+                Pressure to target for selective cloud bin disabling. Pressure bin closest to
                 the input value will be disabled.
             validate_inputs (Optional[bool]):
                 If True (default), check the reference gravity is positive. Under
@@ -3892,7 +3894,6 @@ class Radtrans:
 
         return opacities_rosseland, opacities_planck, cloud_particle_mean_radii
 
-    # TODO Paul_review, but Nora will do _calculate_transit_radii
     @_compile_spectral_function(_TRANSIT_RADII_STATIC_ARGNAMES)
     def calculate_transit_radii(
         self,
@@ -3936,7 +3937,7 @@ class Radtrans:
         pressures: ArrayLike = None,
         validate_inputs: bool = True, # Validate it used in the _compile_spectral_function
                                       # decorator, through a wrapper, so don't remove it here,
-                                      # even if it is grayed out and appears to not be used.,
+                                      # even if it is grayed out and appears to not be used.
         make_analytical_clouds_patchy=False,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's transmission radius
@@ -3989,13 +3990,15 @@ class Radtrans:
                     formatted as the kzz argument. Equivalent to radius arg.
                     If cloud_hansen_a is not included and dist is "hansen", then it will
                     be computed using Kzz and fsed (recommended).
+                    See Nasedkin et al. (2024) for an explanation of how this is done
+                    (A&A 687, A298 (2024); doi:10.1051/0004-6361/202449328, Appendix).
                 cloud_hansen_b (Optional[dict]):
                     A dictionary of the 'b' parameter values for each
                     included cloud species and for each atmospheric layer,
                     formatted as the kzz argument. This is the width of the hansen
                     distribution normalized by the particle area (1/cloud_hansen_a^2)
                 cloud_particle_number_density_grid (Optional[dict]):
-                    EXPERIMENTAL
+                    EXPERIMENTAL # TODO Annie: add description
                 clouds_particle_porosity_factor (Optional[dict]):
                     A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
                     are calculated using the Distribution of Hollow Spheres (DHS) method.
@@ -4025,9 +4028,8 @@ class Radtrans:
                     By default, assume a full cloud cover.
                 patchy_clouds:
                     List of cloud species affected by ``cloud_fraction``.
-                    Runtime-only cloud sources such as power-law clouds and opaque
-                    cloud decks are always mixed by ``cloud_fraction``.
-                additional_absorption_opacities_function (Optional[function]):
+                additional_absorption_opacities_function (Optional[function]): # TODO: this keyword arg doesn't do anything atm. Fix!
+                                                                               #    when looking into opacity functions.
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an absorption opacity matrix in units of cm^2/g, in the shape of
                     number of wavelength points x number of pressure points.
@@ -4037,10 +4039,12 @@ class Radtrans:
                     It may be used to add simple cloud absorption laws, for example, which
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
-                    This is a static (compile-time) argument: pass a stable, module-level function reference;
-                    passing a freshly created lambda or closure on each call forces a full recompilation
-                    of the spectral kernel.
-                additional_scattering_opacities_function (Optional[function]):
+                    This is a static (compile-time) argument: pass a stable function reference.
+                    Passing a freshly created lambda or closure (e.g., the product of a function factory)
+                    on each call forces a full recompilation of the spectral kernel.
+                    Relatedly, make sure that your function is jax.jit compilable.
+                additional_scattering_opacities_function (Optional[function]): # TODO: this keyword arg doesn't do anything atm. Fix!
+                                                                               #    when looking into opacity functions.
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an isotropic scattering opacity matrix in units of cm^2/g, in the shape of
                     number of wavelength points x number of pressure points.
@@ -4048,9 +4052,10 @@ class Radtrans:
                     It may be used to add simple cloud scattering laws, for example, which
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
-                    This is a static (compile-time) argument: pass a stable, module-level function reference;
-                    passing a freshly created lambda or closure on each call forces a full recompilation
-                    of the spectral kernel.
+                    This is a static (compile-time) argument: pass a stable function reference.
+                    Passing a freshly created lambda or closure (e.g., the product of a function factory)
+                    on each call forces a full recompilation of the spectral kernel.
+                    Relatedly, make sure that your function is jax.jit compilable.
                 frequencies_to_wavelengths (Optional[bool]):
                     If True, convert the frequencies (Hz) output to wavelengths (cm).
                 return_contribution (Optional[bool]):
@@ -4072,17 +4077,17 @@ class Radtrans:
                 return_particle_densities (Optional[bool]):
                     If True, return the particles densities.
                 target_particle_radii (Optional[ArrayLike]:
-                    Particle radius to target for selective bin disabling. Radius bin closest
+                    Particle radius to target for selective cloud bin disabling. Radius bin closest
                     the input value will be disabled.
                 target_pressure (Optional[ArrayLike]:
-                    Pressure to target for selective bin disabling. Pressure bin closest to
+                    Pressure to target for selective cloud bin disabling. Pressure bin closest to
                     the input value will be disabled.
                 validate_inputs (Optional[bool]):
                     If True (default), check the reference gravity is positive.
                     Under ``jax.jit`` this check needs a device-to-host callback
                     on every evaluation, which is costly on GPU). Set to False in
                     retrievals or if you've already checked the inputs.
-                pressures (Oprional[ArrayLike]):
+                pressures (Optional[ArrayLike]):
                     If not None, these pressures will be used as the vertical structure
                     describing the atmosphere. Pressures must be in units of bar and
                     must be sorted in increasing order. They will be converted to cgs
@@ -4148,7 +4153,6 @@ class Radtrans:
             make_analytical_clouds_patchy=make_analytical_clouds_patchy,
         )
 
-    # TODO Paul_review, but Nora will do _calculate_transit_radii
     @jit(
         static_argnames=[
             "cloud_particle_radius_distribution",
@@ -4350,10 +4354,11 @@ class Radtrans:
         )
 
         # --- Cloud blending for partial coverage ---
-        transit_radii_clear = transit_radii
+        transit_radii_clear = transit_radii # Will be filled with actually clear(er) spectrum below
+                                            #   if needed.
         if should_compute_opacities_without_patchy_clouds:
             if return_clear_spectrum:
-                # Always compute clear radii when the caller requested it.
+                # Always compute clear(er) radii when the caller requested it.
                 transit_radii_clear, _, _ = self._calculate_transit_radii(
                     pressures=pressures,
                     temperatures=temperatures,
@@ -4472,7 +4477,9 @@ class Radtrans:
                 cloud_absorption_opacities
             )
             additional_outputs["cloud_anisotropic_scattering_opacities"] = (
-                cloud_anisotropic_scattering_opacities
+                cloud_anisotropic_scattering_opacities # TODO Paul make sure the right opacities are
+                                                       #    returned here when transmission spectra are
+                                                       #    calculated (namely, (1-g) should not be applied).
             )
 
         if return_abundances:
