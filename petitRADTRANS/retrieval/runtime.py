@@ -2116,6 +2116,61 @@ def uncertainty_scaling_b_parameter_candidates(
     return tuple(candidates)
 
 
+def uncertainty_fractional_floor_parameter_candidates(
+    observation_name: str,
+) -> tuple[str, ...]:
+    """Parameter names that may supply an observation's FRACTIONAL error floor.
+
+    Same name resolution as the Line (2015) term: most specific first, with a
+    global fallback so one parameter can serve every dataset.
+    """
+    parts = str(observation_name).split("/")
+    candidates = [
+        "/".join(parts[:stop]) + "_fractional_floor"
+        for stop in range(len(parts), 0, -1)
+    ]
+    candidates.append("uncertainty_fractional_floor")
+    return tuple(candidates)
+
+
+def _fractional_uncertainty_floor(
+    observation: "ObservationState",
+    parameters: Mapping[str, Any],
+) -> Any:
+    """Variance of a floor PROPORTIONAL to the observed flux: (10^g * d)^2.
+
+    The Line (2015) 10^b term is an ABSOLUTE variance, constant in wavelength.
+    When a spectrum spans a wide dynamic range that silently reweights the fit:
+    on the SIMP 0136 time-mean spectrum (41x from the faintest to the brightest
+    point) a 10^b floor fitted to the bright J band gives the faint K band and
+    the 4-5 um end a floor comparable to their own flux, so they contribute
+    almost nothing -- 0.09x and 0.01x the per-point weight of J. Forward-model
+    error in these retrievals is fractional, not absolute, so a fractional floor
+    matches the error being absorbed and keeps every band's weight comparable.
+
+    The floor is built from the OBSERVED flux, never the model. A model-based
+    floor would let the likelihood inflate its own uncertainties by lowering the
+    model, which is a pathology rather than a fit.
+
+    Returns 0.0 when no fractional-floor parameter is present, so behaviour is
+    unchanged for every existing retrieval.
+    """
+    if parameters is None or observation.spectrum is None:
+        return 0.0
+    for candidate in uncertainty_fractional_floor_parameter_candidates(
+        observation.name
+    ):
+        if candidate in parameters:
+            log_fraction = _get_parameter_value(
+                parameters, candidate, default=-jnp.inf
+            )
+            floor = jnp.where(
+                jnp.isfinite(log_fraction), 10**log_fraction, 0.0
+            )
+            return (floor * jnp.abs(jnp.asarray(observation.spectrum))) ** 2
+    return 0.0
+
+
 def _line_b_uncertainty_scaling(
     observation_name: str,
     parameters: Mapping[str, Any],
@@ -2155,6 +2210,16 @@ def _scale_and_inflate_uncertainties(
         10**raw_b_val,
         0.0,
     )
+    # Per-point floor proportional to the observed flux; 0.0 when unused.
+    fractional_variance_term = _fractional_uncertainty_floor(observation, parameters)
+
+    def _with_fractional_diagonal(covariance):
+        """Add the fractional floor to a covariance as a diagonal contribution."""
+        diagonal = jnp.broadcast_to(
+            jnp.asarray(fractional_variance_term, dtype=covariance.dtype),
+            (covariance.shape[0],),
+        )
+        return covariance + jnp.diag(diagonal)
 
     if observation.fit_covariance:
         scaled_covariance = _build_fitted_covariance_from_observation(
@@ -2163,6 +2228,7 @@ def _scale_and_inflate_uncertainties(
             err_scale_factor,
             additive_variance_term,
         )
+        scaled_covariance = _with_fractional_diagonal(scaled_covariance)
         scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
         return scaled_uncertainties, scaled_covariance
 
@@ -2172,11 +2238,14 @@ def _scale_and_inflate_uncertainties(
             scaled_covariance.shape[0],
             dtype=scaled_covariance.dtype,
         )
+        scaled_covariance = _with_fractional_diagonal(scaled_covariance)
         scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
     elif observation.uncertainties is not None:
         scaled_uncertainties = observation.uncertainties * err_scale_factor
         scaled_uncertainties = jnp.sqrt(
-            scaled_uncertainties**2 + additive_variance_term
+            scaled_uncertainties**2
+            + additive_variance_term
+            + fractional_variance_term
         )
         scaled_covariance = None
     else:

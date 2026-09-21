@@ -1055,6 +1055,36 @@ class JAXNSSampler(Sampler):
             # Match the classic sample count, the usual convention for an
             # equal-weight posterior (cf. dynesty's resample_equal).
             num_equal_weight_samples = int(np.asarray(raw_results.total_num_samples).item())
+        elif isinstance(num_equal_weight_samples, str):
+            # "ess": size the archive to the effective sample size instead.
+            #
+            # The default convention stores as many rows as there were nested
+            # samples, drawn WITH REPLACEMENT from a posterior whose effective
+            # size is far smaller. On a SIMP 0136 stage-1 run that was 45985 rows
+            # carrying a Kish ESS of 4643 -- every effective sample present about
+            # six times, unevenly. A histogram or kernel density built on those
+            # rows is six times over-resolved and shows spikes that are pure
+            # resampling grain; they read as modes in a corner plot and are not.
+            # Sizing the draw to the ESS makes the stored archive claim only the
+            # resolution the run actually supports.
+            if num_equal_weight_samples.lower() != "ess":
+                raise ValueError(
+                    "num_equal_weight_samples must be an int, None, or the "
+                    f"string 'ess'; got {num_equal_weight_samples!r}."
+                )
+            ess = getattr(raw_results, "ess", None)
+            if ess is None:
+                warnings.warn(
+                    "num_equal_weight_samples='ess' was requested but this "
+                    "JAXNS result exposes no 'ess'; falling back to the total "
+                    "sample count.",
+                    RuntimeWarning,
+                )
+                num_equal_weight_samples = int(
+                    np.asarray(raw_results.total_num_samples).item()
+                )
+            else:
+                num_equal_weight_samples = int(round(float(np.asarray(ess).item())))
         num_equal_weight_samples = max(1, int(num_equal_weight_samples))
 
         cpu_device = self._get_cpu_device()
