@@ -1424,7 +1424,7 @@ class SpectralModel(Radtrans):
 
         return wavelengths_tmp, spectrum
 
-    def calculate_contribution_spectra(self, mode=None, **kwargs):
+    def calculate_opacity_contribution_spectra(self, mode=None, **kwargs):
         """Calculate the contribution spectra.
 
         Args:
@@ -1461,7 +1461,7 @@ class SpectralModel(Radtrans):
 
         self.update_spectral_calculation_parameters(mode=mode, **self.model_parameters)
 
-        return super().calculate_contribution_spectra(
+        return super().calculate_opacity_contribution_spectra(
             mode=mode,
             temperatures=self.temperatures,
             mass_fractions=self.mass_fractions,

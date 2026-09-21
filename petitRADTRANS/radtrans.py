@@ -2508,8 +2508,7 @@ class Radtrans:
         ]
         return instance
 
-    # TODO Paul_review
-    def calculate_contribution_spectra(
+    def calculate_opacity_contribution_spectra(
         self,
         mode,
         opaque_cloud_top_pressure=None,
@@ -2527,7 +2526,13 @@ class Radtrans:
         The method evaluates the requested spectral mode once with all active
         opacity sources and then repeats the calculation for each individual
         initialization-time or runtime opacity source, returning a dictionary of
-        spectra keyed by contribution name.
+        spectra keyed by contribution name. This is most useful for transmission
+        spectra, but can be a bit confusing for emission spectra, since the flux
+        when only a minor species is present and all others have been turned off
+        can look very different when compared to the full spectrum. If one looks
+        at a situation where the flux actually shows high opacities as emission features
+        (i.e., due to atmospheric inversions), it can be quite useful though,
+        similar to the transmission spectrum contribution.
 
         Args:
             mode:
