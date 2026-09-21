@@ -535,6 +535,11 @@ def get_frequency_grids_intersection_indices(
 
 
 def get_opacity_sources_dict():
+    """Returns an empy locked dictionary structure that can be used
+    to store all opacity species participating in a pRT flux or
+    transmission spectrum call.
+    """
+
     return LockedDict.build_and_lock(
         {
             "init": LockedDict.build_and_lock(

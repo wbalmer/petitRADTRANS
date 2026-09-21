@@ -2531,8 +2531,10 @@ class Radtrans:
         when only a minor species is present and all others have been turned off
         can look very different when compared to the full spectrum. If one looks
         at a situation where the flux actually shows high opacities as emission features
-        (i.e., due to atmospheric inversions), it can be quite useful though,
+        (i.e., due to an atmospheric temperature inversion), it can be quite useful though,
         similar to the transmission spectrum contribution.
+        Caution! This function only works as intended if at least one line species is being used, at
+        the moment.
 
         Args:
             mode:
@@ -2543,11 +2545,11 @@ class Radtrans:
                 Optional reference scattering opacity for the parametrized power
                 law cloud model.
             power_law_opacity_coefficient:
-                Wavelength exponent for the parametrized scattering opacity.
+                Wavelength exponent for the optional parametrized scattering opacity.
             gray_opacity:
                 Optional gray absorption opacity.
             cloud_photosphere_median_optical_depth:
-                Optional target cloud optical depth near the photosphere.
+                Optional target cloud optical depth near the cloud-free photosphere.
             additional_absorption_opacities_function:
                 Optional user-provided absorption opacity callback.
             additional_scattering_opacities_function:
@@ -2560,10 +2562,10 @@ class Radtrans:
 
         Returns:
             Nested dictionary containing the total spectrum under ``"Total"``
-            and contribution spectra grouped by opacity source.
+            and opacity contribution spectra grouped by opacity source.
         """
         # Store opacity sources values
-        opacity_sources = load.get_opacity_sources_dict()
+        opacity_sources = load.get_opacity_sources_dict() # This is empty by default!
         opacity_sources.update(
             {
                 "init": {
@@ -2588,7 +2590,7 @@ class Radtrans:
         )
 
         # Default values for opacity sources
-        opacity_source_default = load.get_opacity_sources_dict()
+        opacity_source_default = load.get_opacity_sources_dict() # This is empty by default!
 
         # Initialize spectral mode
         if mode == "emission":
@@ -2609,7 +2611,8 @@ class Radtrans:
         opacity_contributions = {}
 
         # Total spectrum
-        spectral_parameters = {
+        spectral_parameters = { # Contains all keyword args that are needed for the
+                                # calculate_flux or calculate_transit_radii calls.
             copy.deepcopy(k): copy.deepcopy(v) for k, v in kwargs.items()
         }
 
@@ -2624,6 +2627,9 @@ class Radtrans:
             else:
                 spectral_parameters[key] = copy.deepcopy(value)
 
+        # Evaluate the appropriate spectral function with all opacity species
+        # and all requested keyword arguments. This is the full (nominal) spectrum
+        # Called "total".
         opacity_contributions["Total"] = self.__getattribute__(spectral_function)(
             **spectral_parameters
         )
@@ -2633,15 +2639,19 @@ class Radtrans:
         _default_mass_fractions = None
 
         for opacity_type, opacity_source in opacity_sources.items():
+            # Branch for "line_species", "gas_continuum_contributors",
+            # "rayleigh_species", "cloud_species":
             if opacity_type == "init":  # fixed (at instantiation) opacity sources
                 for (
-                    opacity,
-                    species_list,
+                    opacity, # will be "line_species", "gas_continuum_contributors",
+                             # "rayleigh_species", "cloud_species"
+                    species_list, # will be the contributing list of species.
                 ) in opacity_source.items():  # all fixed opacity sources are lists
-                    opacity_contributions[opacity] = {}
+                    opacity_contributions[opacity] = {} # make an empty dictionary for the,
+                                                        # e.g., "line_species" key.
 
                     # Init a temporary radtrans object with only the relevant opacity source
-                    for species in species_list:
+                    for species in species_list: # loop through the species
                         _user_cloud_species = None
 
                         # Use full names for CIA and clouds to have a clean legend when plotting the opacities
@@ -2651,16 +2661,27 @@ class Radtrans:
                             _user_cloud_species = species
                             species = CloudOpacity.get_aliases(species)
 
-                        fixed_opacity_sources = opacity_source_default[opacity_type]
-                        fixed_opacity_sources[opacity] = [species]
+                        fixed_opacity_sources = opacity_source_default[opacity_type] # since we are
+                                                # in the "init" branch, this will return a dictionary
+                                                # with keys "line_species", "gas_continuum_contributors",
+                                                # "rayleigh_species", "cloud_species", all containing
+                                                # empty tuples
+                        fixed_opacity_sources[opacity] = [species] # now we overwrite one of these empty
+                                                                   # tuples with a list that contains
+                                                                   # the one species for which we want
+                                                                   # to calculate the spectrum
+                                                                   # (will be cast to tuple within pRT)
 
                         print(
                             f"Generating temporary Radtrans object with '{opacity}': '{species}'"
                         )
 
                         # Instantiate a default Radtrans object that will be used for runtime opacity sources
-                        if _default_radtrans is None:
-                            _default_radtrans = Radtrans(
+                        if _default_radtrans is None: # this happens just once, after that it isn't None any longer
+                            _default_radtrans = Radtrans( # This mirrors the pRT object setup from which this
+                                                          # calculate_opacity_contribution_spectra call is
+                                                          # run, except for the fact that only one opacity
+                                                          # species is used.
                                 pressures=self._pressures * 1e-6,  # cgs to bar
                                 wavelength_boundaries=self.wavelength_boundaries,
                                 line_opacity_mode=self.line_opacity_mode,
@@ -2669,10 +2690,11 @@ class Radtrans:
                                 emission_angle_grid=self.emission_angle_grid,
                                 anisotropic_cloud_scattering=self.anisotropic_cloud_scattering,
                                 path_input_data=self.path_input_data,
-                                **fixed_opacity_sources,
+                                **fixed_opacity_sources, # use only the one species requested here.
                             )
 
-                        if _default_mass_fractions is None:
+                        if _default_mass_fractions is None: # Like above, will be initialized once,
+                                                            # then reused.
                             _default_mass_fractions = {
                                 species: jnp.zeros(
                                     self._pressures.size, dtype=FEAUTRIER_JAX_DTYPE
@@ -2680,12 +2702,18 @@ class Radtrans:
                             }
 
                         # Use the first line species in order to keep the resolving power consistent in all spectra
-                        if opacity != "line_species":
+                        if opacity != "line_species": # This also means that calculate_opacity_contribution spectra
+                                                      # will crash if there's no line_species.
                             fixed_opacity_sources["line_species"] = (
-                                _default_radtrans.line_species
+                                _default_radtrans.line_species # This only works since the first entry in
+                                                               # "init" is "line_species", otherwise
+                                                               # this would not even be filled at this point.
                             )
 
-                        _radtrans = Radtrans(
+                        _radtrans = Radtrans( # This mirrors the pRT object setup from which this
+                                              # calculate_opacity_contribution_spectra call is
+                                              # run, except for the fact that only one opacity
+                                              # species is used.
                             pressures=self._pressures * 1e-6,  # cgs to bar
                             wavelength_boundaries=self.wavelength_boundaries,
                             line_opacity_mode=self.line_opacity_mode,
@@ -2700,18 +2728,38 @@ class Radtrans:
                         # Generate the spectrum containing only the relevant fixed opacity source
                         spectral_parameters = {}
 
-                        # Fill the spectral parameters with default values for all runtime opacity sources
-                        for _key, _value in kwargs.items():
-                            if _key in opacity_source_default["runtime"]:
-                                spectral_parameters[_key] = copy.deepcopy(
-                                    opacity_source_default["runtime"][_key]
+                        # Force all runtime opacity sources to their default (off) value, since only the
+                        # current fixed opacity source should contribute to this spectrum. Note that these
+                        # cannot be reached via kwargs below: they are named parameters of this function,
+                        # so Python binds them directly instead of collecting them into **kwargs.
+                        for _key, _value in opacity_source_default["runtime"].items():
+                            if _key == "power_law":
+                                # power_law's default is a nested dict of its own sub-parameters;
+                                # unpack it into flat kwargs to match the spectral function signature
+                                spectral_parameters["power_law_opacity_350nm"] = copy.deepcopy(
+                                    _value["power_law_opacity_350nm"]
                                 )
-                            elif _key == "mass_fractions":
+                                spectral_parameters["power_law_opacity_coefficient"] = copy.deepcopy(
+                                    _value["power_law_opacity_coefficient"]
+                                )
+                            else:
+                                spectral_parameters[_key] = copy.deepcopy(_value)
+
+                        # Forward the remaining (non-opacity) spectral parameters as provided by the user
+                        for _key, _value in kwargs.items():
+                            if _key == "mass_fractions":
                                 spectral_parameters[_key] = copy.deepcopy(_value)
 
                                 # Fixes the first line species MMR to 0 so that it does not impact the spectrum
                                 if species not in _default_mass_fractions:
-                                    spectral_parameters[_key].update(
+                                    spectral_parameters[_key].update( # so if we are calling this on clouds
+                                                                      # the first line species opacity won't
+                                                                      # have any effect (updating a larger
+                                                                      # dictionary with a smaller one
+                                                                      # only updates those key values where
+                                                                      # keys are the same (and adds newly
+                                                                      # those entries that do not have a
+                                                                      # corresponding key yet).
                                         _default_mass_fractions
                                     )
                             else:  # non-opacity spectral parameters
@@ -2733,7 +2781,7 @@ class Radtrans:
                         )(**spectral_parameters)
 
                         del _radtrans  # free up some memory
-            else:  # variable (at runtime) opacity sources
+            else:  # variable (at runtime) opacity sources # TODO Paul: continue from here
                 for opacity, opacity_value in opacity_source.items():
                     if opacity_value is None:
                         opacity_contributions[opacity] = None
