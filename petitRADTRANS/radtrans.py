@@ -2781,9 +2781,11 @@ class Radtrans:
                         )(**spectral_parameters)
 
                         del _radtrans  # free up some memory
-            else:  # variable (at runtime) opacity sources # TODO Paul: continue from here
+            else:  # variable (at runtime) opacity sources (also called analytical opacities)
                 for opacity, opacity_value in opacity_source.items():
-                    if opacity_value is None:
+                    # opacity will be opaque_cloud_top_pressure, power_law, gray_opacity, ...
+                    # And value will be its values
+                    if opacity_value is None: # Skip if nothing is to be done.
                         opacity_contributions[opacity] = None
                         continue
 
@@ -2816,11 +2818,7 @@ class Radtrans:
 
                     # Fill the spectral parameters with default values for non-relevant opacity sources
                     for key, value in kwargs.items():
-                        if key in opacity_source_default["runtime"]:
-                            spectral_parameters[key] = copy.deepcopy(
-                                opacity_source_default["runtime"][key]
-                            )
-                        elif key == "mass_fractions":
+                        if key == "mass_fractions":
                             spectral_parameters[key] = copy.deepcopy(
                                 _default_mass_fractions
                             )
