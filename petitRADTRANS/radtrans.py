@@ -3941,6 +3941,7 @@ class Radtrans:
         )
 
         return opacities_rosseland, opacities_planck
+        # TODO: confirm that pRT3 and pRT4 agree!
 
     @_compile_spectral_function(_TRANSIT_RADII_STATIC_ARGNAMES)
     def calculate_transit_radii(
