@@ -583,7 +583,6 @@ class Radtrans:
         self._path_input_data = path_input_data
 
         # Initialize non-settable properties
-        self.__scattering_in_transmission = False
         self.__sum_opacities = False
         self.__absorber_present = not (
             len(self._line_species) == 0
@@ -2438,7 +2437,6 @@ class Radtrans:
                 else tuple(collision_dict["molecules"])
                 for collision_dict in self._cias_loaded_opacities.values()
             ),
-            "scattering_in_transmission": self.__scattering_in_transmission,
             "sum_opacities": self.__sum_opacities,
             "absorber_present": self.__absorber_present,
             "sum_opacities_emission": self._sum_opacities_emission,
@@ -2497,9 +2495,6 @@ class Radtrans:
             "retain_unstacked_line_opacities_for_plotting"
         ]
         instance._path_input_data = aux_data["path_input_data"]
-        instance._Radtrans__scattering_in_transmission = aux_data[
-            "scattering_in_transmission"
-        ]
         instance._Radtrans__sum_opacities = aux_data["sum_opacities"]
         instance._Radtrans__absorber_present = aux_data["absorber_present"]
         instance._sum_opacities_emission = aux_data["sum_opacities_emission"]
@@ -3733,7 +3728,6 @@ class Radtrans:
 
         return jnp.zeros(self._frequencies.size, dtype=FEAUTRIER_JAX_DTYPE)
 
-    # TODO Paul_review
     def calculate_rosseland_planck_opacities(
         self,
         temperatures: npt.NDArray[float],
@@ -3753,7 +3747,7 @@ class Radtrans:
         power_law_opacity_350nm: float = None,
         power_law_opacity_coefficient: float = None,
         gray_opacity: float = None,
-    ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
+    ) -> tuple[npt.NDArray[float], npt.NDArray[float]]:
         """Method to calculate the atmosphere's Rosseland and Planck mean opacities.
 
         Args:
@@ -3819,6 +3813,9 @@ class Radtrans:
             gray_opacity (Optional[float]):
                 Gray opacity value, to be added to the opacity at all
                 pressures and wavelengths (units :math:`\\rm cm^2/g`)
+            TODO: add support for additional_absorption_opacities_function,
+                additional_scattering_opacities_function and
+                cloud_photosphere_median_optical_depth.
         """
         if not self._scattering_in_emission:
             raise ValueError(
@@ -3832,9 +3829,10 @@ class Radtrans:
             auto_anisotropic_cloud_scattering = True
         elif not self._anisotropic_cloud_scattering:
             debug.print(
-                f"anisotropic cloud scattering is recommended for emission spectra, "
+                f"anisotropic cloud scattering is recommended when calculating rosseland and planck"
+                f"mean opacities to be used in the emission context (as opposed to transmission geometry), "
                 f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
-                f"set it to 'auto' to disable this warning"
+                f"set it to 'auto' to disable this warning."
             )
 
         sanitized_inputs = _sanitize_flux_opacity_inputs(
@@ -3862,15 +3860,15 @@ class Radtrans:
             additional_opacities_placeholder_fn=_additional_opacities_placeholder_fn,
         )
 
-        # No photospheric cloud in Rosseland or Planck opacities
+        # No photospheric cloud in Rosseland or Planck opacities, but could be added.
         (
             opacities,
             continuum_opacities_scattering,
             _,
             _,
             _,
-            cloud_particle_mean_radii,
-            cloud_scattering_in_transmission,
+            _,
+            _,
             _,
             _,
             _,
@@ -3920,7 +3918,6 @@ class Radtrans:
             target_particle_radii=sanitized_inputs["target_particle_radii"],
             target_pressure=sanitized_inputs["target_pressure"],
         )
-        self.__scattering_in_transmission = cloud_scattering_in_transmission
 
         if auto_anisotropic_cloud_scattering:
             self._anisotropic_cloud_scattering = "auto"
@@ -3943,7 +3940,7 @@ class Radtrans:
             continuum_opacities_scattering,
         )
 
-        return opacities_rosseland, opacities_planck, cloud_particle_mean_radii
+        return opacities_rosseland, opacities_planck
 
     @_compile_spectral_function(_TRANSIT_RADII_STATIC_ARGNAMES)
     def calculate_transit_radii(
