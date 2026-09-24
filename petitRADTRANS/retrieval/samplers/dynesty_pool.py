@@ -1,4 +1,14 @@
-from __future__ import annotations
+"""Picklable likelihood and prior callables for Dynesty.
+
+Dynesty pickles whatever it is given: to its worker pool, and into its
+checkpoint file. A closure over the retrieval runtime survives neither, so the
+two callables here carry the runtime as a **dill payload** instead and
+rehydrate it lazily, once per process, on first call.
+
+That indirection is also what keeps the payload small: the parent pickles the
+bytes once at construction, and ``__getstate__`` ships only those bytes, never
+the live ``Radtrans`` objects or their loaded opacity tables.
+"""
 
 import dill
 import numpy as np

@@ -41,7 +41,9 @@ from .calibration import (
     generate_posterior_predictive_report,
     generate_sbc_report,
     serialize_ood_diagnostic,
-    summarize_posterior_contraction,
+    summarize_parameter_units,
+    summarize_posterior_width_ratios,
+    summarize_prior_edge_occupancy,
     summarize_posterior_samples,
     summarize_predictive_report,
     summarize_training_diagnostics,
@@ -1263,7 +1265,7 @@ def run_sbi(config: SBIConfig) -> Path:
        observation to produce posterior samples (mapped to physical parameter
        space), a posterior-predictive summary, and an OOD diagnostic.
     10. **Reporting & persistence.** Classify per-parameter informativeness
-        (contraction cross-checked against SBC calibration), optionally render the
+        (width ratio cross-checked against SBC calibration), optionally render the
         validation plot set, and write the samples, predictive spectrum, summary
         JSON, and run manifest; finally mark the run completed and update the
         ``latest`` pointer.
@@ -2141,25 +2143,25 @@ def run_sbi(config: SBIConfig) -> Path:
         "...",
     )
 
-    posterior_contraction = summarize_posterior_contraction(
+    posterior_width_ratios = summarize_posterior_width_ratios(
         posterior_samples, parameter_names, retrieval_config
     )
-    # Cross-check contraction against the validation SBC calibration: a tiny
-    # contraction with a high SBC rank error is an OVERCONFIDENT collapse
+    # Cross-check the width ratio against the validation SBC calibration: a tiny
+    # width ratio with a high SBC rank error is an OVERCONFIDENT collapse
     # (confidently wrong), not a genuine constraint.
-    contraction_array = [
-        (entry["contraction"] if entry["contraction"] is not None else float("nan"))
-        for entry in posterior_contraction.values()
+    width_ratio_array = [
+        (entry["width_ratio"] if entry["width_ratio"] is not None else float("nan"))
+        for entry in posterior_width_ratios.values()
     ]
     informativeness = classify_posterior_informativeness(
-        contraction_array,
+        width_ratio_array,
         validation_sbc_report.normalized_mean_rank_error,
-        list(posterior_contraction.keys()),
+        list(posterior_width_ratios.keys()),
     )
     n_constrained = sum(1 for v in informativeness.verdict if v == "constrained")
     n_overconfident = sum(1 for v in informativeness.verdict if v == "overconfident")
     print(
-        "Posterior informativeness (contraction + validation-SBC calibration): "
+        "Posterior informativeness (width ratio + validation-SBC calibration): "
         f"{n_constrained} constrained, {n_overconfident} OVERCONFIDENT/collapsed "
         f"of {len(parameter_names)}"
     )
@@ -2168,15 +2170,42 @@ def run_sbi(config: SBIConfig) -> Path:
         "overconfident": "  <-- OVERCONFIDENT (collapsed, miscalibrated)",
         "uninformative": "  <-- ~prior (uninformative)",
     }
-    for name, contraction, verdict in zip(
+    for name, width_ratio, verdict in zip(
         informativeness.parameter_names,
-        informativeness.contraction,
+        informativeness.width_ratio,
         informativeness.verdict,
     ):
-        contraction_text = (
-            "n/a" if not np.isfinite(contraction) else f"{contraction:.2f}"
+        width_ratio_text = (
+            "n/a" if not np.isfinite(width_ratio) else f"{width_ratio:.2f}"
         )
-        print(f"  {name:28s} contraction={contraction_text}{verdict_tag.get(verdict, '')}")
+        print(
+            f"  {name:28s} width_ratio={width_ratio_text}"
+            f"{verdict_tag.get(verdict, '')}"
+        )
+
+    # Prior-edge guard. SBC draws its truths from the prior, so it is calibrated
+    # by construction exactly where this fails; only the delivered posterior's
+    # own position against the bounds can reveal it.
+    parameter_units = summarize_parameter_units(retrieval_config, parameter_names)
+    prior_edge_report = summarize_prior_edge_occupancy(
+        posterior_samples, parameter_names, retrieval_config
+    )
+    if prior_edge_report["n_parameters_at_prior_edge"]:
+        print(
+            "WARNING: posterior mass is piled against a prior bound for "
+            f"{prior_edge_report['n_parameters_at_prior_edge']} parameter(s); "
+            "the prior may be truncating the solution:"
+        )
+        for name in prior_edge_report["parameters_at_prior_edge"]:
+            entry = prior_edge_report["per_parameter"][name]
+            print(
+                f"  {name:28s} {entry['edge']} bound, "
+                f"{max(entry['lower_edge_mass'], entry['upper_edge_mass']):.1%} of mass "
+                f"in the outer {prior_edge_report['edge_width']:.0%} "
+                f"({entry['enrichment']:.1f}x the prior)"
+            )
+    else:
+        print("Prior-edge guard: no parameter piles against a prior bound.")
 
     if config.generate_plots:
         save_validation_plots(
@@ -2250,7 +2279,9 @@ def run_sbi(config: SBIConfig) -> Path:
         "delivered_posterior_degenerate_marginals": _count_degenerate_marginals(
             posterior_samples
         ),
-        "posterior_contraction": posterior_contraction,
+        "posterior_prior_width_ratio": posterior_width_ratios,
+        "parameter_units": parameter_units,
+        "prior_edge_report": prior_edge_report,
         "n_parameters_constrained": int(n_constrained),
         "sbc_mean_rank": np.asarray(
             validation_sbc_report.mean_rank, dtype=float

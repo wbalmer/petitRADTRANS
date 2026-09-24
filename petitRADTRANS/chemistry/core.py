@@ -39,6 +39,7 @@ from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.chemistry import clouds as fc
 
 from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
+from petitRADTRANS.utils import get_parameter_alias_value
 
 INVALID_VALUE = jnp.array(jnp.inf, FEAUTRIER_JAX_DTYPE)
 
@@ -129,18 +130,6 @@ def _normalize_parameter_mapping(parameters):
     return {
         name: get_parameter_value(value) for name, value in dict(parameters).items()
     }
-
-
-def _get_parameter_alias_value(parameters, *names, default=None):
-    """Return the first non-``None`` parameter value among the provided aliases."""
-    for name in names:
-        if name in parameters:
-            value = get_parameter_value(parameters[name])
-
-            if value is not None:
-                return value
-
-    return default
 
 
 def _get_static_bool_parameter(parameter_name, parameter_value) -> bool:
@@ -273,6 +262,21 @@ def _resolve_cloud_base_pressure(
         )
 
     return INVALID_VALUE
+
+
+def _resolve_cloud_base_smoothing(cloud_name, parameters, parameter_keys, default):
+    """Resolve the cloud-base smoothing width for one cloud species, in dex."""
+    cloud_smoothing_key = f"cloud_base_smoothing_{cloud_name}"
+    if cloud_smoothing_key in parameter_keys:
+        return parameters[cloud_smoothing_key]
+    if "cloud_base_smoothing" in parameter_keys:
+        return parameters["cloud_base_smoothing"]
+    return default
+
+
+def _has_cloud_fsed(cloud_name, parameter_keys):
+    """Return whether a sedimentation efficiency is configured for a cloud."""
+    return f"f_sed_{cloud_name}" in parameter_keys or "f_sed" in parameter_keys
 
 
 def _resolve_cloud_fsed(cloud_name, parameters, parameter_keys):
@@ -511,7 +515,7 @@ def _build_isotopologue_ratio_mass_fractions(
     ratio_mass_fractions = {}
 
     for isotope_ratio_spec in _ISOTOPE_RATIO_SPECS:
-        isotope_ratio = _get_parameter_alias_value(
+        isotope_ratio = get_parameter_alias_value(
             parameters,
             *isotope_ratio_spec["parameter_aliases"],
         )
@@ -594,19 +598,19 @@ def _resolve_chemistry_mode(parameters):
         - If neither signal is present, the caller stays on the free-chemistry
           path.
     """
-    metallicity = _get_parameter_alias_value(
+    metallicity = get_parameter_alias_value(
         parameters,
         "M/H",
         "metallicity",
         "Fe/H",
     )
-    co_ratio = _get_parameter_alias_value(parameters, "C/O", "co_ratio")
-    carbon_quench_pressure = _get_parameter_alias_value(
+    co_ratio = get_parameter_alias_value(parameters, "C/O", "co_ratio")
+    carbon_quench_pressure = get_parameter_alias_value(
         parameters,
         "Pquench",
         "carbon_quench_pressure",
     )
-    log_carbon_quench_pressure = _get_parameter_alias_value(
+    log_carbon_quench_pressure = get_parameter_alias_value(
         parameters,
         "log_pquench",
         "log_Pquench",
@@ -628,8 +632,8 @@ def _resolve_chemistry_mode(parameters):
         )
     )
 
-    exo_atmos = _get_parameter_alias_value(parameters, "exo_atmos", "exoatmos")
-    atomic_mass_fractions = _get_parameter_alias_value(
+    exo_atmos = get_parameter_alias_value(parameters, "exo_atmos", "exoatmos")
+    atomic_mass_fractions = get_parameter_alias_value(
         parameters,
         "atomic_mass_fractions",
     )
@@ -1184,6 +1188,7 @@ def calculate_cloud_mass_fractions(
     mean_molar_mass,
     adaptive_mesh_refinement=False,
     use_easychem=False,
+    cloud_base_smoothing=None,
 ):
     """Add cloud abundance profiles and cloud-base metadata to a composition.
 
@@ -1213,6 +1218,14 @@ def calculate_cloud_mass_fractions(
         use_easychem:
             If ``True``, copy cloud abundances directly from a full easyChem
             composition instead of constructing sedimented cloud profiles.
+        cloud_base_smoothing:
+            Width in dex of the taper applied through the cloud base, used as the
+            default for clouds that do not set ``cloud_base_smoothing_<cloud>``
+            in ``parameters``. ``None`` takes the default of
+            :func:`~petitRADTRANS.chemistry.clouds.resolve_cloud_base_smoothing_width`;
+            ``0`` restores the legacy hard cutoff, which is discontinuous in the
+            cloud-base pressure. See
+            :func:`~petitRADTRANS.chemistry.clouds.cloud_vertical_profile`.
 
     Returns:
         A tuple ``(mass_fractions, p_bases, pressure_indices)`` containing the
@@ -1271,17 +1284,29 @@ def calculate_cloud_mass_fractions(
             mass_fractions[cloud] = cloud_abundance
             continue
 
-        cloud_profile = jnp.where(
-            pressures < cloud_base,
-            cloud_abundance * (pressures / cloud_base) ** cloud_fsed,
-            0.0,
+        if not _has_cloud_fsed(cloud_name, parameter_keys):
+            # No sedimentation efficiency configured, so there is no cloud
+            # profile to build.
+            mass_fractions[cloud] = jnp.zeros_like(pressures)[pressure_indices]
+            continue
+
+        cloud_profile = fc.cloud_vertical_profile(
+            pressures,
+            cloud_base_pressure=cloud_base,
+            cloud_abundance=cloud_abundance,
+            f_sed=cloud_fsed,
+            smoothing_width=_resolve_cloud_base_smoothing(
+                cloud_name,
+                parameters,
+                parameter_keys,
+                cloud_base_smoothing,
+            ),
         )
         mass_fractions[cloud] = cloud_profile[pressure_indices]
 
     return mass_fractions, p_bases, pressure_indices
 
 
-# @jit(static_argnames=['line_species', 'cloud_species',])
 def get_abundances(
     pressures: typing.ArrayLike,
     temperatures: typing.ArrayLike,
@@ -1290,6 +1315,7 @@ def get_abundances(
     cloud_species: tuple,
     filling_species: tuple | dict = None,
     adaptive_mesh_refinement: bool = False,
+    cloud_base_smoothing=None,
     **kwargs,
 ):
     """Assemble gas and cloud abundances for a pressure-temperature profile.
@@ -1321,6 +1347,15 @@ def get_abundances(
         adaptive_mesh_refinement:
             Forwarded to ``calculate_cloud_mass_fractions``. The current cloud path
             returns the identity pressure grid.
+        cloud_base_smoothing:
+            Width in dex of the taper applied through each cloud base. ``None``
+            takes the default of
+            :func:`~petitRADTRANS.chemistry.clouds.resolve_cloud_base_smoothing_width`;
+            ``0`` restores the legacy hard cutoff. Individual clouds may
+            override it with a
+            ``cloud_base_smoothing_<cloud>`` parameter, and a
+            ``cloud_base_smoothing`` parameter overrides this argument for every
+            cloud.
         **kwargs:
             Additional keyword arguments forwarded to
             ``calculate_gas_mass_fractions``.
@@ -1432,6 +1467,7 @@ def get_abundances(
             mean_molar_mass,
             adaptive_mesh_refinement=adaptive_mesh_refinement,
             use_easychem=use_full_easychem,
+            cloud_base_smoothing=cloud_base_smoothing,
         )
 
     # Adjust arrays for amr, and magic fix for FeH abundance.
@@ -1440,8 +1476,22 @@ def get_abundances(
             # Magic factor for FeH opacity - off by factor of 2
             abunds_change_rainout = value / 2.0
             if "Fe(s)" in p_bases and not use_full_easychem:
-                index_ro = pressures < p_bases["Fe(s)"]  # Must have iron cloud
-                abunds_change_rainout = jnp.where(index_ro, 0.0, abunds_change_rainout)
+                # Rained out above the iron cloud base. The depletion is tapered
+                # rather than truncated, for the same reason the cloud profile
+                # itself is: a hard cutoff steps whenever the base crosses a
+                # pressure-grid point.
+                abunds_change_rainout = abunds_change_rainout * (
+                    fc.cloud_base_depletion_factor(
+                        pressures,
+                        cloud_base_pressure=p_bases["Fe(s)"],
+                        smoothing_width=_resolve_cloud_base_smoothing(
+                            "Fe(s)",
+                            plain_parameters,
+                            set(plain_parameters),
+                            cloud_base_smoothing,
+                        ),
+                    )
+                )
             mass_fractions[species] = abunds_change_rainout[pressure_indices]
             continue
         mass_fractions[species] = value[pressure_indices]

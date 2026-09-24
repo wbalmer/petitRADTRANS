@@ -37,8 +37,9 @@ much larger intermediates, which is why ``simulation_batch_size`` is small here:
 the same batch size that is comfortable for transmission will exhaust a 40 GB
 GPU in emission.
 
-Read ``sbc_normalized_mean_rank_error``, ``posterior_contraction`` and
-``target_predictive_summary`` from the run summary before trusting any result.
+Read ``sbc_normalized_mean_rank_error``, ``posterior_prior_width_ratio``,
+``prior_edge_report`` and ``target_predictive_summary`` from the run summary
+before trusting any result.
 """
 
 from __future__ import annotations
@@ -99,6 +100,35 @@ FIXED_DISTANCE_TO_SYSTEM = float(20.0 * cst.pc)
 # folder, so only the fixed distance is recorded.
 TRUTH_PARAMETER_VALUES: dict[str, float] = {
     'distance_to_system': FIXED_DISTANCE_TO_SYSTEM,
+    # Values that generated emission_spectrum_perturbed_2e-17.txt. Keys use the
+    # *declared parameter names*, which differ from the generating script's:
+    # 'gamma' -> 'log_gamma' (the model takes 10**log_gamma), 'CH4' -> 'CH4__MM',
+    # 'fsed_' -> 'f_sed_'. planet_radius is in R_jup because its prior declares
+    # units=u.jupiterRad; do NOT multiply by cst.r_jup here.
+    'log_g': 4.50,
+    'planet_radius': 1.0,
+    'T_int': 500.0,
+    # Generated with T_equ = 0.1, below this task's Uniform(10, 200) prior. The
+    # Guillot irradiation term scales as T_equ**4, so against T_int = 500 K it
+    # contributes ~1.6e-7 of the internal flux at the prior floor: 0.1 and 10
+    # give indistinguishable spectra. Recorded at the floor so the value is
+    # scoreable; T_equ is unidentifiable here either way.
+    'T_equ': 10.0,
+    'log_gamma': 0.0,
+    'log_kappa_IR': 1.0,
+    'H2O__POKAZATEL': -1.9,
+    'CO-NatAbund': -2.3,
+    'CH4__MM': -3.9,
+    'CO2': -4.3,
+    'H2S': -3.9,
+    'Na__NewAllard': -5.0,
+    'K__Allard': -5.0,
+    'log_X_cb_MgSiO3(s)': -2.0,
+    'log_Pbase_MgSiO3(s)': -0.5,
+    'sigma_lnorm': 1.200,
+    'f_sed_MgSiO3(s)': 5.0,
+    'log_cloud_radius_MgSiO3(s)': -4.0,
+    'cloud_fraction': 0.8,
 }
 
 
@@ -299,12 +329,14 @@ def main() -> None:
                 weight_decay=1.0e-2,
                 early_stopping_patience=20,
             ),
-            refinement=RefinementConfig(
-                method='map_laplace',
-                map_covariance_method='hessian',
-                test_time_validation=True,
-                test_time_validation_cases=8,
-            ),
+            # Refinement is off. Both per-observation refiners were measured
+            # against the amortized posterior they would replace and both lost
+            # every time: importance sampling collapsed to ESS ~1 of 16384
+            # proposals, and MAP+Laplace reached only 0.73 coverage at a nominal
+            # 0.90 (intervals ~1.7x too narrow), so the delivery gate rejected
+            # them and shipped the amortized posterior anyway. Set
+            # method='map_laplace' to re-enable and re-measure.
+            refinement=RefinementConfig(method='none'),
             truth_parameter_values=TRUTH_PARAMETER_VALUES,
         )
     )

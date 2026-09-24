@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from jax import jit, vmap, lax
+from jax import jit, vmap
 
 import petitRADTRANS.physical_constants as cst
 
@@ -7,11 +7,70 @@ from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 
 ABUNDANCE_THRESHOLD = jnp.finfo(FEAUTRIER_JAX_DTYPE).tiny
 
+# Reference number density of the refractive-index tables (Loschmidt).
+_N_REF = cst.standard_number_density_for_refractive_index
+
+
+def _number_densities(mean_molar_masses, pressures, temperatures, mass_fractions):
+    """Species number density per unit mass fraction, in cm^-3, per layer."""
+    return mean_molar_masses * cst.amu * pressures / cst.kB / temperatures * mass_fractions
+
+
+def _rayleigh_opacity(lamb_inv, nm1, number_density, king_factor, molecule_mass,
+                      mass_fractions):
+    """Rayleigh opacity from a refractive index, for every wavelength and layer.
+
+    .. math::
+        \\kappa = \\frac{24 \\pi^3}{\\lambda^4 n^2}
+                  \\left(\\frac{m^2 - 1}{m^2 + 2}\\right)^2
+                  \\frac{F_k}{m_\\mathrm{mol}} X
+
+    Parameters
+    ----------
+    lamb_inv : jax.Array, shape (n_wavelengths,)
+        Inverse wavelength in cm^-1.
+    nm1 : jax.Array, shape (n_wavelengths,) or (n_wavelengths, n_layers)
+        Refractive index minus one. Species whose refractive index is scaled by
+        the local number density pass the 2-D form.
+    number_density : jax.Array, scalar or shape (n_layers,)
+        Number density the refractive index refers to, in cm^-3.
+    king_factor : jax.Array, scalar or shape (n_wavelengths,)
+        King correction factor for depolarisation.
+    molecule_mass : float
+        Mass of one molecule, in g.
+    mass_fractions : jax.Array, shape (n_layers,)
+        Species mass fraction per layer.
+
+    Returns
+    -------
+    jax.Array, shape (n_wavelengths, n_layers)
+    """
+    # The factor order is kept exactly as in the per-species scatter loops this
+    # replaced. The result still differs from them by up to 1 ULP (float64):
+    # multiplying by the whole mass-fraction vector at once lets XLA contract
+    # the fused multiply-adds differently than the old one-column-at-a-time
+    # loop did. That is ~7 orders of magnitude below the float32 working
+    # precision of the radiative transfer, and the emergent spectra are
+    # unchanged bit for bit.
+    m_squared = (nm1 + 1.0) ** 2
+    opacity = (
+        24.0
+        * jnp.pi**3
+        * lamb_inv**4
+        / number_density**2
+        * ((m_squared - 1.0) / (m_squared + 2.0)) ** 2
+        * king_factor
+        / molecule_mass
+    )
+    if opacity.ndim == 1:
+        opacity = opacity[:, None]
+
+    return opacity * mass_fractions
+
 
 @jit
 def H2_rayleigh(wavelengths_angstroem, mass_fractions):
-    """Calculates H2 Rayleigh scattering opacities (optimized)."""
-
+    """Calculates H2 Rayleigh scattering opacities."""
     # Constants hoisted out of the calculation loop
     c1 = 8.14e-13 / 1.66053892e-24 * 0.5
     c2 = 1.28e-6 / 1.66053892e-24 * 0.5
@@ -26,15 +85,7 @@ def H2_rayleigh(wavelengths_angstroem, mass_fractions):
     # Compute the factor vectorized
     factor = c1 * inv_wavelengths4 + c2 * inv_wavelengths6 + c3 * inv_wavelengths8
 
-    # Compute opacities, avoiding unnecessary zeros
-    rayleigh_scattering_opacities = factor[:, None] * mass_fractions
-    rayleigh_scattering_opacities = jnp.where(
-        rayleigh_scattering_opacities < ABUNDANCE_THRESHOLD,
-        0.0,
-        rayleigh_scattering_opacities,
-    )
-
-    return rayleigh_scattering_opacities
+    return factor[:, None] * mass_fractions
 
 
 @jit
@@ -45,7 +96,6 @@ def He_rayleigh(wavelengths_angstroem, mass_fractions):
     Args:
         wavelengths_angstroem: JAX array of wavelengths in Angstroms.
         mass_fractions: JAX array of mass fractions for each layer.
-        ABUNDANCE_THRESHOLD: Threshold below which opacity is set to zero.
 
     Returns:
         JAX array of Rayleigh scattering opacities for each wavelength and layer.
@@ -70,19 +120,7 @@ def He_rayleigh(wavelengths_angstroem, mass_fractions):
         / 1.66053892e-24
     )
 
-    # Calculate Rayleigh scattering opacities with broadcasting
-    rayleigh_scattering_opacities = (
-        alpha_polarization[:, None] * mass_fractions[None, :]
-    )
-
-    # Apply abundance threshold
-    rayleigh_scattering_opacities = jnp.where(
-        mass_fractions[None, :] < ABUNDANCE_THRESHOLD,
-        0.0,
-        rayleigh_scattering_opacities,
-    )
-
-    return rayleigh_scattering_opacities
+    return alpha_polarization[:, None] * mass_fractions[None, :]
 
 
 @jit
@@ -105,14 +143,11 @@ def h2o_rayleigh(
     mass_h2o = 18 * cst.amu
 
     lambda_norm = lambda_cm / 1e-4 / 0.589
-    d = mean_molar_masses * cst.amu * pressures / cst.kB / temperatures * mass_fractions
+    d = _number_densities(mean_molar_masses, pressures, temperatures, mass_fractions)
     temperatures_ = temperatures / 273.15
 
     @jit
     def H2O_rayleigh_single_layer(i_str):
-        # if mass_fractions[i_str] < ABUNDANCE_THRESHOLD:
-        #    return jnp.zeros(n_frequencies)
-
         retVal = (
             a0
             + a1 * d[i_str]
@@ -177,304 +212,138 @@ def h2o_rayleigh(
 def co2_rayleigh(
     wavelengths_angstroem, mass_fractions, mean_molar_masses, pressures, temperatures
 ):
-    rayleigh_scattering_opacities = jnp.zeros(
-        (wavelengths_angstroem.size, mass_fractions.size)
+    """Calculates CO2 Rayleigh scattering opacities."""
+    d = _number_densities(mean_molar_masses, pressures, temperatures, mass_fractions)
+    lamb_inv = 1.0 / (wavelengths_angstroem * 1e-8)
+
+    # (n_layers,): the refractive index is scaled to the local number density.
+    scale = d / 44.0 / cst.amu / _N_REF
+
+    nm1 = (
+        1e-3
+        * 1.1427e6
+        * (
+            5799.25 / jnp.maximum(20.0**2, 128908.9**2 - lamb_inv**2)
+            + 120.05 / jnp.maximum(20.0**2, 89223.8**2 - lamb_inv**2)
+            + 5.3334 / jnp.maximum(20.0**2, 75037.5**2 - lamb_inv**2)
+            + 4.3244 / jnp.maximum(20.0**2, 67837.7**2 - lamb_inv**2)
+            + 0.1218145e-4 / jnp.maximum(20.0**2, 2418.136**2 - lamb_inv**2)
+        )
+    )[:, None] * scale[None, :]  # (n_wavelengths, n_layers)
+
+    fk = 1.1364 + 25.3e-12 * lamb_inv**2
+
+    return _rayleigh_opacity(
+        lamb_inv[:, None], nm1, scale[None, :] * _N_REF, fk[:, None],
+        44.0 * cst.amu, mass_fractions,
     )
-    d = mean_molar_masses * cst.amu * pressures / cst.kB / temperatures * mass_fractions
-    lambda_cm = wavelengths_angstroem * 1e-8
-    lamb_inv = 1.0 / lambda_cm
-    mass_co2 = 44.0 * cst.amu
-
-    # Use lax.cond for conditional execution within JIT
-    def compute_opacity(i_str, opacities):
-        scale = (
-            d[i_str] / 44.0 / cst.amu / cst.standard_number_density_for_refractive_index
-        )
-
-        nm1 = (
-            1e-3
-            * 1.1427e6
-            * (
-                5799.25 / jnp.maximum(20.0**2, 128908.9**2 - lamb_inv**2)
-                + 120.05 / jnp.maximum(20.0**2, 89223.8**2 - lamb_inv**2)
-                + 5.3334 / jnp.maximum(20.0**2, 75037.5**2 - lamb_inv**2)
-                + 4.3244 / jnp.maximum(20.0**2, 67837.7**2 - lamb_inv**2)
-                + 0.1218145e-4 / jnp.maximum(20.0**2, 2418.136**2 - lamb_inv**2)
-            )
-            * scale
-        )
-
-        fk = 1.1364 + 25.3e-12 * lamb_inv**2
-
-        new_opacities = opacities.at[:, i_str].set(
-            opacities[:, i_str]
-            + 24.0
-            * jnp.pi**3
-            * lamb_inv**4
-            / (scale * cst.standard_number_density_for_refractive_index) ** 2
-            * (((nm1 + 1.0) ** 2 - 1.0) / ((nm1 + 1.0) ** 2 + 2.0)) ** 2
-            * fk
-            / mass_co2
-            * mass_fractions[i_str]
-        )
-
-        return new_opacities
-
-    rayleigh_scattering_opacities = lax.fori_loop(
-        0,
-        mass_fractions.size,
-        lambda i_str, opacities: lax.cond(
-            mass_fractions[i_str] > ABUNDANCE_THRESHOLD,
-            compute_opacity,
-            lambda i_str, opacities: opacities,  # No-op if condition fails
-            i_str,
-            opacities,
-        ),
-        rayleigh_scattering_opacities,
-    )
-    return rayleigh_scattering_opacities
 
 
 @jit
-def o2_rayleigh(
-    wavelengths_angstroem, mass_fractions, mean_molar_masses, pressures, temperatures
-):
-    """Calculates O2 Rayleigh scattering opacities (JIT-compatible)."""
-    # d = mean_molar_masses * cst.amu * pressures / cst.kB / temperatures * mass_fractions
-    lambda_cm = wavelengths_angstroem * 1e-8
-    lamb_inv = 1.0 / lambda_cm
-    mass_o2 = 32.0 * cst.amu
+def o2_rayleigh(wavelengths_angstroem, mass_fractions):
+    """Calculates O2 Rayleigh scattering opacities."""
+    lamb_inv = 1.0 / (wavelengths_angstroem * 1e-8)
 
-    # Preallocate output array (required for JIT)
-    rayleigh_scattering_opacities = jnp.zeros(
-        (wavelengths_angstroem.size, mass_fractions.size)
+    # Use jnp.where for conditional assignment of A and B
+    A = jnp.where(lamb_inv > 18315.0, 20564.8, 21351.1)
+    B = jnp.where(lamb_inv > 18315.0, 2.480899e13, 2.18567e13)
+    C = 4.09e9
+
+    nm1 = 1e-8 * (A + B / (C - lamb_inv**2))
+    fk = 1.096 + 1.385e-11 * lamb_inv**2 + 1.448e-20 * lamb_inv**4
+
+    return _rayleigh_opacity(
+        lamb_inv, nm1, 2.68678e19, fk, 32.0 * cst.amu, mass_fractions
     )
-
-    # Use lax.cond for conditional execution within JIT
-    def compute_opacity(i_str, opacities):
-        # scale = d[i_str] / mass_o2 / 2.68678e19
-
-        # Use jnp.where for conditional assignment of A and B
-        A = jnp.where(lamb_inv > 18315.0, 20564.8, 21351.1)
-        B = jnp.where(lamb_inv > 18315.0, 2.480899e13, 2.18567e13)
-        C = 4.09e9
-
-        # Vectorized calculation of nm1 and fk
-        nm1 = 1e-8 * (A + B / (C - lamb_inv**2))
-        # nm1 *= scale # WHY NOT!?
-        fk = 1.096 + 1.385e-11 * lamb_inv**2 + 1.448e-20 * lamb_inv**4
-
-        # Calculate Rayleigh scattering opacities, broadcasting for layers
-        new_opacities = opacities.at[:, i_str].set(
-            opacities[:, i_str]
-            + 24.0
-            * jnp.pi**3
-            * lamb_inv**4
-            / (2.68678e19) ** 2
-            * (((nm1 + 1.0) ** 2 - 1.0) / ((nm1 + 1.0) ** 2 + 2.0)) ** 2
-            * fk
-            / mass_o2
-            * mass_fractions[i_str]
-        )
-        return new_opacities
-
-    # Use lax.fori_loop for JIT-compatible loop
-    rayleigh_scattering_opacities = lax.fori_loop(
-        0,
-        mass_fractions.size,
-        lambda i_str, opacities: lax.cond(
-            mass_fractions[i_str] > ABUNDANCE_THRESHOLD,
-            compute_opacity,
-            lambda i_str, opacities: opacities,  # No-op if condition fails
-            i_str,
-            opacities,
-        ),
-        rayleigh_scattering_opacities,
-    )
-    return rayleigh_scattering_opacities
 
 
 @jit
-def n2_rayleigh(
-    wavelengths_angstroem, mass_fractions, mean_molar_masses, pressures, temperatures
-):
-    """Calculates N2 Rayleigh scattering opacities (JIT-compatible)."""
-    lambda_cm = wavelengths_angstroem * 1e-8
-    lamb_inv = 1.0 / lambda_cm
-    mass_n2 = 34.0 * cst.amu
+def n2_rayleigh(wavelengths_angstroem, mass_fractions):
+    """Calculates N2 Rayleigh scattering opacities."""
+    lamb_inv = 1.0 / (wavelengths_angstroem * 1e-8)
 
-    # Preallocate output array (required for JIT)
-    rayleigh_scattering_opacities = jnp.zeros(
-        (wavelengths_angstroem.size, mass_fractions.size)
+    # Nested jnp.where for conditional assignment of A, B, and C
+    A = jnp.where(
+        lamb_inv > 21360.0,
+        5677.465,
+        jnp.where(lamb_inv > 4860.0, 6498.2, 0.0),  # 0 if not in either range
     )
-
-    # Use lax.cond for conditional execution within JIT
-    def compute_opacity(i_str, opacities):
-        # Nested jnp.where for conditional assignment of A, B, and C
-        A = jnp.where(
-            lamb_inv > 21360.0,
-            5677.465,
-            jnp.where(lamb_inv > 4860.0, 6498.2, 0.0),  # 0 if not in either range
-        )
-        B = jnp.where(
-            lamb_inv > 21360.0,
-            318.81874e12,
-            jnp.where(lamb_inv > 4860.0, 307.43305e12, 0.0),
-        )
-        C = jnp.where(lamb_inv > 4860.0, 14.4e9, 0.0)
-
-        # Vectorized calculation of nm1 and fk (with condition applied to nm1)
-        nm1 = jnp.where(lamb_inv > 4860.0, 1e-8 * (A + B / (C - lamb_inv**2)), 0.0)
-        fk = 1.034 + 3.17e-12 * lamb_inv**2
-
-        # Calculate Rayleigh scattering opacities (with broadcasting for layers)
-        new_opacities = opacities.at[:, i_str].set(
-            opacities[:, i_str]
-            + 24.0
-            * jnp.pi**3
-            * lamb_inv**4
-            / (2.546899e19) ** 2
-            * (((nm1 + 1.0) ** 2 - 1.0) / ((nm1 + 1.0) ** 2 + 2.0)) ** 2
-            * fk
-            / mass_n2
-            * mass_fractions[i_str]
-        )
-        return new_opacities
-
-    # Use lax.fori_loop for JIT-compatible loop
-    rayleigh_scattering_opacities = lax.fori_loop(
-        0,
-        mass_fractions.size,
-        lambda i_str, opacities: lax.cond(
-            mass_fractions[i_str] > ABUNDANCE_THRESHOLD,
-            compute_opacity,
-            lambda i_str, opacities: opacities,  # No-op if condition fails
-            i_str,
-            opacities,
-        ),
-        rayleigh_scattering_opacities,
+    B = jnp.where(
+        lamb_inv > 21360.0,
+        318.81874e12,
+        jnp.where(lamb_inv > 4860.0, 307.43305e12, 0.0),
     )
+    C = jnp.where(lamb_inv > 4860.0, 14.4e9, 0.0)
 
-    return rayleigh_scattering_opacities
+    nm1 = jnp.where(lamb_inv > 4860.0, 1e-8 * (A + B / (C - lamb_inv**2)), 0.0)
+    fk = 1.034 + 3.17e-12 * lamb_inv**2
+
+    # NOTE: 34.0 amu, not the 28.0 amu of N2, is carried over verbatim from the
+    # Fortran implementation this was ported from.
+    return _rayleigh_opacity(
+        lamb_inv, nm1, 2.546899e19, fk, 34.0 * cst.amu, mass_fractions
+    )
 
 
 @jit
 def co_rayleigh(
     wavelengths_angstroem, mass_fractions, mean_molar_masses, pressures, temperatures
 ):
-    """Calculates CO Rayleigh scattering opacities (JIT-compatible)."""
-    d = mean_molar_masses * cst.amu * pressures / cst.kB / temperatures * mass_fractions
+    """Calculates CO Rayleigh scattering opacities."""
+    d = _number_densities(mean_molar_masses, pressures, temperatures, mass_fractions)
     lambda_cm = wavelengths_angstroem * 1e-8
     lamb_inv = 1.0 / lambda_cm
-    mass_co = 28.0 * cst.amu
 
-    # Preallocate output array (required for JIT)
-    rayleigh_scattering_opacities = jnp.zeros(
-        (wavelengths_angstroem.size, mass_fractions.size)
+    scale = d / 28.0 / cst.amu / _N_REF  # (n_layers,)
+    nfr_co = d / 28.0 / cst.amu
+
+    # Use jnp.where for conditional adjustment of lamb_inv
+    lamb_inv_use = jnp.where(lambda_cm / 1e-4 < 0.168, 1.0 / 0.168e-4, lamb_inv)
+
+    nm1 = (
+        (22851.0 + 0.456e12 / (71427.0**2 - lamb_inv_use**2)) * 1e-8
+    )[:, None] * scale[None, :]  # (n_wavelengths, n_layers)
+    fk = 1.016
+
+    return _rayleigh_opacity(
+        lamb_inv[:, None], nm1, nfr_co[None, :], fk, 28.0 * cst.amu, mass_fractions
     )
-
-    # Use lax.cond for conditional execution within JIT
-    def compute_opacity(i_str, opacities):
-        scale = (
-            d[i_str] / 28.0 / cst.amu / cst.standard_number_density_for_refractive_index
-        )
-        nfr_co = d[i_str] / 28.0 / cst.amu
-
-        # Use jnp.where for conditional adjustment of lamb_inv
-        lamb_inv_use = jnp.where(lambda_cm / 1e-4 < 0.168, 1.0 / 0.168e-4, lamb_inv)
-
-        # Vectorized calculation of nm1 and fk
-        nm1 = (22851.0 + 0.456e12 / (71427.0**2 - lamb_inv_use**2)) * 1e-8 * scale
-        fk = 1.016
-
-        # Calculate Rayleigh scattering opacities, broadcasting for layers
-        new_opacities = opacities.at[:, i_str].set(
-            opacities[:, i_str]
-            + 24.0
-            * jnp.pi**3
-            * lamb_inv**4
-            / nfr_co**2
-            * (((nm1 + 1.0) ** 2 - 1.0) / ((nm1 + 1.0) ** 2 + 2.0)) ** 2
-            * fk
-            / mass_co
-            * mass_fractions[i_str]
-        )
-
-        return new_opacities
-
-    # Use lax.fori_loop for JIT-compatible loop
-    rayleigh_scattering_opacities = lax.fori_loop(
-        0,
-        mass_fractions.size,
-        lambda i_str, opacities: lax.cond(
-            mass_fractions[i_str] > ABUNDANCE_THRESHOLD,
-            compute_opacity,
-            lambda i_str, opacities: opacities,  # No-op if condition fails
-            i_str,
-            opacities,
-        ),
-        rayleigh_scattering_opacities,
-    )
-
-    return rayleigh_scattering_opacities
 
 
 @jit
 def ch4_rayleigh(
     wavelengths_angstroem, mass_fractions, mean_molar_masses, pressures, temperatures
 ):
-    """Calculates CH4 Rayleigh scattering opacities (JIT-compatible)."""
+    """Calculates CH4 Rayleigh scattering opacities."""
+    d = _number_densities(mean_molar_masses, pressures, temperatures, mass_fractions)
+    lamb_inv = 1.0 / (wavelengths_angstroem * 1e-8)
 
-    d = mean_molar_masses * cst.amu * pressures / cst.kB / temperatures * mass_fractions
-    lambda_cm = wavelengths_angstroem * 1e-8
-    lamb_inv = 1.0 / lambda_cm
-    mass_ch4 = 16.0 * cst.amu
+    scale = d / 16.0 / cst.amu / _N_REF  # (n_layers,)
+    nfr_ch4 = d / 16.0 / cst.amu
 
-    # Preallocate output array (required for JIT)
-    rayleigh_scattering_opacities = jnp.zeros(
-        (wavelengths_angstroem.size, mass_fractions.size)
+    nm1 = ((46662.0 + 4.02e-6 * lamb_inv**2) * 1e-8)[:, None] * scale[None, :]
+    fk = 1.0
+
+    return _rayleigh_opacity(
+        lamb_inv[:, None], nm1, nfr_ch4[None, :], fk, 16.0 * cst.amu, mass_fractions
     )
 
-    # Use lax.cond for conditional execution within JIT
-    def compute_opacity(i_str, opacities):
-        scale = (
-            d[i_str] / 16.0 / cst.amu / cst.standard_number_density_for_refractive_index
-        )
-        nfr_ch4 = d[i_str] / 16.0 / cst.amu
 
-        # Vectorized calculation of nm1 and fk
-        nm1 = (46662.0 + 4.02e-6 * lamb_inv**2) * 1e-8 * scale
-        fk = 1.0
+# Species that need only the wavelength grid and the mass fractions.
+_WAVELENGTH_ONLY_RAYLEIGH = {
+    "H2": H2_rayleigh,
+    "He": He_rayleigh,
+    "O2": o2_rayleigh,
+    "N2": n2_rayleigh,
+}
 
-        # Calculate Rayleigh scattering opacities, broadcasting for layers
-        new_opacities = opacities.at[:, i_str].set(
-            opacities[:, i_str]
-            + 24.0
-            * jnp.pi**3
-            * lamb_inv**4
-            / nfr_ch4**2
-            * (((nm1 + 1.0) ** 2 - 1.0) / ((nm1 + 1.0) ** 2 + 2.0)) ** 2
-            * fk
-            / mass_ch4
-            * mass_fractions[i_str]
-        )
-        return new_opacities
-
-    # Use lax.fori_loop for JIT-compatible loop
-    rayleigh_scattering_opacities = lax.fori_loop(
-        0,
-        mass_fractions.size,
-        lambda i_str, opacities: lax.cond(
-            mass_fractions[i_str] > ABUNDANCE_THRESHOLD,
-            compute_opacity,
-            lambda i_str, opacities: opacities,  # No-op if condition fails
-            i_str,
-            opacities,
-        ),
-        rayleigh_scattering_opacities,
-    )
-
-    return rayleigh_scattering_opacities
+# Species whose refractive index depends on the local atmospheric state.
+_STATE_DEPENDENT_RAYLEIGH = {
+    "H2O": h2o_rayleigh,
+    "CO2": co2_rayleigh,
+    "CO": co_rayleigh,
+    "CH4": ch4_rayleigh,
+}
 
 
 def compute_rayleigh_scattering(
@@ -485,63 +354,32 @@ def compute_rayleigh_scattering(
     temperatures,
     pressures,
 ):
-    if species == "H2":
-        return H2_rayleigh(wavelengths_angstroem, mass_fractions)
-    elif species == "He":
-        return He_rayleigh(wavelengths_angstroem, mass_fractions)
-
-    if species == "H2O":
-        rayleigh_scattering_opacities = h2o_rayleigh(
+    """Rayleigh scattering opacities of one species, shape (n_wavelengths, n_layers)."""
+    if species in _WAVELENGTH_ONLY_RAYLEIGH:
+        rayleigh_scattering_opacities = _WAVELENGTH_ONLY_RAYLEIGH[species](
+            wavelengths_angstroem, mass_fractions
+        )
+    elif species in _STATE_DEPENDENT_RAYLEIGH:
+        rayleigh_scattering_opacities = _STATE_DEPENDENT_RAYLEIGH[species](
             wavelengths_angstroem,
             mass_fractions,
             mean_molar_masses,
             pressures,
             temperatures,
         )
-    elif species == "CO2":
-        rayleigh_scattering_opacities = co2_rayleigh(
-            wavelengths_angstroem,
-            mass_fractions,
-            mean_molar_masses,
-            pressures,
-            temperatures,
-        )
-    elif species == "O2":
-        rayleigh_scattering_opacities = o2_rayleigh(
-            wavelengths_angstroem,
-            mass_fractions,
-            mean_molar_masses,
-            pressures,
-            temperatures,
-        )
-    elif species == "N2":
-        rayleigh_scattering_opacities = n2_rayleigh(
-            wavelengths_angstroem,
-            mass_fractions,
-            mean_molar_masses,
-            pressures,
-            temperatures,
-        )
-    elif species == "CO":
-        rayleigh_scattering_opacities = co_rayleigh(
-            wavelengths_angstroem,
-            mass_fractions,
-            mean_molar_masses,
-            pressures,
-            temperatures,
-        )
-    elif species == "CH4":
-        rayleigh_scattering_opacities = ch4_rayleigh(
-            wavelengths_angstroem,
-            mass_fractions,
-            mean_molar_masses,
-            pressures,
-            temperatures,
+    else:
+        raise ValueError(
+            f"no Rayleigh scattering implementation for species '{species}'; "
+            f"available species are "
+            f"{sorted(_WAVELENGTH_ONLY_RAYLEIGH | _STATE_DEPENDENT_RAYLEIGH)}"
         )
 
-    rayleigh_scattering_opacities = jnp.where(
+    # Layers with a negligible abundance contribute no opacity. Applying the
+    # mask once here replaces the per-species guards the individual kernels
+    # used to carry (which were inconsistent: some thresholded the opacity,
+    # others the mass fraction, and most were then masked again here anyway).
+    return jnp.where(
         mass_fractions[None, :] < ABUNDANCE_THRESHOLD,
         0.0,
         rayleigh_scattering_opacities,
     )
-    return rayleigh_scattering_opacities

@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from petitRADTRANS.retrieval import sampler as sampler_module
-from petitRADTRANS.retrieval.sampler import DynestySampler
+from petitRADTRANS.retrieval.samplers import _optional_imports as sampler_module
+from petitRADTRANS.retrieval.samplers.dynesty import DynestySampler
 
 
 class _FakeDynamicNestedSampler:
@@ -23,7 +23,7 @@ class _FakeDynamicNestedSampler:
 
 
 def test_dynesty_sampler_sums_vector_ncall_in_run_summary(monkeypatch, tmp_path):
-    monkeypatch.setattr(sampler_module, "_require_dynesty", lambda: None)
+    monkeypatch.setattr(sampler_module, "require_dynesty", lambda: None)
     monkeypatch.setattr(
         sampler_module,
         "DynamicNestedSampler",

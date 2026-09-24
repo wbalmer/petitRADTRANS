@@ -336,9 +336,6 @@ class SpectralModel(Radtrans):
         return_radius_hydrostatic_equilibrium:
             If True, the radius at hydrostatic equilibrium of the planet is returned.
             Only for transmission spectra.
-        return_rosseland_optical_depths:
-            If True, the Rosseland opacities and optical depths are calculated and returned.
-            Only for emission spectra.
         star_irradiation_angle:
             Inclination angle of the direct light with respect to the normal to the atmosphere. Used only in
             the non-isotropic geometry scenario.
@@ -1493,7 +1490,6 @@ class SpectralModel(Radtrans):
         cloud_photosphere_wavelength_boundaries: float = None,
         cloud_fraction: float = 1.0,
         patchy_clouds: list[str] | tuple[str] = None,
-        complete_coverage_clouds: list[str] = None,
         irradiation_geometry: str = "dayside_ave",
         stellar_intensities: npt.NDArray[np.floating] = None,
         star_effective_temperature: float = None,
@@ -1513,7 +1509,6 @@ class SpectralModel(Radtrans):
         return_contribution: bool = False,
         return_clear_spectrum: bool = False,
         return_photosphere_radius: bool = False,
-        return_rosseland_optical_depths: bool = False,
         return_cloud_contribution: bool = False,
         target_particle_radii: npt.NDArray[np.floating] = None,
         target_pressure: npt.NDArray[np.floating] = None,
@@ -1554,7 +1549,6 @@ class SpectralModel(Radtrans):
             cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
             cloud_fraction=cloud_fraction,
             patchy_clouds=patchy_clouds,
-            complete_coverage_clouds=complete_coverage_clouds,
             irradiation_geometry=irradiation_geometry,
             stellar_intensities=stellar_intensities,
             star_effective_temperature=star_effective_temperature,
@@ -1574,7 +1568,6 @@ class SpectralModel(Radtrans):
             return_contribution=return_contribution,
             return_clear_spectrum=return_clear_spectrum,
             return_photosphere_radius=return_photosphere_radius,
-            return_rosseland_optical_depths=return_rosseland_optical_depths,
             return_cloud_contribution=return_cloud_contribution,
             target_particle_radii=target_particle_radii,
             target_pressure=target_pressure,
@@ -1926,7 +1919,6 @@ class SpectralModel(Radtrans):
         gray_opacity: float = None,
         cloud_fraction: float = 1.0,
         patchy_clouds: list[str] | tuple[str] = None,
-        complete_coverage_clouds: list[str] = None,
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
         frequencies_to_wavelengths: bool = True,
@@ -1965,7 +1957,6 @@ class SpectralModel(Radtrans):
                 gray_opacity=gray_opacity,
                 cloud_fraction=cloud_fraction,
                 patchy_clouds=patchy_clouds,
-                complete_coverage_clouds=complete_coverage_clouds,
                 additional_absorption_opacities_function=additional_absorption_opacities_function,
                 additional_scattering_opacities_function=additional_scattering_opacities_function,
                 frequencies_to_wavelengths=frequencies_to_wavelengths,

@@ -358,6 +358,24 @@ def flatten_object(array):
     return array
 
 
+def get_parameter_alias_value(parameters, *names, default=None):
+    """Return the first non-``None`` parameter value among the provided aliases.
+
+    Names are tried in order. Values exposing a ``value`` attribute (legacy
+    ``Parameter`` objects) are unwrapped. A name that is absent, ``None``, or
+    maps to ``None`` falls through to the next one, so optional prefixed keys
+    can be passed unconditionally.
+    """
+    for name in names:
+        if name is not None and name in parameters:
+            value = getattr(parameters[name], "value", parameters[name])
+
+            if value is not None:
+                return value
+
+    return default
+
+
 def hdf52dict(hdf5_file):
     dictionary = {}
 

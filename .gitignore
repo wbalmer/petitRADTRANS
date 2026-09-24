@@ -18,3 +18,4 @@ input_data/
 pixi.lock
 pixi.toml
 experiment_spot.py
+tests/results/

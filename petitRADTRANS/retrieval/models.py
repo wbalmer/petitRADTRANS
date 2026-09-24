@@ -26,7 +26,9 @@ from functools import wraps
 from numbers import Number
 from types import SimpleNamespace
 import numpy as np
+import jax
 from jax import core as jax_core, vmap, checkpoint, lax
+from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 import jax.numpy as jnp
 
 from petitRADTRANS.chemistry import clouds
@@ -1118,6 +1120,147 @@ def _build_timestep_params(physical_params, t_idx, t_value):
             base_dict[base] = value
 
     return PhysicalParams.from_mapping(base_dict)
+
+
+def make_linearised_time_series_model(static_model_function, jacobian_mode="jacfwd"):
+    """Wrap any static model so it returns a reference spectrum and its Jacobian.
+
+    The linearised time-series method needs two things from the forward model:
+    the spectrum at the reference state, and its derivative with respect to each
+    modulated parameter.  Everything else -- the harmonic basis, the noise, the
+    marginalisation -- belongs to the scorer.
+
+    This wrapper is deliberately physics-agnostic.  It differentiates whatever
+    static model it is handed, so a change to the temperature profile, the
+    cloud treatment or the abundance parameterisation needs no change here.
+    Contrast :func:`time_series_gradient_emission`, which evaluates the
+    atmosphere at every model epoch: this evaluates it once and costs one full
+    solution plus ``n_modulated`` tangent solves, independent of the number of
+    epochs.
+
+    The Jacobian is returned in FLUX, not log space, and that is load-bearing.
+    Projection onto the instrument grid -- convolution then rebinning -- is
+    linear in flux.  Both ``M_ref`` and ``dM/dtheta`` are fluxes, so the scorer
+    pushes them through the SAME projector and forms the log Jacobian
+    afterwards, ``J = R(dM/dtheta) / R(M_ref)``.  Returning ``dln M/dtheta`` and
+    rebinning that would average a ratio where a ratio of averages is wanted,
+    and the two differ exactly at the sharp molecular features that carry the
+    variability signal.
+
+    Derivatives are taken with respect to an ADDITIVE displacement of the
+    modulated parameters rather than the parameters themselves, so one
+    differentiation over a length-``n_modulated`` vector covers every parameter
+    whatever its units -- kelvin, dex, or dimensionless.
+
+    Args:
+        static_model_function:
+            Any runtime-native model function, e.g.
+            :func:`gradient_profile_emission`.
+        jacobian_mode:
+            All three give identical numbers; they differ only in how the
+            derivative is arranged, and the differences are large. Measured on
+            90 layers, R400, ten species, six modulated parameters:
+
+            ``"jacfwd"`` (recommended) takes one primal trace with all tangents
+            pushed through together: 1.8 GiB, 2.02 s warm, 0.507 s/sample at
+            batch 16.
+
+            ``"jvp"`` re-runs the forward pass once per direction: 1.0 GiB,
+            6.20 s warm, 1.55 s/sample at batch 8. Lowest memory, 3x slower.
+
+            ``"linearize"`` runs the forward pass once and evaluates every
+            direction against the STORED intermediates. It is the textbook
+            choice and it is unusable at production size: those intermediates
+            are a ~100x multiplier on the forward pass, so it asked for ~100 GiB
+            against a 30 GiB device and failed. It is retained for small models
+            only. Note that a failed attempt does not release what the allocator
+            already took, so it will bring down anything that runs after it in
+            the same process.
+
+    Returns:
+        A model-generating function with the standard runtime signature, whose
+        result carries ``auxiliary_outputs['flux_jacobian']`` of shape
+        ``(n_wavelength, n_modulated)``.
+    """
+    if jacobian_mode not in ("linearize", "jvp", "jacfwd"):
+        raise ValueError(
+            f"jacobian_mode must be 'linearize', 'jvp' or 'jacfwd', got "
+            f"{jacobian_mode!r}"
+        )
+
+    def linearised_model(model_context, physical_params, pt_plot_mode=False):
+        metadata = getattr(model_context, "model_metadata", None) or {}
+        config = metadata.get("time_series_config") or {}
+        modulated = tuple(config.get("modulated_parameters") or ())
+        if not modulated:
+            raise ValueError(
+                "the linearised model needs "
+                "model_metadata['time_series_config']['modulated_parameters']; "
+                "add the dataset with add_linearised_time_series_data()."
+            )
+        missing = [name for name in modulated if name not in physical_params]
+        if missing:
+            raise ValueError(
+                f"modulated parameters {missing} are absent from the parameter "
+                "vector; a modulated parameter carries its reference-state "
+                "value under its bare name."
+            )
+
+        base_values = physical_params.as_dict()
+
+        def displaced(perturbation):
+            values = dict(base_values)
+            for index, name in enumerate(modulated):
+                values[name] = values[name] + perturbation[index]
+            return PhysicalParams.from_mapping(values)
+
+        if pt_plot_mode:
+            return static_model_function(
+                model_context, displaced(jnp.zeros((len(modulated),))), True
+            )
+
+        def spectrum_of(perturbation):
+            result = static_model_function(
+                model_context, displaced(perturbation), False
+            )
+            return result.spectrum, result.wavelengths
+
+        zero = jnp.zeros((len(modulated),), dtype=FEAUTRIER_JAX_DTYPE)
+        directions = jnp.eye(len(modulated), dtype=FEAUTRIER_JAX_DTYPE)
+        if jacobian_mode == "linearize":
+            spectrum, tangent, wavelengths = jax.linearize(
+                spectrum_of, zero, has_aux=True
+            )
+            flux_jacobian = jax.vmap(tangent)(directions).T
+        elif jacobian_mode == "jacfwd":
+            # One primal trace with all tangents pushed through together. Costs
+            # roughly n_modulated times a forward pass in memory -- not the
+            # ~100x that linearize's stored intermediates cost -- while avoiding
+            # the n_modulated separate primal evaluations that "jvp" pays.
+            spectrum, wavelengths = spectrum_of(zero)
+            flux_jacobian = jax.jacfwd(lambda d: spectrum_of(d)[0])(zero)
+        else:
+            spectrum, wavelengths = spectrum_of(zero)
+            flux_jacobian = jnp.stack(
+                [jax.jvp(lambda d: spectrum_of(d)[0], (zero,), (direction,))[1]
+                 for direction in directions]
+            ).T
+
+        return ModelResult(
+            kind="spectrum",
+            wavelengths=wavelengths,
+            spectrum=spectrum,
+            auxiliary_outputs={"flux_jacobian": flux_jacobian},
+        )
+
+    linearised_model.__name__ = f"linearised_{static_model_function.__name__}"
+    # Opt in to the runtime-native contract. The dispatcher does NOT inspect
+    # signatures -- a model that does not declare itself is routed through the
+    # legacy adapter and called as ``f(radtrans, parameters)``, so the model
+    # context never arrives and the modulated-parameter list looks empty.
+    setattr(linearised_model, _MODEL_CONTRACT_ATTRIBUTE,
+            MODEL_CONTRACT_DIFFERENTIABLE)
+    return linearised_model
 
 
 def time_series_gradient_emission(

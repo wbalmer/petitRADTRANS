@@ -514,7 +514,7 @@ def test_combine_nested_rejects_mcmc(tmp_path):
 def test_jaxns_evidence_sidecar_written(tmp_path):
     # Exercise JAXNSSampler._write_evidence_sidecar without constructing the full
     # sampler (no JAXNS import needed for this method).
-    from petitRADTRANS.retrieval.sampler import JAXNSSampler
+    from petitRADTRANS.retrieval.samplers.jaxns import JAXNSSampler
 
     sampler = JAXNSSampler.__new__(JAXNSSampler)
     sampler.output_directory = str(tmp_path)

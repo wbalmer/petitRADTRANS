@@ -923,6 +923,9 @@ class TimeSeriesData(Data):
             variability_atmospheric_column_model_flux_return_mode
         )
         # Time-series model configuration (set by RetrievalConfig.add_time_series_data)
+        # This is a dictionary that stores metadate about the time series run.
+        # This includes the modulated_parameters, n_harmonics, period_parameter,
+        # and optionally, a dictionary describing the linearised time-series data.
         self.time_series_config = None
         super().__init__(
             name=name,

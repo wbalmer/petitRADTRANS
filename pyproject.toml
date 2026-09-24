@@ -10,7 +10,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "4.0.0b2"
+version = "4.0.0b3"
 requires-python = ">=3.12"
 description = "Exopanet spectral synthesis tool for retrievals"
 authors = [
@@ -39,7 +39,10 @@ dependencies = [
     "molmass",
     "h5py",
     "dill",
-    "jaxns",
+    # NOTE: JAXNS still reports 3.0.0 for post-release API changes pRT
+    # depends on (jaxns.depth_condition replacing jaxns.termination_condition),
+    # so this bound is a floor only. require_jaxns() probes the real API.
+    "jaxns>=3.0.0",
     "pyvo",
     "bs4",
     "selenium",
@@ -89,6 +92,10 @@ retrieval = [
     "matplotlib",
     "arviz",
     "corner",
+    # NOTE: JAXNS still reports 3.0.0 for post-release API changes pRT
+    # depends on (jaxns.depth_condition replacing jaxns.termination_condition),
+    # so this bound is a floor only. require_jaxns() probes the real API.
+    "jaxns>=3.0.0",
     "dynesty>=3.0.0",
     "pymultinest",
     "blackjax",

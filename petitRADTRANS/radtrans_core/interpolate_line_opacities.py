@@ -7,6 +7,10 @@ from jax import lax, vmap, jit
 
 from petitRADTRANS.jax_dtype import WORKING_JAX_DTYPE
 
+# Opacity-cube memory layouts shared with radiative_transfer_core.
+LAYOUT_NG_F_S_L = "ng_f_s_l"  # (n_g, n_frequencies, n_species, n_layers)
+LAYOUT_FL_S_NG = "fl_s_ng"  # (n_frequencies * n_layers, n_species, n_g)
+
 
 @jit
 def interpolate_line_opacities(
@@ -39,6 +43,12 @@ def interpolate_line_opacities(
     pressure_grid = temperature_pressure_grid_input[0, :, 1]
     temperature_grid = temperature_pressure_grid_input[:, 0, 0]
     temperature_pressure_grid = temperature_pressure_grid_input.reshape(-1, 2)
+
+    # Grid bounds, hoisted: each was otherwise recomputed at every clamp below.
+    pressure_min = jnp.min(temperature_pressure_grid[:, 1])
+    pressure_max = jnp.max(temperature_pressure_grid[:, 1])
+    temperature_min = jnp.min(temperature_pressure_grid[:, 0])
+    temperature_max = jnp.max(temperature_pressure_grid[:, 0])
 
     # Find temperature and pressure indices
     i_temperatures = jnp.searchsorted(temperature_grid, temperatures) - 1
@@ -90,33 +100,22 @@ def interpolate_line_opacities(
 
     # Interpolate along pressure
     y_t_lows = y_p_low_t0 + dx_0 * (y_p_high_t0 - y_p_low_t0)
-    y_t_lows = jnp.where(
-        pressures > jnp.max(temperature_pressure_grid[:, 1]), y_p_high_t0, y_t_lows
-    )
-    y_t_lows = jnp.where(
-        pressures < jnp.min(temperature_pressure_grid[:, 1]), y_p_low_t0, y_t_lows
-    )
+    y_t_lows = jnp.where(pressures > pressure_max, y_p_high_t0, y_t_lows)
+    y_t_lows = jnp.where(pressures < pressure_min, y_p_low_t0, y_t_lows)
 
     y_t_highs = y_p_low_t1 + dx_1 * (y_p_high_t1 - y_p_low_t1)
-    y_t_highs = jnp.where(
-        pressures > jnp.max(temperature_pressure_grid[:, 1]), y_p_high_t1, y_t_highs
-    )
-    y_t_highs = jnp.where(
-        pressures < jnp.min(temperature_pressure_grid[:, 1]), y_p_low_t1, y_t_highs
-    )
+    y_t_highs = jnp.where(pressures > pressure_max, y_p_high_t1, y_t_highs)
+    y_t_highs = jnp.where(pressures < pressure_min, y_p_low_t1, y_t_highs)
 
     # Interpolate along temperature
     interpolated_opacities = y_t_lows + t_factor[None, None, :] * (y_t_highs - y_t_lows)
     interpolated_opacities = jnp.where(
-        temperatures > jnp.max(temperature_pressure_grid[:, 0]),
-        y_t_highs,
-        interpolated_opacities,
+        temperatures > temperature_max, y_t_highs, interpolated_opacities
     )
     interpolated_opacities = jnp.where(
-        temperatures < jnp.min(temperature_pressure_grid[:, 0]),
-        y_t_lows,
-        interpolated_opacities,
+        temperatures < temperature_min, y_t_lows, interpolated_opacities
     )
+
     return interpolated_opacities
 
 
@@ -244,7 +243,7 @@ def interpolate_species_opacities(
     line_opacities_temperature_pressure_grid,
     line_opacities_temperature_grid_size,
     line_opacities_pressure_grid_size,
-    output_layout="ng_f_s_l",
+    output_layout=LAYOUT_NG_F_S_L,
 ):
     # Interpolate line opacities to given temperature structure.
     n_layers = pressures.size
@@ -285,7 +284,7 @@ def interpolate_species_opacities(
     n_line_species = line_opacities_grid.shape[0]
 
     if n_line_species > 0:
-        if output_layout == "fl_s_ng":
+        if output_layout == LAYOUT_FL_S_NG:
             return _interpolate_stacked_species_opacities_flat(
                 pressures=pressures,
                 temperatures=temperatures,
@@ -318,35 +317,12 @@ def interpolate_species_opacities_summed(
     line_opacities_pressure_grid_size,
     line_species_mass_fractions,
 ):
+    """Abundance-weighted sum of the interpolated line opacities.
+
+    Unlike :func:`interpolate_species_opacities`, this accepts only the stacked
+    (array) opacity-grid form, not the per-species dict form.
+    """
     n_layers = pressures.size
-
-    if isinstance(line_opacities_grid, dict):
-        total_opacities = jnp.zeros(
-            (n_g, n_frequencies, n_layers), dtype=WORKING_JAX_DTYPE
-        )
-
-        for i, species in enumerate(line_opacities_grid):
-            line_opacities_tp_grid = line_opacities_temperature_pressure_grid[
-                species
-            ].reshape(
-                line_opacities_temperature_grid_size[species],
-                line_opacities_pressure_grid_size[species],
-                2,
-            )
-            species_opacity = interpolate_line_opacities(
-                pressures,
-                temperatures,
-                line_opacities_tp_grid,
-                line_opacities_grid[species],
-                line_opacities_temperature_grid_size[species],
-                line_opacities_pressure_grid_size[species],
-            )
-            species_opacity = jnp.asarray(species_opacity, dtype=WORKING_JAX_DTYPE)
-            total_opacities = total_opacities + species_opacity * line_species_mass_fractions[
-                :, i
-            ][None, None, :]
-
-        return total_opacities[:, :, None, :]
 
     if line_opacities_grid.shape[0] > 0:
         return _interpolate_stacked_species_opacities_summed(

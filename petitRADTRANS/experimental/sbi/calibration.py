@@ -1203,60 +1203,61 @@ def simulation_based_calibration_report(
 
 @dataclass(frozen=True)
 class PosteriorInformativenessReport:
-    """Joint contraction + calibration verdict per parameter.
+    """Joint width-ratio + calibration verdict per parameter.
 
-    ``contraction`` is the ratio of the posterior 68% width to the prior 68%
-    width. On its own it is *misleading*: a posterior that has collapsed to a
-    narrow but wrong region has a tiny contraction yet is useless. Combining it
-    with the SBC normalized mean-rank error separates the three regimes.
+    ``width_ratio`` is the posterior 68% width divided by the prior 68% width,
+    so LOW means informative and ~1 means the marginal is just the prior. On its
+    own it is *misleading*: a posterior that has collapsed to a narrow but wrong
+    region has a tiny width ratio yet is useless. Combining it with the SBC
+    normalized mean-rank error separates the three regimes.
     """
 
     parameter_names: list[str]
-    contraction: np.ndarray
+    width_ratio: np.ndarray
     sbc_normalized_rank_error: np.ndarray | None
     verdict: list[str]
 
 
 def classify_posterior_informativeness(
-    contraction: Any,
+    width_ratio: Any,
     sbc_normalized_rank_error: Any | None = None,
     parameter_names: Sequence[str] | None = None,
     *,
-    contraction_informative: float = 0.9,
-    contraction_overconfident: float = 0.1,
+    width_ratio_informative: float = 0.9,
+    width_ratio_overconfident: float = 0.1,
     sbc_miscalibrated: float = 0.3,
 ) -> PosteriorInformativenessReport:
-    """Classify each parameter by contraction *and* SBC calibration.
+    """Classify each parameter by width ratio *and* SBC calibration.
 
     Verdicts:
 
-    * ``'uninformative'`` -- ``contraction >= contraction_informative``: the
+    * ``'uninformative'`` -- ``width_ratio >= width_ratio_informative``: the
       marginal is effectively the prior.
-    * ``'overconfident'`` -- ``contraction <= contraction_overconfident`` **and**
+    * ``'overconfident'`` -- ``width_ratio <= width_ratio_overconfident`` **and**
       the SBC normalized mean-rank error ``>= sbc_miscalibrated``: the posterior
       collapsed to a narrow, miscalibrated region (confidently wrong). This is
-      exactly the failure a bare contraction metric mislabels as "constrained".
+      exactly the failure a bare width-ratio metric mislabels as "constrained".
     * ``'constrained'`` -- informative and (no SBC supplied, or SBC acceptable).
-    * ``'unknown'`` -- contraction not finite.
+    * ``'unknown'`` -- width ratio not finite.
 
     ``sbc_normalized_rank_error`` is optional; without it the function can only
     distinguish informative from uninformative (an informative marginal is
     reported as ``'constrained'`` but cannot be confirmed calibrated).
     """
-    contraction_array = np.asarray(contraction, dtype=float)
+    width_ratio_array = np.asarray(width_ratio, dtype=float)
     sbc_array = (
         None
         if sbc_normalized_rank_error is None
         else np.asarray(sbc_normalized_rank_error, dtype=float)
     )
-    n = int(contraction_array.shape[0])
+    n = int(width_ratio_array.shape[0])
     if parameter_names is None:
         parameter_names = [f"param_{index}" for index in range(n)]
     parameter_names = list(parameter_names)
 
     verdict: list[str] = []
     for index in range(n):
-        value = float(contraction_array[index])
+        value = float(width_ratio_array[index])
         sbc_error = (
             None
             if sbc_array is None or index >= sbc_array.shape[0]
@@ -1264,10 +1265,10 @@ def classify_posterior_informativeness(
         )
         if not np.isfinite(value):
             verdict.append("unknown")
-        elif value >= contraction_informative:
+        elif value >= width_ratio_informative:
             verdict.append("uninformative")
         elif (
-            value <= contraction_overconfident
+            value <= width_ratio_overconfident
             and sbc_error is not None
             and np.isfinite(sbc_error)
             and sbc_error >= sbc_miscalibrated
@@ -1278,7 +1279,7 @@ def classify_posterior_informativeness(
 
     return PosteriorInformativenessReport(
         parameter_names=parameter_names,
-        contraction=contraction_array,
+        width_ratio=width_ratio_array,
         sbc_normalized_rank_error=sbc_array,
         verdict=verdict,
     )
@@ -2339,17 +2340,17 @@ def _prior_central_interval(
     return None
 
 
-def summarize_posterior_contraction(
+def summarize_posterior_width_ratios(
     posterior_samples: np.ndarray,
     parameter_names: list[str],
     retrieval_config: Any,
 ) -> dict[str, dict[str, float | None]]:
-    """Per-parameter posterior contraction relative to the prior.
+    """Per-parameter posterior width relative to the prior width.
 
-    ``contraction`` is the ratio of the posterior central 68% width to the prior
-    central 68% width. Values near 1.0 mean the marginal is effectively the
-    prior (uninformative); values well below 1.0 mean the observation
-    constrains that parameter. This is the diagnostic that separates an
+    ``width_ratio`` is the posterior central 68% width divided by the prior
+    central 68% width -- LOW means informative. Values near 1.0 mean the
+    marginal is effectively the prior (uninformative); values well below 1.0
+    mean the observation constrains that parameter. This is the diagnostic that separates an
     informative posterior from a calibrated-but-uninformative one -- something
     SBC rank histograms alone cannot reveal, since a posterior that returns the
     prior is trivially calibrated.
@@ -2362,18 +2363,158 @@ def summarize_posterior_contraction(
         prior_interval = _prior_central_interval(retrieval_config, name)
         if prior_interval is None:
             prior_width: float | None = None
-            contraction: float | None = None
+            width_ratio: float | None = None
         else:
             prior_width = float(prior_interval[1] - prior_interval[0])
-            contraction = (
+            width_ratio = (
                 float(posterior_width / prior_width) if prior_width > 0.0 else None
             )
         summary[name] = {
             'posterior_width': posterior_width,
             'prior_width': prior_width,
-            'contraction': contraction,
+            'width_ratio': width_ratio,
         }
     return summary
+
+
+def summarize_parameter_units(
+    retrieval_config: Any,
+    parameter_names: Sequence[str],
+) -> dict[str, str]:
+    """Physical unit each posterior column is expressed in.
+
+    Posterior samples are stored in the unit the *prior* was declared in, which
+    is not the same across tasks: a ``planet_radius`` prior declared with
+    ``units=u.jupiterRad`` yields samples in R_jup, while one declared without
+    units yields cgs (cm), because the model function does the conversion. That
+    distinction is invisible in the saved arrays, so anything reading a stored
+    posterior back -- a plot, a comparison against truths, a downstream fit --
+    has no way to interpret it without this mapping. ``'cgs'`` denotes a
+    parameter declared with no unit, i.e. already in the model's own units.
+    """
+    units: dict[str, str] = {}
+    for name in parameter_names:
+        parameter = getattr(retrieval_config, 'parameters', {}).get(name)
+        declared = getattr(parameter, 'units', None) if parameter is not None else None
+        units[name] = 'cgs' if declared is None else str(declared)
+    return units
+
+
+def _prior_cube_positions(
+    retrieval_config: Any,
+    name: str,
+    values: np.ndarray,
+) -> np.ndarray | None:
+    """Map physical values onto their prior-CDF (unit-cube) coordinates.
+
+    ``transform_prior_cube_coordinate`` is the prior inverse-CDF, so tabulating
+    it on a cube grid and interpolating back inverts it for any prior family.
+    The grid stops just short of 0 and 1 because unbounded priors return +-inf
+    at the endpoints; values beyond the tabulated range clamp to it, which is
+    the conservative behaviour for edge detection.
+    """
+    parameter = getattr(retrieval_config, 'parameters', {}).get(name)
+    if parameter is None:
+        return None
+    transform = getattr(parameter, 'transform_prior_cube_coordinate', None)
+    if not callable(transform):
+        return None
+
+    grid = np.linspace(1e-6, 1.0 - 1e-6, 1025)
+    try:
+        support = np.asarray([float(transform(u)) for u in grid], dtype=float)
+    except Exception:
+        return None
+    if not np.all(np.isfinite(support)):
+        return None
+
+    if support[-1] < support[0]:  # decreasing inverse-CDF
+        support, grid = support[::-1], grid[::-1]
+    if np.any(np.diff(support) < 0.0):
+        return None
+
+    return np.interp(np.asarray(values, dtype=float), support, grid)
+
+
+def summarize_prior_edge_occupancy(
+    posterior_samples: np.ndarray,
+    parameter_names: Sequence[str],
+    retrieval_config: Any,
+    edge_width: float = 0.05,
+    min_enrichment: float = 3.0,
+) -> dict[str, Any]:
+    """Flag parameters whose posterior mass piles against a prior boundary.
+
+    This is the one failure mode amortized inference degrades into silently. If
+    the truth lies outside the prior, or near enough to an edge that the flow
+    saw few training simulations there, the posterior is pushed up against the
+    bound and reports a confident answer with no indication anything is wrong --
+    SBC cannot catch it, because SBC draws its truths from that same prior and
+    so is calibrated by construction in exactly the regime that fails.
+
+    Posterior draws are mapped to prior-CDF coordinates, where the prior is
+    uniform on [0, 1] by definition. An edge band of width ``edge_width`` then
+    holds exactly ``edge_width`` of the prior mass, so ``enrichment`` (edge mass
+    over ``edge_width``) says how many times more concentrated the posterior is
+    against that bound than the prior was: ~1 is an uninformative marginal,
+    large means the bound is truncating the solution. Enrichment rather than a
+    raw mass threshold is the criterion because it is stable against the choice
+    of ``edge_width``, and the 5% default keeps enough draws in the band to be
+    stable (a 2% band holds ~80 of 4096 draws).
+
+    A flag is a prompt to check whether the prior range is right, not proof of
+    error -- a parameter whose true value genuinely sits near the bound will
+    flag too, correctly.
+    """
+    samples = np.asarray(posterior_samples, dtype=float)
+    if samples.ndim != 2:
+        raise ValueError(
+            f"Expected posterior samples with shape (n_samples, n_dim), got {samples.shape}."
+        )
+    if samples.shape[1] != len(parameter_names):
+        raise ValueError(
+            "parameter_names length must match the posterior dimensionality: "
+            f"{len(parameter_names)} names for {samples.shape[1]} columns."
+        )
+
+    per_parameter: dict[str, dict[str, Any]] = {}
+    flagged: list[str] = []
+    for index, name in enumerate(parameter_names):
+        cube = _prior_cube_positions(retrieval_config, name, samples[:, index])
+        if cube is None:
+            per_parameter[name] = {
+                'lower_edge_mass': None,
+                'upper_edge_mass': None,
+                'enrichment': None,
+                'cube_median': None,
+                'at_prior_edge': False,
+                'note': 'prior cube transform unavailable',
+            }
+            continue
+
+        lower_mass = float(np.mean(cube < edge_width))
+        upper_mass = float(np.mean(cube > 1.0 - edge_width))
+        peak_mass = max(lower_mass, upper_mass)
+        enrichment = peak_mass / edge_width if edge_width > 0.0 else float("nan")
+        at_edge = bool(np.isfinite(enrichment) and enrichment >= min_enrichment)
+        if at_edge:
+            flagged.append(name)
+        per_parameter[name] = {
+            'lower_edge_mass': lower_mass,
+            'upper_edge_mass': upper_mass,
+            'enrichment': float(enrichment),
+            'cube_median': float(np.median(cube)),
+            'edge': ('lower' if lower_mass >= upper_mass else 'upper') if at_edge else None,
+            'at_prior_edge': at_edge,
+        }
+
+    return {
+        'edge_width': float(edge_width),
+        'min_enrichment': float(min_enrichment),
+        'n_parameters_at_prior_edge': len(flagged),
+        'parameters_at_prior_edge': flagged,
+        'per_parameter': per_parameter,
+    }
 
 
 def summarize_predictive_report(
@@ -2446,7 +2587,9 @@ __all__ = [
     "posterior_predictive_report_from_samples",
     "serialize_ood_diagnostic",
     "simulation_based_calibration_report",
-    "summarize_posterior_contraction",
+    "summarize_posterior_width_ratios",
+    "summarize_parameter_units",
+    "summarize_prior_edge_occupancy",
     "summarize_posterior_samples",
     "summarize_predictive_report",
     "summarize_training_diagnostics",

@@ -8,13 +8,8 @@ from jax import lax, jit
 from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 
 TINIEST = jnp.finfo(FEAUTRIER_JAX_DTYPE).tiny
-HUGE_SQRT = jnp.sqrt(jnp.finfo(FEAUTRIER_JAX_DTYPE).max)
 # Gradient-safe denominator floor. A reciprocal 1/x has gradient -1/x**2, which
-# overflows to inf once x**2 underflows to 0 -- i.e. for x in roughly
-# [TINIEST, sqrt(TINIEST)]. Flooring denominators at sqrt(TINIEST) keeps x**2 in
-# the normal range so the reverse-mode gradient stays finite; such denominators
-# are physically zero either way, so the forward result is unchanged. (Flooring
-# at TINIEST itself, as the code originally did, leaves the gradient NaN.)
+# overflows to inf once x**2 underflows to 0
 GRAD_SAFE_DENOM = jnp.sqrt(TINIEST)
 
 # Detect GPU once at import time to choose optimal tridiagonal solver.
@@ -22,25 +17,9 @@ _USE_GPU = default_backend() != "cpu"
 
 # Batch threshold (n_gf * n_angles) above which the Thomas-factorisation
 # Feautrier path is preferred over parallel cyclic reduction (PCR) on GPU.
-#
-# Conventional wisdom prefers PCR on GPU because Thomas is sequential over
-# layers. But GPU benchmarking (testjaxprt/benchmarking/benchmark_gpu_kernels.py)
-# shows the opposite once the batch is large. The Thomas factorisation feeds an
-# associative-scan solve (O(log n_layers) depth, O(n_layers) work) that is the
-# fastest solver measured at every size — e.g. at xl (batch ~9.6e4, 300 layers)
-# the assoc solve is ~6x faster than PCR (which runs ceil(log2(n_layers))
-# full-array sweeps with heavy memory traffic) and ~1.8x faster than the
-# sequential Thomas scan. The solve is the per-scattering-iteration hot loop, so
-# this dominates the emission cost. PCR is retained only at small batch, where
-# its near-free vectorised prepare wins the full prepare+solve loop (the Thomas
-# factorisation cannot be amortised over enough solves). Frequency chunking does
-# not change n_layers, so it cannot move this crossover in PCR's favour.
-#
-# The full-loop crossover on an A100 sits below batch ~24k for scattering
-# (multiple solves); 16384 routes production-scale and medium batches to the
-# assoc path while leaving tiny batches on PCR. Tunable via the
-# ``thomas_min_batch`` argument (huge value forces PCR everywhere; 0 forces the
-# Thomas-factor/assoc path everywhere).
+# The Thomas method for solving a tridiagonal system is  what was
+# used in the Fortran implementation, however, here we do some
+# pre-processing to make the computations more efficient and parallelizable.
 DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH = 16384
 
 
@@ -89,9 +68,6 @@ def solve_tridiagonal_pcr(a, b, c, d):
     """
     original_shape = a.shape
     N = original_shape[-1]
-
-    if N == 0:
-        return jnp.zeros_like(d)
 
     # Flatten batch dimensions to (M, N)
     M = a.size // N
@@ -493,16 +469,17 @@ def _solve_feautrier_system_lm_cpu(
 
 
 # ---------------------------------------------------------------------------
-# Experimental: prefactored Thomas solve with the two layer-axis recurrences
-# expressed as parallel (associative) scans instead of sequential lax.scan.
+# Prefactored Thomas solve with the two layer-axis recurrences expressed as
+# parallel (associative) scans instead of sequential lax.scan. This is the
+# default solve on GPU (see solve_feautrier_system_lm).
 #
 # Both Thomas RHS sweeps are first-order affine recurrences y_k = A_k y_{k-1} +
 # B_k. An affine map x -> A x + B composes associatively:
 #   (A2,B2) o (A1,B1) = (A2 A1, A2 B1 + B2)
 # so lax.associative_scan over (A,B) yields every prefix in O(log n_layers)
 # depth (vs the n_layers sequential steps of lax.scan), at O(n_layers) work. On
-# GPU this trades sequential-step launch/sync overhead for extra parallel work;
-# whether it wins is what the benchmark measures.
+# GPU that trades sequential-step launch/sync overhead for extra parallel work,
+# and it wins at every measured size; on CPU the sequential scan stays faster.
 # ---------------------------------------------------------------------------
 
 
@@ -531,27 +508,19 @@ def _solve_feautrier_system_lm_assoc(
 ):
     """Associative-scan variant of :func:`_solve_feautrier_system_lm_cpu`.
 
-    Identical interface, factors and result; the forward RHS sweep and backward
-    substitution are evaluated with :func:`lax.associative_scan` (O(log n_layers)
-    depth) rather than sequential ``lax.scan``. The full per-layer solution is
-    materialised once to form the angle-weighted ``J_bol`` (the fused
-    sequential solve avoids this, trading memory for the parallel depth).
+    The default solve on GPU. Identical interface, factors and result; the
+    forward RHS sweep and backward substitution are evaluated with
+    :func:`lax.associative_scan` (O(log n_layers) depth) rather than sequential
+    ``lax.scan``. The full per-layer solution is materialised once to form the
+    angle-weighted ``J_bol`` (the fused sequential solve avoids this, trading
+    memory for the parallel depth).
+
+    Requires ``n_layers >= 3``, which :func:`prepare_feautrier_system_lm`
+    guarantees for any state this can be handed.
     """
     c_prime, inv_denom, a_times_inv_denom = factors
     n = n_layers
     batch = n_gf * n_angles
-
-    if n == 1:
-        x_last_flat = r_surf_ga.reshape(batch) * inv_denom[0]
-        J_bol_lm = jnp.sum(
-            x_last_flat.reshape(n_gf, n_angles) * angle_weight_a[None, :], axis=1
-        )[None, :]
-        return (
-            (-x_last_flat).reshape(n_gf, n_angles),
-            x_last_flat.reshape(n_gf, n_angles),
-            x_last_flat.reshape(n_gf, n_angles),
-            J_bol_lm,
-        )
 
     # RHS for inner rows 0 .. n-2, broadcast over angles → (n-1, batch).
     rhs_inner = jnp.broadcast_to(
@@ -654,7 +623,7 @@ def solve_feautrier_system_lm(
     ``(I_H_top, x_last, x_nm2, J_bol_lm)`` with the angular arrays shaped
     (n_gf, n_angles) and ``J_bol_lm`` shaped (n_layers, n_gf).
 
-    Solver choice (see GPU benchmarking):
+    Solver choice (measured on an A100):
     - Thomas-factor path (CPU always, GPU at large batch): on GPU the
       associative-scan solve is fastest at every measured size (e.g. ~6x faster
       than PCR and ~1.8x faster than the sequential Thomas scan at xl), so it is

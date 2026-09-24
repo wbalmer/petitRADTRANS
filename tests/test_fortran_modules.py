@@ -65,6 +65,37 @@ def test_rebin_spectrum_bin_preserves_float64_scan_dtype():
     assert jnp.all(jnp.isfinite(rebinned))
 
 
+def test_spline_continuum_subtraction_accepts_flat_knot_array():
+    # A flat knot array has 0-d elements, which are still jnp.ndarray instances;
+    # they must not be mistaken for a list of knot sets.
+    wavelengths = jnp.linspace(1.0, 2.0, 300, dtype=jnp.float64)
+    spectrum = 1.0 + 0.3 * wavelengths + 0.05 * jnp.sin(40.0 * wavelengths)
+
+    filtered = petitRADTRANS.radtrans_core.spectrum_utils.continuum_subtract_spectrum(
+        wavelengths, spectrum, {"continuum_subtract_nodes": 8}, method="spline"
+    )
+
+    assert filtered.shape == spectrum.shape
+    assert jnp.all(jnp.isfinite(filtered))
+    # The smooth continuum is removed and only the 0.05-amplitude sinusoid
+    # remains. The two end samples coincide with the outermost nodes, which the
+    # spline basis excludes (strict inequality), so they keep their raw value.
+    assert float(jnp.max(jnp.abs(filtered[1:-1]))) < 0.1
+
+
+def test_linear_spline_interpolation_knot_set_forms():
+    x_samples = jnp.linspace(1.0, 2.0, 50, dtype=jnp.float64)
+    spline_interpolation = petitRADTRANS.radtrans_core.spectrum_utils.linear_spline_interpolation
+
+    single_set = spline_interpolation(jnp.linspace(1.0, 2.0, 6), x_samples)
+    two_sets = spline_interpolation(
+        [jnp.linspace(1.0, 1.4, 4), jnp.linspace(1.6, 2.0, 5)], x_samples
+    )
+
+    assert single_set.shape == (50, 6)
+    assert two_sets.shape == (50, 9)
+
+
 def test_compute_radius_hydrostatic_equilibrium_reference_pressure_below_grid():
     # Cross-validation against the legacy Fortran backend; only runs when the
     # (no longer built by default) f2py extension is available.

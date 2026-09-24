@@ -24,6 +24,8 @@ sys.modules.setdefault("pymultinest", SimpleNamespace())
 from petitRADTRANS.retrieval.runtime import ParameterLayout  # noqa: E402
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig  # noqa: E402
 from petitRADTRANS.experimental.sbi import (  # noqa: E402
+    summarize_parameter_units,
+    summarize_prior_edge_occupancy,
     AmortizedRetrieval,
     build_observation_block_batch,
     ConditionalSplineFlowPosterior,
@@ -3964,3 +3966,92 @@ def test_a_collapsed_refinement_is_rejected_even_though_crps_prefers_it():
     )
     assert healthy["refined_is_better"] is True
     assert healthy["refined_degenerate_marginals"] == 0
+
+
+class _StubPriorParameter:
+    """Minimal stand-in for a retrieval parameter with a uniform prior."""
+
+    def __init__(self, low, high, units=None):
+        self.units = units
+        self._low = low
+        self._high = high
+
+    def transform_prior_cube_coordinate(self, cube_value):
+        return self._low + cube_value * (self._high - self._low)
+
+
+class _StubRetrievalConfig:
+    def __init__(self, parameters):
+        self.parameters = parameters
+
+
+def test_prior_edge_guard_flags_only_a_posterior_piled_against_a_bound():
+    # Three marginals on the same U(0, 1) prior: one matching the prior, one
+    # piled hard at the lower bound, one concentrated in the interior. Only the
+    # piled one is a prior-truncation warning; a tight interior posterior is the
+    # success case and must not flag.
+    rng = np.random.default_rng(0)
+    samples = np.column_stack([
+        rng.uniform(size=4096),
+        rng.beta(1.0, 60.0, size=4096),
+        rng.normal(0.5, 0.02, size=4096),
+    ])
+    names = ["uninformative", "piled_low", "interior"]
+    config = _StubRetrievalConfig({n: _StubPriorParameter(0.0, 1.0) for n in names})
+
+    report = summarize_prior_edge_occupancy(samples, names, config)
+
+    assert report["parameters_at_prior_edge"] == ["piled_low"]
+    assert report["n_parameters_at_prior_edge"] == 1
+    assert report["per_parameter"]["piled_low"]["edge"] == "lower"
+    # A posterior equal to the prior sits at ~1x enrichment by construction.
+    assert report["per_parameter"]["uninformative"]["enrichment"] == pytest.approx(
+        1.0, abs=0.5
+    )
+    assert report["per_parameter"]["piled_low"]["enrichment"] > 3.0
+    assert report["per_parameter"]["interior"]["at_prior_edge"] is False
+
+
+def test_prior_edge_enrichment_is_stable_against_the_band_width():
+    # Enrichment, not raw edge mass, is the flagging criterion precisely so the
+    # verdict does not depend on the arbitrary choice of band width.
+    rng = np.random.default_rng(1)
+    samples = rng.beta(1.0, 40.0, size=(8192, 1))
+    config = _StubRetrievalConfig({"x": _StubPriorParameter(0.0, 1.0)})
+
+    wide = summarize_prior_edge_occupancy(samples, ["x"], config, edge_width=0.10)
+    narrow = summarize_prior_edge_occupancy(samples, ["x"], config, edge_width=0.05)
+
+    assert wide["per_parameter"]["x"]["at_prior_edge"]
+    assert narrow["per_parameter"]["x"]["at_prior_edge"]
+    # Raw masses differ by ~2x across these band widths; enrichment does not.
+    assert wide["per_parameter"]["x"]["enrichment"] == pytest.approx(
+        narrow["per_parameter"]["x"]["enrichment"], rel=0.5
+    )
+
+
+def test_prior_edge_guard_survives_a_parameter_without_a_prior_transform():
+    config = _StubRetrievalConfig({"known": _StubPriorParameter(0.0, 1.0)})
+    samples = np.random.default_rng(2).uniform(size=(256, 2))
+
+    report = summarize_prior_edge_occupancy(samples, ["known", "absent"], config)
+
+    assert report["per_parameter"]["absent"]["at_prior_edge"] is False
+    assert report["per_parameter"]["absent"]["enrichment"] is None
+    assert "absent" not in report["parameters_at_prior_edge"]
+
+
+def test_parameter_units_distinguish_a_declared_unit_from_cgs():
+    # This is the distinction that makes a saved posterior interpretable: the
+    # same physical quantity is stored in R_jup under one task and cm under
+    # another, depending only on whether the prior declared a unit.
+    config = _StubRetrievalConfig({
+        "planet_radius": _StubPriorParameter(0.9, 2.0, units="jupiterRad"),
+        "log_g": _StubPriorParameter(2.5, 5.5),
+    })
+
+    units = summarize_parameter_units(config, ["planet_radius", "log_g", "missing"])
+
+    assert units["planet_radius"] == "jupiterRad"
+    assert units["log_g"] == "cgs"
+    assert units["missing"] == "cgs"

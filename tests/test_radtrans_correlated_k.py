@@ -198,6 +198,7 @@ def test_correlated_k_emission_partial_cloud_calculated_radius():
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
         cloud_fraction=test_parameters["cloud_parameters"]["cloud_fraction"],
+        patchy_clouds=tuple(test_parameters["cloud_parameters"]["cloud_species"].keys()),
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         temperatures=temperature_guillot_2010,
@@ -209,6 +210,7 @@ def test_correlated_k_emission_partial_cloud_calculated_radius():
         cloud_f_sed=cloud_f_sed,
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         frequencies_to_wavelengths=False,
+        make_analytical_clouds_patchy=True,
     )
 
 
@@ -300,6 +302,7 @@ def test_correlated_k_transmission_spectrum_partial_gray_cloud():
             "reference_pressure"
         ],
         frequencies_to_wavelengths=False,
+        make_analytical_clouds_patchy=True,
     )
 
 
@@ -551,6 +554,21 @@ def test_correlated_k_incomplete_power_law_opacity_raises():
         )
 
 
+def test_correlated_k_incomplete_target_particle_radii_raises():
+    """Supplying only one of the two selective-bin-disabling parameters must be rejected."""
+    with pytest.raises(RuntimeError, match="target_particle_radii"):
+        atmosphere_ck.calculate_flux(
+            temperatures=temperature_guillot_2010,
+            mass_fractions=test_parameters["mass_fractions_correlated_k"],
+            reference_gravity=test_parameters["planetary_parameters"][
+                "reference_gravity"
+            ],
+            mean_molar_masses=test_parameters["mean_molar_mass"],
+            target_particle_radii=1.0,
+            frequencies_to_wavelengths=False,
+        )
+
+
 def test_correlated_k_spectral_functions_reuse_compilation():
     """The spectral functions must compile once and reuse it across calls.
 
@@ -627,3 +645,59 @@ def test_removed_spectral_function_variants_hint_at_replacements():
     ):
         with pytest.raises(AttributeError, match=replacement):
             getattr(atmosphere_ck, removed)
+
+
+def test_return_opacities_gives_the_cloud_opacities_without_sum_opacities():
+    """return_opacities must hand back the real cloud opacities.
+
+    ``atmosphere_ck`` has scattering_in_emission False, so ``sum_opacities`` is
+    False for both spectral functions. A dead gate in
+    ``_assemble_cloud_opacity_outputs`` used to zero these two arrays in exactly
+    that case, which is the default for c-k transmission and for c-k emission
+    without scattering.
+    """
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
+    )
+    cloud_kwargs = {
+        "mass_fractions": mass_fractions,
+        "mean_molar_masses": test_parameters["mean_molar_mass"],
+        "reference_gravity": test_parameters["planetary_parameters"][
+            "reference_gravity"
+        ],
+        "cloud_f_sed": cloud_f_sed,
+        "cloud_particle_radius_distribution_std": (
+            cloud_particle_radius_distribution_std
+        ),
+        "eddy_diffusion_coefficients": test_parameters["planetary_parameters"][
+            "eddy_diffusion_coefficients"
+        ],
+        "return_opacities": True,
+        "frequencies_to_wavelengths": False,
+    }
+
+    _, _, emission_outputs = atmosphere_ck.calculate_flux(
+        temperatures=temperature_guillot_2010, **cloud_kwargs
+    )
+    _, _, transmission_outputs = atmosphere_ck.calculate_transit_radii(
+        temperatures=temperature_isothermal,
+        planet_radius=test_parameters["planetary_parameters"]["radius"]
+        * petitRADTRANS.physical_constants.r_jup_mean,
+        reference_pressure=test_parameters["planetary_parameters"][
+            "reference_pressure"
+        ],
+        **cloud_kwargs,
+    )
+
+    for outputs in (emission_outputs, transmission_outputs):
+        cloud_absorption_opacities = np.asarray(
+            outputs["cloud_absorption_opacities"]
+        )
+        cloud_scattering_opacities = np.asarray(
+            outputs["cloud_anisotropic_scattering_opacities"]
+        )
+
+        assert np.any(cloud_absorption_opacities > 0)
+        assert np.any(cloud_scattering_opacities > 0)
+        assert np.all(np.isfinite(cloud_absorption_opacities))
+        assert np.all(np.isfinite(cloud_scattering_opacities))

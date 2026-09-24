@@ -311,6 +311,8 @@ def test_line_by_line_spectral_model_transmission_full_all_with_clouds():
         function=calculate_spectrum, relative_tolerance=relative_tolerance
     )
 
+    spectral_model.model_parameters["patchy_clouds"] = spectral_model.cloud_species
+
     # Test flux cloudy
     spectral_model.model_parameters["cloud_fraction"] = 1
 

@@ -76,11 +76,45 @@ def _smooth_histogram2d(counts: np.ndarray, passes: int = 1) -> np.ndarray:
     return smoothed
 
 
+def _resolve_truth_vector(
+    truth_values: Any,
+    parameter_names: Sequence[str],
+) -> np.ndarray | None:
+    """Resolve truth values onto the posterior column order.
+
+    A mapping is resolved *by parameter name*, which is the only safe form: the
+    column order of a posterior sample array is not guaranteed to match the
+    order truths were written in, and a positional mis-alignment produces a
+    plot that looks fine but indicates the wrong parameter. Names absent from
+    the mapping become NaN and are simply not drawn. A sequence is accepted
+    only when it already has one entry per column.
+    """
+    if truth_values is None:
+        return None
+
+    if isinstance(truth_values, Mapping):
+        resolved = [
+            float(truth_values[name]) if name in truth_values else float("nan")
+            for name in parameter_names
+        ]
+        return np.asarray(resolved, dtype=float)
+
+    resolved_array = np.asarray(truth_values, dtype=float).ravel()
+    if resolved_array.size != len(parameter_names):
+        raise ValueError(
+            "truth_values given as a sequence must have one entry per posterior "
+            f"dimension: got {resolved_array.size} for {len(parameter_names)} parameters. "
+            "Pass a {name: value} mapping to resolve by name instead."
+        )
+    return resolved_array
+
+
 def plot_posterior_marginals(
     samples: Any,
     parameter_names: Sequence[str] | None = None,
     bins: int = 40,
     figsize: tuple[float, float] | None = None,
+    truth_values: Any = None,
 ) -> tuple[Any, np.ndarray]:
     """Plot one histogram per posterior dimension.
 
@@ -95,6 +129,9 @@ def plot_posterior_marginals(
         Number of histogram bins per dimension.
     figsize:
         Optional Matplotlib figure size.
+    truth_values:
+        Optional ``{name: value}`` mapping of ground-truth parameter values to
+        overlay, resolved by name. Missing names are skipped.
 
     Returns
     -------
@@ -125,6 +162,7 @@ def plot_posterior_marginals(
     if figsize is None:
         figsize = (4.5 * n_cols, 3.0 * n_rows)
 
+    truth_vector = _resolve_truth_vector(truth_values, parameter_names)
     palette = _prt_palette()
     fig, axes = pyplot.subplots(n_rows, n_cols, figsize=figsize, squeeze=False)
     flat_axes = axes.flatten()
@@ -134,6 +172,13 @@ def plot_posterior_marginals(
         axis.hist(
             sample_array[:, index], bins=bins, color=palette["primary"], alpha=0.8
         )
+        if truth_vector is not None and np.isfinite(truth_vector[index]):
+            axis.axvline(
+                truth_vector[index],
+                color=palette["positive"],
+                linestyle="--",
+                linewidth=1.6,
+            )
         axis.set_title(str(parameter_names[index]))
         axis.set_xlabel("Value")
         axis.set_ylabel("Count")
@@ -151,6 +196,7 @@ def plot_posterior_corner(
     bins: int = 40,
     figsize: tuple[float, float] | None = None,
     max_points: int = 8_192,
+    truth_values: Any = None,
 ) -> tuple[Any, np.ndarray]:
     """Plot a lower-triangular corner view of posterior structure.
 
@@ -168,6 +214,9 @@ def plot_posterior_corner(
     max_points:
         Maximum number of posterior draws plotted. Larger sample sets are
         evenly subsampled to keep rendering costs bounded.
+    truth_values:
+        Optional ``{name: value}`` mapping of ground-truth parameter values to
+        overlay, resolved by name. Missing names are skipped.
 
     Returns
     -------
@@ -217,6 +266,7 @@ def plot_posterior_corner(
         sharex='col',
     )
 
+    truth_vector = _resolve_truth_vector(truth_values, parameter_names)
     palette = _prt_palette()
     density_cmap = _prt_density_colormap(palette['primary'])
 
@@ -283,8 +333,22 @@ def plot_posterior_corner(
                         linewidths=0.5,
                         alpha=0.6,
                     )
+                if truth_vector is not None and np.isfinite(truth_vector[row]):
+                    axis.axhline(
+                        truth_vector[row],
+                        color=palette['positive'],
+                        linestyle='--',
+                        linewidth=1.1,
+                    )
                 axis.set_ylim(lower[row], upper[row])
 
+            if truth_vector is not None and np.isfinite(truth_vector[col]):
+                axis.axvline(
+                    truth_vector[col],
+                    color=palette['positive'],
+                    linestyle='--',
+                    linewidth=1.1,
+                )
             axis.set_xlim(lower[col], upper[col])
 
             if row == parameter_dim - 1:

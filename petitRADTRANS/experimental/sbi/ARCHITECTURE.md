@@ -467,7 +467,8 @@ The diagnostics suite (validating that the amortized posterior is trustworthy).
   every intermediate of the spectral encoder, localising where a statistic stops
   being recoverable. Stages come from the same forward pass that produces the
   embedding, never a re-implementation.
-- Summarizers (`summarize_posterior_samples`, `summarize_posterior_contraction`,
+- Summarizers (`summarize_posterior_samples`, `summarize_posterior_width_ratios`,
+  `summarize_parameter_units`, `summarize_prior_edge_occupancy`,
   `summarize_predictive_report`, `summarize_training_diagnostics`,
   `serialize_ood_diagnostic`) and the parameter-space → physical transform
   (`_posterior_space_to_physical`).

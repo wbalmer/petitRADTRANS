@@ -15,6 +15,8 @@ The core responsibilities of the module are:
 The classes in this file are intentionally small, immutable containers with a
 few conversion helpers. Together they provide the bridge between the legacy
 retrieval configuration objects and the newer runtime-native execution model.
+
+AI tools were used to help develop this module.
 """
 
 from __future__ import annotations
@@ -898,6 +900,23 @@ class RetrievalRuntime:
                 projected_model = None
 
                 if model_auxiliary_outputs is not None:
+                    flux_jacobian = model_auxiliary_outputs.get("flux_jacobian")
+                    if flux_jacobian is not None:
+                        # LINEARISED path. The model has handed us the reference
+                        # spectrum and its derivatives; the modulation amplitudes
+                        # are integrated out in closed form here rather than
+                        # sampled. Both arrays are fluxes, so they go through the
+                        # SAME projector and the log Jacobian is formed after.
+                        return _linearised_time_series_log_likelihood(
+                            wavelengths_model,
+                            spectrum_model,
+                            flux_jacobian,
+                            observation,
+                            parameters,
+                            data_name,
+                            additional_log_likelihood,
+                        )
+
                     model_times = model_auxiliary_outputs.get("model_times")
 
                     if model_times is not None and jnp.ndim(spectrum_model) == 2:
@@ -2373,6 +2392,94 @@ def project_model_to_observation_space(
     )
 
 
+def _linearised_time_series_log_likelihood(
+    wavelengths_model,
+    reference_spectrum_model,
+    flux_jacobian_model,
+    observation,
+    parameters,
+    data_name,
+    additional_log_likelihood,
+):
+    """Marginal likelihood of a time series with the modulation integrated out.
+
+    The model is
+
+        ln d_ij = ln M_i(theta_ref) + a_i + sum_pm J_ip Phi_jm beta_pm + eps_ij
+
+    with ``a_i`` a static per-wavelength offset carrying the forward model's own
+    error and ``beta`` the modulation amplitudes.  Both nuisances are Gaussian
+    and enter linearly, so both are integrated out analytically: what is
+    returned is ``ln Z``, a function of the reference state alone.  The sampler
+    therefore explores the static parameters only, and never sees the
+    amplitudes.
+
+    See ``petitRADTRANS.retrieval.linearised`` for the algebra, and the
+    accompanying note for why the amplitudes are marginalised rather than fitted.
+    """
+    try:
+        from petitRADTRANS.retrieval import linearised as _lin
+    except ImportError as e:
+        raise ImportError(
+            "Failed to import the linearised module from petitRADTRANS.retrieval. "
+            "Ensure that petitRADTRANS is correctly installed."
+        ) from e
+
+    config = (observation.metadata or {}).get("time_series_config") or {}
+    state = config.get("linearised")
+    if state is None:
+        raise ValueError(
+            f"dataset '{data_name}' returned a flux Jacobian but was not "
+            "registered with add_linearised_time_series_data()."
+        )
+
+    def project(flux):
+        return project_model_to_observation_space(
+            wavelengths_model, flux, observation, parameters, data_name
+        )
+
+    reference = project(reference_spectrum_model)
+    jacobian = vmap(project, in_axes=1, out_axes=1)(flux_jacobian_model)
+    log_jacobian = jacobian / reference[:, None]
+
+    residual = jnp.asarray(state["log_spectrum"]) - jnp.log(reference)[:, None]
+    period = parameters[state["period_parameter"]]
+    period = getattr(period, "value", period)
+    basis = _lin.reference_anchored_basis(
+        jnp.asarray(state["times"]),
+        period,
+        jnp.asarray(state["reference_indices"]),
+        state["n_harmonics"],
+        jnp.asarray(state["reference_weights"]),
+    )
+    normal_matrix, normal_vector, chi2_data = _lin.build_linear_system(
+        log_jacobian,
+        basis,
+        residual,
+        jnp.asarray(state["var_point"]),
+        state["offset_variance"],
+        state["correlation_rho"],
+    )
+    log_evidence, _ = _lin.modulation_log_evidence(
+        normal_matrix,
+        normal_vector,
+        chi2_data,
+        jnp.asarray(state["prior_variance"]),
+        state["noise_normalisation"],
+    )
+    # A NaN model -- the NaN-poisoned unphysical-gravity guard, or a negative
+    # projected flux -- must become a finite rejection, not a NaN log-density
+    # that poisons the sampler's adaptation.
+    log_evidence = jnp.where(
+        jnp.isnan(log_evidence), INVALID_LOG_LIKELIHOOD, log_evidence
+    )
+    return jnp.where(
+        log_evidence <= INVALID_LOG_LIKELIHOOD,
+        INVALID_LOG_LIKELIHOOD,
+        log_evidence + additional_log_likelihood,
+    )
+
+
 def project_model_time_series_to_observation_space(
     wavelengths_model: Any,
     model_spectra: Any,
@@ -2403,6 +2510,48 @@ def project_model_time_series_to_observation_space(
         projected_model_spectra = lax.map(project_epoch, model_spectra)
     else:
         projected_model_spectra = vmap(project_epoch)(model_spectra)
+
+    time_series_config = (observation.metadata or {}).get("time_series_config") or {}
+    scheme = time_series_config.get("time_interpolation", "linear")
+    if scheme == "trigonometric":
+        # Straight lines between model epochs attenuate harmonic k by
+        # (k w h)^2 / 12 -- an error PROPORTIONAL TO THE SIGNAL, so it survives
+        # any amount of averaging and biases exactly the amplitudes being
+        # measured. When the model epochs span a whole number of rotations the
+        # modulation is periodic and band-limited, and fitting harmonics instead
+        # of joining the dots is exact. Opt-in, because it is only exact on a
+        # periodic window; the default is unchanged.
+        period = parameters[time_series_config.get("period_parameter", "period")]
+        period = getattr(period, "value", period)
+        order = int(time_series_config.get("harmonic_interpolation_order", 6))
+        n_node = model_times.shape[0]
+        if n_node < 2 * order + 1:
+            raise ValueError(
+                f"trigonometric time interpolation to harmonic {order} needs at "
+                f"least {2 * order + 1} model timesteps, got {n_node}"
+            )
+
+        def harmonic_design(times):
+            angle = (2.0 * jnp.pi / period) * times[:, None] * jnp.arange(
+                1, order + 1, dtype=times.dtype
+            )[None, :]
+            return jnp.concatenate(
+                [jnp.ones((times.shape[0], 1), dtype=times.dtype),
+                 jnp.cos(angle), jnp.sin(angle)],
+                axis=1,
+            )
+
+        # Least squares rather than a square solve: surplus nodes average down
+        # any content above the truncation instead of aliasing it.
+        resampler = harmonic_design(observation_times) @ jnp.linalg.pinv(
+            harmonic_design(model_times)
+        )
+        return resampler @ projected_model_spectra
+    if scheme != "linear":
+        raise ValueError(
+            f"time_interpolation must be 'linear' or 'trigonometric', "
+            f"got {scheme!r}"
+        )
 
     return vmap(
         lambda wavelength_bin: jnp.interp(
