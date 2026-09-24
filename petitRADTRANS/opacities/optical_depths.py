@@ -1,25 +1,54 @@
+_file_purpose=""# todo
+
 import jax.numpy as jnp
-from jax import debug
 from interpax import interp1d
-from petitRADTRANS.radtrans_core import radiative_transfer_core
-from petitRADTRANS.opacities.continuum import combine_opacities
-from petitRADTRANS.opacities.clouds import compute_species_optical_depths
-from petitRADTRANS.physics import frequency2wavelength
+from jax import debug
 
 from petitRADTRANS.jax_dtype import WORKING_JAX_DTYPE
+from petitRADTRANS.opacities.clouds import compute_species_optical_depths
+from petitRADTRANS.opacities.continuum import combine_opacities
+from petitRADTRANS.physics import frequency2wavelength
+from petitRADTRANS.radtrans_core import radiative_transfer_core
 
 
 def _total_absorption_opacity(opacities):
+    # todo: why is this only the first element of the third axis taken?
+    # todo this is smt that the third dimension is not just species but clouds or not? So definitely not only chemical species
     return jnp.asarray(opacities[:, :, :1, :], dtype=WORKING_JAX_DTYPE)
 
 
 def _compute_total_optical_depths(
-    pressures,
-    reference_gravity,
-    opacities,
-    continuum_opacities_scattering,
-    scattering_in_emission,
-):
+    pressures: ArrayLike,
+    reference_gravity: float,
+    opacities: ArrayLike,
+    scattering_in_emission: bool = False,
+    continuum_opacities_scattering: Optional[ArrayLike] = None,
+) -> tuple[ArrayLike, ArrayLike]:
+    """
+    Wrapper function to compute the optical depths and photon destruction probabilities.
+
+    Parameters
+    ----------
+    pressures: jnp.ndarray, shape (n_layers, )
+        The pressures in the atmosphere.
+    reference_gravity: float
+        The reference gravity in the atmosphere.
+    opacities: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers) # todo: rename species once clear what it is
+        The opacities in the atmosphere.
+    scattering_in_emission: bool
+        Whether to include scattering in the emission calculation.
+    continuum_opacities_scattering: Optional[ArrayLike]
+        The continuum scattering opacity in the atmosphere.
+
+    Returns
+    -------
+    tuple[jax.Array, jax.Array]
+        optical_depths: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
+            The optical depths in the atmosphere.
+        photon_destruction_probabilities: jnp.ndarray, shape (n_g, n_frequencies, n_layers)
+            The photon destruction probabilities in the atmosphere.
+    """
+    # todo: rename to smt that also includes the destruction probablities?
     optical_depths, photon_destruction_probabilities = (
         radiative_transfer_core.compute_optical_depths(
             reference_gravity=reference_gravity,
@@ -46,7 +75,7 @@ def compute_optical_depths(
     photospheric_cloud_optical_depths=None,
     absorber_present=True,
     **custom_cloud_parameters,
-):
+): # todo: now it has the same name as the in the radtranscore... maybe rename?
     """
     Compute the optical depths and photon destruction probabilities.
 
@@ -57,9 +86,9 @@ def compute_optical_depths(
         The pressures in the atmosphere.
     reference_gravity: float
         The reference gravity in the atmosphere.
-    opacities: jnp.ndarray, shape (?, n_frequencies, ?, n_layers) # todo
+    opacities: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
         The opacities in the atmosphere.
-    continuum_opacities_scattering: jnp.ndarray, shape (n_frequencies, n_layers)
+    continuum_opacities_scattering: jnp.ndarray, shape (n_g or 1, n_frequencies, n_layers) or (n_frequencies, n_layers)
         The continuum scattering opacities in the atmosphere.
     scattering_in_emission: bool
         Whether to include scattering in the emission calculation.
@@ -74,7 +103,7 @@ def compute_optical_depths(
 
     Returns
     -------
-    optical_depths: jnp.ndarray, shape (?, n_frequencies, ?, n_layers) # todo
+    optical_depths: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
         The cumulative optical depths in the atmosphere.
     photon_destruction_probabilities: jnp.ndarray, shape (n_layers, )
         The photon destruction probabilities in the atmosphere.

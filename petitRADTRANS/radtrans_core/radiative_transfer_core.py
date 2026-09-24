@@ -2041,15 +2041,14 @@ def compute_optical_depths(
         # Compute photon destruction probabilities for all g, freq, press
         absorptive_opac = opacities_work[:, :, 0, :]
         total_opac = _opacities[:, :, 0, :]
-        # Floor the denominator at sqrt(tiny), not tiny. absorptive/total has
-        # gradient ~ -absorptive/total**2, and for total just above WORKING_TINIEST
-        # the square underflows to 0 -> inf gradient, which the outer jnp.where
-        # then turns into 0*inf = NaN. Because this photon-destruction
-        # probability feeds the scattering source at every (g, f, layer), that
-        # single NaN propagated into essentially every parameter's gradient at
-        # the prior median. sqrt(tiny) keeps total**2 normal; cells with such
-        # negligible opacity are physically irrelevant, so the forward is
-        # unchanged in practice.
+
+        # Floor the denominator at sqrt(tiny), not tiny.
+        # absorptive/total has gradient ~ -absorptive/total**2, and for total just above WORKING_TINIEST
+        # the square underflows to 0 -> inf gradient, which the outer jnp.where then turns into 0*inf = NaN.
+        # Because this photon-destruction probability feeds the scattering source at every (g, f, layer), that
+        # single NaN propagated into essentially every parameter's gradient at the prior median.
+        # sqrt(tiny) keeps total**2 normal; cells with such negligible opacity are physically irrelevant,
+        # so the forward is unchanged in practice.
         safe_total_opac = jnp.maximum(
             total_opac, jnp.sqrt(WORKING_TINIEST)
         )
@@ -2083,7 +2082,9 @@ def compute_optical_depths(
     d_optical_depths = (
         avg_opacities * pressure_diffs / reference_gravity_work
     )  # (..., n_layers-1)
+
     # Pad with zeros at the start for cumulative sum
+    # from shape(n_g, n_frequencies, n_species, n_layers-1) to shape(n_g, n_frequencies, n_species, n_layers)
     d_optical_depths_padded = jnp.pad(
         d_optical_depths, [(0, 0)] * (d_optical_depths.ndim - 1) + [(1, 0)]
     )
