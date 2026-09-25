@@ -1989,7 +1989,7 @@ def compute_feautrier_radiative_transfer(
 
 
 @jit
-def compute_optical_depths(
+def compute_optical_depths_and_pdp_core(
     reference_gravity: ArrayLike,
     pressures: ArrayLike,
     opacities: ArrayLike,

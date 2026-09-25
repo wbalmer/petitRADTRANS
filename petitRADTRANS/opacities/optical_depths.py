@@ -11,13 +11,27 @@ from petitRADTRANS.physics import frequency2wavelength
 from petitRADTRANS.radtrans_core import radiative_transfer_core
 
 
-def _total_absorption_opacity(opacities):
-    # todo: why is this only the first element of the third axis taken?
-    # todo this is smt that the third dimension is not just species but clouds or not? So definitely not only chemical species
+def _total_absorption_opacity(
+        opacities: ArrayLike,
+) -> ArrayLike:
+    """
+    In case of sum_opacities=True, the third dimension of the opacities (species) has the already summed opacities, so
+    only this is taken into account.
+
+    Parameters
+    ----------
+    opacities: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
+        The opacities in the atmosphere.
+
+    Returns
+    -------
+    jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
+        The opacity in the atmosphere, but with only one dimension in the species dimension
+    """
     return jnp.asarray(opacities[:, :, :1, :], dtype=WORKING_JAX_DTYPE)
 
 
-def _compute_total_optical_depths(
+def _compute_total_optical_depths_and_pdp(
     pressures: ArrayLike,
     reference_gravity: float,
     opacities: ArrayLike,
@@ -33,7 +47,7 @@ def _compute_total_optical_depths(
         The pressures in the atmosphere.
     reference_gravity: float
         The reference gravity in the atmosphere.
-    opacities: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers) # todo: rename species once clear what it is
+    opacities: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
         The opacities in the atmosphere.
     scattering_in_emission: bool
         Whether to include scattering in the emission calculation.
@@ -48,9 +62,8 @@ def _compute_total_optical_depths(
         photon_destruction_probabilities: jnp.ndarray, shape (n_g, n_frequencies, n_layers)
             The photon destruction probabilities in the atmosphere.
     """
-    # todo: rename to smt that also includes the destruction probablities?
     optical_depths, photon_destruction_probabilities = (
-        radiative_transfer_core.compute_optical_depths(
+        radiative_transfer_core.compute_optical_depths_and_pdp_core(
             reference_gravity=reference_gravity,
             pressures=pressures,
             opacities=_total_absorption_opacity(opacities),
@@ -75,7 +88,7 @@ def compute_optical_depths(
     photospheric_cloud_optical_depths=None,
     absorber_present=True,
     **custom_cloud_parameters,
-): # todo: now it has the same name as the in the radtranscore... maybe rename?
+) -> tuple[ArrayLike, ArrayLike, float]:
     """
     Compute the optical depths and photon destruction probabilities.
 
@@ -99,7 +112,7 @@ def compute_optical_depths(
     absorber_present: bool
         Whether an absorber is present in the atmosphere. Default is True.
     custom_cloud_parameters: dict
-        Custom cloud parameters to be passed to the cloud opacity calculation.
+        Custom cloud parameters to be passed to the cloud opacity calculation.#todo is that correct?
 
     Returns
     -------
@@ -108,7 +121,7 @@ def compute_optical_depths(
     photon_destruction_probabilities: jnp.ndarray, shape (n_layers, )
         The photon destruction probabilities in the atmosphere.
     relative_cloud_scaling_factor: float
-        The relative cloud scaling factor in the atmosphere.
+        The relative cloud scaling factor in the atmosphere.#todo is that correct?
 
     """
     photon_destruction_probabilities = None
@@ -121,7 +134,7 @@ def compute_optical_depths(
                 optical_depths,
                 photon_destruction_probabilities,
                 relative_cloud_scaling_factor,
-            ) = compute_optical_depths_with_photospheric_cloud(
+            ) = compute_optical_depths_and_pdp_with_photospheric_cloud(
                 pressures=pressures,
                 reference_gravity=reference_gravity,
                 opacities=opacities,
@@ -136,7 +149,7 @@ def compute_optical_depths(
                     continuum_opacities_scattering.shape, dtype=WORKING_JAX_DTYPE
                 )
             optical_depths, photon_destruction_probabilities = (
-                _compute_total_optical_depths(
+                _compute_total_optical_depths_and_pdp(
                     pressures=pressures,
                     reference_gravity=reference_gravity,
                     opacities=opacities,
@@ -168,7 +181,7 @@ def compute_optical_depths(
         )
     else:
         optical_depths = jnp.asarray(
-            compute_species_optical_depths(
+            compute_species_optical_depths( # todo: review that
                 reference_gravity=reference_gravity,
                 pressures=pressures,
                 cloud_opacities=opacities, # TODO David: these are opacities per (gas) species, too
@@ -183,8 +196,8 @@ def compute_optical_depths(
         relative_cloud_scaling_factor,
     )
 
-
-def compute_optical_depths_with_photospheric_cloud(
+# todo: review that
+def compute_optical_depths_and_pdp_with_photospheric_cloud(
     pressures,
     reference_gravity,
     opacities,
