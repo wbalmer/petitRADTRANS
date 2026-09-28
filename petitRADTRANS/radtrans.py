@@ -1656,17 +1656,19 @@ class Radtrans:
         target_pressure=None,
         ck_chunk_size=radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE,
     ):
-        """Build line, continuum, and cloud opacity products for a spectrum calculation.
+        """Build line, continuum, and cloud opacity for spectral calculations.
 
         The method interpolates line opacities to the current atmospheric
-        structure, computes gas and cloud continuum contributions, combines
-        them according to the active line-opacity mode, and optionally builds a
+        structure (P and T), computes gas and cloud continuum contributions, combines
+        them according to the active line-opacity mode (correlated-k in scattering or
+        not in scattering mode, line-by-line calculations).
 
         Args:
             temperatures:
                 Atmospheric temperature profile in K.
             mass_fractions:
-                Mapping from species name to mass-fraction profile.
+                Dictionary containing mass-fraction profiles for all atmospheric species
+                that have a requested opacity associated to them.
             mean_molar_masses:
                 Mean molecular mass profile in amu.
             reference_gravity:
@@ -1689,9 +1691,10 @@ class Radtrans:
             clouds_particle_porosity_factor:
                 Optional porosity factors keyed by cloud species.
             cloud_f_sed:
-                Cloud settling parameter, either scalar or per-species mapping.
+                Cloud settling parameter, either scalar or dictionary with
+                clouds species names as keys.
             eddy_diffusion_coefficients:
-                Optional eddy diffusion coefficient profile or mapping.
+                Optional eddy diffusion coefficient profile.
             haze_factor:
                 Scalar multiplier for Rayleigh scattering.
             power_law_opacity_350nm:
@@ -1699,7 +1702,8 @@ class Radtrans:
             power_law_opacity_coefficient:
                 Wavelength exponent for the parametrized scattering opacity.
             gray_opacity:
-                Optional gray absorption opacity added everywhere.
+                Optional gray absorption opacity added "everywhere"
+                (at all pressures and wavelengths).
             cloud_photosphere_median_optical_depth:
                 Optional target median cloud optical depth near the photosphere.
             patchy_clouds:
@@ -1709,9 +1713,9 @@ class Radtrans:
                 If ``True``, propagate cloud contribution products required by
                 downstream diagnostics.
             additional_absorption_opacities_function:
-                Optional user-supplied absorption opacity callback.
+                Optional user-supplied absorption opacity function.
             additional_scattering_opacities_function:
-                Optional user-supplied scattering opacity callback.
+                Optional user-supplied scattering opacity function.
             compute_clear_opacities:
                 If ``True``, also construct clear-column opacities.
             defer_clear_opacity_combination:
@@ -1723,7 +1727,13 @@ class Radtrans:
                 combination lazily inside the ``cloud_fraction < 1`` branch
                 (see :meth:`_combine_deferred_clear_opacities`), so the
                 expensive correlated-k mixing is skipped entirely for
-                full-coverage spectra.
+                full-coverage spectra. Note that this is still more
+                expensive in the code currently than just not defining
+                patchy clouds at all, since the retainment of these opacities
+                ``(line_opacities, clear_continuum_opacities,
+                combined_line_species_mass_fractions)`` prevents the XLA compiler
+                from fusing operations within this function, making it noticeably
+                slower.
             target_particle_radii:
                 Particle radius to target for selective bin disabling. Radius bin closest
                 the input value will be disabled.
@@ -1731,8 +1741,11 @@ class Radtrans:
                 Pressure to target for selective bin disabling. Pressure bin closest to
                 the input value will be disabled.
 
-        Returns:
-            Tuple containing cloudy opacities, cloudy scattering opacities,
+        Returns: # TODO Paul_review: clean up this return description once
+                 # you understand the breadth of what is returned.
+            Tuple containing the P-T interpolated and mass-fraction-combined gas opacities,
+            the cloudy continuum absorption and scattering opacities
+            (incl. clear continuum contributions),
             cloud-only opacity diagnostics, particle radii products, a flag for
             scattering in transmission, and optional clear-column opacity
             products.

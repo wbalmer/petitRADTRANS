@@ -537,11 +537,6 @@ def _sanitize_flux_opacity_inputs(
 
     if eddy_diffusion_coefficients is None:
         eddy_diffusion_coefficients_norm = None
-    elif isinstance(eddy_diffusion_coefficients, dict):
-        eddy_diffusion_coefficients_norm = {
-            key: jnp.array(value, dtype=FEAUTRIER_JAX_DTYPE)
-            for key, value in eddy_diffusion_coefficients.items()
-        }
     else:
         eddy_diffusion_coefficients_norm = jnp.array(
             eddy_diffusion_coefficients, dtype=FEAUTRIER_JAX_DTYPE
