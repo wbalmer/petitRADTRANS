@@ -410,6 +410,59 @@ class Retrieval:
 
         print("No errors detected in the model functions!")
 
+    def _linearised_data_names(self) -> list[str]:
+        """Names of the datasets registered as linearised time series."""
+        return [
+            name
+            for name, data_object in self.configuration.data.items()
+            if ((getattr(data_object, "time_series_config", None) or {}).get(
+                "linearised") is not None)
+        ]
+
+    def _linearised_response_names(
+        self, data_name: str, n_response: int
+    ) -> tuple[str, ...]:
+        """Labels for the response columns, physical ones first then nuisances."""
+        config = self.configuration.data[data_name].time_series_config or {}
+        names = tuple(config.get("modulated_parameters", ()))
+        n_nuisance = n_response - len(names)
+
+        if n_nuisance < 0:
+            raise ValueError(
+                f"dataset '{data_name}' has {len(names)} modulated parameters "
+                f"but the design has only {n_response} response columns"
+            )
+
+        return names + tuple(f"nuisance_mode_{i}" for i in range(n_nuisance))
+
+    def _resolve_linearised_data_name(self, data_name: str | None) -> str:
+        """Pick the linearised dataset to act on, or explain why it is ambiguous."""
+        available = self._linearised_data_names()
+
+        if not available:
+            raise ValueError(
+                "no linearised time series is registered in this retrieval; "
+                "add one with "
+                "RetrievalConfig.add_linearised_time_series_data()."
+            )
+
+        if data_name is None:
+            if len(available) > 1:
+                raise ValueError(
+                    "several linearised datasets are registered "
+                    f"({', '.join(available)}); name the one to use."
+                )
+
+            return available[0]
+
+        if data_name not in available:
+            raise ValueError(
+                f"'{data_name}' is not a registered linearised dataset; "
+                f"available: {', '.join(available) if available else 'none'}"
+            )
+
+        return data_name
+
     def _rebin_opacities(self, resolution: float):
         """
         Based on exo-k, will rebin c-k opacities down to the requested resolution
@@ -560,41 +613,30 @@ class Retrieval:
 
         return _model_result_to_legacy_output(model_result)
 
-    def calculate_forward_model(
+    def _resolve_configuration_parameters(
         self,
         parameters=None,
-        data=None,
-        pt_plot_mode: bool = False,
-        adaptive_mesh_refinement: bool = False,
         copy_configuration_parameters: bool = True,
         **kwargs,
     ):
-        """Calculate the forward model associated with the given datasets, for the given parameters.
+        """Resolve a parameter specification into a configuration parameter mapping.
+
+        Shared by :meth:`calculate_forward_model` and
+        :meth:`calculate_modulation_posterior`, which both need the model
+        evaluated at a caller-specified state and must agree on what that state
+        means.
 
         Args:
             parameters:
-                Parameters of the forward models.
-                Can be a dictionary with parameter names as keys, or a string, or None.
-                Possible string values are:
-                    - 'best fit': return the forward model with the retrieved best fit parameters.
-                    - 'median': return the forward model with the retrieved median parameters.
-                    - 'quantile': return the forward model with retrieved parameters at the given quantile.
-                If ``parameter='quantile'``, then a ``quantile`` (float) keyword argument must be added.
-                If None, the free parameters of the retrieval are set to their prior mid-range value.
-            data:
-                Can be a string, or a dictionary with data name as keys and Data objects as values, or None.
-                If None, the forward models of all the data in the retrieval configuration are calculated.
-            pt_plot_mode:
-                If True, the model function should return the pressure and temperature arrays before computing the flux.
-            adaptive_mesh_refinement:
-                If True, use an adaptive high resolution pressure grid around the location of cloud condensation.
-                This will increase the size of the pressure grid by a constant factor that can be adjusted in the
-                setup_pres function.
+                A mapping of parameter names to values, a sequence of free
+                parameter values in configuration order, one of the strings
+                ``'best fit'``, ``'median'`` or ``'quantile'``, or None for the
+                prior mid-range values.
             copy_configuration_parameters:
-                If True, copy the configuration parameters to prevent unwanted modifications.
+                If True, work on a copy so the configuration is left untouched.
+
         Returns:
-            A dictionary with the outputs of the forward models for the requested data, or, if data is a string, the
-            output of the forward model corresponding to these data.
+            The configuration parameter mapping, with every value set.
         """
         if parameters is None:
             parameters = {}
@@ -703,6 +745,50 @@ class Retrieval:
                     configuration_parameters[parameter_name].set_param(parameters[i_p])
                     i_p += 1
 
+        return configuration_parameters
+
+    def calculate_forward_model(
+        self,
+        parameters=None,
+        data=None,
+        pt_plot_mode: bool = False,
+        adaptive_mesh_refinement: bool = False,
+        copy_configuration_parameters: bool = True,
+        **kwargs,
+    ):
+        """Calculate the forward model associated with the given datasets, for the given parameters.
+
+        Args:
+            parameters:
+                Parameters of the forward models.
+                Can be a dictionary with parameter names as keys, or a string, or None.
+                Possible string values are:
+                    - 'best fit': return the forward model with the retrieved best fit parameters.
+                    - 'median': return the forward model with the retrieved median parameters.
+                    - 'quantile': return the forward model with retrieved parameters at the given quantile.
+                If ``parameter='quantile'``, then a ``quantile`` (float) keyword argument must be added.
+                If None, the free parameters of the retrieval are set to their prior mid-range value.
+            data:
+                Can be a string, or a dictionary with data name as keys and Data objects as values, or None.
+                If None, the forward models of all the data in the retrieval configuration are calculated.
+            pt_plot_mode:
+                If True, the model function should return the pressure and temperature arrays before computing the flux.
+            adaptive_mesh_refinement:
+                If True, use an adaptive high resolution pressure grid around the location of cloud condensation.
+                This will increase the size of the pressure grid by a constant factor that can be adjusted in the
+                setup_pres function.
+            copy_configuration_parameters:
+                If True, copy the configuration parameters to prevent unwanted modifications.
+        Returns:
+            A dictionary with the outputs of the forward models for the requested data, or, if data is a string, the
+            output of the forward model corresponding to these data.
+        """
+        configuration_parameters = self._resolve_configuration_parameters(
+            parameters=parameters,
+            copy_configuration_parameters=copy_configuration_parameters,
+            **kwargs,
+        )
+
         model_returned_values = {}
         return_dict = False
 
@@ -734,6 +820,152 @@ class Retrieval:
             return model_returned_values
         else:
             return model_returned_values[list(data.keys())[0]]
+
+    def calculate_modulation_posterior(
+        self,
+        parameters=None,
+        data_name: str | None = None,
+        copy_configuration_parameters: bool = True,
+        **kwargs,
+    ) -> dict:
+        """Recover the modulation amplitudes of a linearised time series.
+
+        A linearised retrieval integrates the modulation amplitudes out, so the
+        sampler only ever sees ``ln Z`` as a function of the static reference
+        state.  The amplitudes are still available: at any given reference state
+        their posterior is an exact Gaussian, so this reconstructs the linear
+        system at that state and solves it in closed form.  No sampling is
+        involved and no iteration is required.
+
+        The result is CONDITIONAL on the reference state passed in.  Because the
+        amplitudes have been measured to depend on that state far more strongly
+        than on the noise, a single call understates the uncertainty.  For the
+        unconditional posterior, call this at a set of draws from the
+        reference-state posterior and combine the results with
+        :func:`~petitRADTRANS.retrieval.linearised.mixture_moments`, which
+        splits the covariance into its statistical and reference-state parts by
+        the law of total variance.
+
+        Args:
+            parameters:
+                The reference state at which to solve, in any form accepted by
+                :meth:`calculate_forward_model`: a mapping, a sequence of free
+                parameter values, ``'best fit'``, ``'median'``, ``'quantile'``,
+                or None for the prior mid-range values.
+            data_name:
+                Which registered dataset to solve.  May be omitted when exactly
+                one linearised dataset is registered.
+            copy_configuration_parameters:
+                If True, work on a copy so the configuration is left untouched.
+
+        Returns:
+            A dictionary holding ``amplitudes`` ``(n_response, 2 * n_harmonics)``
+            and their ``covariance`` ``(n_column, n_column)``, the matching
+            ``column_names`` and ``response_names``, the ``excursion`` of each
+            modulated parameter through time with its
+            ``excursion_standard_deviation`` (both ``(n_time, n_response)``),
+            the ``times``, the harmonic ``basis`` ``(n_time, 2 * n_harmonics)``
+            that maps amplitudes onto that excursion, and the ``log_evidence``
+            and ``chi2`` at this state.
+
+        Raises:
+            ValueError: If no linearised dataset is registered, if ``data_name``
+                is ambiguous or unknown, or if the model function did not return
+                a flux Jacobian.
+        """
+        from petitRADTRANS.retrieval import linearised as _lin
+        from petitRADTRANS.retrieval.runtime import compute_linearised_system
+
+        data_name = self._resolve_linearised_data_name(data_name)
+        configuration_parameters = self._resolve_configuration_parameters(
+            parameters=parameters,
+            copy_configuration_parameters=copy_configuration_parameters,
+            **kwargs,
+        )
+        data_object = self.configuration.data[data_name]
+
+        if data_object.external_radtrans_reference is not None:
+            radtrans_object = self.configuration.data[
+                data_object.external_radtrans_reference
+            ].radtrans_object
+        else:
+            radtrans_object = data_object.radtrans_object
+
+        model_output = self._call_model_generating_function(
+            data_object.model_generating_function,
+            radtrans_object,
+            configuration_parameters,
+            data_name=data_name,
+            data_object=data_object,
+        )
+
+        if not isinstance(model_output, tuple) or len(model_output) < 3:
+            raise ValueError(
+                f"the model function of '{data_name}' returned no auxiliary "
+                "outputs, so it carries no flux Jacobian. Wrap it with "
+                "models.make_linearised_time_series_model()."
+            )
+
+        wavelengths, reference_spectrum, auxiliary_outputs = model_output[:3]
+        flux_jacobian = (auxiliary_outputs or {}).get("flux_jacobian")
+
+        if flux_jacobian is None:
+            raise ValueError(
+                f"the model function of '{data_name}' returned auxiliary outputs "
+                "without a 'flux_jacobian'. Wrap it with "
+                "models.make_linearised_time_series_model()."
+            )
+
+        observation = self.runtime.observations[data_name]
+        (
+            normal_matrix,
+            normal_vector,
+            chi2_data,
+            basis,
+            log_jacobian,
+            state,
+        ) = compute_linearised_system(
+            wavelengths,
+            reference_spectrum,
+            flux_jacobian,
+            observation,
+            configuration_parameters,
+            data_name,
+        )
+        prior_variance = jnp.asarray(state["prior_variance"])
+        n_harmonics = state["n_harmonics"]
+        n_response = log_jacobian.shape[1]
+        amplitudes, covariance = _lin.solve_modulation(
+            normal_matrix,
+            normal_vector,
+            prior_variance,
+            n_response,
+            n_harmonics,
+        )
+        log_evidence, chi2 = _lin.modulation_log_evidence(
+            normal_matrix,
+            normal_vector,
+            chi2_data,
+            prior_variance,
+            state["noise_normalisation"],
+        )
+        excursion, excursion_standard_deviation = _lin.modulation_time_series(
+            amplitudes, covariance, basis
+        )
+        response_names = self._linearised_response_names(data_name, n_response)
+
+        return {
+            "amplitudes": amplitudes,
+            "basis": basis,
+            "covariance": covariance,
+            "column_names": _lin.amplitude_column_names(response_names, n_harmonics),
+            "response_names": response_names,
+            "excursion": excursion,
+            "excursion_standard_deviation": excursion_standard_deviation,
+            "times": jnp.asarray(state["times"]),
+            "log_evidence": log_evidence,
+            "chi2": chi2,
+        }
 
     def calculate_temperature_profile(
         self,
@@ -4754,6 +4986,42 @@ class Retrieval:
             None
         """
         return self.plotter.plot_data(yscale=yscale)
+
+    def plot_modulation(
+        self,
+        sample_dict=None,
+        parameters_read=None,
+        data_name=None,
+        n_reference_samples=None,
+        refresh=False,
+        **kwargs,
+    ):
+        """
+        Plot the modulation of a linearised time series, with its error budget.
+        This is a wrapper for RetrievalPlotter.plot_modulation.
+
+        Args:
+            sample_dict: Dictionary of posterior samples for each retrieval. If None,
+                the modulation is solved at the best fit alone.
+            parameters_read: List of free parameter names, in the order of the rows of
+                sample_dict.
+            data_name: Name of the linearised dataset to plot. May be omitted when
+                exactly one is registered.
+            n_reference_samples: Number of reference states at which to solve the
+                modulation. Each costs one forward model and one Jacobian.
+            refresh: If True, solve again rather than reuse the cached amplitudes.
+            **kwargs: Additional keyword arguments passed to the plotting function.
+        Returns:
+            fig, axes: Matplotlib figure object and its array of axes.
+        """
+        return self.plotter.plot_modulation(
+            sample_dict=sample_dict,
+            parameters_read=parameters_read,
+            data_name=data_name,
+            n_reference_samples=n_reference_samples,
+            refresh=refresh,
+            **kwargs,
+        )
 
     def plot_pt(
         self,

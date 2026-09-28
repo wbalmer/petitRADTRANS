@@ -4,6 +4,7 @@ from jax.typing import ArrayLike
 import numpy as np
 from interpax import interp1d
 
+from petitRADTRANS.utils import get_parameter_alias_value
 from petitRADTRANS.math import (
     compute_resolving_power,
     gaussian_kernel_1d,
@@ -42,19 +43,6 @@ def compute_bins_edges(middle_bin_points: ArrayLike) -> ArrayLike:
             (1.5 * middle_bin_points[-1] - 0.5 * middle_bin_points[-2])[None],
         )
     )
-
-
-def _lookup(parameters: dict, *keys: str, default=None):
-    """First present key's value, unwrapping objects that expose ``.value``.
-
-    ``keys`` are tried in order; ``None`` entries are skipped so callers can pass
-    an optional ``f"{name}_..."`` prefix without guarding it.
-    """
-    for key in keys:
-        if key is not None and key in parameters:
-            return getattr(parameters[key], "value", parameters[key])
-
-    return default
 
 
 def continuum_subtract_spectrum(
@@ -107,15 +95,15 @@ def continuum_subtract_spectrum(
     prefix = (lambda suffix: f"{name}_{suffix}") if name is not None else (lambda _: None)
 
     if method == "spline":
-        nodes = _lookup(parameters, prefix("nodes"))
-        node_array = _lookup(parameters, prefix("node_array"))
+        nodes = get_parameter_alias_value(parameters, prefix("nodes"))
+        node_array = get_parameter_alias_value(parameters, prefix("node_array"))
 
         if nodes is not None:
             x_nodes = jnp.linspace(wavelengths[0], wavelengths[-1], nodes)
         elif node_array is not None:
             x_nodes = node_array
         else:
-            nodes = _lookup(parameters, "continuum_subtract_nodes")
+            nodes = get_parameter_alias_value(parameters, "continuum_subtract_nodes")
 
             if nodes is None:
                 raise ValueError("No nodes available to create spline.")
@@ -127,7 +115,7 @@ def continuum_subtract_spectrum(
     if method == "medfilt":
         return median_filter_spectrum(
             jnp.array(spectrum),
-            size=_lookup(
+            size=get_parameter_alias_value(
                 parameters,
                 prefix("median_filter_width"),
                 "median_filter_width",
@@ -138,11 +126,11 @@ def continuum_subtract_spectrum(
     if method == "savgol":
         return savgol_filter_spectrum(
             jnp.array(spectrum),
-            window_length=_lookup(
+            window_length=get_parameter_alias_value(
                 parameters, prefix("savgol_window_length"), "savgol_window_length",
                 default=10,
             ),
-            polyorder=_lookup(
+            polyorder=get_parameter_alias_value(
                 parameters, prefix("savgol_polyorder"), "savgol_polyorder", default=3
             ),
         )
@@ -530,7 +518,10 @@ def linear_spline_interpolation(x_knots, x_samples):
     Returns:
         M: Matrix of size (D,N) with D the size of x_samples and N the total number of nodes.
     """
-    if isinstance(x_knots[0], (list, jnp.ndarray)):
+    # A list of knot sets (for discontinuous functions) has sequence elements; a
+    # single knot set has scalar ones. Test the element's dimensionality, not its
+    # type: a 0-d jax array is still an instance of jnp.ndarray.
+    if np.ndim(x_knots[0]) > 0:
         x_knots_list = x_knots
     else:
         x_knots_list = [x_knots]

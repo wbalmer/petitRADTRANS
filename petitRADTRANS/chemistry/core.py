@@ -39,6 +39,7 @@ from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.chemistry import clouds as fc
 
 from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
+from petitRADTRANS.utils import get_parameter_alias_value
 
 INVALID_VALUE = jnp.array(jnp.inf, FEAUTRIER_JAX_DTYPE)
 
@@ -129,18 +130,6 @@ def _normalize_parameter_mapping(parameters):
     return {
         name: get_parameter_value(value) for name, value in dict(parameters).items()
     }
-
-
-def _get_parameter_alias_value(parameters, *names, default=None):
-    """Return the first non-``None`` parameter value among the provided aliases."""
-    for name in names:
-        if name in parameters:
-            value = get_parameter_value(parameters[name])
-
-            if value is not None:
-                return value
-
-    return default
 
 
 def _get_static_bool_parameter(parameter_name, parameter_value) -> bool:
@@ -526,7 +515,7 @@ def _build_isotopologue_ratio_mass_fractions(
     ratio_mass_fractions = {}
 
     for isotope_ratio_spec in _ISOTOPE_RATIO_SPECS:
-        isotope_ratio = _get_parameter_alias_value(
+        isotope_ratio = get_parameter_alias_value(
             parameters,
             *isotope_ratio_spec["parameter_aliases"],
         )
@@ -609,19 +598,19 @@ def _resolve_chemistry_mode(parameters):
         - If neither signal is present, the caller stays on the free-chemistry
           path.
     """
-    metallicity = _get_parameter_alias_value(
+    metallicity = get_parameter_alias_value(
         parameters,
         "M/H",
         "metallicity",
         "Fe/H",
     )
-    co_ratio = _get_parameter_alias_value(parameters, "C/O", "co_ratio")
-    carbon_quench_pressure = _get_parameter_alias_value(
+    co_ratio = get_parameter_alias_value(parameters, "C/O", "co_ratio")
+    carbon_quench_pressure = get_parameter_alias_value(
         parameters,
         "Pquench",
         "carbon_quench_pressure",
     )
-    log_carbon_quench_pressure = _get_parameter_alias_value(
+    log_carbon_quench_pressure = get_parameter_alias_value(
         parameters,
         "log_pquench",
         "log_Pquench",
@@ -643,8 +632,8 @@ def _resolve_chemistry_mode(parameters):
         )
     )
 
-    exo_atmos = _get_parameter_alias_value(parameters, "exo_atmos", "exoatmos")
-    atomic_mass_fractions = _get_parameter_alias_value(
+    exo_atmos = get_parameter_alias_value(parameters, "exo_atmos", "exoatmos")
+    atomic_mass_fractions = get_parameter_alias_value(
         parameters,
         "atomic_mass_fractions",
     )

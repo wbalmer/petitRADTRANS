@@ -4,6 +4,42 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.0.0b4] - 2026-09-21
+### Added
+- Function `Retrieval.calculate_modulation_posterior` to recover the modulation
+  amplitudes, their covariance and their time series from a linearised
+  time-series retrieval, which marginalises them and so never samples them.
+- Argument `nuisance_response_modes` of
+  `RetrievalConfig.add_linearised_time_series_data`, appending smooth wavelength
+  modes to the log Jacobian to absorb forward-model error that varies in time,
+  with `nuisance_prior_width` setting their prior.
+- Function `runtime.compute_linearised_system`, assembling the normal equations
+  of a linearised time series at one reference state, shared by the likelihood
+  and the reporting path.
+- Function `Retrieval.plot_modulation`, drawing the recovered modulation of each
+  modulated parameter with its statistical and reference-state uncertainties
+  shown separately. `Retrieval.plot_all` calls it for every registered
+  linearised dataset.
+- Documentation page "Linearised Time-Series Retrievals".
+- Test module `tests/test_linearised.py`, checking the closed-form solve against
+  dense reference implementations.
+
+### Changed
+- Docstrings in `retrieval.linearised` now follow the `Args:`/`Returns:` style
+  used elsewhere in the package, and `__all__` is in alphabetical order.
+- `Retrieval.calculate_forward_model` resolves its parameter argument through
+  the new `Retrieval._resolve_configuration_parameters`, so that the forward
+  model and the modulation posterior interpret `parameters` identically.
+
+### Fixed
+- `retrieval.linearised` was absent from the meson install sources, so it was
+  missing from every non-editable installation.
+- `NameError` is raised whenever a cloud-base smoothing width is given
+  explicitly, because `Tracer` was used in `chemistry.utils` without being
+  imported.
+- Two typos and an over-long line in the `RetrievalConfig.add_cloud_species`
+  docstring.
+
 ## [4.0.0b3] - 2026-09-03
 ### Changed
 - `calculate_flux` and `calculate_transit_radii` now fully JIT compiled for
@@ -20,9 +56,15 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   and optax MAP warm-up. Behaviour and file formats are unchanged.
 - `scattering_in_emission=True` now raises `ValueError` unless JAX is running in
   64-bit mode.
+<<<<<<< HEAD
 - The convergence threshold of the Feautrier scattering iteration is tightened from 1e-6 to 1e-8.
 - `RetrievalConfig` and `SpectralModel.calculate_emission_spectrum` now default to
   `adaptive_feautrier_iterations=True`, as `Radtrans.calculate_flux` already did.
+=======
+- patchy_clouds is now empty by default, and analytical background clouds are also
+  patchy, if not specifically requested.
+
+>>>>>>> jax_dev_review_evert
 ### Fixed
 - Removed `debug.callbacks` from opacities and validation.
 - dtype mismatch in patchy cloud opacity conditional.

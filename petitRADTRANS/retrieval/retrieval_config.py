@@ -800,9 +800,11 @@ class RetrievalConfig:
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
-        If an equilibrium condensation model is used in th retrieval model function (use_equilibrium_chemistry=True),
-        then a parameter is added that scales the equilibrium cloud abundance, as in Molliere (2020).
-        If use_equilibrium_chemistry is False, two parameters are added, the cloud abundnace and the cloud base pressure.
+        If an equilibrium condensation model is used in the retrieval model function
+        (use_equilibrium_chemistry=True), then a parameter is added that scales the equilibrium cloud abundance,
+        as in Molliere (2020).
+        If use_equilibrium_chemistry is False, two parameters are added, the cloud abundance and the cloud base
+        pressure.
         The limits set the prior ranges, both on a log scale.
 
         Args:
@@ -1502,20 +1504,15 @@ class RetrievalConfig:
         nominal_period: float | None = None,
         static_offset_scale: float | None = 0.05,
         noise_correlation_time: float | None = None,
+        nuisance_response_modes: int = 0,
+        nuisance_prior_width: float | None = None,
         **kwargs,
     ):
         """Register a time series whose modulation is marginalised, not sampled.
 
         The amplitudes of the harmonic modulation enter the model linearly, so
         with Gaussian priors they can be integrated out in closed form.  The
-        sampler is then left with the static reference state alone -- eighteen
-        parameters rather than forty-eight, and the well-behaved ones.
-
-        This constructor is deliberately separate from
-        :meth:`add_time_series_data` rather than another flag on it: the two
-        use different arguments, and overloading one method would
-        leave ``mean_divide`` and ``modulated_parameters`` silently
-        incompatible.
+        sampler is then left with the static reference state alone.
 
         Everything that depends only on the observation -- the reference set,
         the logarithm of the data and its variance, the noise normalisation --
@@ -1556,6 +1553,24 @@ class RetrievalConfig:
                 first-order autoregressive process.  ``None`` is independent
                 noise.  Supplied because the residual correlation on this
                 dataset is not settled, not because a value is known.
+            nuisance_response_modes : int
+                Number of smooth wavelength modes appended to the log Jacobian
+                as extra response spectra, from
+                :func:`~petitRADTRANS.retrieval.linearised.smooth_wavelength_modes`.
+                The per-wavelength offset absorbs STATIC forward-model error
+                exactly; these absorb error that varies in TIME and is smooth in
+                wavelength, which a frozen-cloud model cannot express.  Mode 0 is
+                grey.  Their amplitudes are marginalised with the physical ones,
+                so the model stays exactly linear-Gaussian and the physical
+                amplitudes simply acquire the extra uncertainty that comes from
+                not knowing how much of the signal a smooth component produced.
+                ``0`` disables them.
+            nuisance_prior_width : float or None
+                Prior standard deviation of the nuisance amplitudes, in log-flux
+                units.  Defaults to ``static_offset_scale``, which puts the
+                time-varying model error on the same scale as the static error
+                already tolerated.  Required when ``static_offset_scale`` is
+                ``None``, since there is then no scale to inherit.
 
         Other keyword arguments are passed through to
         :meth:`add_time_series_data`.
@@ -1620,9 +1635,44 @@ class RetrievalConfig:
             var_point, offset_variance, correlation_rho
         )
         names = tuple(modulated_parameters)
+        prior_widths = [float(modulated_parameters[n]) for n in names]
+
+        # Nuisance response spectra are extra COLUMNS of the log Jacobian, so
+        # they extend the amplitude vector exactly as another modulated
+        # parameter would, and their widths join the prior in the same order.
+        nuisance_modes = None
+
+        if nuisance_response_modes > 0:
+            if nuisance_prior_width is None:
+                if static_offset_scale is None:
+                    raise ValueError(
+                        "nuisance_prior_width must be given when "
+                        "static_offset_scale is None: there is no static scale "
+                        "left to inherit."
+                    )
+
+                nuisance_prior_width = float(static_offset_scale)
+
+            if not np.isfinite(nuisance_prior_width) or nuisance_prior_width <= 0.0:
+                raise ValueError(
+                    "nuisance_prior_width must be finite and positive, got "
+                    f"{nuisance_prior_width!r}"
+                )
+
+            observation_wavelengths = np.asarray(data_object.wavelengths, dtype=float)
+
+            # A time series stores one wavelength row per epoch; they share a
+            # grid, so any row gives the observation grid.
+            if observation_wavelengths.ndim == 2:
+                observation_wavelengths = observation_wavelengths[0]
+
+            nuisance_modes = _lin.smooth_wavelength_modes(
+                jnp.asarray(observation_wavelengths), int(nuisance_response_modes)
+            )
+            prior_widths += [float(nuisance_prior_width)] * int(nuisance_response_modes)
+
         prior_variance = jnp.asarray(
-            [float(modulated_parameters[n]) ** 2 for n in names
-             for _ in range(2 * n_harmonics)]
+            [width ** 2 for width in prior_widths for _ in range(2 * n_harmonics)]
         )
 
         data_object.time_series_config.update({
@@ -1640,6 +1690,7 @@ class RetrievalConfig:
                 "correlation_rho": correlation_rho,
                 "n_harmonics": int(n_harmonics),
                 "period_parameter": period_parameter,
+                "nuisance_modes": nuisance_modes,
                 # Constant in the reference state, so a sampler exploring one
                 # model never needs it; it does NOT cancel between different
                 # offset widths or correlation times, so it is carried.
@@ -1657,6 +1708,10 @@ class RetrievalConfig:
             f"{reference_indices.shape[0]} epochs of bin {reference_bin}/"
             f"{n_phase_bins}; offset scale "
             f"{'infinite' if static_offset_scale is None else static_offset_scale}"
+            + (
+                f"; {nuisance_response_modes} nuisance response modes"
+                if nuisance_response_modes > 0 else ""
+            )
         )
 
     def add_photometry(

@@ -10,3 +10,4 @@ dist/
 petitRADTRANS.egg-info/
 /builds/
 /div/
+tests/results/

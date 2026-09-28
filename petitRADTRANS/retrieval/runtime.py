@@ -2116,6 +2116,61 @@ def uncertainty_scaling_b_parameter_candidates(
     return tuple(candidates)
 
 
+def uncertainty_fractional_floor_parameter_candidates(
+    observation_name: str,
+) -> tuple[str, ...]:
+    """Parameter names that may supply an observation's FRACTIONAL error floor.
+
+    Same name resolution as the Line (2015) term: most specific first, with a
+    global fallback so one parameter can serve every dataset.
+    """
+    parts = str(observation_name).split("/")
+    candidates = [
+        "/".join(parts[:stop]) + "_fractional_floor"
+        for stop in range(len(parts), 0, -1)
+    ]
+    candidates.append("uncertainty_fractional_floor")
+    return tuple(candidates)
+
+
+def _fractional_uncertainty_floor(
+    observation: "ObservationState",
+    parameters: Mapping[str, Any],
+) -> Any:
+    """Variance of a floor PROPORTIONAL to the observed flux: (10^g * d)^2.
+
+    The Line (2015) 10^b term is an ABSOLUTE variance, constant in wavelength.
+    When a spectrum spans a wide dynamic range that silently reweights the fit:
+    on the SIMP 0136 time-mean spectrum (41x from the faintest to the brightest
+    point) a 10^b floor fitted to the bright J band gives the faint K band and
+    the 4-5 um end a floor comparable to their own flux, so they contribute
+    almost nothing -- 0.09x and 0.01x the per-point weight of J. Forward-model
+    error in these retrievals is fractional, not absolute, so a fractional floor
+    matches the error being absorbed and keeps every band's weight comparable.
+
+    The floor is built from the OBSERVED flux, never the model. A model-based
+    floor would let the likelihood inflate its own uncertainties by lowering the
+    model, which is a pathology rather than a fit.
+
+    Returns 0.0 when no fractional-floor parameter is present, so behaviour is
+    unchanged for every existing retrieval.
+    """
+    if parameters is None or observation.spectrum is None:
+        return 0.0
+    for candidate in uncertainty_fractional_floor_parameter_candidates(
+        observation.name
+    ):
+        if candidate in parameters:
+            log_fraction = _get_parameter_value(
+                parameters, candidate, default=-jnp.inf
+            )
+            floor = jnp.where(
+                jnp.isfinite(log_fraction), 10**log_fraction, 0.0
+            )
+            return (floor * jnp.abs(jnp.asarray(observation.spectrum))) ** 2
+    return 0.0
+
+
 def _line_b_uncertainty_scaling(
     observation_name: str,
     parameters: Mapping[str, Any],
@@ -2155,6 +2210,16 @@ def _scale_and_inflate_uncertainties(
         10**raw_b_val,
         0.0,
     )
+    # Per-point floor proportional to the observed flux; 0.0 when unused.
+    fractional_variance_term = _fractional_uncertainty_floor(observation, parameters)
+
+    def _with_fractional_diagonal(covariance):
+        """Add the fractional floor to a covariance as a diagonal contribution."""
+        diagonal = jnp.broadcast_to(
+            jnp.asarray(fractional_variance_term, dtype=covariance.dtype),
+            (covariance.shape[0],),
+        )
+        return covariance + jnp.diag(diagonal)
 
     if observation.fit_covariance:
         scaled_covariance = _build_fitted_covariance_from_observation(
@@ -2163,6 +2228,7 @@ def _scale_and_inflate_uncertainties(
             err_scale_factor,
             additive_variance_term,
         )
+        scaled_covariance = _with_fractional_diagonal(scaled_covariance)
         scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
         return scaled_uncertainties, scaled_covariance
 
@@ -2172,11 +2238,14 @@ def _scale_and_inflate_uncertainties(
             scaled_covariance.shape[0],
             dtype=scaled_covariance.dtype,
         )
+        scaled_covariance = _with_fractional_diagonal(scaled_covariance)
         scaled_uncertainties = jnp.sqrt(jnp.diag(scaled_covariance))
     elif observation.uncertainties is not None:
         scaled_uncertainties = observation.uncertainties * err_scale_factor
         scaled_uncertainties = jnp.sqrt(
-            scaled_uncertainties**2 + additive_variance_term
+            scaled_uncertainties**2
+            + additive_variance_term
+            + fractional_variance_term
         )
         scaled_covariance = None
     else:
@@ -2392,6 +2461,106 @@ def project_model_to_observation_space(
     )
 
 
+def compute_linearised_system(
+    wavelengths_model,
+    reference_spectrum_model,
+    flux_jacobian_model,
+    observation,
+    parameters,
+    data_name,
+):
+    """Assemble the normal equations of a linearised time series at one state.
+
+    This is the step shared by the likelihood, which turns the system into
+    ``ln Z``, and by the reporting path, which solves it for the amplitudes.  It
+    projects the reference spectrum and its flux Jacobian onto the observation
+    grid, forms the log residual and the anchored harmonic basis, and contracts
+    them into the ``(n_column, n_column)`` normal equations.
+
+    The projection is applied to the reference spectrum and to the Jacobian
+    SEPARATELY, and the ratio taken afterwards.  Both are fluxes, so one linear
+    operator serves both; taking the ratio first would rebin ``dln M / dtheta``,
+    which averages a ratio where a ratio of averages is wanted.  The two differ
+    wherever the spectrum varies across an output bin -- that is, exactly at the
+    sharp features that carry the variability signal.
+
+    Args:
+        wavelengths_model:
+            Model wavelength grid, before projection.
+        reference_spectrum_model:
+            ``M(theta_ref)`` on the model grid.
+        flux_jacobian_model:
+            ``(n_model_wavelength, n_modulated)`` array of ``dM / dtheta_p``.
+        observation:
+            The registered ``ObservationState``.
+        parameters:
+            Mapping of physical parameters; supplies the period.
+        data_name:
+            Name of the dataset, used for error messages and projection.
+
+    Returns:
+        ``(normal_matrix, normal_vector, chi2_data, basis, log_jacobian, state)``
+        where ``state`` is the stored linearised configuration.
+    """
+    try:
+        from petitRADTRANS.retrieval import linearised as _lin
+    except ImportError as e:
+        raise ImportError(
+            "Failed to import the linearised module from petitRADTRANS.retrieval. "
+            "Ensure that petitRADTRANS is correctly installed."
+        ) from e
+
+    config = (observation.metadata or {}).get("time_series_config") or {}
+    state = config.get("linearised")
+
+    if state is None:
+        raise ValueError(
+            f"dataset '{data_name}' returned a flux Jacobian but was not "
+            "registered with add_linearised_time_series_data()."
+        )
+
+    def project(flux):
+        return project_model_to_observation_space(
+            wavelengths_model, flux, observation, parameters, data_name
+        )
+
+    reference = project(reference_spectrum_model)
+    jacobian = vmap(project, in_axes=1, out_axes=1)(flux_jacobian_model)
+    log_jacobian = jacobian / reference[:, None]
+
+    # Nuisance response spectra, if any, are simply more columns: the solve does
+    # not distinguish them from physical responses, and their amplitudes are
+    # marginalised alongside. Their prior widths were appended to
+    # prior_variance in the same order when the dataset was registered.
+    nuisance_modes = state.get("nuisance_modes")
+
+    if nuisance_modes is not None:
+        log_jacobian = jnp.concatenate(
+            [log_jacobian, jnp.asarray(nuisance_modes)], axis=1
+        )
+
+    residual = jnp.asarray(state["log_spectrum"]) - jnp.log(reference)[:, None]
+    period = parameters[state["period_parameter"]]
+    period = getattr(period, "value", period)
+    basis = _lin.reference_anchored_basis(
+        jnp.asarray(state["times"]),
+        period,
+        jnp.asarray(state["reference_indices"]),
+        state["n_harmonics"],
+        jnp.asarray(state["reference_weights"]),
+    )
+    normal_matrix, normal_vector, chi2_data = _lin.build_linear_system(
+        log_jacobian,
+        basis,
+        residual,
+        jnp.asarray(state["var_point"]),
+        state["offset_variance"],
+        state["correlation_rho"],
+    )
+
+    return normal_matrix, normal_vector, chi2_data, basis, log_jacobian, state
+
+
 def _linearised_time_series_log_likelihood(
     wavelengths_model,
     reference_spectrum_model,
@@ -2414,51 +2583,19 @@ def _linearised_time_series_log_likelihood(
     therefore explores the static parameters only, and never sees the
     amplitudes.
 
-    See ``petitRADTRANS.retrieval.linearised`` for the algebra, and the
-    accompanying note for why the amplitudes are marginalised rather than fitted.
+    See ``petitRADTRANS.retrieval.linearised`` for the algebra, and
+    :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.calculate_modulation_posterior`
+    for recovering the amplitudes once a retrieval has finished.
     """
-    try:
-        from petitRADTRANS.retrieval import linearised as _lin
-    except ImportError as e:
-        raise ImportError(
-            "Failed to import the linearised module from petitRADTRANS.retrieval. "
-            "Ensure that petitRADTRANS is correctly installed."
-        ) from e
+    from petitRADTRANS.retrieval import linearised as _lin
 
-    config = (observation.metadata or {}).get("time_series_config") or {}
-    state = config.get("linearised")
-    if state is None:
-        raise ValueError(
-            f"dataset '{data_name}' returned a flux Jacobian but was not "
-            "registered with add_linearised_time_series_data()."
-        )
-
-    def project(flux):
-        return project_model_to_observation_space(
-            wavelengths_model, flux, observation, parameters, data_name
-        )
-
-    reference = project(reference_spectrum_model)
-    jacobian = vmap(project, in_axes=1, out_axes=1)(flux_jacobian_model)
-    log_jacobian = jacobian / reference[:, None]
-
-    residual = jnp.asarray(state["log_spectrum"]) - jnp.log(reference)[:, None]
-    period = parameters[state["period_parameter"]]
-    period = getattr(period, "value", period)
-    basis = _lin.reference_anchored_basis(
-        jnp.asarray(state["times"]),
-        period,
-        jnp.asarray(state["reference_indices"]),
-        state["n_harmonics"],
-        jnp.asarray(state["reference_weights"]),
-    )
-    normal_matrix, normal_vector, chi2_data = _lin.build_linear_system(
-        log_jacobian,
-        basis,
-        residual,
-        jnp.asarray(state["var_point"]),
-        state["offset_variance"],
-        state["correlation_rho"],
+    normal_matrix, normal_vector, chi2_data, _, _, state = compute_linearised_system(
+        wavelengths_model,
+        reference_spectrum_model,
+        flux_jacobian_model,
+        observation,
+        parameters,
+        data_name,
     )
     log_evidence, _ = _lin.modulation_log_evidence(
         normal_matrix,
@@ -2473,6 +2610,7 @@ def _linearised_time_series_log_likelihood(
     log_evidence = jnp.where(
         jnp.isnan(log_evidence), INVALID_LOG_LIKELIHOOD, log_evidence
     )
+
     return jnp.where(
         log_evidence <= INVALID_LOG_LIKELIHOOD,
         INVALID_LOG_LIKELIHOOD,
