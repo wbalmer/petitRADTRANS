@@ -1665,36 +1665,43 @@ class Radtrans:
 
         Args:
             temperatures:
-                Atmospheric temperature profile in K.
+                Atmospheric temperature profile in K. Shape (N_layers).
             mass_fractions:
                 Dictionary containing mass-fraction profiles for all atmospheric species
-                that have a requested opacity associated to them.
+                that have a requested opacity associated to them. Shape: dictionary with
+                shape (N_layers) array per species inside.
             mean_molar_masses:
-                Mean molecular mass profile in amu.
+                Mean molecular mass profile in amu. Shape (N_layers).
             reference_gravity:
-                Reference gravity in cgs units.
+                Reference gravity in cgs units. Scalar.
             opaque_cloud_top_pressure:
-                Optional pressure in bar where an opaque cloud deck is imposed.
+                Optional pressure in bar where an opaque cloud deck is imposed. Scalar.
             cloud_particle_mean_radii:
                 Optional cloud particle mean radii keyed by cloud species.
+                Shape: dictionary with shape (N_layers) array per species inside.
             cloud_particle_radius_distribution_std:
-                Width of the log-normal particle size distribution.
+                Width of the log-normal particle size distribution. Scalar, or array of
+                shape (N_layers), or dictionary with scalar or shape (N_layers) array per species inside.
             cloud_particle_radius_distribution:
                 Cloud particle size distribution model, typically
                 ``"lognormal"`` or ``"hansen"``.
-            cloud_particle_number_density_grid:
+            cloud_particle_number_density_grid: # Todo Annie: fix name (dndr?) and add dimensions
                 Optional per-species particle number density grid.
             cloud_hansen_a:
                 Optional Hansen ``a`` parameter profiles keyed by cloud species.
+                Scalar, or array of shape (N_layers), or dictionary with scalar
+                or shape (N_layers) array per species inside.
             cloud_hansen_b:
                 Optional Hansen ``b`` parameter profiles keyed by cloud species.
+                Scalar, or array of shape (N_layers), or dictionary with scalar
+                or shape (N_layers) array per species inside.
             clouds_particle_porosity_factor:
-                Optional porosity factors keyed by cloud species.
+                Optional porosity factors keyed by cloud species (dictionary of scalars).
             cloud_f_sed:
-                Cloud settling parameter, either scalar or dictionary with
-                clouds species names as keys.
+                Cloud settling parameter, either scalar or array or dictionary with
+                clouds species names as keys containing scalars or arrays.
             eddy_diffusion_coefficients:
-                Optional eddy diffusion coefficient profile.
+                Optional eddy diffusion coefficient profile. Shape: N_layers
             haze_factor:
                 Scalar multiplier for Rayleigh scattering.
             power_law_opacity_350nm:
@@ -1703,9 +1710,10 @@ class Radtrans:
                 Wavelength exponent for the parametrized scattering opacity.
             gray_opacity:
                 Optional gray absorption opacity added "everywhere"
-                (at all pressures and wavelengths).
+                (at all pressures and wavelengths). Scalar.
             cloud_photosphere_median_optical_depth:
                 Optional target median cloud optical depth near the photosphere.
+                Scalar.
             patchy_clouds:
                 Cloud species affected by ``cloud_fraction`` and therefore
                 excluded from the always-cloudy branch.
@@ -1750,53 +1758,59 @@ class Radtrans:
             scattering in transmission, and optional clear-column opacity
             products.
         """
+
         if patchy_clouds is None:
             patchy_clouds = tuple()
         else:
             patchy_clouds = tuple(patchy_clouds)
 
-        if anisotropic_cloud_scattering is None:
+        if anisotropic_cloud_scattering is None: # TODO Paul_review: add to docstring once it is clear what it does
+                                                 # Likely if cloud opacities are multiplied by (1-g)?
             anisotropic_cloud_scattering = self._anisotropic_cloud_scattering
 
         if anisotropic_cloud_scattering == "auto":
             anisotropic_cloud_scattering = self._scattering_in_emission
 
-        # Initialization
+        # Fill line mass fraction dictionary with provided mass fraction dictionary
         if len(self._line_species) > 0:
-            line_species_mass_fractions = jnp.zeros(
-                (pressures.size, len(self._line_species)), dtype=WORKING_JAX_DTYPE
+            line_species_mass_fraction_columns = []
+
+            for species in self._line_species:
+                # Check if user provided the detailed line absorber name or if line absorber name should resolved
+                # assuming a default species.
+                # The looping works  because self._line_species is static (aux_data in _tree_flatten) and while
+                # mass_fractions is traced, its dictionary keys are always static.
+                if species in mass_fractions:
+                    line_species_mass_fraction_columns.append(
+                        jnp.asarray(mass_fractions[species], dtype=WORKING_JAX_DTYPE)
+                    )
+                    continue
+
+                default_species, spectral_info = Opacity.split_species_spectral_info(
+                    species
+                )
+
+                if default_species not in mass_fractions:
+                    raise ValueError(
+                        f"line species '{species}' not found in mass fractions dict "
+                        f"(listed species: {list(mass_fractions.keys())}"
+                    )
+
+                line_species_mass_fraction_columns.append(
+                    jnp.asarray(
+                        mass_fractions[default_species], dtype=WORKING_JAX_DTYPE
+                    )
+                )
+
+            line_species_mass_fractions = jnp.stack(
+                line_species_mass_fraction_columns, axis=1
             )
+
         else:
             # If there are no specified line species then we need at least an array to contain the continuum opacities
             line_species_mass_fractions = jnp.zeros(
                 (pressures.size, 1), dtype=WORKING_JAX_DTYPE
             )
-
-        # Fill line mass fraction dictionary with provided mass fraction dictionary
-        for i_spec, species in enumerate(self._line_species):
-            # Check if user provided the detailed line absorber name or if line absorber name should be matched exactly
-            if species in mass_fractions:
-                line_species_mass_fractions = line_species_mass_fractions.at[
-                    :, i_spec
-                ].set(jnp.asarray(mass_fractions[species], dtype=WORKING_JAX_DTYPE))
-            else:
-                default_species, spectral_info = Opacity.split_species_spectral_info(
-                    species
-                )
-
-                if default_species in mass_fractions:
-                    line_species_mass_fractions = line_species_mass_fractions.at[
-                        :, i_spec
-                    ].set(
-                        jnp.asarray(
-                            mass_fractions[default_species], dtype=WORKING_JAX_DTYPE
-                        )
-                    )
-                else:
-                    raise ValueError(
-                        f"line species '{species}' not found in mass fractions dict "
-                        f"(listed species: {list(mass_fractions.keys())}"
-                    )
 
         # Continuum opacities
         continuum_opacities = continuum.compute_continuum_opacities(
