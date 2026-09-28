@@ -569,6 +569,15 @@ class RetrievalPlotter:
                 mode=mode,
                 refresh=False,
             )
+
+            for linearised_name in self._linearised_data_names():
+                self.plot_modulation(
+                    sample_dict=sample_dict,
+                    parameters_read=parameters_read,
+                    data_name=linearised_name,
+                    refresh=False,
+                )
+
             print("Finished generating all plots!")
 
         self._synchronize()
@@ -807,6 +816,243 @@ class RetrievalPlotter:
             plt.savefig(self.get_base_figure_name() + "_Data.pdf")
 
         self._synchronize()
+
+    def _modulation_reference_states(
+        self, sample_dict, parameters_read, n_reference_samples
+    ):
+        """Choose the reference states at which to solve the modulation.
+
+        Returns a list of parameter specifications, each in a form accepted by
+        :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.calculate_modulation_posterior`.
+        """
+        if sample_dict is None or parameters_read is None:
+            return ["best fit"]
+
+        samples_use = np.asarray(
+            sample_dict[self.configuration.retrieval_name], dtype=float
+        )
+
+        if samples_use.ndim != 2 or samples_use.shape[1] == 0:
+            return ["best fit"]
+
+        if n_reference_samples is None:
+            n_reference_samples = int(self.nsample)
+
+        n_reference_samples = max(1, int(n_reference_samples))
+        random_ints = np.random.randint(
+            low=0, high=samples_use.shape[1], size=n_reference_samples
+        )
+
+        return [
+            {
+                name: samples_use[i_row, random_index]
+                for i_row, name in enumerate(parameters_read)
+            }
+            for random_index in random_ints
+        ]
+
+    def _solve_modulation_posteriors(self, reference_states, data_name):
+        """Solve the modulation posterior at each of the given reference states.
+
+        Every state costs one forward model and one Jacobian, which is why
+        :meth:`plot_modulation` caches the result to disk.
+
+        Returns:
+            ``(means, covariances, times, basis, response_names)``, where
+            ``means`` is ``(n_state, n_column)`` and ``covariances`` is
+            ``(n_state, n_column, n_column)``.
+        """
+        means = []
+        covariances = []
+        times = None
+        basis = None
+        response_names = None
+
+        for i_state, reference_state in enumerate(reference_states):
+            print(
+                f"  solving reference state {i_state + 1}/{len(reference_states)}",
+                end="\r",
+            )
+            posterior = self.calculate_modulation_posterior(
+                parameters=reference_state,
+                data_name=data_name,
+            )
+            means.append(np.asarray(posterior["amplitudes"], dtype=float).ravel())
+            covariances.append(np.asarray(posterior["covariance"], dtype=float))
+            # The basis and the times are set by the observation, not by the
+            # reference state, so the last solve speaks for all of them
+            times = np.asarray(posterior["times"], dtype=float)
+            basis = np.asarray(posterior["basis"], dtype=float)
+            response_names = list(posterior["response_names"])
+
+        print()
+
+        return np.asarray(means), np.asarray(covariances), times, basis, response_names
+
+    def plot_modulation(
+        self,
+        sample_dict=None,
+        parameters_read=None,
+        data_name=None,
+        n_reference_samples=None,
+        refresh=False,
+        panel_figsize=(12, 2.5),
+    ):
+        """Plot the modulation of a linearised time series, with its error budget.
+
+        A linearised retrieval integrates the modulation amplitudes out, so the
+        sampler only ever sees the evidence at the static reference state and the
+        modulation appears in no corner plot.  This recovers it, by solving the
+        amplitude posterior in closed form at a set of draws from the
+        reference-state posterior and combining those solutions with
+        :func:`~petitRADTRANS.retrieval.linearised.mixture_moments`.
+
+        Each panel shows the excursion of one modulated parameter about its
+        reference value, with two bands.  The statistical band is the noise in
+        the data at a FIXED reference state; the total band also carries the
+        scatter of the amplitudes across reference states.  The second term has
+        been measured to dominate, so a band drawn from a single reference state
+        is not the uncertainty on the modulation, and the two are drawn
+        separately here to keep that visible.
+
+        Args:
+            sample_dict:
+                Posterior samples, as returned by
+                :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.get_samples`.
+                If None, the modulation is solved at the best fit alone and the
+                total band collapses onto the statistical one.
+            parameters_read:
+                Names of the sampled parameters, in the order of the rows of
+                ``sample_dict``.
+            data_name:
+                Which registered linearised dataset to plot.  May be omitted when
+                exactly one is registered.
+            n_reference_samples:
+                How many reference states to solve.  Each costs one forward model
+                and one Jacobian, so this is the expensive knob.  Defaults to
+                ``self.nsample``.
+            refresh:
+                If True, solve again rather than reuse the amplitudes cached on
+                disk by an earlier call.
+            panel_figsize:
+                Size of a single panel.  The figure stacks one panel per
+                modulated parameter.
+
+        Returns:
+            fig, axes: The figure and its array of axes, or ``(None, None)`` off
+            the plotting root.
+        """
+        import matplotlib.pyplot as plt
+        from petitRADTRANS.plotlib.style import prt_default_colour_cycle
+        from petitRADTRANS.retrieval import linearised as _lin
+
+        if not self._is_plotting_root():
+            self._synchronize()
+            return None, None
+
+        if not self.configuration.run_mode == "evaluate":
+            print("Not in evaluate mode. Changing run mode to evaluate.")
+            self.configuration.run_mode = "evaluate"
+
+        data_name = self._resolve_linearised_data_name(data_name)
+        print(f"\nPlotting the modulation of '{data_name}'")
+        cache_file = f"{self.get_base_figure_name()}_modulation_{data_name}.npz"
+
+        if os.path.exists(cache_file) and not refresh:
+            cached = np.load(cache_file)
+            means = cached["means"]
+            covariances = cached["covariances"]
+            times = cached["times"]
+            basis = cached["basis"]
+            response_names = [str(name) for name in cached["response_names"]]
+        else:
+            means, covariances, times, basis, response_names = (
+                self._solve_modulation_posteriors(
+                    self._modulation_reference_states(
+                        sample_dict, parameters_read, n_reference_samples
+                    ),
+                    data_name,
+                )
+            )
+            np.savez(
+                cache_file,
+                basis=basis,
+                covariances=covariances,
+                means=means,
+                response_names=np.asarray(response_names),
+                times=times,
+            )
+
+        mean, total_covariance, systematic_covariance = _lin.mixture_moments(
+            means, covariances
+        )
+        n_response = len(response_names)
+        mean = np.asarray(mean, dtype=float).reshape(n_response, -1)
+        excursion, total_sd = _lin.modulation_time_series(
+            mean, total_covariance, basis
+        )
+        _, statistical_sd = _lin.modulation_time_series(
+            mean, np.asarray(total_covariance) - np.asarray(systematic_covariance), basis
+        )
+        excursion = np.asarray(excursion, dtype=float)
+        total_sd = np.asarray(total_sd, dtype=float)
+        statistical_sd = np.asarray(statistical_sd, dtype=float)
+        hours = times / 3600.0
+
+        fig, axes = plt.subplots(
+            n_response,
+            1,
+            sharex=True,
+            squeeze=False,
+            figsize=(panel_figsize[0], panel_figsize[1] * n_response),
+        )
+        axes = axes[:, 0]
+
+        for i_response, name in enumerate(response_names):
+            ax = axes[i_response]
+            colour = prt_default_colour_cycle[
+                i_response % len(prt_default_colour_cycle)
+            ]
+            ax.axhline(0.0, color="black", linewidth=0.8, linestyle=":", zorder=0)
+            ax.fill_between(
+                hours,
+                excursion[:, i_response] - total_sd[:, i_response],
+                excursion[:, i_response] + total_sd[:, i_response],
+                color=colour,
+                alpha=0.2,
+                linewidth=0,
+                label=r"$1 \sigma$ total",
+                zorder=1,
+            )
+            ax.fill_between(
+                hours,
+                excursion[:, i_response] - statistical_sd[:, i_response],
+                excursion[:, i_response] + statistical_sd[:, i_response],
+                color=colour,
+                alpha=0.45,
+                linewidth=0,
+                label=r"$1 \sigma$ statistical",
+                zorder=2,
+            )
+            ax.plot(hours, excursion[:, i_response], color=colour, zorder=3)
+            ax.set_ylabel(rf"$\Delta$ {name}")
+
+            peak_to_peak = np.ptp(excursion[:, i_response])
+            print(
+                f"  {name}: peak-to-peak {peak_to_peak:.4g}, "
+                f"median total uncertainty {np.median(total_sd[:, i_response]):.4g}"
+            )
+
+        axes[0].legend(loc="best")
+        axes[-1].set_xlabel("Time [h]")
+        fig.align_ylabels(axes)
+        plt.savefig(
+            f"{self.get_base_figure_name()}_modulation_{data_name}.pdf",
+            bbox_inches="tight",
+        )
+        self._synchronize()
+
+        return fig, axes
 
     def plot_pt(
         self,

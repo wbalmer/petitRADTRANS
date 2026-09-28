@@ -2,6 +2,7 @@ import copy
 
 import jax.numpy as jnp
 from jax import jit
+from jax.core import Tracer
 from interpax import PchipInterpolator
 
 from numpy import argsort

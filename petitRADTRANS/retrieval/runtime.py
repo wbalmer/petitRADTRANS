@@ -2461,6 +2461,106 @@ def project_model_to_observation_space(
     )
 
 
+def compute_linearised_system(
+    wavelengths_model,
+    reference_spectrum_model,
+    flux_jacobian_model,
+    observation,
+    parameters,
+    data_name,
+):
+    """Assemble the normal equations of a linearised time series at one state.
+
+    This is the step shared by the likelihood, which turns the system into
+    ``ln Z``, and by the reporting path, which solves it for the amplitudes.  It
+    projects the reference spectrum and its flux Jacobian onto the observation
+    grid, forms the log residual and the anchored harmonic basis, and contracts
+    them into the ``(n_column, n_column)`` normal equations.
+
+    The projection is applied to the reference spectrum and to the Jacobian
+    SEPARATELY, and the ratio taken afterwards.  Both are fluxes, so one linear
+    operator serves both; taking the ratio first would rebin ``dln M / dtheta``,
+    which averages a ratio where a ratio of averages is wanted.  The two differ
+    wherever the spectrum varies across an output bin -- that is, exactly at the
+    sharp features that carry the variability signal.
+
+    Args:
+        wavelengths_model:
+            Model wavelength grid, before projection.
+        reference_spectrum_model:
+            ``M(theta_ref)`` on the model grid.
+        flux_jacobian_model:
+            ``(n_model_wavelength, n_modulated)`` array of ``dM / dtheta_p``.
+        observation:
+            The registered ``ObservationState``.
+        parameters:
+            Mapping of physical parameters; supplies the period.
+        data_name:
+            Name of the dataset, used for error messages and projection.
+
+    Returns:
+        ``(normal_matrix, normal_vector, chi2_data, basis, log_jacobian, state)``
+        where ``state`` is the stored linearised configuration.
+    """
+    try:
+        from petitRADTRANS.retrieval import linearised as _lin
+    except ImportError as e:
+        raise ImportError(
+            "Failed to import the linearised module from petitRADTRANS.retrieval. "
+            "Ensure that petitRADTRANS is correctly installed."
+        ) from e
+
+    config = (observation.metadata or {}).get("time_series_config") or {}
+    state = config.get("linearised")
+
+    if state is None:
+        raise ValueError(
+            f"dataset '{data_name}' returned a flux Jacobian but was not "
+            "registered with add_linearised_time_series_data()."
+        )
+
+    def project(flux):
+        return project_model_to_observation_space(
+            wavelengths_model, flux, observation, parameters, data_name
+        )
+
+    reference = project(reference_spectrum_model)
+    jacobian = vmap(project, in_axes=1, out_axes=1)(flux_jacobian_model)
+    log_jacobian = jacobian / reference[:, None]
+
+    # Nuisance response spectra, if any, are simply more columns: the solve does
+    # not distinguish them from physical responses, and their amplitudes are
+    # marginalised alongside. Their prior widths were appended to
+    # prior_variance in the same order when the dataset was registered.
+    nuisance_modes = state.get("nuisance_modes")
+
+    if nuisance_modes is not None:
+        log_jacobian = jnp.concatenate(
+            [log_jacobian, jnp.asarray(nuisance_modes)], axis=1
+        )
+
+    residual = jnp.asarray(state["log_spectrum"]) - jnp.log(reference)[:, None]
+    period = parameters[state["period_parameter"]]
+    period = getattr(period, "value", period)
+    basis = _lin.reference_anchored_basis(
+        jnp.asarray(state["times"]),
+        period,
+        jnp.asarray(state["reference_indices"]),
+        state["n_harmonics"],
+        jnp.asarray(state["reference_weights"]),
+    )
+    normal_matrix, normal_vector, chi2_data = _lin.build_linear_system(
+        log_jacobian,
+        basis,
+        residual,
+        jnp.asarray(state["var_point"]),
+        state["offset_variance"],
+        state["correlation_rho"],
+    )
+
+    return normal_matrix, normal_vector, chi2_data, basis, log_jacobian, state
+
+
 def _linearised_time_series_log_likelihood(
     wavelengths_model,
     reference_spectrum_model,
@@ -2483,51 +2583,19 @@ def _linearised_time_series_log_likelihood(
     therefore explores the static parameters only, and never sees the
     amplitudes.
 
-    See ``petitRADTRANS.retrieval.linearised`` for the algebra, and the
-    accompanying note for why the amplitudes are marginalised rather than fitted.
+    See ``petitRADTRANS.retrieval.linearised`` for the algebra, and
+    :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.calculate_modulation_posterior`
+    for recovering the amplitudes once a retrieval has finished.
     """
-    try:
-        from petitRADTRANS.retrieval import linearised as _lin
-    except ImportError as e:
-        raise ImportError(
-            "Failed to import the linearised module from petitRADTRANS.retrieval. "
-            "Ensure that petitRADTRANS is correctly installed."
-        ) from e
+    from petitRADTRANS.retrieval import linearised as _lin
 
-    config = (observation.metadata or {}).get("time_series_config") or {}
-    state = config.get("linearised")
-    if state is None:
-        raise ValueError(
-            f"dataset '{data_name}' returned a flux Jacobian but was not "
-            "registered with add_linearised_time_series_data()."
-        )
-
-    def project(flux):
-        return project_model_to_observation_space(
-            wavelengths_model, flux, observation, parameters, data_name
-        )
-
-    reference = project(reference_spectrum_model)
-    jacobian = vmap(project, in_axes=1, out_axes=1)(flux_jacobian_model)
-    log_jacobian = jacobian / reference[:, None]
-
-    residual = jnp.asarray(state["log_spectrum"]) - jnp.log(reference)[:, None]
-    period = parameters[state["period_parameter"]]
-    period = getattr(period, "value", period)
-    basis = _lin.reference_anchored_basis(
-        jnp.asarray(state["times"]),
-        period,
-        jnp.asarray(state["reference_indices"]),
-        state["n_harmonics"],
-        jnp.asarray(state["reference_weights"]),
-    )
-    normal_matrix, normal_vector, chi2_data = _lin.build_linear_system(
-        log_jacobian,
-        basis,
-        residual,
-        jnp.asarray(state["var_point"]),
-        state["offset_variance"],
-        state["correlation_rho"],
+    normal_matrix, normal_vector, chi2_data, _, _, state = compute_linearised_system(
+        wavelengths_model,
+        reference_spectrum_model,
+        flux_jacobian_model,
+        observation,
+        parameters,
+        data_name,
     )
     log_evidence, _ = _lin.modulation_log_evidence(
         normal_matrix,
@@ -2542,6 +2610,7 @@ def _linearised_time_series_log_likelihood(
     log_evidence = jnp.where(
         jnp.isnan(log_evidence), INVALID_LOG_LIKELIHOOD, log_evidence
     )
+
     return jnp.where(
         log_evidence <= INVALID_LOG_LIKELIHOOD,
         INVALID_LOG_LIKELIHOOD,
