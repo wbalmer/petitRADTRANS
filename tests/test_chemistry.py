@@ -277,6 +277,63 @@ def test_precalculated_chemistry_loader_sorts_species_axis(tmp_path):
     )
 
 
+def test_precalculated_chemistry_lazy_load_inside_a_trace_stays_concrete(
+    tmp_path, monkeypatch
+):
+    """The table is loaded lazily on first use, which can be inside a jit trace.
+
+    A JAXNS distributed worker rebuilds the retrieval and traces the likelihood
+    without evaluating it eagerly first. If the first-use load ran inside that
+    trace, the cached arrays were tracers and the next trace failed with
+    UnexpectedTracerError.
+    """
+    import jax
+
+    table_path = tmp_path / "equilibrium_chemistry.chemtable.petitRADTRANS.h5"
+    rng = np.random.default_rng(0)
+    shape = (2, 3, 3, 2, 2)  # species, temperatures, pressures, C/O, [M/H]
+    with h5py.File(table_path, "w") as handle:
+        handle.create_dataset("log10_metallicities", data=np.array([-1.0, 1.0]))
+        handle.create_dataset("co_ratios", data=np.array([0.2, 1.0]))
+        handle.create_dataset("temperatures", data=np.array([500.0, 1000.0, 2000.0]))
+        handle.create_dataset("pressures", data=np.array([1e-3, 1.0, 1e2]))
+        handle.create_dataset("species", data=np.array([b"H2O", b"CO"]))
+        handle.create_dataset("mass_fractions", data=rng.uniform(1e-5, 1e-2, shape))
+        handle.create_dataset("mean_molar_masses", data=np.full(shape[1:], 2.3))
+        handle.create_dataset("nabla_adiabatic", data=np.full(shape[1:], 0.3))
+
+    table_class = petitRADTRANS.chemistry.pre_calculated_chemistry.PreCalculatedEquilibriumChemistryTable
+    monkeypatch.setattr(
+        table_class, "get_default_file",
+        staticmethod(lambda path_input_data=None: str(table_path)),
+    )
+    table = table_class()
+
+    def total_h2o(co_ratio, temperatures):
+        mass_fractions = table.interpolate_mass_fractions(
+            co_ratios=co_ratio * jax.numpy.ones_like(temperatures),
+            log10_metallicities=0.0 * jax.numpy.ones_like(temperatures),
+            temperatures=temperatures,
+            pressures=jax.numpy.array([1e-2, 1.0]),
+        )
+        return jax.numpy.sum(mass_fractions["H2O"])
+
+    temperatures = jax.numpy.array([800.0, 1500.0])
+    first = jax.jit(total_h2o)(0.5, temperatures)  # the first use happens inside this trace
+
+    for cached in (table.mass_fractions, table.co_ratios, table.temperatures):
+        assert not isinstance(cached, jax.core.Tracer)
+
+    # A second, differently shaped trace reuses the cache; before the fix this raised.
+    batched = jax.jit(jax.vmap(total_h2o, in_axes=(0, None)))(
+        jax.numpy.array([0.3, 0.5, 0.8]), temperatures
+    )
+    eager = total_h2o(0.5, temperatures)
+
+    np.testing.assert_allclose(np.asarray(first), np.asarray(eager), rtol=1e-6)
+    np.testing.assert_allclose(np.asarray(batched)[1], np.asarray(eager), rtol=1e-6)
+
+
 def test_get_abundances_without_clouds_keeps_dict_p_bases_and_identity_indices(
     monkeypatch,
 ):

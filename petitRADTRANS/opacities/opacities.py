@@ -18,7 +18,7 @@ from petitRADTRANS.config.configuration import (
     get_input_data_subpaths,
     petitradtrans_config_parser,
 )
-from petitRADTRANS.utils import LockedDict, list_str2str
+from petitRADTRANS.utils import LockedDict, list_str2str, mpi_launch_detected
 
 MPI = None
 comm = None
@@ -35,9 +35,16 @@ def _get_mpi_context(disable_mpi: bool = False):
     if not _mpi_checked:
         _mpi_checked = True
 
-        try:
-            from mpi4py import MPI as imported_mpi
-        except ImportError:
+        # Same rule as petitRADTRANS.retrieval._mpi.get_mpi_context: only import
+        # mpi4py (and so run MPI_Init) in a process an MPI launcher started.
+        imported_mpi = None
+        if mpi_launch_detected():
+            try:
+                from mpi4py import MPI as imported_mpi
+            except ImportError:
+                imported_mpi = None
+
+        if imported_mpi is None:
             MPI = None
             comm = None
             rank = 0

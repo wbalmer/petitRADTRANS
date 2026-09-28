@@ -5,6 +5,7 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 """
 
 import ctypes
+import importlib
 import json
 import os
 import pickle
@@ -2077,6 +2078,278 @@ def test_jaxns_goal_boundary_logs_progress_and_keeps_or_semantics(capsys):
     assert goal_cond(state(2, 50.0, 1500)) is True
     assert goal_cond(state(3, 150.0, 500)) is True
     assert capsys.readouterr().out.count("goal reached") == 2
+
+
+def _fresh_mpi_context(monkeypatch, module, environment, mpi4py_module):
+    """Reset a module's cached MPI context and control what mpi4py import sees."""
+    from petitRADTRANS.utils import (
+        DISABLE_MPI_ENVIRONMENT_VARIABLE,
+        MPI_LAUNCHER_ENVIRONMENT_VARIABLES,
+    )
+
+    for name in MPI_LAUNCHER_ENVIRONMENT_VARIABLES + (DISABLE_MPI_ENVIRONMENT_VARIABLE,):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setitem(sys.modules, "mpi4py", mpi4py_module)
+    for name, value in (("MPI", None), ("comm", None), ("rank", 0), ("_mpi_checked", False)):
+        monkeypatch.setattr(module, name, value)
+
+
+def _mpi4py_that_must_not_be_imported():
+    module = ModuleType("mpi4py")
+
+    def __getattr__(name):
+        raise AssertionError(f"mpi4py.{name} imported outside an MPI launch")
+
+    module.__getattr__ = __getattr__
+    return module
+
+
+def _working_mpi4py(rank):
+    module = ModuleType("mpi4py")
+    module.MPI = SimpleNamespace(COMM_WORLD=SimpleNamespace(Get_rank=lambda: rank))
+    return module
+
+
+@pytest.mark.parametrize("module_path", [
+    "petitRADTRANS.retrieval._mpi",
+    "petitRADTRANS.opacities.opacities",
+])
+def test_mpi_context_skips_mpi4py_outside_an_mpi_launch(monkeypatch, module_path):
+    """A jaxns-cli worker is not an MPI rank: importing mpi4py would run MPI_Init,
+    which can abort it. Without launcher variables, mpi4py must not be touched."""
+    module = importlib.import_module(module_path)
+    getter = getattr(module, "get_mpi_context", None) or module._get_mpi_context
+    _fresh_mpi_context(monkeypatch, module, {"SLURM_JOB_ID": "1"}, _mpi4py_that_must_not_be_imported())
+
+    assert getter() == (None, None, 0)
+
+
+def test_mpi_context_uses_mpi_under_an_mpi_launcher(monkeypatch):
+    from petitRADTRANS.retrieval import _mpi
+
+    fake = _working_mpi4py(rank=3)
+    _fresh_mpi_context(monkeypatch, _mpi, {"PMIX_RANK": "3"}, fake)
+
+    mpi, comm, rank = _mpi.get_mpi_context()
+    assert mpi is fake.MPI and comm is fake.MPI.COMM_WORLD and rank == 3
+
+
+def test_mpi_context_can_be_disabled_under_a_launcher(monkeypatch):
+    from petitRADTRANS.retrieval import _mpi
+
+    _fresh_mpi_context(
+        monkeypatch, _mpi,
+        {"PMIX_RANK": "0", "PETITRADTRANS_DISABLE_MPI": "1"},
+        _mpi4py_that_must_not_be_imported(),
+    )
+    assert _mpi.get_mpi_context() == (None, None, 0)
+
+
+def test_mpi_context_without_mpi4py_under_a_launcher_is_single_process(monkeypatch):
+    from petitRADTRANS.retrieval import _mpi
+
+    _fresh_mpi_context(monkeypatch, _mpi, {"PMIX_RANK": "0"}, None)  # None -> ImportError
+    assert _mpi.get_mpi_context() == (None, None, 0)
+
+
+class _FakeDirectionState:
+    """Minimal stand-in for a JAXNS State in the direction-refit loop tests."""
+
+    def __init__(self, iteration, ess, fitted=False, fail_fit=False):
+        self.goal_loop_iter = iteration
+        self.termination_reason = 0
+        self.ess = ess
+        self.fitted = fitted
+        self.fail_fit = fail_fit
+
+    def to_result(self):
+        return SimpleNamespace(ess=self.ess)
+
+    def fit_gmm_directions(self, **options):
+        if self.fail_fit:
+            raise ValueError("cannot produce full-dimensional geometry")
+        return _FakeDirectionState(self.goal_loop_iter, self.ess, fitted=True)
+
+
+class _FakeDirectionSampler:
+    """Advances one round per resume_until_goal call, like the refit loop expects."""
+
+    def __init__(self, ess_by_iteration, fail_fit_at=()):
+        self.ess_by_iteration = ess_by_iteration
+        self.fail_fit_at = set(fail_fit_at)
+        self.calls = []
+
+    def initialise(self, key):
+        return _FakeDirectionState(0, 1.0)
+
+    def resume_until_goal(self, state, goal, checkpoint_dir="unset"):
+        self.calls.append((state.goal_loop_iter, state.fitted, checkpoint_dir))
+        assert goal(state) is False  # the starting boundary is never re-judged
+        iteration = state.goal_loop_iter
+        while True:
+            iteration += 1
+            candidate = _FakeDirectionState(
+                iteration, self.ess_by_iteration[iteration], fitted=state.fitted,
+                fail_fit=iteration in self.fail_fit_at,
+            )
+            if goal(candidate):
+                return candidate
+
+
+def _refit_options(**overrides):
+    from petitRADTRANS.retrieval.samplers.jaxns import GMM_DIRECTION_DEFAULTS
+
+    return {**GMM_DIRECTION_DEFAULTS, **overrides}
+
+
+def test_gmm_directions_option_is_validated_and_kept_out_of_nested_sampler():
+    from petitRADTRANS.retrieval.samplers.jaxns import _resolve_gmm_directions
+
+    assert _resolve_gmm_directions(None) is None
+    assert _resolve_gmm_directions(False) is None
+    assert _resolve_gmm_directions(True)["num_components"] == 1
+    assert _resolve_gmm_directions({"min_ess": 50})["min_ess"] == 50
+    with pytest.raises(TypeError, match="Unknown gmm_directions"):
+        _resolve_gmm_directions({"min_eff": 50})
+    with pytest.raises(ValueError, match="iso_prob"):
+        _resolve_gmm_directions({"iso_prob": 2.0})
+
+    run_config = JAXNSSampler._resolve_run_config({"ess": 100, "gmm_directions": True})
+    assert run_config["gmm_directions"]["refit_every"] == 1
+    assert "gmm_directions" not in run_config["nested_sampler_kwargs"]
+
+
+def test_direction_refits_wait_for_ess_then_refit_each_round():
+    from petitRADTRANS.retrieval.samplers.jaxns import run_with_direction_refits
+
+    sampler = _FakeDirectionSampler({1: 1.0, 2: 2.0, 3: 100.0, 4: 200.0, 5: 1500.0})
+    logs = []
+    state = run_with_direction_refits(
+        sampler, lambda s: s.to_result().ess >= 1000, key=None, checkpoint_dir=None,
+        checkpoint_cadence=0.0, options=_refit_options(min_ess=76), n_free_parameters=19,
+        log=logs.append,
+    )
+
+    assert state.goal_loop_iter == 5
+    # JAXNS must never own the checkpoint directory in this mode.
+    assert sampler.calls == [(0, False, None), (1, False, None), (2, False, None),
+                             (3, True, None), (4, True, None)]
+    assert [m.split(":")[1].split(" after")[0].strip() for m in logs] == [
+        "isotropic", "isotropic", "fitted 1-component GMM", "fitted 1-component GMM"]
+
+
+def test_direction_refit_failure_keeps_the_current_law():
+    from petitRADTRANS.retrieval.samplers.jaxns import run_with_direction_refits
+
+    sampler = _FakeDirectionSampler({1: 100.0, 2: 100.0, 3: 2000.0}, fail_fit_at={1})
+    logs = []
+    state = run_with_direction_refits(
+        sampler, lambda s: s.to_result().ess >= 1000, key=None, checkpoint_dir=None,
+        checkpoint_cadence=0.0, options=_refit_options(min_ess=10), n_free_parameters=3,
+        log=logs.append,
+    )
+
+    assert state.goal_loop_iter == 3
+    assert "GMM fit failed after iter 1" in logs[0]
+    assert sampler.calls[1][1] is False   # round 2 still isotropic
+    assert sampler.calls[2][1] is True    # refit after round 2 succeeded
+
+
+def test_direction_refits_resume_from_a_fitted_checkpoint():
+    from petitRADTRANS.retrieval.samplers.jaxns import run_with_direction_refits
+
+    events = []
+
+    class FakeManager:
+        def __init__(self, directory, cadence):
+            events.append(("open", directory, cadence))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def load(self):
+            return _FakeDirectionState(3, 100.0, fitted=True)
+
+        def maybe_save(self, state):
+            events.append(("maybe_save", state.goal_loop_iter, state.fitted))
+
+        def save_if_changed(self, state):
+            events.append(("final_save", state.goal_loop_iter, state.fitted))
+
+    judged = []
+    sampler = _FakeDirectionSampler({4: 300.0, 5: 1200.0})
+    state = run_with_direction_refits(
+        sampler, lambda s: judged.append(s.goal_loop_iter) or s.to_result().ess >= 1000,
+        key=None, checkpoint_dir="/ck", checkpoint_cadence=3600.0,
+        options=_refit_options(min_ess=76), n_free_parameters=19, log=lambda m: None,
+        checkpoint_manager_cls=FakeManager,
+    )
+
+    assert state.goal_loop_iter == 5
+    assert sampler.calls[0] == (3, True, None)   # resumed from the fitted checkpoint
+    assert judged == [4, 5]                      # iteration 3 was judged before the save
+    assert ("maybe_save", 4, True) in events and events[-1] == ("final_save", 5, True)
+
+
+def test_gmm_directions_without_a_goal_is_rejected():
+    sampler = JAXNSSampler.__new__(JAXNSSampler)
+    sampler.seed = 0
+    sampler.parameter_names = ["a"]
+    run_config = JAXNSSampler._resolve_run_config({"gmm_directions": True})
+    with pytest.raises(ValueError, match="needs a stopping goal"):
+        sampler._execute(run_config, checkpoint_dir=None)
+
+
+def _correlated_toy_prior_model():
+    # Module level, not a closure: JAXNS pickles the model into every checkpoint,
+    # and Pytree.save swallows pickling errors, leaving an empty state file.
+    from jaxctx.priors.prior import Prior
+
+    x = jnp.stack([Prior(tfpd.Uniform(0.0, 1.0), name=f"x{i}").realise() for i in range(3)])
+    # A correlated Gaussian: the case fitted directions are meant for.
+    return -0.5 * (((x[0] - 0.5) / 0.1) ** 2 + ((x[1] - x[0]) / 0.02) ** 2
+                   + ((x[2] - 0.5) / 0.1) ** 2)
+
+
+def test_direction_refits_with_real_jaxns_fit_and_checkpoint_resume(tmp_path):
+    """A real fit_gmm_directions, persisted through a real checkpoint and resumed."""
+    from jaxns.core import NestedSampler
+    from jaxns.depth_condition import DepthCondition
+    from jaxns.model import Model
+    from petitRADTRANS.retrieval.samplers.jaxns import run_with_direction_refits
+
+    def make_sampler():
+        return NestedSampler(
+            model=Model(prior_model=_correlated_toy_prior_model), target_num_live_points=20,
+            collect_phantom_samples=True, max_phantom_samples=2,
+            depth_condition=DepthCondition(), max_samples=50000,
+        )
+
+    checkpoint_dir = str(tmp_path / "checkpoints")
+    logs = []
+    first = run_with_direction_refits(
+        make_sampler(), lambda s: int(s.goal_loop_iter) >= 3, key=jax.random.PRNGKey(0),
+        checkpoint_dir=checkpoint_dir, checkpoint_cadence=0.0,
+        options=_refit_options(min_ess=0), n_free_parameters=3, log=logs.append,
+    )
+    assert int(first.goal_loop_iter) == 3
+    assert any("fitted" in message for message in logs), logs
+    assert bool(np.asarray(first.sampler_data.enabled))
+
+    # A new process resuming the same directory continues with the fitted law.
+    second = run_with_direction_refits(
+        make_sampler(), lambda s: int(s.goal_loop_iter) >= 5, key=jax.random.PRNGKey(1),
+        checkpoint_dir=checkpoint_dir, checkpoint_cadence=0.0,
+        options=_refit_options(min_ess=0), n_free_parameters=3, log=logs.append,
+    )
+    assert int(second.goal_loop_iter) == 5
+    assert bool(np.asarray(second.sampler_data.enabled))
+    assert int(second.num_samples) > int(first.num_samples)
 
 
 def test_parameter_layout_free_parameter_ordering_matches_all_sampler_interfaces():
