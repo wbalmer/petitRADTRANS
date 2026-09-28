@@ -1893,6 +1893,8 @@ class Radtrans:
             target_pressure=target_pressure,
         )
 
+        # TODO Paul_review continue from here
+
         # Line opacities (calculating them just before calculating the combined opacities reduces peak memory usage)
         ck_flattened_layout = self._line_opacity_mode == "c-k" and sum_opacities
         collapse_lbl_species_axis = (
