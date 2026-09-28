@@ -1812,7 +1812,8 @@ class Radtrans:
                 (pressures.size, 1), dtype=WORKING_JAX_DTYPE
             )
 
-        # Continuum opacities
+        # Continuum opacities, absorption only (currently CIA of various species and H- b-f and H- f-f)
+        # TODO Paul_review: look inside
         continuum_opacities = continuum.compute_continuum_opacities(
             frequencies=self._frequencies,
             frequency_bins_edges=self._frequency_bins_edges,
@@ -1823,8 +1824,11 @@ class Radtrans:
             cias_loaded_opacities=self._cias_loaded_opacities,
             gas_continuum_contributors=self._gas_continuum_contributors,
             gray_opacity=gray_opacity,
-            # species_basenames=self._species_basenames
+            # species_basenames=self._species_basenames # TODO remove this commented line?
         )
+        # TODO: discuss and remove the whole "scattering_in_transmission" stuff?
+        # Continuum opacities, scattering only (currently Rayleigh scattering of gas, only)
+        # TODO Paul_review: look inside
         continuum_opacities_scattering, scattering_in_transmission = (
             continuum.compute_continuum_scattering_opacities(
                 frequencies=self._frequencies,
@@ -1834,16 +1838,22 @@ class Radtrans:
                 mean_molar_masses=mean_molar_masses,
                 rayleigh_species=self._rayleigh_species,
                 haze_factor=haze_factor,
-                # species_basenames=self._species_basenames
+                # species_basenames=self._species_basenames # TODO remove this commented line?
             )
         )
 
+        # TODO Annie review: look inside
         (
-            cloudy_cloud_continuum_opacities,
-            cloudy_cloud_continuum_opacities_scattering,
-            cloud_scattering_opacities,
-            cloud_absorption_opacities,
-            cloud_opacities,
+            cloudy_cloud_continuum_opacities, # total cloud *absorption* opacities (may include opaque cloud deck).
+                                              # Used in the actual RT calculation!
+            cloudy_cloud_continuum_opacities_scattering, # total cloud *scattering* opacities,
+                                                         # optionally scaled by (1-g)
+                                                         # (may include analytical scattering model).
+                                                         # Used in the actual RT calculation!
+            cloud_scattering_opacities, # total cloud *scattering* opacities, scaled by (1-g)
+            cloud_absorption_opacities, # total cloud *absorption* opacities
+            cloud_opacities, # total cloud extinction opacity, so continuum and (1-g) (not optional) *
+                             # scattering opacity.
             _cloud_particle_mean_radii,
             clear_cloud_continuum_opacities,
             clear_cloud_continuum_opacities_scattering,

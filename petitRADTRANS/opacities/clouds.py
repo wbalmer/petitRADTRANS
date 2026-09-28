@@ -1134,11 +1134,13 @@ def compute_cloud_continuum_opacities(
     )
 
     (
-        cloudy_continuum_opacities,
-        cloudy_continuum_opacities_scattering,
-        cloud_scattering_opacities,
-        cloud_absorption_opacities,
-        cloud_opacities,
+        cloudy_continuum_opacities, # total cloud *absorption* opacities (may include opaque cloud deck)
+        cloudy_continuum_opacities_scattering, # total cloud *scattering* opacities,
+                                               # optionally scaled by (1-g)
+        cloud_scattering_opacities, # total cloud *scattering* opacities, scaled by (1-g)
+        cloud_absorption_opacities, # total cloud *absorption* opacities
+        cloud_opacities, # total cloud extinction opacity, so continuum and (1-g) (not optional) *
+                         # scattering opacity.
         _cloud_particle_mean_radii,
         cloudy_branch_has_effect,
     ) = _maybe_compute_cloud_branch(
