@@ -56,15 +56,12 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   and optax MAP warm-up. Behaviour and file formats are unchanged.
 - `scattering_in_emission=True` now raises `ValueError` unless JAX is running in
   64-bit mode.
-<<<<<<< HEAD
 - The convergence threshold of the Feautrier scattering iteration is tightened from 1e-6 to 1e-8.
 - `RetrievalConfig` and `SpectralModel.calculate_emission_spectrum` now default to
   `adaptive_feautrier_iterations=True`, as `Radtrans.calculate_flux` already did.
-=======
 - patchy_clouds is now empty by default, and analytical background clouds are also
   patchy, if not specifically requested.
 
->>>>>>> jax_dev_review_evert
 ### Fixed
 - Removed `debug.callbacks` from opacities and validation.
 - dtype mismatch in patchy cloud opacity conditional.
