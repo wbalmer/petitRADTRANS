@@ -1605,7 +1605,6 @@ class Radtrans:
 
         return jnp.asarray(photosphere_radius, dtype=FEAUTRIER_JAX_DTYPE)
 
-    # TODO Paul_review, except for cloud stuff (--> Annie)
     @jit(
         static_argnames=[
             "cloud_particle_radius_distribution",
@@ -1626,10 +1625,12 @@ class Radtrans:
         temperatures,
         mass_fractions,
         mean_molar_masses,
-        reference_gravity,
+        reference_gravity, # Needed to calculate cloud radii if not externally supplied
+                           # or to calculate the cloud scaling at the clear photosphere,
+                           # if requested.
         opaque_cloud_top_pressure=None,
         cloud_particle_mean_radii=None,
-        cloud_particle_radius_distribution_std=None,
+        cloud_particle_radius_distribution_std=None, # TODO: add Roberto's fix for small sigma_g
         cloud_particle_radius_distribution="lognormal",
         cloud_particle_number_density_grid=None,
         cloud_hansen_a=None,
@@ -1642,17 +1643,16 @@ class Radtrans:
         power_law_opacity_coefficient=None,
         gray_opacity=None,
         cloud_photosphere_median_optical_depth=None,
-        cloud_fraction=1.0,
         patchy_clouds=None,
         return_cloud_contribution=False,
         return_opacities=False,
-        additional_absorption_opacities_function=None,
-        additional_scattering_opacities_function=None,
+        additional_absorption_opacities_function=None, # TODO: reconnect to actually do something
+        additional_scattering_opacities_function=None, # TODO: reconnect to actually do something
         compute_clear_opacities=False,
         defer_clear_opacity_combination=False,
         sum_opacities=False,
         anisotropic_cloud_scattering=None,
-        target_particle_radii=None,
+        target_particle_radii=None, # TODO Annie: decide on more descriptive name (e.g., target_particle_radii_onoff)
         target_pressure=None,
         ck_chunk_size=radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE,
     ):
@@ -1702,8 +1702,6 @@ class Radtrans:
                 Optional gray absorption opacity added everywhere.
             cloud_photosphere_median_optical_depth:
                 Optional target median cloud optical depth near the photosphere.
-            cloud_fraction:
-                Cloud coverage fraction for mixed cloudy and clear columns.
             patchy_clouds:
                 Cloud species affected by ``cloud_fraction`` and therefore
                 excluded from the always-cloudy branch.
@@ -3357,7 +3355,6 @@ class Radtrans:
             cloud_photosphere_median_optical_depth=sanitized_inputs[
                 "cloud_photosphere_median_optical_depth"
             ],
-            cloud_fraction=cloud_fraction,
             patchy_clouds=sanitized_inputs["patchy_clouds"],
             return_cloud_contribution=return_cloud_contribution,
             additional_absorption_opacities_function=sanitized_inputs[
@@ -3904,7 +3901,6 @@ class Radtrans:
             cloud_photosphere_median_optical_depth=sanitized_inputs[
                 "cloud_photosphere_median_optical_depth"
             ],
-            cloud_fraction=1.0,
             patchy_clouds=sanitized_inputs["patchy_clouds"],
             return_cloud_contribution=False,
             additional_absorption_opacities_function=sanitized_inputs[
@@ -4367,7 +4363,6 @@ class Radtrans:
             cloud_photosphere_median_optical_depth=sanitized_inputs[
                 "cloud_photosphere_median_optical_depth"
             ],
-            cloud_fraction=cloud_fraction,
             patchy_clouds=sanitized_inputs["patchy_clouds"],
             return_cloud_contribution=return_cloud_contribution,
             additional_absorption_opacities_function=sanitized_inputs[
