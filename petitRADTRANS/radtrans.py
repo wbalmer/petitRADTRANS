@@ -1754,14 +1754,96 @@ class Radtrans:
                 If true, the opaque cloud and powerlaw cloud are treated as patchy cloud species,
                 if requested.
 
-        Returns: # TODO Paul_review: clean up this return description once
-                 # you understand the breadth of what is returned.
-            Tuple containing the P-T interpolated and mass-fraction-combined gas opacities,
-            the cloudy continuum absorption and scattering opacities
-            (incl. clear continuum contributions),
-            cloud-only opacity diagnostics, particle radii products, a flag for
-            scattering in transmission, and optional clear-column opacity
-            products.
+        Returns:
+            A tuple ``(opacities, continuum_opacities_scattering,
+            cloud_scattering_opacities, cloud_absorption_opacities,
+            cloud_opacities, cloud_particle_mean_radii,
+            cloud_scattering_in_transmission, clear_opacities,
+            clear_continuum_opacities_scattering,
+            clear_cloud_scattering_opacities, clear_cloud_absorption_opacities)``:
+
+            opacities:
+                The interpolated line opacities, weighted by their mass
+                fractions, with the continuum absorption opacities added
+                into the first species slot. If ``sum_opacities`` is
+                ``True`` (in c-k mode, this only happens in emission with
+                ``scattering_in_emission=True``; in line-by-line mode this
+                is always the case), the species are further combined into
+                that first slot: via the correlated-k
+                mixing procedure in c-k mode, or by a plain sum in
+                frequency space in line-by-line mode. The total combined
+                opacity then occupies the first (and, in c-k mode, only)
+                species slot. Otherwise (c-k mode without
+                ``sum_opacities``), species are left separate along the
+                species axis, with only the plain continuum opacity added
+                to the first slot. Shape
+                ``(N_g, N_frequencies, N_species, N_layers)``, where
+                ``N_g`` is 1 in line-by-line mode, and ``N_species`` is 1
+                whenever the species axis has been collapsed (c-k with
+                ``sum_opacities=True``, or line-by-line with more than one
+                line species, ``sum_opacities=True``, and
+                ``return_opacities=False``).
+            continuum_opacities_scattering:
+                The combined gas and cloud continuum scattering opacities
+                (the cloud part optionally (1-g)-scaled, if
+                ``anisotropic_cloud_scattering`` is ``True``), including the
+                contribution of patchy clouds. Shape
+                ``(N_frequencies, N_layers)``.
+            cloud_scattering_opacities:
+                The total cloud *scattering* opacities, (1-g)-scaled.
+                Shape ``(N_frequencies, N_layers)``.
+            cloud_absorption_opacities:
+                The total cloud *absorption* opacities.
+                Shape ``(N_frequencies, N_layers)``.
+            cloud_opacities:
+                The total cloud *extinction* opacities, i.e., absorption
+                plus the (1-g)-scaled scattering opacity.
+                Shape ``(N_frequencies, N_layers)``.
+            cloud_particle_mean_radii:
+                The cloud particle mean radii actually used (as supplied,
+                or as derived from ``cloud_f_sed`` and
+                ``eddy_diffusion_coefficients`` when not supplied), per
+                cloud species and atmospheric layer.
+                Shape ``(N_layers, N_clouds)``.
+            cloud_scattering_in_transmission:
+                Scalar boolean flag, ``True`` if scattering must be
+                accounted for in the transmission spectrum, i.e., if
+                ``rayleigh_species`` is non-empty, or if any cloud species
+                (in the cloudy or, if computed, the clear branch) has a
+                non-zero mass fraction anywhere in the atmosphere. Note
+                that neither of the two current callers of
+                ``_calculate_opacities`` (:meth:`_calculate_flux_kernel`
+                and :meth:`_calculate_transit_radii_full_kernel`) actually
+                use this returned value.
+            clear_opacities:
+                Same as ``opacities``, but neglecting the contribution of
+                patchy clouds: the ``patchy_clouds`` species, and, if
+                ``make_analytical_clouds_patchy`` is ``True``, the opaque
+                cloud deck and power-law opacity as well. Shape
+                ``(N_g, N_frequencies, N_species, N_layers)``, or, if
+                ``defer_clear_opacity_combination`` is ``True``, instead the
+                tuple ``(line_opacities, clear_continuum_opacities,
+                combined_line_species_mass_fractions)`` (see
+                ``defer_clear_opacity_combination`` above and
+                :meth:`_combine_deferred_clear_opacities`), of shapes
+                ``(N_g, N_frequencies, N_species, N_layers)``,
+                ``(N_frequencies, N_layers)``, and
+                ``(N_layers, N_species)`` respectively. Zeros
+                (``jnp.zeros_like(opacities)``) if ``compute_clear_opacities``
+                is ``False``.
+            clear_continuum_opacities_scattering:
+                Same as ``continuum_opacities_scattering``, but neglecting
+                the contribution of patchy clouds. Zeros if
+                ``compute_clear_opacities`` is ``False``.
+                Shape ``(N_frequencies, N_layers)``.
+            clear_cloud_scattering_opacities:
+                Same as ``cloud_scattering_opacities``, but neglecting the
+                contribution of patchy clouds.
+                Shape ``(N_frequencies, N_layers)``.
+            clear_cloud_absorption_opacities:
+                Same as ``cloud_absorption_opacities``, but neglecting the
+                contribution of patchy clouds.
+                Shape ``(N_frequencies, N_layers)``.
         """
 
         if patchy_clouds is None:
