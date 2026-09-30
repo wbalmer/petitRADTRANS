@@ -252,6 +252,7 @@ def _init_cloud_background_continuum(
     power_law_opacity_350nm,
     power_law_opacity_coefficient,
     compute_clear_opacities,
+    make_analytical_clouds_patchy=False
 ):
     # Convert None sentinels to traceable JAX arrays so that lax.cond and
     # _maybe_add_opaque_cloud_deck / _maybe_add_power_law_cloud_scattering
@@ -284,9 +285,14 @@ def _init_cloud_background_continuum(
     )
 
     if compute_clear_opacities:
-        clear_continuum_opacities, clear_continuum_opacities_scattering, _, _, _, _ = (
-            _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
-        )
+        if make_analytical_clouds_patchy:
+            clear_continuum_opacities, clear_continuum_opacities_scattering, _, _, _, _ = (
+                _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
+            )
+        else:
+            clear_continuum_opacities, clear_continuum_opacities_scattering = (
+                cloudy_continuum_opacities, cloudy_continuum_opacities_scattering
+            )
     else:
         clear_continuum_opacities = jnp.zeros(
             (frequencies.size, pressures.size), dtype=FEAUTRIER_JAX_DTYPE
@@ -963,6 +969,7 @@ def init_clouds_particle_porosity_factor(
         "cloud_particle_radius_distribution",
         "patchy_clouds",
         "compute_clear_opacities",
+        "make_analytical_clouds_patchy"
     ]
 )
 def compute_cloud_continuum_opacities(
@@ -996,6 +1003,7 @@ def compute_cloud_continuum_opacities(
     compute_clear_opacities,
     target_particle_radii,
     target_pressure,
+    make_analytical_clouds_patchy=False,
 ):
     """Compute cloud continuum opacity products for cloudy and optional clear branches.
 
@@ -1071,6 +1079,9 @@ def compute_cloud_continuum_opacities(
             Optional target particle radii grid for cloud opacity evaluation.
         target_pressure:
             Optional pressure grid associated with ``target_particle_radii``.
+        make_analytical_clouds_patchy:
+                If true, the opaque cloud and powerlaw cloud are treated as patchy cloud species,
+                if requested.
 
     Returns:
         Tuple containing cloudy continuum absorption and scattering opacities,
@@ -1114,6 +1125,7 @@ def compute_cloud_continuum_opacities(
         power_law_opacity_350nm=power_law_opacity_350nm,
         power_law_opacity_coefficient=power_law_opacity_coefficient,
         compute_clear_opacities=compute_clear_opacities,
+        make_analytical_clouds_patchy=make_analytical_clouds_patchy,
     )
 
     if len(cloud_species) > 0:

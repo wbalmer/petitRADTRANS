@@ -1617,6 +1617,7 @@ class Radtrans:
             "compute_clear_opacities",
             "defer_clear_opacity_combination",
             "ck_chunk_size",
+            "make_analytical_clouds_patchy",
         ]
     )
     def _calculate_opacities(
@@ -1655,6 +1656,7 @@ class Radtrans:
         target_particle_radii=None, # TODO Annie: decide on more descriptive name (e.g., target_particle_radii_onoff)
         target_pressure=None,
         ck_chunk_size=radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE,
+        make_analytical_clouds_patchy=False,
     ):
         """Build line, continuum, and cloud opacity for spectral calculations.
 
@@ -1748,6 +1750,9 @@ class Radtrans:
             target_pressure:
                 Pressure to target for selective bin disabling. Pressure bin closest to
                 the input value will be disabled.
+            make_analytical_clouds_patchy:
+                If true, the opaque cloud and powerlaw cloud are treated as patchy cloud species,
+                if requested.
 
         Returns: # TODO Paul_review: clean up this return description once
                  # you understand the breadth of what is returned.
@@ -1892,6 +1897,7 @@ class Radtrans:
             compute_clear_opacities=compute_clear_opacities,
             target_particle_radii=target_particle_radii,
             target_pressure=target_pressure,
+            make_analytical_clouds_patchy=make_analytical_clouds_patchy,
         )
 
 
@@ -3438,6 +3444,7 @@ class Radtrans:
             target_particle_radii=sanitized_inputs["target_particle_radii"],
             target_pressure=sanitized_inputs["target_pressure"],
             ck_chunk_size=ck_chunk_size,
+            make_analytical_clouds_patchy=make_analytical_clouds_patchy,
         )
 
         (
@@ -4445,6 +4452,7 @@ class Radtrans:
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             target_particle_radii=sanitized_inputs["target_particle_radii"],
             target_pressure=sanitized_inputs["target_pressure"],
+            make_analytical_clouds_patchy=make_analytical_clouds_patchy,
         )
 
         # Calculate the transit radii
