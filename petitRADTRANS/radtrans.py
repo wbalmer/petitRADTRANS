@@ -2146,7 +2146,6 @@ class Radtrans:
             clear_cloud_absorption_opacities,
         )
 
-    # TODO Paul_review
     def _combine_deferred_clear_opacities(
         self,
         deferred_clear_opacity_inputs,
