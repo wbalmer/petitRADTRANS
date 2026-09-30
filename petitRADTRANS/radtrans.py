@@ -31,7 +31,7 @@ from petitRADTRANS.opacities.opacities import (
     Opacity,
 )
 from petitRADTRANS.opacities import cia, clouds, continuum, hminus, load, rosseland
-from petitRADTRANS.opacities.optical_depths import compute_optical_depths
+from petitRADTRANS.opacities.optical_depths import compute_optical_depths_and_pdp
 from petitRADTRANS.physics import (
     flux_hz2flux_cm,
     frequency2wavelength,
@@ -1337,7 +1337,7 @@ class Radtrans:
             optical_depths,
             photon_destruction_probabilities,
             relative_cloud_scaling_factor,
-        ) = compute_optical_depths( # TODO review left for David
+        ) = compute_optical_depths_and_pdp( # TODO review left for David
                                     #   remove TODO when done.
             pressures=pressures,
             reference_gravity=reference_gravity,
@@ -1356,23 +1356,7 @@ class Radtrans:
             photospheric_cloud_optical_depths=photospheric_cloud_optical_depths,
         )
 
-        #wl_idx = 1000
-        #tau = np.array(optical_depths[0, :, 0, :])
-        #omega = np.array(1.0 - photon_destruction_probabilities[0, :, :])
-
-
-        #jnp.savez("prt_data_timetest.npz", tau=tau, omega=omega, frequencies=self.frequencies)
-        #print("tau:", repr(tau))
-        #print("omega_overlined:", repr(omega))
-
-        #print("wavelength:", wavelength2frequency(self.frequencies[wl_idx]))
-        #print("frequency:", self.frequencies[wl_idx])
-
         angle_dependent_intensities = None
-
-        #import time
-        #import jax
-        #a = time.time()
 
         if self._scattering_in_emission:
             flux, emission_contribution, angle_dependent_intensities = (
@@ -1423,7 +1407,7 @@ class Radtrans:
                     thomas_min_batch=thomas_min_batch,
                 )
             )
-            #jax.debug.print(str(time.time() - a))
+
         else:
             if self._line_opacity_mode == "lbl" and len(self._line_species) > 1:
                 _optical_depths = optical_depths[:, :, :1, :]
@@ -1549,7 +1533,7 @@ class Radtrans:
         if optical_depths is not None:
             return optical_depths
 
-        optical_depths, _, _ = compute_optical_depths(
+        optical_depths, _, _ = compute_optical_depths_and_pdp(
             pressures=pressures,
             reference_gravity=reference_gravity,
             opacities=opacities,
