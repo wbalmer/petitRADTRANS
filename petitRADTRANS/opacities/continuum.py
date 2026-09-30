@@ -89,7 +89,9 @@ def compute_combined_opacities(
 
     # Combine line opacities with continuum opacities, apply line opacity mass fraction weighting
     opacities = combine_opacities(
-        line_species_mass_fractions=line_species_mass_fractions,
+        line_species_mass_fractions=line_species_mass_fractions, # for lbl this will just be ones, since
+                                                                 # the mass fraction scaling has already
+                                                                 # been done.
         opacities=opacities,
         continuum_opacities=continuum_opacities,  # added to the first species slot
     )

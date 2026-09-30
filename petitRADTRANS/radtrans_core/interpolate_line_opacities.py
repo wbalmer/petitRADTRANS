@@ -285,7 +285,7 @@ def interpolate_species_opacities(
 
     if n_line_species > 0:
         if output_layout == LAYOUT_FL_S_NG:
-            return _interpolate_stacked_species_opacities_flat(
+            return _interpolate_stacked_species_opacities_flat_interpolate_stacked_species_opacities_flat(
                 pressures=pressures,
                 temperatures=temperatures,
                 line_opacities_grid=line_opacities_grid,

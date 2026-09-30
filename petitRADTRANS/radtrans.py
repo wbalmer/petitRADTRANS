@@ -1855,11 +1855,12 @@ class Radtrans:
             cloud_opacities, # total cloud extinction opacity, so continuum and (1-g) (not optional) *
                              # scattering opacity.
             _cloud_particle_mean_radii,
-            clear_cloud_continuum_opacities,
-            clear_cloud_continuum_opacities_scattering,
-            clear_cloud_scattering_opacities,
-            clear_cloud_absorption_opacities,
-            cloud_scattering_in_transmission,
+            clear_cloud_continuum_opacities, # same as cloudy_cloud_continuum_opacities above,
+                                             # but neglecting the contribution of patchy clouds.
+            clear_cloud_continuum_opacities_scattering, # see comment above
+            clear_cloud_scattering_opacities, # see comment above
+            clear_cloud_absorption_opacities, # see comment above
+            cloud_scattering_in_transmission, # TODO: review what this does / if it is needed
         ) = clouds.compute_cloud_continuum_opacities(
             frequencies=self._frequencies,
             frequency_bins_edges=self._frequency_bins_edges,
@@ -1893,7 +1894,6 @@ class Radtrans:
             target_pressure=target_pressure,
         )
 
-        # TODO Paul_review continue from here
 
         # Line opacities (calculating them just before calculating the combined opacities reduces peak memory usage)
         ck_flattened_layout = self._line_opacity_mode == "c-k" and sum_opacities
@@ -1905,6 +1905,9 @@ class Radtrans:
         )
 
         if collapse_lbl_species_axis:
+            # Interpolate line opacities to requested pressure and temperature,
+            # add them in frequency space
+            # TODO Paul_review: look inside
             line_opacities = interpolate_species_opacities_summed(
                 pressures=pressures,
                 temperatures=temperatures,
@@ -1928,6 +1931,9 @@ class Radtrans:
                 (pressures.size, 1), dtype=WORKING_JAX_DTYPE
             )
         else:
+            # Interpolate line opacities to requested pressure and temperature,
+            # retain them separately per species (to c-k combine them later below)
+            # TODO Paul_review: look inside
             line_opacities = interpolate_species_opacities(
                 pressures=pressures,
                 temperatures=temperatures,
@@ -1949,17 +1955,24 @@ class Radtrans:
             )
             combined_line_species_mass_fractions = line_species_mass_fractions
 
+        # Combine the continuum absorption opacities (gas and clouds)
         cloudy_continuum_opacities = (
             continuum_opacities + cloudy_cloud_continuum_opacities
         )
         # Always return the total scattering continuum so transmission and other
         # callers can consume cloud scattering even when emission scattering is disabled.
+        # The microphysical clouds are optionally scaled by (1-g),
+        # depending on the requested anisotropic_cloud_scattering mode.
         cloudy_continuum_opacities_scattering = (
             continuum_opacities_scattering + cloudy_cloud_continuum_opacities_scattering
         )
 
-        # Combine line opacities with continuum opacities, combined opacities are stored in the 1st species slot
-        opacities = continuum.compute_combined_opacities(
+        # Combine line opacities with continuum absorption opacities,
+        # Continuum absorption opacities are added to the 1st line species slot.
+        # If opacities are summed / c-k combined, the total combined absorption
+        # opacity is found in the first line species slot.
+        # TODO Paul_review look inside
+        opacities = continuum.compute_combined_opacities( # TODO: weird that this is in "continuum."
             opacities=line_opacities,
             continuum_opacities=cloudy_continuum_opacities,
             line_species=self._line_species,
@@ -1978,20 +1991,35 @@ class Radtrans:
             ck_chunk_size=ck_chunk_size,
         )
         if compute_clear_opacities:
+            # Absorption only continuum opacities for "clear" case.
+            # For the clouds the contribution
+            # of patchy species is neglected.
             clear_continuum_opacities = (
                 continuum_opacities + clear_cloud_continuum_opacities
             )
+            # Scattering only continuum opacities for "clear" case.
+            # For the clouds the contribution
+            # of patchy species is neglected.
             clear_continuum_opacities_scattering = (
                 continuum_opacities_scattering
                 + clear_cloud_continuum_opacities_scattering
             )
-            if defer_clear_opacity_combination:
-                clear_opacities = (
+            if defer_clear_opacity_combination: # Deferred in case no "clear" spectrum
+                                                # is requested specifically and will then
+                                                # only be calculated if cloud species are patchy
+                                                # *and* their cloud fraction < 1.
+                clear_opacities = ( # in this case "clear_opacities" will have everything
+                                    # that is needed for a later combination.
                     line_opacities,
                     clear_continuum_opacities,
                     combined_line_species_mass_fractions,
                 )
-            else:
+            else: # TODO current implementation is wasteful:
+                  # the c-k combination will be redone, but it is independent
+                  # of what the clouds do.
+                  # The fix could be quite easy:
+                  # clear_opacities = opacities - cloudy_continuum_opacities +
+                  # clear_continuum_opacities (plus making sure of proper broadcasting)
                 clear_opacities = continuum.compute_combined_opacities(
                     opacities=line_opacities,
                     continuum_opacities=clear_continuum_opacities,
