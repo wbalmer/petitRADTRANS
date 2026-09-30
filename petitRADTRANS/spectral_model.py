@@ -1512,6 +1512,7 @@ class SpectralModel(Radtrans):
         return_cloud_contribution: bool = False,
         target_particle_radii: npt.NDArray[np.floating] = None,
         target_pressure: npt.NDArray[np.floating] = None,
+        make_analytical_clouds_patchy: bool = False,
         **kwargs,
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_flux function."""
@@ -1571,6 +1572,7 @@ class SpectralModel(Radtrans):
             return_cloud_contribution=return_cloud_contribution,
             target_particle_radii=target_particle_radii,
             target_pressure=target_pressure,
+            make_analytical_clouds_patchy=make_analytical_clouds_patchy,
         )
 
         return self.wavelengths, self.fluxes, additional_outputs
@@ -1928,6 +1930,7 @@ class SpectralModel(Radtrans):
         return_radius_hydrostatic_equilibrium: bool = False,
         target_particle_radii: npt.NDArray[np.floating] = None,
         target_pressure: npt.NDArray[np.floating] = None,
+        make_analytical_clouds_patchy: bool = False,
         **kwargs,
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_transit_radii function."""
@@ -1966,6 +1969,7 @@ class SpectralModel(Radtrans):
                 return_radius_hydrostatic_equilibrium=return_radius_hydrostatic_equilibrium,
                 target_particle_radii=target_particle_radii,
                 target_pressure=target_pressure,
+                make_analytical_clouds_patchy=make_analytical_clouds_patchy,
             )
         )
 
