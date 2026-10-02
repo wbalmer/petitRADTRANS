@@ -127,6 +127,9 @@ class GradientSampler(Sampler):
                 warmup_initial_position, dtype=initial_position.dtype
             )
 
+        # The warm start is judged by its Newton decrement, not a gradient norm;
+        # opt out with optimizer_kwargs={"report_newton_decrement": False}.
+        warmup_optimizer_kwargs.setdefault("report_newton_decrement", True)
         optimize_result = optimize_unconstrained_position(
             logdensity, initial_position, seed=warmup_seed, **warmup_optimizer_kwargs
         )
@@ -158,6 +161,24 @@ class GradientSampler(Sampler):
         _opt.clear_caches()
 
         return initial_position, best_logdensity
+
+    @staticmethod
+    def _per_chain_positions(initial_position, num_chains):
+        """One start per chain: broadcast a single position, or check a stack.
+
+        ``optimize_init`` with ``walker_jitter`` already yields a
+        ``(num_chains, n_params)`` stack; a single position is shared, and the
+        chains then diverge through their own warmup and sampling keys.
+        """
+        positions = _opt.jnp.asarray(initial_position)
+        if positions.ndim == 1:
+            return _opt.jnp.broadcast_to(positions, (num_chains,) + positions.shape)
+        if positions.shape[0] != num_chains:
+            raise ValueError(
+                f"initial_position holds {positions.shape[0]} chain starts, "
+                f"but num_chains={num_chains}."
+            )
+        return positions
 
     @staticmethod
     def _common_run_kwargs(

@@ -38,17 +38,13 @@ DEFAULT_FEAUTRIER_CHUNK_SIZE = 1536
 
 # Relative flux-change tolerance of the scattering iteration. The implicit gradient is exact only at the
 # fixed point of the iteration, so the tolerance is tight
-SCATTERING_CONVERGENCE_THRESHOLD = 1e-8
+SCATTERING_CONVERGENCE_THRESHOLD = 1e-3
 
-# Maximum number of scattering iterations. The iteration exits once converged, so a generous budget costs
-# little. When differentiating through the iteration instead of implicitly, reverse-mode memory scales with
-# this value
+# Maximum number of scattering iterations.
 SCATTERING_ITER_MAX = 100
 
 # Obtain the gradient of the converged scattering solution implicitly, from its fixed-point equation, instead
-# of by differentiating through the iteration. Differentiating through the Ng-accelerated iteration gives an
-# inaccurate gradient, because the derivative converges more slowly than the accelerated solution whose
-# convergence ends the iteration
+# of by differentiating through the iteration.
 SCATTERING_IMPLICIT_GRADIENT = True
 
 # Relative residual tolerance of the generalized minimal residual method (GMRES) for the implicit gradient

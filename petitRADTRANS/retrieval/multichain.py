@@ -1943,6 +1943,10 @@ def run_multichain(
         # per-chain blocks to compute split-R-hat / ESS and write the same
         # <base_name>_combined artifacts as the per-chain paths.
         configuration = config_builder()
+        # The pooled archive and the combine step below both use base_name, so
+        # the run must be named after it even when the builder names it
+        # differently (the per-chain paths rename each chain the same way).
+        configuration.retrieval_name = base_name
         retrieval = Retrieval(
             configuration,
             output_directory=output_directory,

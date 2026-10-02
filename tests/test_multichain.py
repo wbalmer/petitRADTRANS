@@ -833,6 +833,29 @@ def test_run_multichain_sequential_end_to_end(monkeypatch, tmp_path):
     assert os.path.exists(tmp_path / "out_NumPyro" / "demo_run_combined_samples.npz")
 
 
+def test_run_multichain_in_process_uses_the_requested_base_name(monkeypatch, tmp_path):
+    """The vectorised path names its run (and combine) after base_retrieval_name,
+    not after whatever name the builder happens to give the configuration."""
+    import petitRADTRANS.retrieval.retrieval as retrieval_module
+
+    _FakeRetrieval.calls = []
+    monkeypatch.setattr(retrieval_module, "Retrieval", _FakeRetrieval)
+
+    result = mc.run_multichain(
+        build_demo_config,
+        num_chains=2,
+        output_directory=str(tmp_path),
+        chain_execution="vectorised",
+        chain_seed=1000,
+        base_retrieval_name="renamed_run",
+        verbose=False,
+    )
+
+    assert [name for name, _ in _FakeRetrieval.calls] == ["renamed_run"]
+    assert result["combine"].combined_name == "renamed_run_combined"
+    assert os.path.exists(tmp_path / "out_NumPyro" / "renamed_run_combined_samples.npz")
+
+
 def test_run_multichain_sequential_resume_skips_existing(monkeypatch, tmp_path):
     """resume=True re-runs only the chains whose artifact is missing."""
     import petitRADTRANS.retrieval.retrieval as retrieval_module

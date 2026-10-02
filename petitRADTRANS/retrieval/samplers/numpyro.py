@@ -386,13 +386,16 @@ class NumPyroSampler(GradientSampler):
         }
         kernel_kwargs.update(numpyro_kwargs)
 
-        if (
-            algorithm_name == "hmc"
-            and "trajectory_length" in kernel_kwargs
-            and "num_steps" in kernel_kwargs
-        ):
-            # Prefer trajectory_length so NumPyro can still adapt the step size.
-            kernel_kwargs.pop("num_steps")
+        if algorithm_name == "hmc" and kernel_kwargs.get("num_steps") is not None:
+            if kernel_kwargs.get("trajectory_length") is not None:
+                # Prefer trajectory_length so NumPyro can still adapt the step size.
+                kernel_kwargs.pop("num_steps")
+            else:
+                # NumPyro's HMC defaults trajectory_length to 2*pi, and when both
+                # are set it integrates with step_size = trajectory_length /
+                # num_steps: the adapted step size is ignored, so acceptance cannot
+                # respond to it. A fixed step count needs trajectory_length=None.
+                kernel_kwargs["trajectory_length"] = None
 
         return kernel_kwargs
     # --- block-wise checkpoint / resume (timeout-resilient single-chain NUTS) ---
@@ -1067,9 +1070,15 @@ class NumPyroSampler(GradientSampler):
                 chain_method=chain_method,
                 jit_model_args=False,
             )
-            self.mcmc.run(
-                rng_key, init_params=initial_position, extra_fields=extra_fields
+            # NumPyro needs one start per chain when num_chains > 1; a single
+            # position (no optimize_init stack) would be split along its
+            # parameter axis instead.
+            chain_starts = (
+                self._per_chain_positions(initial_position, num_chains)
+                if num_chains > 1
+                else initial_position
             )
+            self.mcmc.run(rng_key, init_params=chain_starts, extra_fields=extra_fields)
 
             unconstrained_samples = np.asarray(
                 self.mcmc.get_samples(group_by_chain=False)

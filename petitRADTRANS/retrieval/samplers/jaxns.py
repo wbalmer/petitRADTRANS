@@ -59,6 +59,10 @@ _JAXNS_DEPTH_FIELDS = (
     "cummax_XL_frac",
 )
 
+# dlogZ above this is almost certainly a MultiNest-style ln Z tolerance passed
+# by mistake; see _build_stopping_conditions.
+_JAXNS_DLOGZ_WARNING_THRESHOLD = 0.01
+
 # Stopping criteria JAXNS moved out of its condition dataclass and into the
 # Python goal loop. pRT still accepts them as sampler kwargs and synthesises
 # the goal, so run scripts keep expressing "stop when ..." declaratively.
@@ -536,6 +540,23 @@ class JAXNSSampler(Sampler):
             for name, value in termination_condition_values.items()
             if name in _JAXNS_GOAL_FIELDS
         }
+
+        dlogZ = depth_values.get("dlogZ")
+        if dlogZ is not None and float(dlogZ) > _JAXNS_DLOGZ_WARNING_THRESHOLD:
+            # JAXNS compares dlogZ with the remaining-evidence FRACTION
+            # L*X / (Z + L*X) at the last sample block, and that block carries
+            # the end-of-run drain of the live points (X shrinks by ~1/n_live).
+            # A MultiNest-style tolerance such as 0.5 is therefore met after the
+            # first allocation round: on an 18-parameter pRT benchmark it
+            # stopped runs ~30 nats of compression short of the posterior.
+            warnings.warn(
+                f"JAXNS dlogZ={float(dlogZ):g} is a remaining-evidence fraction, not a "
+                "ln Z tolerance like MultiNest's evidence_tolerance, and values this "
+                "large typically end the run after one allocation round, far from the "
+                "posterior. JAXNS' default is log1p(1e-3) ~ 1e-3; omit dlogZ to use it.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
 
         if len(depth_values) > 0:
             depth_condition = _opt.DepthCondition(**depth_values)

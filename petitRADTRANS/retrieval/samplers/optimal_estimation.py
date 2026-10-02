@@ -138,9 +138,14 @@ class OptimizeResult:
     best_logdensity: float
     trace: np.ndarray  # log-posterior per recorded step, for the winning start
     n_steps_run: int
-    converged: bool
+    # Whether the gradient-infinity-norm fell below ``tol``; ``None`` if no ``tol``
+    # was given, i.e. the test never ran. Not scale-free: prefer the decrement.
+    converged: Optional[bool]
     n_starts: int = 1
     start_logdensities: Optional[np.ndarray] = None  # final logp of each start
+    # See :func:`newton_decrement`; ``None`` unless ``report_newton_decrement``.
+    newton_decrement_sq: Optional[float] = None
+    n_nonpositive_curvature: Optional[int] = None
 
 
 def optimize_unconstrained_position(
@@ -157,6 +162,7 @@ def optimize_unconstrained_position(
     start_jitter: float = 1.0,
     seed: int = 0,
     lbfgs_polish_steps: int = 0,
+    report_newton_decrement: bool = False,
     verbose: bool = True,
 ) -> OptimizeResult:
     """Maximise an unconstrained-space log-posterior with optax.
@@ -183,6 +189,8 @@ def optimize_unconstrained_position(
         seed: RNG seed for the restart jitter.
         lbfgs_polish_steps: if > 0, refine the best optax optimum with this many
             ``optax.lbfgs`` (zoom line-search) iterations.
+        report_newton_decrement: evaluate :func:`newton_decrement` at the returned
+            position (one Hessian: ``n_params`` Hessian-vector products).
         verbose: print progress.
 
     Returns:
@@ -262,7 +270,14 @@ def optimize_unconstrained_position(
                     )
                 break
 
-        return best_position, best_value, np.asarray(trace), steps_run, converged
+        # No tolerance means the convergence test never ran.
+        return (
+            best_position,
+            best_value,
+            np.asarray(trace),
+            steps_run,
+            converged if tol is not None else None,
+        )
 
     # Build the set of starting points.
     starts = [initial_position]
@@ -283,7 +298,7 @@ def optimize_unconstrained_position(
     best_overall_position = initial_position
     best_trace = np.asarray([init_value])
     best_steps = 0
-    best_converged = False
+    best_converged = None
     start_logdensities = []
 
     for index, start in enumerate(starts):
@@ -317,6 +332,23 @@ def optimize_unconstrained_position(
             f"(improved by {best_overall_value - init_value:.3e})"
         )
 
+    decrement = {}
+    if report_newton_decrement:
+        try:
+            decrement = newton_decrement(logdensity, best_overall_position)
+        except Exception as error:  # pragma: no cover - a diagnostic, best-effort
+            warnings.warn(
+                f"Newton decrement could not be evaluated ({error}).", RuntimeWarning
+            )
+        if verbose and decrement.get("newton_decrement_sq") is not None:
+            print(
+                "optimal_estimation: Newton decrement^2 = "
+                f"{decrement['newton_decrement_sq']:.3e} (a Newton step would gain "
+                f"{decrement['predicted_gain']:.3e} nats); "
+                f"{decrement['n_nonpositive_curvature']} direction(s) of non-positive "
+                "curvature."
+            )
+
     return OptimizeResult(
         best_position=best_overall_position,
         best_logdensity=best_overall_value,
@@ -325,7 +357,85 @@ def optimize_unconstrained_position(
         converged=best_converged,
         n_starts=n_starts,
         start_logdensities=np.asarray(start_logdensities),
+        newton_decrement_sq=decrement.get("newton_decrement_sq"),
+        n_nonpositive_curvature=decrement.get("n_nonpositive_curvature"),
     )
+
+
+def _negative_logdensity_hessian(logdensity, position):
+    """Symmetrised Hessian of ``-logdensity`` at ``position``.
+
+    Built column by column with Hessian-vector products rather than
+    ``jax.hessian``, so only one reverse-mode tape is resident at a time.
+    """
+    _require_jax_handles()
+    position = jnp.asarray(position)
+    negative_logdensity = lambda z: -logdensity(z)  # noqa: E731
+
+    @jax.jit
+    def hessian_vector_product(z, vector):
+        return jax.jvp(jax.grad(negative_logdensity), (z,), (vector,))[1]
+
+    n_parameters = int(position.shape[-1])
+    identity = np.eye(n_parameters)
+    columns = [
+        np.asarray(
+            hessian_vector_product(position, jnp.asarray(identity[index])), dtype=float
+        )
+        for index in range(n_parameters)
+    ]
+    hessian = np.array(columns).T
+    return 0.5 * (hessian + hessian.T)  # symmetrise against round-off
+
+
+def newton_decrement(logdensity, position):
+    """How far ``position`` is from a stationary point of the log-posterior, in nats.
+
+    A gradient norm cannot tell on an ill-conditioned posterior: along a stiff
+    direction a gradient of 1e3 can sit 1e-2 nats from the optimum, while along a
+    soft one a gradient of 1e-2 can sit many nats away. The Newton decrement
+    ``lambda^2 = g^T H^-1 g`` weights the gradient ``g`` by the local curvature
+    ``H`` (the Hessian of ``-logdensity``): ``lambda^2 / 2`` is the gain in
+    log-posterior that a Newton step predicts, so ``lambda^2 << 1`` means
+    converged whatever the parameter scales are.
+
+    Directions of non-positive curvature have no Newton step. They are left out
+    of the sum and counted in ``n_nonpositive_curvature``; a non-zero count means
+    ``position`` lies on a ridge or a saddle rather than at a maximum, however
+    small the decrement.
+
+    Returns a dict with ``newton_decrement_sq``, ``predicted_gain``,
+    ``n_nonpositive_curvature`` and ``grad_inf_norm``. The first two are ``None``
+    if the gradient or the Hessian is not finite.
+    """
+    _require_jax_handles()
+    position = jnp.asarray(position)
+    gradient = np.asarray(jax.grad(lambda z: -logdensity(z))(position), dtype=float)
+    hessian = _negative_logdensity_hessian(logdensity, position)
+    grad_inf_norm = float(np.max(np.abs(gradient)))
+
+    if not (np.all(np.isfinite(gradient)) and np.all(np.isfinite(hessian))):
+        return {
+            "newton_decrement_sq": None,
+            "predicted_gain": None,
+            "n_nonpositive_curvature": None,
+            "grad_inf_norm": grad_inf_norm,
+        }
+
+    eigenvalues, eigenvectors = np.linalg.eigh(hessian)
+    # Curvature indistinguishable from zero at round-off counts as flat.
+    positive = eigenvalues > 1e-12 * np.max(np.abs(eigenvalues))
+    projected_gradient = eigenvectors.T @ gradient
+    decrement_sq = float(
+        np.sum(projected_gradient[positive] ** 2 / eigenvalues[positive])
+    )
+
+    return {
+        "newton_decrement_sq": decrement_sq,
+        "predicted_gain": 0.5 * decrement_sq,
+        "n_nonpositive_curvature": int(np.sum(~positive)),
+        "grad_inf_norm": grad_inf_norm,
+    }
 
 
 def _lbfgs_polish(logdensity, position, n_steps, verbose=True):
@@ -485,7 +595,11 @@ def report_and_save_map_warmup(
         json.dump(
             {
                 "best_logdensity": best_logdensity,
-                "converged": bool(optimize_result.converged),
+                # null: no gradient tolerance was set, so the test never ran.
+                "converged": optimize_result.converged,
+                # null: not requested (report_newton_decrement) or not finite.
+                "newton_decrement_sq": optimize_result.newton_decrement_sq,
+                "n_nonpositive_curvature": optimize_result.n_nonpositive_curvature,
                 "best_fit": {
                     name: float(value)
                     for name, value in zip(parameter_names, best_physical)
@@ -516,27 +630,7 @@ def laplace_covariance(logdensity, position, *, eigenvalue_floor=1e-8):
     floored at ``eigenvalue_floor`` before inversion and ``is_positive_definite``
     is ``False``.
     """
-    _require_jax_handles()
-    position = jnp.asarray(position)
-
-    # Build the Hessian column by column with Hessian-vector products rather
-    # than jax.hessian to save memory
-    negative_logdensity = lambda z: -logdensity(z)  # noqa: E731
-
-    @jax.jit
-    def hessian_vector_product(z, vector):
-        return jax.jvp(jax.grad(negative_logdensity), (z,), (vector,))[1]
-
-    n_parameters = int(position.shape[-1])
-    identity = np.eye(n_parameters)
-    columns = [
-        np.asarray(
-            hessian_vector_product(position, jnp.asarray(identity[index])), dtype=float
-        )
-        for index in range(n_parameters)
-    ]
-    hessian = np.array(columns).T
-    hessian = 0.5 * (hessian + hessian.T)  # symmetrise against round-off
+    hessian = _negative_logdensity_hessian(logdensity, position)
 
     eigenvalues, eigenvectors = np.linalg.eigh(hessian)
     is_positive_definite = bool(np.all(eigenvalues > 0))
@@ -603,7 +697,7 @@ class OptimalEstimationResults:
     covariance_is_positive_definite: Optional[bool] = None
     unconstrained_samples: Optional[np.ndarray] = None
     trace: Optional[np.ndarray] = None
-    converged: bool = False
+    converged: Optional[bool] = None  # None: no gradient tolerance was set
     output_file: Optional[str] = None
     metadata_file: Optional[str] = None
 
@@ -827,7 +921,7 @@ class OptimalEstimationSampler(Sampler):
         metadata = {
             "sampler": self.__class__.__name__,
             "best_logdensity": results.best_logdensity,
-            "converged": bool(results.converged),
+            "converged": results.converged,
             "covariance_is_positive_definite": results.covariance_is_positive_definite,
             "n_samples": int(results.samples.shape[0]),
             "best_fit": {
@@ -848,7 +942,10 @@ class OptimalEstimationSampler(Sampler):
             return
         print(f"{self.__class__.__name__} results:")
         print(f"  best log-posterior : {results.best_logdensity:.6e}")
-        print(f"  converged          : {results.converged}")
+        converged = (
+            "not tested (no tol)" if results.converged is None else results.converged
+        )
+        print(f"  converged          : {converged}")
         if results.covariance is not None:
             print(
                 f"  Laplace posterior  : {results.samples.shape[0]} samples "
@@ -871,7 +968,7 @@ class OptimalEstimationSampler(Sampler):
             "sampler": self.__class__.__name__,
             "parameters": {
                 "best_logdensity": results.best_logdensity,
-                "converged": bool(results.converged),
+                "converged": results.converged,
                 "covariance_is_positive_definite": results.covariance_is_positive_definite,
             },
             "diagnostics": {

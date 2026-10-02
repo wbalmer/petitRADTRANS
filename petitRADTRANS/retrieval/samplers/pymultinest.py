@@ -18,6 +18,7 @@ from petitRADTRANS.retrieval.samplers import _optional_imports as _opt
 from petitRADTRANS.retrieval.samplers.base import Sampler, SamplerContext
 from petitRADTRANS.retrieval.samplers.interfaces import (
     build_device_likelihood_wrapper,
+    resolve_scalar_likelihood,
 )
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 
@@ -49,12 +50,16 @@ class PymultinestSampler(Sampler):
     @classmethod
     def prepare(cls, context: SamplerContext, **sampler_kwargs):
         likelihood_devices = sampler_kwargs.pop("likelihood_devices", None)
+        use_jit = sampler_kwargs.pop("use_jit", True)
 
         if likelihood_devices is not None:
             device_context = dataclasses.replace(context, likelihood_devices=likelihood_devices)
             log_likelihood_func, target_device = build_device_likelihood_wrapper(device_context)
+            jit_enabled = True
         else:
-            log_likelihood_func = context.log_likelihood_func
+            log_likelihood_func, jit_enabled = resolve_scalar_likelihood(
+                context, use_jit, "PyMultiNest"
+            )
             target_device = None
 
         prefix = os.path.join(
@@ -127,6 +132,7 @@ class PymultinestSampler(Sampler):
         sampler._prefix = prefix
 
         summary_parameters = dict(run_kwargs)
+        summary_parameters["use_jit"] = jit_enabled
         if likelihood_devices is not None:
             summary_parameters["likelihood_devices"] = [str(d) for d in likelihood_devices]
             summary_parameters["likelihood_target_device"] = str(target_device)

@@ -1847,6 +1847,7 @@ class Retrieval:
             parameter_samples, parameter_names
         )
 
+        from_weighted_points = False
         if matrix is None and isinstance(results, dict):
             weighted_samples = results.get("weighted_samples")
             if isinstance(weighted_samples, dict):
@@ -1854,6 +1855,7 @@ class Retrieval:
                     weighted_samples.get("points"),
                     parameter_names,
                 )
+                from_weighted_points = matrix is not None
 
         if matrix is None:
             return None, parameter_names
@@ -1869,7 +1871,9 @@ class Retrieval:
             "log_L",
         )
 
-        if log_likelihood is None and isinstance(results, dict):
+        # The weighted chain's likelihoods belong to its own points: an
+        # equal-weight resample of the same length lines up with none of them.
+        if log_likelihood is None and from_weighted_points:
             weighted_samples = results.get("weighted_samples")
             if isinstance(weighted_samples, dict):
                 log_likelihood = self._get_results_field(

@@ -125,6 +125,9 @@ Key parameters:
 * ``multimodal``: enable mode finding.
 * ``importance_nested_sampling``: enable INS mode.
 * ``use_MPI``: use MPI if available.
+* ``use_jit`` (default ``True``): compile the scalar likelihood once with JAX instead of
+  evaluating it eagerly on every call. Falls back to the eager path, with a warning, for
+  retrievals with legacy (non-JAX) model groups.
 * ``likelihood_devices``: list of JAX devices to dispatch likelihood evaluation to (see :ref:`gpu_likelihood_dispatch`).
 
 Use PyMultiNest when you already rely on the MultiNest ecosystem or need its MPI-oriented execution model.
@@ -140,8 +143,14 @@ Key parameters:
 * ``frac_remain``: stop when the remaining live-point weight drops below this fraction.
 * ``min_num_live_points``: minimum number of live points.
 * ``max_iters`` / ``max_ncalls``: hard stopping limits.
-* ``enable_step_sampling``: attach an UltraNest step sampler.
+* ``enable_step_sampling``: replace region sampling with UltraNest's slice
+  ``SliceSampler``. Region sampling (MLFriends) becomes inefficient beyond roughly ten
+  dimensions, so enable this for larger retrievals. Tune it with ``nsteps`` (default 100;
+  a common choice is a small multiple of the number of free parameters),
+  ``generate_direction`` (default ``generate_mixture_random_direction``),
+  ``adaptive_nsteps``, ``max_nsteps``, ``scale`` and ``check_nsteps``.
 * ``warmstart_max_tau``: enable warm starts from similar previous runs.
+* ``use_jit`` (default ``True``): as for PyMultiNest; applies to the non-vectorized path.
 * ``likelihood_devices``: list of JAX devices to dispatch likelihood evaluation to (non-vectorized path only; see :ref:`gpu_likelihood_dispatch`).
 
 UltraNest is often the easiest pure-Python nested sampler to experiment with when you want reactive nested sampling or warm-start support.
@@ -161,6 +170,10 @@ Key parameters:
 * ``pool_njobs``: convenience option that asks pRT to build an internal ``dynesty.pool.Pool`` with this many worker processes.
 * ``queue_size``: number of queued proposals. When pRT creates the pool internally, this defaults to the pool size if you do not pass it explicitly.
 * ``use_pool``: Dynesty per-stage pool switches such as ``loglikelihood`` and ``propose_point``. If a pool is active and this is omitted, pRT defaults to using the pool for likelihood evaluation, point proposals, and bound updates, but not for the prior transform.
+* ``pin_pool_workers`` (default ``False``): pin each pool worker to its own core of the
+  process's CPU set. Without it, every worker sizes its XLA thread pool to the whole
+  allocation, so ``pool_njobs`` workers oversubscribe the cores ``pool_njobs``-fold.
+  Recommended whenever ``pool_njobs`` equals the number of allocated cores.
 * ``dlogz_init``: initial evidence stopping threshold.
 * ``nlive_init`` / ``nlive_batch``: live-point settings for the initial and follow-up batches.
 * ``n_effective``: stop once an effective posterior sample target is reached.
@@ -258,6 +271,18 @@ soon as **any** of them is met, matching how the old termination condition
 combined its fields. Setting none of them leaves JAXNS' own default
 (``dlogZ = log1p(1e-3)``, the JAXNS 2 stopping goal) in place.
 
+.. warning::
+
+   JAXNS' ``dlogZ`` is **not** a ln Z tolerance like MultiNest's
+   ``evidence_tolerance`` or Dynesty's ``dlogz``. JAXNS compares it with the
+   remaining-evidence *fraction* :math:`L X / (Z + L X)` at the last sample
+   block, and that block includes the end-of-run drain of the live points.
+   A MultiNest-style value such as ``0.5`` is therefore met after the first
+   allocation round: on an 18-parameter transmission benchmark it stopped
+   every run about 30 nats of prior compression short of the posterior, with
+   an effective sample size of 1. Omit ``dlogZ`` to use the default; pRT warns
+   for values above 0.01.
+
 ``ess`` is the one expensive criterion: JAXNS exposes no cheap effective sample
 size on its run state, so pRT materialises the full result at each round
 boundary to evaluate it.
@@ -309,13 +334,14 @@ Example
 
    retrieval.run(
        num_live_points=400,
-       dlogZ=0.1,
+       dlogZ=float(np.log1p(1e-3)),
        ess=512,
        termination_max_samples=200000,
    )
 
-This stops as soon as any one of them is satisfied: JAXNS' own ``dlogZ`` check,
-or pRT's goal reaching 512 effective samples, or 200000 collected samples.
+This stops as soon as any one of them is satisfied: JAXNS' own ``dlogZ`` check
+(here at its default value, see the warning above), or pRT's goal reaching 512
+effective samples, or 200000 collected samples.
 
 Migrating from JAXNS 2
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -457,7 +483,8 @@ Key parameters shared by both BlackJAX samplers:
 * ``initial_step_size``: initial integrator step size.
 * ``target_acceptance_rate``: adaptation target.
 * ``is_mass_matrix_diagonal``: diagonal or dense mass matrix.
-* ``num_chains``: number of chains.
+* ``num_chains``: number of chains. Each chain runs its own window adaptation from its
+  own start, so multi-chain runs are independent and their R-hat is meaningful.
 * ``seed``: random seed.
 * ``use_jit``: JIT the per-chain sampling loop.
 
@@ -663,6 +690,21 @@ Notes:
 * The achieved MAP log-posterior is recorded in the run summary as
   ``warmup_best_logdensity`` so you can confirm the warm-up moved the walkers into the
   bulk of the posterior.
+* How close the warm start came to a stationary point is reported as its **Newton
+  decrement** :math:`\lambda^2 = g^T H^{-1} g` (printed, and saved as
+  ``newton_decrement_sq`` in ``<retrieval_name>_map_warmup.json``). A Newton step would
+  gain :math:`\lambda^2 / 2` nats, so :math:`\lambda^2 \ll 1` means converged whatever
+  the parameter scales are; a gradient norm cannot say that on an ill-conditioned
+  posterior. ``n_nonpositive_curvature`` counts the directions that are flat or curve
+  the wrong way: a non-zero value means the start lies on a ridge or a saddle, not at a
+  maximum. It costs one Hessian (one Hessian-vector product per free parameter); switch
+  it off with ``"report_newton_decrement": False`` in ``optimizer_kwargs``.
+* ``converged`` in the same file is ``null`` unless you set a gradient tolerance
+  (``"tol"``): without one no convergence test is run.
+* A MAP in the unconstrained space is only a starting point. Where the data do not
+  constrain a parameter, the logit transform of its uniform prior places the mode at the
+  centre of the prior range, not where the posterior mass is; start multi-chain runs from
+  scattered points rather than from one converged MAP.
 
 Defining a custom sampler
 -------------------------

@@ -131,6 +131,7 @@ class DynestySampler(Sampler):
         *,
         use_jit: bool = True,
         pool_safe: bool = False,
+        pin_pool_workers: bool = False,
     ):
         prior_transform = context.prior_ultranest_func
         log_likelihood_func = context.log_likelihood_func
@@ -165,8 +166,11 @@ class DynestySampler(Sampler):
                     uncertainties_mode=context.uncertainties_mode,
                     print_log_likelihood_for_debugging=context.print_log_likelihood_for_debugging,
                     use_jit=helper_use_jit,
+                    pin_worker=pin_pool_workers,
                 ),
-                DynestyPoolPriorTransform(context.parameter_layout),
+                DynestyPoolPriorTransform(
+                    context.parameter_layout, pin_worker=pin_pool_workers
+                ),
                 helper_use_jit,
             )
 
@@ -216,11 +220,13 @@ class DynestySampler(Sampler):
         queue_size = sampler_kwargs.pop("queue_size", None)
         use_pool = sampler_kwargs.pop("use_pool", None)
         use_jit = sampler_kwargs.pop("use_jit", True)
+        pin_pool_workers = bool(sampler_kwargs.pop("pin_pool_workers", False))
         pool_safe = pool is not None or pool_njobs is not None
         log_likelihood_func, prior_func, jit_enabled = cls._build_dynesty_interface(
             context,
             use_jit=use_jit,
             pool_safe=pool_safe,
+            pin_pool_workers=pin_pool_workers,
         )
         seed = sampler_kwargs.pop("seed", 42654)
 
@@ -315,6 +321,7 @@ class DynestySampler(Sampler):
         }
         if pool_njobs is not None:
             summary_parameters["pool_njobs"] = int(pool_njobs)
+            summary_parameters["pin_pool_workers"] = pin_pool_workers
         if init_kwargs["queue_size"] is not None:
             summary_parameters["queue_size"] = init_kwargs["queue_size"]
         if init_kwargs["use_pool"] is not None:

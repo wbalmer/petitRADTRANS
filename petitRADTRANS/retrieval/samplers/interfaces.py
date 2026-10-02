@@ -16,6 +16,9 @@ is put together.
 """
 
 import pickle
+import warnings
+
+import numpy as np
 
 from petitRADTRANS.retrieval._mpi import get_mpi_context
 from petitRADTRANS.retrieval.samplers import _optional_imports as _opt
@@ -30,6 +33,88 @@ def check_differentiable_support(context: SamplerContext, sampler_label: str) ->
             f"{sampler_label} requires at least one differentiable model group; "
             "legacy-only retrievals are not supported."
         )
+
+
+def build_jitted_scalar_likelihood(context: SamplerContext, target_device=None):
+    """Return a jitted, PyMultiNest/UltraNest-compatible scalar log-likelihood.
+
+    The compiled function takes the flat vector of free-parameter values, so
+    every call has the same abstract signature and compiles exactly once. The
+    returned callable accepts anything the samplers hand over -- a NumPy row, a
+    list, or MultiNest's ctypes buffer -- and returns a plain Python float.
+
+    ``target_device`` pins every evaluation to one JAX device; ``None`` uses the
+    process default. Requires differentiable model groups.
+    """
+    _opt.require_jax()
+    from petitRADTRANS.retrieval.runtime import _flatten_parameter_values
+
+    parameter_layout = context.parameter_layout
+    runtime = context.runtime
+    uncertainties_mode = context.uncertainties_mode
+    print_debug = context.print_log_likelihood_for_debugging
+    n_free_parameters = parameter_layout.n_free_parameters
+    default_device = _opt.default_device
+    device_get = _opt.device_get
+
+    @_opt.jit
+    def _jit_evaluate(free_parameter_values):
+        physical_params = parameter_layout.physical_params_from_vector(
+            free_parameter_values
+        )
+        return runtime.evaluate_likelihood_jax(
+            physical_params=physical_params,
+            uncertainties_mode=uncertainties_mode,
+            print_log_likelihood_for_debugging=print_debug,
+        )
+
+    def jitted_likelihood(cube, ndim=0, nparam=0):
+        free_parameter_values = np.asarray(
+            _flatten_parameter_values(cube, expected_size=n_free_parameters),
+            dtype=float,
+        )
+        if target_device is None:
+            result = _jit_evaluate(free_parameter_values)
+        else:
+            with default_device(target_device):
+                result = _jit_evaluate(free_parameter_values)
+        return float(device_get(result))
+
+    return jitted_likelihood
+
+
+def resolve_scalar_likelihood(context: SamplerContext, use_jit: bool, sampler_label: str):
+    """Pick the scalar log-likelihood a CPU-driven sampler should call.
+
+    Returns ``(log_likelihood_func, jit_enabled)``. With ``use_jit`` the
+    likelihood is compiled once (:func:`build_jitted_scalar_likelihood`);
+    otherwise, or when JAX or a differentiable model is unavailable, it falls
+    back to the eager ``Retrieval.log_likelihood`` callback with a warning.
+    """
+    if not use_jit:
+        return context.log_likelihood_func, False
+
+    try:
+        _opt.require_jax()
+    except ImportError:
+        warnings.warn(
+            f"JAX is unavailable; {sampler_label} will use the non-jitted scalar likelihood.",
+            RuntimeWarning,
+        )
+        return context.log_likelihood_func, False
+
+    if any(
+        group.model_contract != "differentiable"
+        for group in context.runtime.model_groups
+    ):
+        warnings.warn(
+            f"{sampler_label} JIT likelihood disabled because the retrieval contains "
+            "legacy model groups.",
+            RuntimeWarning,
+        )
+        return context.log_likelihood_func, False
+
+    return build_jitted_scalar_likelihood(context), True
 
 
 def build_device_likelihood_wrapper(context: SamplerContext):
@@ -55,28 +140,7 @@ def build_device_likelihood_wrapper(context: SamplerContext):
     _, _, rank = get_mpi_context()
     target_device = likelihood_devices[rank % len(likelihood_devices)]
 
-    parameter_layout = context.parameter_layout
-    runtime = context.runtime
-    uncertainties_mode = context.uncertainties_mode
-    print_debug = context.print_log_likelihood_for_debugging
-    default_device = _opt.default_device
-    device_get = _opt.device_get
-
-    _jit_evaluate = _opt.jit(
-        lambda physical_params: runtime.evaluate_likelihood_jax(
-            physical_params=physical_params,
-            uncertainties_mode=uncertainties_mode,
-            print_log_likelihood_for_debugging=print_debug,
-        )
-    )
-
-    def device_likelihood(cube, ndim=0, nparam=0):
-        physical_params = parameter_layout.physical_params_from_vector(cube)
-        with default_device(target_device):
-            result = _jit_evaluate(physical_params)
-        return float(device_get(result))
-
-    return device_likelihood, target_device
+    return build_jitted_scalar_likelihood(context, target_device), target_device
 
 
 def build_unconstrained_mcmc_interface(context: SamplerContext):
