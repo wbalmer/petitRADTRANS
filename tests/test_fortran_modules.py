@@ -392,6 +392,70 @@ def test_compute_transmission_spectrum_contribution_matches_previous_leave_one_o
     )
 
 
+def _random_ck_mixing_inputs():
+    # 16-point Gauss-Legendre g grid on [0, 1], opacities ascending along g as in the k-tables
+    nodes, weights = np.polynomial.legendre.leggauss(16)
+    rng = np.random.default_rng(0)
+    n_g, n_frequencies, n_species, n_layers = 16, 7, 4, 5
+
+    return {
+        "opacities_fortran_order": jnp.asarray(
+            np.sort(10 ** rng.uniform(-6, 2, (n_g, n_frequencies, n_species, n_layers)), axis=0)
+        ),
+        "g_gauss": jnp.asarray((nodes + 1) / 2),
+        "weights_gauss": jnp.asarray(weights / 2),
+        "line_species_mass_fractions": jnp.asarray(10 ** rng.uniform(-5, -1, (n_layers, n_species))),
+        "continuum_opacities": jnp.asarray(10 ** rng.uniform(-6, -2, (n_frequencies, n_layers))),
+    }
+
+
+def test_combine_ck_opacities_cpu_kernel_matches_jax_implementation():
+    # The native CPU kernel is differentiated through the JAX implementation, so both must agree
+    if jax.default_backend() != "cpu":
+        pytest.skip("native FFI path is CPU-only")
+
+    inputs = _random_ck_mixing_inputs()
+    g_combination_weights, g_combination_weights_sum = rtc.build_ck_combination_state(inputs["weights_gauss"])
+
+    native = rtc.combine_ck_opacities(**inputs)
+    reference = rtc._combine_ck_opacities_jax(
+        **inputs,
+        g_combination_weights=g_combination_weights,
+        g_combination_weights_sum=g_combination_weights_sum,
+    )
+
+    np.testing.assert_allclose(np.asarray(native), np.asarray(reference), rtol=1e-12, atol=0.0)
+
+
+def test_combine_ck_opacities_cpu_kernel_derivatives_agree_across_modes():
+    # Forward- and reverse-mode derivatives with respect to the abundances, first and second order
+    # (forward over reverse is what the Laplace covariance and the Hessian-based NUTS mass matrix use)
+    if jax.default_backend() != "cpu":
+        pytest.skip("native FFI path is CPU-only")
+
+    inputs = _random_ck_mixing_inputs()
+    mass_fractions = inputs.pop("line_species_mass_fractions")
+
+    def mixed_opacities(mass_fractions):
+        return rtc.combine_ck_opacities(line_species_mass_fractions=mass_fractions, **inputs)
+
+    def total_log_opacity(mass_fractions):
+        return jnp.sum(jnp.log(mixed_opacities(mass_fractions)))
+
+    np.testing.assert_allclose(
+        np.asarray(jax.jacfwd(mixed_opacities)(mass_fractions)),
+        np.asarray(jax.jacrev(mixed_opacities)(mass_fractions)),
+        rtol=1e-10,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        np.asarray(jax.jacfwd(jax.jacrev(total_log_opacity))(mass_fractions)),
+        np.asarray(jax.jacrev(jax.jacrev(total_log_opacity))(mass_fractions)),
+        rtol=1e-10,
+        atol=0.0,
+    )
+
+
 def test_combine_ck_opacities_cpu_float32_matches_threshold_reference():
     # Exercises the native FFI forward path on CPU, including the
     # weak-species threshold skip inherited from the Fortran kernel.

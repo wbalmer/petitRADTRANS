@@ -4695,7 +4695,7 @@ def calculate_emission_spectrum_runtime(
 ) -> ModelResult:
     # Scattering emission solves the Feautrier system on a tensor whose live
     # size is ~ n_g * feautrier_chunk_size * n_angles * n_layers (float64). With
-    # the default chunk size (1536 >= the model's frequency-bin count) the whole
+    # a chunk size of 1536 (>= the model's frequency-bin count) the whole
     # frequency grid is solved in one shot, which on GPU produced a single
     # ~48 GiB allocation that exhausted the 40 GB A100 (job 1860410). The
     # Feautrier driver chunks the frequency axis with lax.scan -- exact and

@@ -95,3 +95,25 @@ def test_feautrier_scattering_gradient_matches_finite_differences():
 
     # Differentiating through the Ng-accelerated iteration is off by ~1e-4 in this atmosphere
     np.testing.assert_allclose(gradient, finite_difference, rtol=1e-6)
+
+
+def test_feautrier_scattering_hessian_vector_product_matches_finite_differences():
+    # Forward-over-reverse second derivatives, as used by the Laplace covariance and the
+    # Hessian-based NUTS mass matrix
+    photon_destruction_probability = 1e-3
+    maximum_optical_depth = 1e3
+    direction = jnp.ones(_N_LAYERS)
+    step = 1e-2  # temperature step (K)
+
+    def total_flux(temperatures):
+        return jnp.sum(_compute_flux(temperatures, photon_destruction_probability, maximum_optical_depth)[0])
+
+    gradient = jax.grad(total_flux)
+    hessian_vector_product = jax.jvp(gradient, (_TEMPERATURES,), (direction,))[1]
+    finite_difference = (
+        gradient(_TEMPERATURES + step * direction) - gradient(_TEMPERATURES - step * direction)
+    ) / (2.0 * step)
+
+    np.testing.assert_allclose(
+        hessian_vector_product, finite_difference, rtol=1e-6, atol=1e-6 * np.max(np.abs(finite_difference))
+    )

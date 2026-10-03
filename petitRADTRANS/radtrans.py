@@ -2958,7 +2958,7 @@ class Radtrans:
                 resolves to True.
             feautrier_chunk_size (Optional[int]):
                 Number of frequency bins per chunk when ``chunk_feautrier`` is enabled. If None
-                (default), resolves to 1536. Both chunking settings are static (compile-time)
+                (default), resolves to 128 on CPU and 512 otherwise. Both chunking settings are static (compile-time)
                 arguments: every distinct (chunk_feautrier, feautrier_chunk_size) pair compiles
                 its own kernel.
             thomas_min_batch (Optional[int]):

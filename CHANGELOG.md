@@ -4,6 +4,47 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.0.0b5] - 2026-10-03
+### Added
+- Test of second-order (Hessian-vector product) derivatives of the scattering
+  emission flux in `tests/test_feautrier_scattering.py`.
+- Tests that the native CPU correlated-k mixing kernel matches its JAX
+  implementation, and that its forward- and reverse-mode derivatives agree to
+  second order, in `tests/test_fortran_modules.py`.
+
+### Changed
+- Each (g, frequency) column of the Feautrier scattering iteration now stops at
+  its own convergence, so emission spectra no longer depend on
+  `feautrier_chunk_size`.
+- The convergence test of the Feautrier scattering iteration measures the
+  relative flux change over one Ng acceleration cycle (4 iterations) instead of
+  over a single iteration, and `SCATTERING_CONVERGENCE_THRESHOLD` is 1e-5
+  (was 1e-3).
+- The default `feautrier_chunk_size` is 128 on CPU and 512 on other backends
+  (was 1536).
+- The adaptive Feautrier iteration stops as soon as it has converged instead of
+  stepping through the whole iteration budget, which is faster on GPU.
+- Regenerated the reference file of
+  `test_correlated_k_emission_spectrum_surface_scattering_with_adaptive_feautrier_iterations`.
+  The previous reference (4.0.0a42) recorded a scattering iteration that was
+  1.1e-3 from its converged solution; the converged solution itself is unchanged
+  (to 1e-8), and the new reference is within 3e-7 of it.
+
+### Removed
+- Module constant `radiative_transfer_core.SCATTERING_IMPLICIT_GRADIENT`: the
+  gradient of the adaptive scattering iteration is always obtained by implicit
+  differentiation.
+
+### Fixed
+- Inaccurate emission flux with `scattering_in_emission=True` (up to 2e-2
+  relative in a cloudy, scattering atmosphere): a single iteration changes the
+  flux by up to ~100x less than its remaining error, so the convergence test
+  stopped strongly scattering columns early.
+- Forward-mode (`jax.jvp`, `jax.jacfwd`) and second-order derivatives of
+  correlated-k emission spectra with `scattering_in_emission=True` on CPU raised
+  `TypeError`: the native correlated-k mixing kernel defined only a reverse-mode
+  derivative. It now defines a forward-mode rule, from which JAX derives both.
+
 ## [4.0.0b4] - 2026-09-21
 ### Added
 - Function `Retrieval.calculate_modulation_posterior` to recover the modulation
