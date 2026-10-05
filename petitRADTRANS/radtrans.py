@@ -1545,10 +1545,20 @@ class Radtrans:
             dtype=FEAUTRIER_JAX_DTYPE,
         )
         tau_target = jnp.asarray(2.0 / 3.0, dtype=WORKING_JAX_DTYPE)
-        tau_profiles = jnp.sum(
-            self._lines_loaded_opacities["weights_gauss"][:, None, None]
-            * optical_depths[:, :, 0, :],
-            axis=0,
+        # The g-point average below must be written as an explicit contraction
+        # (einsum), *not* as jnp.sum(weights[:, None, None] * tau, axis=0).
+        # The latter is miscompiled by XLA/CPU (jax 0.10.2, Apple silicon) in
+        # some of the programs calculate_flux() generates: inside one and the
+        # same compiled program, the broadcast-multiply-then-reduce spelling
+        # and the contraction spelling return different numbers for identical
+        # operands (0.0061 vs. 0.6289 in the case that uncovered this), which
+        # then places the tau = 2/3 level tens of layers too deep. Whether the
+        # bug triggers depends on the surrounding graph, so a cloudy call and
+        # the same cloudy column inside a patchy call disagreed.
+        tau_profiles = jnp.einsum(
+            "g,gfl->fl",
+            self._lines_loaded_opacities["weights_gauss"],
+            optical_depths[:, :, 0, :],
         )
         reaches_tau_target = jnp.max(tau_profiles, axis=1) > tau_target
 
@@ -3191,6 +3201,8 @@ class Radtrans:
                 If True, return the clear spectrum in addition to a cloudy spectrum.
             return_photosphere_radius (Optional[bool]):
                 If True, calculate and return the photosphere radius.
+                If return clear spectrum is True, the code will calculate the photosphere radius also for the
+                clear flux branch, and return it under "clear_photosphere_radius" in addition to "photosphere_radius".
             return_cloud_contribution (Optional[bool]):
                 If True, calculate the cloud contribution.
             return_opacities (Optional[bool]):
@@ -3460,7 +3472,7 @@ class Radtrans:
         else:
             should_compute_opacities_without_patchy_clouds = False
 
-        # Unless the "clear" spectrum (the one without patchy clouds, which may still be clear)
+        # Unless the "clear" spectrum (the one without patchy clouds, which may still be cloudy)
         # is explicitly requested, defer the clear-column opacity combination to the cloud_fraction < 1 branch
         defer_clear_opacity_combination = (
             should_compute_opacities_without_patchy_clouds and not return_clear_spectrum
@@ -3564,14 +3576,70 @@ class Radtrans:
                            # so a clear flux may be affected by clouds.
                            # what is called flux_clear is still the nominal patchy flux,
                            # however, it will be overwritten below.
-        if should_compute_opacities_without_patchy_clouds:
-            if return_clear_spectrum:
-                # Always compute clear flux when the caller requested it.
-                flux_clear, _, _, _, _ = self._calculate_flux( # TODO return "less cloudy spectrum"
+
+        if return_clear_spectrum:
+            # Always compute clear flux when the caller requested it.
+            flux_clear, _, _, clear_optical_depths, _ = self._calculate_flux( # TODO return "less cloudy spectrum"
+                pressures=pressures,
+                temperatures=temperatures,
+                reference_gravity=reference_gravity,
+                opacities=clear_opacities,
+                continuum_opacities_scattering=clear_continuum_opacities_scattering,
+                irradiation_geometry=irradiation_geometry,
+                star_irradiation_cos_angle=emission_inputs[
+                    "star_irradiation_cos_angle"
+                ],
+                stellar_intensity=emission_inputs["stellar_intensities"],
+                reflectances=emission_inputs["reflectances"],
+                emissivities=emission_inputs["emissivities"],
+                return_contribution=False,
+                cloud_f_sed=cloud_f_sed,
+                photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
+                cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
+                cloud_anisotropic_scattering_opacities=clear_cloud_anisotropic_scattering_opacities,
+                cloud_absorption_opacities=clear_cloud_absorption_opacities,
+                adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+                sum_opacities=sum_opacities,
+                chunk_feautrier=chunk_feautrier,
+                feautrier_chunk_size=feautrier_chunk_size,
+                thomas_min_batch=thomas_min_batch,
+            )
+
+            def _blend_flux(args):
+                flux, flux_clear, cloud_fraction = args
+                # Cast back to the cloudy-flux dtype: a cloud_fraction of a
+                # wider dtype would otherwise promote this branch only, and
+                # lax.cond requires both branches to agree.
+                return (
+                    cloud_fraction * flux + (1 - cloud_fraction) * flux_clear
+                ).astype(flux.dtype)
+
+            def _pass_through_flux(args):
+                return args[0]
+
+            flux = lax.cond(
+                jnp.less(cloud_fraction, 1),
+
+                _blend_flux,
+                _pass_through_flux,
+                (flux, flux_clear, cloud_fraction),
+            )
+        elif should_compute_opacities_without_patchy_clouds:
+            # Only compute clear flux and blend when cloud_fraction < 1.
+            def _blend_partial_cloud_flux(cloudy_flux):
+                # The clear-column opacity combination was deferred by
+                # _calculate_opacities and runs here, inside the branch,
+                # so it is skipped entirely when cloud_fraction == 1.
+                combined_clear_opacities = (
+                    self._combine_deferred_clear_opacities( # TODO Paul look into here when reviewing opacity stuff
+                        clear_opacities, sum_opacities, ck_chunk_size
+                    )
+                )
+                clear_flux, _, _, _, _ = self._calculate_flux(
                     pressures=pressures,
                     temperatures=temperatures,
                     reference_gravity=reference_gravity,
-                    opacities=clear_opacities,
+                    opacities=combined_clear_opacities,
                     continuum_opacities_scattering=clear_continuum_opacities_scattering,
                     irradiation_geometry=irradiation_geometry,
                     star_irradiation_cos_angle=emission_inputs[
@@ -3593,75 +3661,19 @@ class Radtrans:
                     thomas_min_batch=thomas_min_batch,
                 )
 
-                def _blend_flux(args):
-                    flux, flux_clear, cloud_fraction = args
-                    # Cast back to the cloudy-flux dtype: a cloud_fraction of a
-                    # wider dtype would otherwise promote this branch only, and
-                    # lax.cond requires both branches to agree.
-                    return (
-                        cloud_fraction * flux + (1 - cloud_fraction) * flux_clear
-                    ).astype(flux.dtype)
+                return (
+                    cloud_fraction * cloudy_flux + (1 - cloud_fraction) * clear_flux
+                ).astype(cloudy_flux.dtype)
 
-                def _pass_through_flux(args):
-                    return args[0]
+            def _pass_through_cloudy_flux(flux):
+                return flux
 
-                flux = lax.cond(
-                    jnp.less(cloud_fraction, 1),
-
-                    _blend_flux,
-                    _pass_through_flux,
-                    (flux, flux_clear, cloud_fraction),
-                )
-            else:
-                # Only compute clear flux and blend when cloud_fraction < 1.
-                def _blend_partial_cloud_flux(cloudy_flux):
-                    # The clear-column opacity combination was deferred by
-                    # _calculate_opacities and runs here, inside the branch,
-                    # so it is skipped entirely when cloud_fraction == 1.
-                    combined_clear_opacities = (
-                        self._combine_deferred_clear_opacities( # TODO Paul look into here when reviewing opacity stuff
-                            clear_opacities, sum_opacities, ck_chunk_size
-                        )
-                    )
-                    clear_flux, _, _, _, _ = self._calculate_flux(
-                        pressures=pressures,
-                        temperatures=temperatures,
-                        reference_gravity=reference_gravity,
-                        opacities=combined_clear_opacities,
-                        continuum_opacities_scattering=clear_continuum_opacities_scattering,
-                        irradiation_geometry=irradiation_geometry,
-                        star_irradiation_cos_angle=emission_inputs[
-                            "star_irradiation_cos_angle"
-                        ],
-                        stellar_intensity=emission_inputs["stellar_intensities"],
-                        reflectances=emission_inputs["reflectances"],
-                        emissivities=emission_inputs["emissivities"],
-                        return_contribution=False,
-                        cloud_f_sed=cloud_f_sed,
-                        photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
-                        cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
-                        cloud_anisotropic_scattering_opacities=clear_cloud_anisotropic_scattering_opacities,
-                        cloud_absorption_opacities=clear_cloud_absorption_opacities,
-                        adaptive_feautrier_iterations=adaptive_feautrier_iterations,
-                        sum_opacities=sum_opacities,
-                        chunk_feautrier=chunk_feautrier,
-                        feautrier_chunk_size=feautrier_chunk_size,
-                        thomas_min_batch=thomas_min_batch,
-                    )
-
-                    return (
-                        cloud_fraction * cloudy_flux + (1 - cloud_fraction) * clear_flux
-                    ).astype(cloudy_flux.dtype)
-
-                def _pass_through_cloudy_flux(flux):
-                    return flux
-
-                flux = lax.cond(
-                    jnp.less(cloud_fraction, 1),
-                    _blend_partial_cloud_flux,
-                    _pass_through_cloudy_flux,
-                    flux,
-                )
+            flux = lax.cond(
+                jnp.less(cloud_fraction, 1),
+                _blend_partial_cloud_flux,
+                _pass_through_cloudy_flux,
+                flux,
+            )
 
         # --- Build additional outputs ---
         additional_outputs = {}
@@ -3698,13 +3710,6 @@ class Radtrans:
             else:
                 additional_outputs["clear_spectrum"] = flux_clear
 
-        # TODO this will always be the photospheric radius of the fully cloudy
-        # column, if we are in a patchy cloud scenario.
-        # One could calculate the total effective combined radius by
-        # adding the radii in quadrature, weighting by the cloud fraction,
-        # and then taking the square root. This would give a good representation
-        # of the radius that allows to calculate the emitting area in each
-        # wavelength.
         if return_photosphere_radius:
             if planet_radius is not None:
                 additional_outputs["photosphere_radius"] = (
@@ -3724,6 +3729,24 @@ class Radtrans:
                         optical_depths=optical_depths,
                     )
                 )
+                if return_clear_spectrum:
+                    additional_outputs["clear_photosphere_radius"] = (
+                        self._calculate_photosphere_radius(
+                            pressures=pressures * 1e-6,
+                            temperatures=temperatures,
+                            mean_molar_masses=mean_molar_masses,
+                            reference_gravity=reference_gravity,
+                            planet_radius=planet_radius,
+                            opacities=clear_opacities,
+                            continuum_opacities_scattering=clear_continuum_opacities_scattering,
+                            cloud_f_sed=cloud_f_sed,
+                            cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
+                            cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
+                            cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
+                            cloud_absorption_opacities=clear_cloud_absorption_opacities,
+                            optical_depths=clear_optical_depths,
+                        )
+                    )
             else:
                 additional_outputs["photosphere_radius"] = jnp.zeros(
                     self._frequencies.size, dtype=FEAUTRIER_JAX_DTYPE
@@ -3836,7 +3859,7 @@ class Radtrans:
             scattering_in_emission=self._scattering_in_emission,
         )
 
-        # Check whether user-specified pressure array is tp be used
+        # Check whether user-specified pressure array is to be used
         solver_pressures = self._resolve_solver_pressures(pressures)
 
         if planet_radius is not None:
