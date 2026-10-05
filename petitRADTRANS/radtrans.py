@@ -3742,7 +3742,7 @@ class Radtrans:
                             cloud_f_sed=cloud_f_sed,
                             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
                             cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
-                            cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
+                            cloud_anisotropic_scattering_opacities=clear_cloud_anisotropic_scattering_opacities,
                             cloud_absorption_opacities=clear_cloud_absorption_opacities,
                             optical_depths=clear_optical_depths,
                         )
