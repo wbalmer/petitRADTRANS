@@ -3517,7 +3517,7 @@ class Radtrans:
                                                        #    remove when done.
                     reference_gravity=reference_gravity,
                     pressures=pressures,
-                    cloud_opacities=cloud_opacities,
+                    species_opacities=cloud_opacities,
                 )
             )
         if return_angle_dependent_intensities:
@@ -4436,7 +4436,7 @@ class Radtrans:
                 clouds.compute_species_optical_depths(
                     reference_gravity=reference_gravity,
                     pressures=pressures,
-                    cloud_opacities=cloud_opacities,
+                    species_opacities=cloud_opacities,
                 )
             )
 

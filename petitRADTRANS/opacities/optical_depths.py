@@ -1,8 +1,11 @@
 _file_purpose="Calculating the optical depths and photon destruction probabilities."
 
+from typing import Optional, Tuple, Dict
+
 import jax.numpy as jnp
 from interpax import interp1d
 from jax import debug
+from jax.typing import ArrayLike
 
 from petitRADTRANS.jax_dtype import WORKING_JAX_DTYPE
 from petitRADTRANS.opacities.clouds import compute_species_optical_depths
@@ -23,7 +26,7 @@ def _total_absorption_opacity(
             (cm^2/g) The opacities in the atmosphere.
 
     Returns:
-        jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
+        jnp.ndarray, shape (n_g, n_frequencies, 1, n_layers)
             (cm^2/g) The opacity in the atmosphere, but with only one dimension in the species dimension
     """
     return jnp.asarray(opacities[:, :, :1, :], dtype=WORKING_JAX_DTYPE)
@@ -33,8 +36,8 @@ def _compute_total_optical_depths_and_pdp(
     pressures: ArrayLike,
     reference_gravity: float,
     opacities: ArrayLike,
-    scattering_in_emission: bool = False,
-    continuum_opacities_scattering: Optional[ArrayLike] = None,
+    scattering_in_emission: bool,
+    continuum_opacities_scattering: Optional[ArrayLike],
 ) -> tuple[ArrayLike, ArrayLike]:
     """
     Wrapper function to compute the optical depths and photon destruction probabilities.
@@ -81,8 +84,8 @@ def compute_optical_depths_and_pdp(
     continuum_opacities_scattering: ArrayLike,
     scattering_in_emission: bool,
     sum_opacities: bool,
-    photospheric_cloud_optical_depths: Optional[ArrayLike] = None,
-    absorber_present: Optional[bool] = True,
+    photospheric_cloud_optical_depths: Optional[float] = None,
+    absorber_present: bool = True,
     **custom_cloud_parameters,
 ) -> tuple[ArrayLike, ArrayLike, float]:
     """
@@ -102,7 +105,7 @@ def compute_optical_depths_and_pdp(
             Whether to include scattering in the emission calculation.
         sum_opacities: bool
             Whether to sum the opacities or not.
-        photospheric_cloud_optical_depths: jnp.ndarray, shape (n_layers, ), optional  #todo is that correct?
+        photospheric_cloud_optical_depths: float, optional
             The photospheric cloud optical depths in the atmosphere. Default is None.
         absorber_present: bool
             Whether an absorber is present in the atmosphere. Default is True.
@@ -112,10 +115,11 @@ def compute_optical_depths_and_pdp(
     Returns:
         optical_depths: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
             The cumulative optical depths in the atmosphere.
-        photon_destruction_probabilities: jnp.ndarray, shape (n_layers, )
+        photon_destruction_probabilities: jnp.ndarray, shape (n_g, n_frequencies, n_layers)
             The photon destruction probabilities in the atmosphere.
-        relative_cloud_scaling_factor: float
-            The relative cloud scaling factor in the atmosphere.#todo is that correct?
+        relative_cloud_scaling_factor: Optional[float]
+            The relative cloud scaling factor in the atmosphere:
+            cloud_scaling_factor / max_rescaling with max_rescaling = 2(min_f_sed + 1).
     """
     photon_destruction_probabilities = None
     relative_cloud_scaling_factor = None
@@ -188,7 +192,6 @@ def compute_optical_depths_and_pdp(
         relative_cloud_scaling_factor,
     )
 
-# todo: review that
 def compute_optical_depths_and_pdp_with_photospheric_cloud(
     pressures: ArrayLike,
     reference_gravity: float,
@@ -197,12 +200,12 @@ def compute_optical_depths_and_pdp_with_photospheric_cloud(
     frequencies: ArrayLike,
     weights_gauss: ArrayLike,
     cloud_wavelengths: ArrayLike,
-    cloud_f_sed: ArrayLike, # Todo: correct?
+    cloud_f_sed: Dict,
     cloud_anisotropic_scattering_opacities: ArrayLike,
     cloud_absorption_opacities: ArrayLike,
-    photospheric_cloud_optical_depths: ArrayLike,
+    photospheric_cloud_optical_depths: float,
     scattering_in_emission: bool,
-) -> Tuple[ArrayLike, ArrayLike, ArrayLike, float]:
+) -> Tuple[ArrayLike, ArrayLike, float]:
     """
     Compute the optical depths and photon destruction probabilities, including the effect of clouds.
 
@@ -228,8 +231,8 @@ def compute_optical_depths_and_pdp_with_photospheric_cloud(
             (cm^2/g) The anisotropic scattering opacities of clouds in the atmosphere.
         cloud_absorption_opacities: jnp.ndarray, shape (n_g, n_frequencies, n_layers)
             (cm^2/g) The absorption opacities of clouds in the atmosphere.
-        photospheric_cloud_optical_depths: jnp.ndarray, shape (n_layers,)
-            The photospheric cloud optical depths in the atmosphere.
+        photospheric_cloud_optical_depths: float
+            The photospheric cloud optical depth.
         scattering_in_emission: bool
             Whether to include scattering in the emission calculation.
 
@@ -239,8 +242,9 @@ def compute_optical_depths_and_pdp_with_photospheric_cloud(
                 The cumulative optical depths in the atmosphere, including clouds.
             photon_destruction_probabilities: jnp.ndarray, shape (n_layers,)
                 The photon destruction probabilities in the atmosphere, including clouds.
-            relative_cloud_scaling_factor: float
-                The relative cloud scaling factor in the atmosphere, used for adjusting cloud opacities.
+            relative_cloud_scaling_factor: Optional[float]
+                The relative cloud scaling factor in the atmosphere:
+                cloud_scaling_factor / max_rescaling with max_rescaling = 2(min_f_sed + 1).
     """
     relative_cloud_scaling_factor = None
     total_absorption_opacities = _total_absorption_opacity(opacities)
@@ -285,7 +289,7 @@ def compute_optical_depths_and_pdp_with_photospheric_cloud(
         cloud_anisotropic_scattering_opacities is None
         or cloud_absorption_opacities is None
     ):
-        return optical_depths, photon_destruction_probabilities, None
+        return (optical_depths, photon_destruction_probabilities, None)
 
     cloud_only_absorption_opacities = combine_opacities(
         line_species_mass_fractions=_mass_fractions_1,
@@ -329,8 +333,9 @@ def compute_optical_depths_and_pdp_with_photospheric_cloud(
     optical_depth = jnp.sum(w_gauss_photosphere * optical_depths[:, :, 0, :], axis=0)
 
     if median:
-        optical_depth_integral = jnp.median(
-            optical_depth[wavelengths_select, :], axis=0
+        optical_depth_integral = jnp.nanmedian(
+            jnp.where(wavelengths_select[:, jnp.newaxis], optical_depth, jnp.nan),
+            axis=0,
         )
     else:
         optical_depth_integral = (
@@ -348,8 +353,9 @@ def compute_optical_depths_and_pdp_with_photospheric_cloud(
     )
 
     if median:
-        optical_depth_cloud_integral = jnp.median(
-            optical_depth_cloud[wavelengths_select, :], axis=0
+        optical_depth_cloud_integral = jnp.nanmedian(
+            jnp.where(wavelengths_select[:, jnp.newaxis], optical_depth_cloud, jnp.nan),
+            axis=0,
         )
     else:
         optical_depth_cloud_integral = (
@@ -362,35 +368,38 @@ def compute_optical_depths_and_pdp_with_photospheric_cloud(
             / 2.0
         )
 
+    # todo Evert: I changed the interpolation here because interp1d from interpax takes the value(s) where to
+    #  interpolate directly. Also, it was not jitable.
     # Interpolate the pressure where the optical
     # depth of cloud-free atmosphere is 1.0
-    if jnp.min(optical_depth_integral) < 1 < jnp.max(optical_depth_integral):
-        press_bol_clear = interp1d(optical_depth_integral, pressures)
-        p_phot_clear = press_bol_clear(1.0)
-    else:
-        p_phot_clear = pressures[-1]
+    tau_one_bracketed = jnp.logical_and(
+        jnp.min(optical_depth_integral) < 1.0,
+        jnp.max(optical_depth_integral) > 1.0,
+    )
+    p_phot_clear = jnp.where(
+        tau_one_bracketed,
+        jnp.interp(1.0, optical_depth_integral, pressures),
+        pressures[-1],
+    )
 
     # Interpolate the optical depth of the cloud-only atmosphere at the pressure of the cloud-free photosphere
-    tau_bol_cloud = interp1d(pressures, optical_depth_cloud_integral)
-    tau_cloud_at_phot_clear = tau_bol_cloud(p_phot_clear)
+    tau_cloud_at_phot_clear = interp1d(p_phot_clear, pressures, optical_depth_cloud_integral, method="linear")
 
     # Apply cloud scaling
     cloud_scaling_factor = photospheric_cloud_optical_depths / tau_cloud_at_phot_clear
 
     if len(cloud_f_sed) > 0:
-        max_rescaling = 1e100
-
-        for f in cloud_f_sed.keys():
-            if isinstance(cloud_f_sed[f], jnp.ndarray):
-                raise ValueError(
-                    "Only scalar cloud_f_sed values are allowed for cloud rescaling!"
-                )
-
-            _max_rescaling = 2.0 * (cloud_f_sed[f] + 1.0)
-            max_rescaling = min(max_rescaling, _max_rescaling)
-
+        # cloud_f_sed values are traced scalars under jit; scalar validation
+        # happens outside the jitted kernel.
+        min_f_sed = jnp.min(jnp.asarray(list(cloud_f_sed.values())))
+        max_rescaling = 2.0 * (min_f_sed + 1.0)  #  todo Evert: I droped the 1e100 comparison, should be smaller right?
         relative_cloud_scaling_factor = cloud_scaling_factor / max_rescaling
-        print(f"Relative cloud scaling factor: {relative_cloud_scaling_factor}")
+
+        # todo Evert: should we keep that? Then we have to move it outside of jit
+        #if isinstance(cloud_f_sed[f], jnp.ndarray):
+        #    raise ValueError(
+        #        "Only scalar cloud_f_sed values are allowed for cloud rescaling!"
+        #    )
 
     # Get continuum scattering opacity, including clouds:
     continuum_opacities_scattering_emission = (
@@ -405,7 +414,7 @@ def compute_optical_depths_and_pdp_with_photospheric_cloud(
     )
 
     # Calculate total optical depth, including clouds
-    updated_optical_depths, photon_destruction_probabilities = _compute_total_optical_depths(
+    updated_optical_depths, photon_destruction_probabilities = _compute_total_optical_depths_and_pdp(
         pressures=pressures,
         reference_gravity=reference_gravity,
         opacities=total_absorption_opacities,

@@ -1486,8 +1486,8 @@ def compute_species_optical_depths(
             (cm/s^2) Surface gravity of the object.
         pressures: jax.numpy.ndarray, shape (n_layers,)
             (barye) Atmospheric pressure grid in cgs units.
-        cloud_opacities: jax.numpy.ndarray, shape (..., n_layers,)
-            (cm^2/g) Cloud opacity array.
+        species_opacities: jax.numpy.ndarray, shape (..., n_layers,)
+            (cm^2/g) Species opacity array.
 
     Returns:
         Cloud optical depths with the same shape as ``cloud_opacities``.
