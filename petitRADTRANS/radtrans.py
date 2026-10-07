@@ -111,7 +111,7 @@ def _handle_invalid_reference_gravity(reference_gravity):
         )
 
 
-def _additional_opacities_placeholder_fn(wavelengths, pressures):
+def _additional_opacities_placeholder_fn(wavelengths, pressures, **kwargs):
     """Returns a zero opacity matrix with shape (n_wavelengths, n_pressures).
     This is needed for the input normalization (in functions _sanitize_*)
     in the case that a user does not specify an additional_absorption_opacities_function
@@ -405,6 +405,13 @@ def _compile_spectral_function(static_argnames):
                         arguments[argname]
                     )
 
+            # None and {} both mean "no extra arguments for the user-supplied opacity
+            # functions", but they are different pytrees and would therefore compile
+            # separately. Normalize so that both share one compilation cache entry.
+            # The {} default of get() leaves methods without that argument untouched.
+            if arguments.get("additional_opacity_functions_kwargs", {}) is None:
+                arguments["additional_opacity_functions_kwargs"] = {}
+
             # After checks have been run, rebuild the compiled method again,
             # including self.
             return compiled_method(self, **arguments)
@@ -596,6 +603,7 @@ class Radtrans:
         #   than the opacity file range. For line-by-line, CIA and cloud it crashes.
         #   Look into a fix!
         self._frequencies, self._frequency_bins_edges = self._init_frequency_grid()
+        self._wavelengths_micron = jnp.array(cst.c / self._frequencies / 1e-4, dtype=WORKING_JAX_DTYPE)
 
         # Initialize loaded line opacities variables
         self._lines_loaded_opacities = LockedDict.build_and_lock(
@@ -1656,8 +1664,8 @@ class Radtrans:
         patchy_clouds=None,
         return_cloud_contribution=False,
         return_opacities=False,
-        additional_absorption_opacities_function=None, # TODO: reconnect to actually do something
-        additional_scattering_opacities_function=None, # TODO: reconnect to actually do something
+        additional_absorption_opacities_function=_additional_opacities_placeholder_fn,
+        additional_scattering_opacities_function=_additional_opacities_placeholder_fn,
         compute_clear_opacities=False,
         sum_opacities=False,
         anisotropic_cloud_scattering=None,
@@ -1665,6 +1673,7 @@ class Radtrans:
         target_pressure=None,
         ck_chunk_size=radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE,
         make_analytical_clouds_patchy=False,
+        additional_opacity_functions_kwargs=None,
     ):
         """Build line, continuum, and cloud opacity for spectral calculations.
 
@@ -1745,6 +1754,10 @@ class Radtrans:
             make_analytical_clouds_patchy:
                 If true, the opaque cloud and powerlaw cloud are treated as patchy cloud species,
                 if requested.
+            additional_opacity_functions_kwargs:
+                Optional dictionary of extra keyword arguments handed to both
+                ``additional_absorption_opacities_function`` and
+                ``additional_scattering_opacities_function``.
 
         Returns:
             A tuple ``(opacities, continuum_opacities_scattering,
@@ -1887,6 +1900,7 @@ class Radtrans:
         # TODO Paul_review: look inside
         continuum_opacities = continuum.compute_continuum_opacities(
             frequencies=self._frequencies,
+            wavelengths_micron=self._wavelengths_micron,
             frequency_bins_edges=self._frequency_bins_edges,
             pressures=pressures,
             temperatures=temperatures,
@@ -1895,6 +1909,8 @@ class Radtrans:
             cias_loaded_opacities=self._cias_loaded_opacities,
             gas_continuum_contributors=self._gas_continuum_contributors,
             gray_opacity=gray_opacity,
+            additional_absorption_opacities_function=additional_absorption_opacities_function,
+            additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
             # species_basenames=self._species_basenames # TODO remove this commented line?
         )
         # TODO: discuss and remove the whole "scattering_in_transmission" stuff?
@@ -1903,12 +1919,15 @@ class Radtrans:
         continuum_opacities_scattering, scattering_in_transmission = (
             continuum.compute_continuum_scattering_opacities(
                 frequencies=self._frequencies,
+                wavelengths_micron=self._wavelengths_micron,
                 pressures=pressures,
                 temperatures=temperatures,
                 mass_fractions=mass_fractions,
                 mean_molar_masses=mean_molar_masses,
                 rayleigh_species=self._rayleigh_species,
                 haze_factor=haze_factor,
+                additional_scattering_opacities_function=additional_scattering_opacities_function,
+                additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
                 # species_basenames=self._species_basenames # TODO remove this commented line?
             )
         )
@@ -2484,6 +2503,7 @@ class Radtrans:
             self._pressures,
             self._wavelength_boundaries,
             self._frequencies,
+            self._wavelengths_micron,
             self._frequency_bins_edges,
             self._lines_loaded_opacities,
             cia_children,
@@ -2526,6 +2546,7 @@ class Radtrans:
             instance._pressures,
             instance._wavelength_boundaries,
             instance._frequencies,
+            instance._wavelengths_micron,
             instance._frequency_bins_edges,
             instance._lines_loaded_opacities,
             cia_children,
@@ -2956,6 +2977,7 @@ class Radtrans:
                                       # decorator, through a wrapper, so don't remove it here,
                                       # even if it is grayed out and appears to not be used.
         make_analytical_clouds_patchy=False,
+        additional_opacity_functions_kwargs: dict = None,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's emitted flux (emission spectrum).
 
@@ -3053,8 +3075,7 @@ class Radtrans:
                 Reflectances of the surface (layer with the highest pressure).
             emissivities (Optional):
                 Emissivities of the surface (layer with the highest pressure).
-            additional_absorption_opacities_function (Optional[function]): # TODO: this keyword arg doesn't do anything atm. Fix!
-                                                                           #    when looking into opacity functions.
+            additional_absorption_opacities_function (Optional[function]):
                 A python function that takes wavelength arrays in microns and pressure arrays in bars
                 as input, and returns an absorption opacity matrix in units of cm^2/g, in the shape of
                 number of wavelength points x number of pressure points.
@@ -3068,8 +3089,7 @@ class Radtrans:
                 Passing a freshly created lambda or closure (e.g., the product of a function factory)
                 on each call forces a full recompilation of the spectral kernel.
                 Relatedly, make sure that your function is jax.jit compilable.
-            additional_scattering_opacities_function (Optional[function]): # TODO: this keyword arg doesn't do anything atm. Fix!
-                                                                           #    when looking into opacity functions.
+            additional_scattering_opacities_function (Optional[function]):
                 A python function that takes wavelength arrays in microns and pressure arrays in bars
                 as input, and returns an isotropic scattering opacity matrix in units of cm^2/g, in the shape of
                 number of wavelength points x number of pressure points.
@@ -3081,6 +3101,14 @@ class Radtrans:
                 Passing a freshly created lambda or closure (e.g., the product of a function factory)
                 on each call forces a full recompilation of the spectral kernel.
                 Relatedly, make sure that your function is jax.jit compilable.
+            additional_opacity_functions_kwargs (Optional[dict]):
+                Dictionary of extra keyword arguments that is unpacked into both
+                additional_absorption_opacities_function and additional_scattering_opacities_function,
+                on top of the wavelengths and pressures those always receive. If you supply both
+                functions, each of them must be able to accept every key in this dictionary.
+                In contrast to the functions themselves, the values in this dictionary are traced:
+                use it to pass the parameters of your opacity model, so that changing them neither
+                triggers a recompilation nor breaks differentiability.
             adaptive_feautrier_iterations (Optional[bool]):
                 If True, adapt the number of iterations of the Feautrier scattering-method
                 (scattering_in_emission=True) based on the photon destruction probability.
@@ -3233,6 +3261,7 @@ class Radtrans:
             sum_opacities=sum_opacities,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             make_analytical_clouds_patchy=make_analytical_clouds_patchy,
+            additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
         )
 
     @jit(
@@ -3319,7 +3348,8 @@ class Radtrans:
         target_pressure=None,
         sum_opacities=True,
         anisotropic_cloud_scattering=None,
-        make_analytical_clouds_patchy=False
+        make_analytical_clouds_patchy=False,
+        additional_opacity_functions_kwargs=None,
     ):
 
         """JIT-compiled kernel for calculate_flux. See calculate_flux for parameter docs."""
@@ -3440,6 +3470,7 @@ class Radtrans:
             target_pressure=sanitized_inputs["target_pressure"],
             ck_chunk_size=ck_chunk_size,
             make_analytical_clouds_patchy=make_analytical_clouds_patchy,
+            additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
         )
 
         (
@@ -3816,6 +3847,9 @@ class Radtrans:
         power_law_opacity_350nm: float = None,
         power_law_opacity_coefficient: float = None,
         gray_opacity: float = None,
+        additional_absorption_opacities_function: Callable = None,
+        additional_scattering_opacities_function: Callable = None,
+        additional_opacity_functions_kwargs: dict = None,
     ) -> tuple[npt.NDArray[float], npt.NDArray[float]]:
         """Method to calculate the atmosphere's Rosseland and Planck mean opacities.
 
@@ -3919,8 +3953,8 @@ class Radtrans:
             gray_opacity=gray_opacity,
             cloud_photosphere_median_optical_depth=None,
             cloud_particle_number_density_grid=None,
-            additional_absorption_opacities_function=None,
-            additional_scattering_opacities_function=None,
+            additional_absorption_opacities_function=additional_absorption_opacities_function,
+            additional_scattering_opacities_function=additional_scattering_opacities_function,
             target_particle_radii=None,
             target_pressure=None,
             cloud_species=self._cloud_species,
@@ -3985,6 +4019,7 @@ class Radtrans:
             return_opacities=False,
             target_particle_radii=sanitized_inputs["target_particle_radii"],
             target_pressure=sanitized_inputs["target_pressure"],
+            additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
         )
 
         if auto_anisotropic_cloud_scattering:
@@ -4056,6 +4091,7 @@ class Radtrans:
                                       # decorator, through a wrapper, so don't remove it here,
                                       # even if it is grayed out and appears to not be used.
         make_analytical_clouds_patchy=False,
+        additional_opacity_functions_kwargs: dict = None,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's transmission radius
         (for the transmission spectrum).
@@ -4145,8 +4181,7 @@ class Radtrans:
                     By default, assume a full cloud cover.
                 patchy_clouds:
                     List of cloud species affected by ``cloud_fraction``.
-                additional_absorption_opacities_function (Optional[function]): # TODO: this keyword arg doesn't do anything atm. Fix!
-                                                                               #    when looking into opacity functions.
+                additional_absorption_opacities_function (Optional[function]):
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an absorption opacity matrix in units of cm^2/g, in the shape of
                     number of wavelength points x number of pressure points.
@@ -4160,8 +4195,7 @@ class Radtrans:
                     Passing a freshly created lambda or closure (e.g., the product of a function factory)
                     on each call forces a full recompilation of the spectral kernel.
                     Relatedly, make sure that your function is jax.jit compilable.
-                additional_scattering_opacities_function (Optional[function]): # TODO: this keyword arg doesn't do anything atm. Fix!
-                                                                               #    when looking into opacity functions.
+                additional_scattering_opacities_function (Optional[function]):
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an isotropic scattering opacity matrix in units of cm^2/g, in the shape of
                     number of wavelength points x number of pressure points.
@@ -4173,6 +4207,14 @@ class Radtrans:
                     Passing a freshly created lambda or closure (e.g., the product of a function factory)
                     on each call forces a full recompilation of the spectral kernel.
                     Relatedly, make sure that your function is jax.jit compilable.
+                additional_opacity_functions_kwargs (Optional[dict]):
+                    Dictionary of extra keyword arguments that is unpacked into both
+                    additional_absorption_opacities_function and additional_scattering_opacities_function,
+                    on top of the wavelengths and pressures those always receive. If you supply both
+                    functions, each of them must be able to accept every key in this dictionary.
+                    In contrast to the functions themselves, the values in this dictionary are traced:
+                    use it to pass the parameters of your opacity model, so that changing them neither
+                    triggers a recompilation nor breaks differentiability.
                 frequencies_to_wavelengths (Optional[bool]):
                     If True, convert the frequencies (Hz) output to wavelengths (cm).
                 return_contribution (Optional[bool]):
@@ -4268,6 +4310,7 @@ class Radtrans:
             sum_opacities=sum_opacities,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             make_analytical_clouds_patchy=make_analytical_clouds_patchy,
+            additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
         )
 
     @jit(
@@ -4336,6 +4379,7 @@ class Radtrans:
         sum_opacities=False,
         anisotropic_cloud_scattering=None,
         make_analytical_clouds_patchy=False,
+        additional_opacity_functions_kwargs=None,
     ):
         """JIT-compiled kernel for calculate_transit_radii. See calculate_transit_radii for parameter docs."""
 
@@ -4444,6 +4488,7 @@ class Radtrans:
             target_particle_radii=sanitized_inputs["target_particle_radii"],
             target_pressure=sanitized_inputs["target_pressure"],
             make_analytical_clouds_patchy=make_analytical_clouds_patchy,
+            additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
         )
 
         # Calculate the transit radii
@@ -4607,7 +4652,7 @@ class Radtrans:
         # Load line opacities
         self.load_line_opacities(self._path_input_data)
 
-        # Read continuum opacities   # TODO Paul continue review from here
+        # Read continuum opacities
         # CIA
         if len(self._gas_continuum_contributors) > 0:
             self.load_cia_opacities(self._path_input_data)
