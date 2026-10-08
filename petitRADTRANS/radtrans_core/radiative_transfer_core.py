@@ -2460,6 +2460,18 @@ def compute_transit_radii(
     diff_s_active = _safe_sqrt_positive(
         upper_shell_boundaries - impact_radius_squared
     ) - _safe_sqrt_positive(lower_shell_boundaries - impact_radius_squared)
+    # Keep only the shells a ray actually crosses, even though we have
+    # the _safe_sqrt_positive in place. The difference of identical
+    # values is not reliably zero: XLA "contracts" the squaring and the subtraction,
+    # so r**2 - r**2 returns the rounding residue of r**2 instead of 0, and its
+    # square root is a spurious ~order cm path. Harmless for gas opacities, but the
+    # opaque cloud deck turns it into tau ~ 1e14 and gains a layer.
+    n_shells = radius_squared.size - 1
+    diff_s_active = jnp.where(
+        jnp.arange(n_shells)[None, :] <= jnp.arange(n_shells)[:, None],
+        diff_s_active,
+        0.0,
+    )
     diff_s_active = jnp.asarray(diff_s_active, dtype=WORKING_JAX_DTYPE)
 
     # Calculate optical depths
@@ -2593,6 +2605,18 @@ def compute_transmission_spectrum_contribution(
     diff_s_active = _safe_sqrt_positive(
         upper_shell_boundaries - impact_radius_squared
     ) - _safe_sqrt_positive(lower_shell_boundaries - impact_radius_squared)
+    # Keep only the shells a ray actually crosses, even though we have
+    # the _safe_sqrt_positive in place. The difference of identical
+    # values is not reliably zero: XLA "contracts" the squaring and the subtraction,
+    # so r**2 - r**2 returns the rounding residue of r**2 instead of 0, and its
+    # square root is a spurious ~order cm path. Harmless for gas opacities, but the
+    # opaque cloud deck turns it into tau ~ 1e14 and gains a layer.
+    n_shells = radius_squared.size - 1
+    diff_s_active = jnp.where(
+        jnp.arange(n_shells)[None, :] <= jnp.arange(n_shells)[:, None],
+        diff_s_active,
+        0.0,
+    )
     diff_s_active = jnp.asarray(diff_s_active, dtype=WORKING_JAX_DTYPE)
 
     gas_optical_depths_active = jnp.einsum(
