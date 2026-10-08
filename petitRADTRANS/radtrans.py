@@ -3422,6 +3422,8 @@ class Radtrans:
         if (
             len(partial_coverage_cloud_species) > 0
             or has_partial_coverage_analytical_cloud
+            or make_additional_absorption_opacities_patchy
+            or make_additional_scattering_opacities_patchy
         ):
             should_compute_opacities_without_patchy_clouds = True
         else:
@@ -4110,6 +4112,8 @@ class Radtrans:
                                       # even if it is grayed out and appears to not be used.
         make_analytical_clouds_patchy=False,
         additional_opacity_functions_kwargs: dict = None,
+        make_additional_absorption_opacities_patchy=False,
+        make_additional_scattering_opacities_patchy=False,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's transmission radius
         (for the transmission spectrum).
@@ -4329,6 +4333,8 @@ class Radtrans:
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             make_analytical_clouds_patchy=make_analytical_clouds_patchy,
             additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
+            make_additional_absorption_opacities_patchy=make_additional_absorption_opacities_patchy,
+            make_additional_scattering_opacities_patchy=make_additional_scattering_opacities_patchy,
         )
 
     @jit(
@@ -4351,6 +4357,8 @@ class Radtrans:
             "return_particle_radii",
             "return_particle_densities",
             "make_analytical_clouds_patchy",
+            "make_additional_absorption_opacities_patchy",
+            "make_additional_scattering_opacities_patchy",
         ]
     )
     def _calculate_transit_radii_full_kernel(
@@ -4398,6 +4406,8 @@ class Radtrans:
         anisotropic_cloud_scattering=None,
         make_analytical_clouds_patchy=False,
         additional_opacity_functions_kwargs=None,
+        make_additional_absorption_opacities_patchy=False,
+        make_additional_scattering_opacities_patchy=False,
     ):
         """JIT-compiled kernel for calculate_transit_radii. See calculate_transit_radii for parameter docs."""
 
@@ -4443,6 +4453,8 @@ class Radtrans:
         if (
             len(partial_coverage_cloud_species) > 0
             or has_partial_coverage_analytical_cloud
+            or make_additional_absorption_opacities_patchy
+            or make_additional_scattering_opacities_patchy
         ):
             should_compute_opacities_without_patchy_clouds = True
         else:
@@ -4507,6 +4519,8 @@ class Radtrans:
             target_pressure=sanitized_inputs["target_pressure"],
             make_analytical_clouds_patchy=make_analytical_clouds_patchy,
             additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
+            make_additional_absorption_opacities_patchy=make_additional_absorption_opacities_patchy,
+            make_additional_scattering_opacities_patchy=make_additional_scattering_opacities_patchy,
         )
 
         # Calculate the transit radii
