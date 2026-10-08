@@ -178,6 +178,8 @@ _SPECTRAL_STATIC_ARGNAMES_COMMON = (
     "return_particle_radii_bins",
     "return_particle_radii",
     "make_analytical_clouds_patchy",
+    "make_additional_absorption_opacities_patchy",
+    "make_additional_scattering_opacities_patchy"
 )
 
 _FLUX_STATIC_ARGNAMES = _SPECTRAL_STATIC_ARGNAMES_COMMON + (
@@ -1635,6 +1637,8 @@ class Radtrans:
             "compute_clear_opacities",
             "ck_chunk_size",
             "make_analytical_clouds_patchy",
+            "make_additional_absorption_opacities_patchy",
+            "make_additional_scattering_opacities_patchy",
         ]
     )
     def _calculate_opacities(
@@ -1674,6 +1678,8 @@ class Radtrans:
         ck_chunk_size=radiative_transfer_core.DEFAULT_CK_CHUNK_SIZE,
         make_analytical_clouds_patchy=False,
         additional_opacity_functions_kwargs=None,
+        make_additional_absorption_opacities_patchy=False,
+        make_additional_scattering_opacities_patchy=False
     ):
         """Build line, continuum, and cloud opacity for spectral calculations.
 
@@ -1951,7 +1957,9 @@ class Radtrans:
             clear_cloud_scattering_opacities, # see comment above
             clear_cloud_absorption_opacities, # see comment above
             cloud_scattering_in_transmission, # TODO: review what this does / if it is needed
-        ) = clouds.compute_cloud_continuum_opacities(
+        ) = clouds.compute_cloud_continuum_opacities( # TODO PAUL: add patchy additional_scattering_opacities_function
+                                                      #     and patchy additional_absorption_opacities_function here
+                                                      #     remove above.
             frequencies=self._frequencies,
             frequency_bins_edges=self._frequency_bins_edges,
             pressures=pressures,
@@ -2977,6 +2985,8 @@ class Radtrans:
                                       # decorator, through a wrapper, so don't remove it here,
                                       # even if it is grayed out and appears to not be used.
         make_analytical_clouds_patchy=False,
+        make_additional_absorption_opacities_patchy = False,
+        make_additional_scattering_opacities_patchy = False,
         additional_opacity_functions_kwargs: dict = None,
     ) -> tuple[ArrayLike, ArrayLike, dict[str, Any]]:
         """Method to calculate the atmosphere's emitted flux (emission spectrum).
@@ -3262,6 +3272,8 @@ class Radtrans:
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             make_analytical_clouds_patchy=make_analytical_clouds_patchy,
             additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
+            make_additional_absorption_opacities_patchy=make_additional_absorption_opacities_patchy,
+            make_additional_scattering_opacities_patchy=make_additional_scattering_opacities_patchy,
         )
 
     @jit(
@@ -3290,6 +3302,8 @@ class Radtrans:
             "return_particle_radii_bins",
             "return_particle_radii",
             "make_analytical_clouds_patchy",
+            "make_additional_absorption_opacities_patchy",
+            "make_additional_scattering_opacities_patchy",
         ]
     )
     def _calculate_flux_kernel(
@@ -3350,6 +3364,8 @@ class Radtrans:
         anisotropic_cloud_scattering=None,
         make_analytical_clouds_patchy=False,
         additional_opacity_functions_kwargs=None,
+        make_additional_absorption_opacities_patchy=False,
+        make_additional_scattering_opacities_patchy=False,
     ):
 
         """JIT-compiled kernel for calculate_flux. See calculate_flux for parameter docs."""
@@ -3471,6 +3487,8 @@ class Radtrans:
             ck_chunk_size=ck_chunk_size,
             make_analytical_clouds_patchy=make_analytical_clouds_patchy,
             additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
+            make_additional_absorption_opacities_patchy=make_additional_absorption_opacities_patchy,
+            make_additional_scattering_opacities_patchy=make_additional_scattering_opacities_patchy,
         )
 
         (
