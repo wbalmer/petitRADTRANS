@@ -280,12 +280,6 @@ def _init_cloud_background_continuum(
         opaque_cloud_top_pressure=opaque_cloud_top_pressure,
     )
 
-    cloudy_continuum_opacities_add_from_function = additional_absorption_opacities_function(
-        wavelengths=wavelengths_micron,
-        pressures=pressures * 1e-6,  # convert to bar
-        **(additional_opacity_functions_kwargs or {}),
-    )
-
     scattering_in_transmission, cloudy_continuum_opacities_scattering = (
         _maybe_add_power_law_cloud_scattering(
             scattering_in_transmission=scattering_in_transmission,
@@ -297,7 +291,13 @@ def _init_cloud_background_continuum(
         )
     )
 
-    cloudy_continuum_opacities_scattering_add_from_function = additional_scattering_opacities_function(
+    continuum_opacities_add_from_function = additional_absorption_opacities_function(
+        wavelengths=wavelengths_micron,
+        pressures=pressures * 1e-6,  # convert to bar
+        **(additional_opacity_functions_kwargs or {}),
+    )
+
+    continuum_opacities_scattering_add_from_function = additional_scattering_opacities_function(
         wavelengths=wavelengths_micron,
         pressures=pressures * 1e-6,  # convert to bar
         **(additional_opacity_functions_kwargs or {}),
@@ -312,15 +312,15 @@ def _init_cloud_background_continuum(
             clear_continuum_opacities, clear_continuum_opacities_scattering = (
                 cloudy_continuum_opacities, cloudy_continuum_opacities_scattering
             )
-        cloudy_continuum_opacities += cloudy_continuum_opacities_add_from_function
+        cloudy_continuum_opacities += continuum_opacities_add_from_function
         if not make_additional_absorption_opacities_patchy:
-            clear_continuum_opacities += cloudy_continuum_opacities_add_from_function
-        cloudy_continuum_opacities_scattering += cloudy_continuum_opacities_scattering_add_from_function
+            clear_continuum_opacities += continuum_opacities_add_from_function
+        cloudy_continuum_opacities_scattering += continuum_opacities_scattering_add_from_function
         if not make_additional_scattering_opacities_patchy:
-            clear_continuum_opacities_scattering += cloudy_continuum_opacities_scattering_add_from_function
+            clear_continuum_opacities_scattering += continuum_opacities_scattering_add_from_function
     else:
-        cloudy_continuum_opacities += cloudy_continuum_opacities_add_from_function
-        cloudy_continuum_opacities_scattering += cloudy_continuum_opacities_scattering_add_from_function
+        cloudy_continuum_opacities += continuum_opacities_add_from_function
+        cloudy_continuum_opacities_scattering += continuum_opacities_scattering_add_from_function
         clear_continuum_opacities = jnp.zeros(
             (frequencies.size, pressures.size), dtype=FEAUTRIER_JAX_DTYPE
         )
@@ -1165,7 +1165,7 @@ def compute_cloud_continuum_opacities(
         compute_clear_opacities=compute_clear_opacities,
         additional_absorption_opacities_function=additional_absorption_opacities_function,
         additional_scattering_opacities_function=additional_scattering_opacities_function,
-        additional_opacity_functions_kwargs=None,
+        additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
         make_analytical_clouds_patchy=make_analytical_clouds_patchy,
         make_additional_absorption_opacities_patchy=make_additional_absorption_opacities_patchy,
         make_additional_scattering_opacities_patchy=make_additional_scattering_opacities_patchy,

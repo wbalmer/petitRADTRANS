@@ -106,10 +106,17 @@ def _warn_partial_cloud_coverage_without_patchy_clouds(
     cloud_fraction: float,
     patchy_clouds: tuple[str, ...],
     has_partial_coverage_analytical_cloud: bool = False,
+    make_additional_absorption_opacities_patchy: bool = False,
+    make_additional_scattering_opacities_patchy: bool = False,
 ):
     '''Check whether partial cloud coverage makes sense.
     '''
-    if len(patchy_clouds) > 0 or has_partial_coverage_analytical_cloud:
+    if (
+        len(patchy_clouds) > 0
+        or has_partial_coverage_analytical_cloud
+        or make_additional_absorption_opacities_patchy
+        or make_additional_scattering_opacities_patchy
+    ):
         return
 
     try:
@@ -119,8 +126,10 @@ def _warn_partial_cloud_coverage_without_patchy_clouds(
 
     if has_partial_cloud_coverage:
         warnings.warn(
-            "A cloud_fraction < 1. was requested, but patchy_clouds is empty and "
-            "make_analytical_clouds_patchy is False!",
+            "A cloud_fraction < 1. was requested, but patchy_clouds is empty, "
+            "make_analytical_clouds_patchy is False, and neither "
+            "make_additional_absorption_opacities_patchy nor "
+            "make_additional_scattering_opacities_patchy is True!",
             UserWarning,
             stacklevel=3,
         )

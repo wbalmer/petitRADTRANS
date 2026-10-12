@@ -365,6 +365,12 @@ def _compile_spectral_function(static_argnames):
                         ),
                     )
                 ),
+                make_additional_absorption_opacities_patchy=arguments.get(
+                    "make_additional_absorption_opacities_patchy", False
+                ),
+                make_additional_scattering_opacities_patchy=arguments.get(
+                    "make_additional_scattering_opacities_patchy", False
+                ),
             )
 
             # Warn user if they use the opaque cloud top pressure together
@@ -1906,7 +1912,6 @@ class Radtrans:
         # TODO Paul_review: look inside
         continuum_opacities = continuum.compute_continuum_opacities(
             frequencies=self._frequencies,
-            #wavelengths_micron=self._wavelengths_micron,
             frequency_bins_edges=self._frequency_bins_edges,
             pressures=pressures,
             temperatures=temperatures,
@@ -1915,8 +1920,6 @@ class Radtrans:
             cias_loaded_opacities=self._cias_loaded_opacities,
             gas_continuum_contributors=self._gas_continuum_contributors,
             gray_opacity=gray_opacity,
-            #additional_absorption_opacities_function=additional_absorption_opacities_function,
-            #additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
             # species_basenames=self._species_basenames # TODO remove this commented line?
         )
         # TODO: discuss and remove the whole "scattering_in_transmission" stuff?
@@ -1925,15 +1928,12 @@ class Radtrans:
         continuum_opacities_scattering, scattering_in_transmission = (
             continuum.compute_continuum_scattering_opacities(
                 frequencies=self._frequencies,
-                #wavelengths_micron=self._wavelengths_micron,
                 pressures=pressures,
                 temperatures=temperatures,
                 mass_fractions=mass_fractions,
                 mean_molar_masses=mean_molar_masses,
                 rayleigh_species=self._rayleigh_species,
                 haze_factor=haze_factor,
-                #additional_scattering_opacities_function=additional_scattering_opacities_function,
-                #additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
                 # species_basenames=self._species_basenames # TODO remove this commented line?
             )
         )
@@ -1957,9 +1957,7 @@ class Radtrans:
             clear_cloud_scattering_opacities, # see comment above
             clear_cloud_absorption_opacities, # see comment above
             cloud_scattering_in_transmission, # TODO: review what this does / if it is needed
-        ) = clouds.compute_cloud_continuum_opacities( # TODO PAUL: add patchy additional_scattering_opacities_function
-                                                      #     and patchy additional_absorption_opacities_function here
-                                                      #     remove above.
+        ) = clouds.compute_cloud_continuum_opacities(
             frequencies=self._frequencies,
             frequency_bins_edges=self._frequency_bins_edges,
             wavelengths_micron=self._wavelengths_micron,
