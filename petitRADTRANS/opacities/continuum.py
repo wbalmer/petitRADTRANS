@@ -15,7 +15,7 @@ _MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=WORKING_JAX_DTYPE)
 
 def compute_continuum_opacities(
     frequencies,
-    wavelengths_micron,
+    #wavelengths_micron,
     frequency_bins_edges,
     pressures,
     temperatures,
@@ -24,8 +24,8 @@ def compute_continuum_opacities(
     cias_loaded_opacities,
     gas_continuum_contributors,
     gray_opacity,
-    additional_absorption_opacities_function,
-    additional_opacity_functions_kwargs=None,
+    #additional_absorption_opacities_function,
+    #additional_opacity_functions_kwargs=None,
 ):
     # Reset
     continuum_opacities = jnp.zeros(
@@ -53,12 +53,14 @@ def compute_continuum_opacities(
         mean_molar_masses=mean_molar_masses,
     )
 
+    '''
     # Add external user supplied opacities
     continuum_opacities += additional_absorption_opacities_function(
         wavelengths=wavelengths_micron,
         pressures=pressures*1e-6,  # convert to bar
         **(additional_opacity_functions_kwargs or {}),
     )
+    '''
 
     if gray_opacity is not None:
         continuum_opacities += gray_opacity
@@ -150,15 +152,15 @@ def combine_opacities(line_species_mass_fractions, opacities, continuum_opacitie
 
 def compute_continuum_scattering_opacities(
     frequencies,
-    wavelengths_micron,
+    #wavelengths_micron,
     pressures,
     temperatures,
     mass_fractions,
     mean_molar_masses,
     rayleigh_species,
     haze_factor,
-    additional_scattering_opacities_function,
-    additional_opacity_functions_kwargs=None,
+    #additional_scattering_opacities_function,
+    #additional_opacity_functions_kwargs=None,
 ):
     # Reset
     continuum_opacities_scattering = jnp.zeros(
@@ -180,11 +182,13 @@ def compute_continuum_scattering_opacities(
             haze_factor=haze_factor,
         )
 
+    '''
     # Add external user supplied scattering opacities
     continuum_opacities_scattering += additional_scattering_opacities_function(
         wavelengths=wavelengths_micron,
         pressures=pressures*1e-6,  # convert to bar
         **(additional_opacity_functions_kwargs or {}),
     )
+    '''
 
     return continuum_opacities_scattering, scattering_in_transmission
