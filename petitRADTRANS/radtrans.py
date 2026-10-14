@@ -1770,6 +1770,12 @@ class Radtrans:
                 Optional dictionary of extra keyword arguments handed to both
                 ``additional_absorption_opacities_function`` and
                 ``additional_scattering_opacities_function``.
+            make_additional_absorption_opacities_patchy:
+                If ``True``, the ``additional_absorption_opacities_function``
+                opacity is excluded from the clear-column opacities.
+            make_additional_scattering_opacities_patchy:
+                If ``True``, the ``additional_scattering_opacities_function``
+                opacity is excluded from the clear-column scattering opacities.
 
         Returns:
             A tuple ``(opacities, continuum_opacities_scattering,
@@ -3107,8 +3113,10 @@ class Radtrans:
                 A python function that takes wavelength arrays in microns and pressure arrays in bars
                 as input, and returns an isotropic scattering opacity matrix in units of cm^2/g, in the shape of
                 number of wavelength points x number of pressure points.
-                This opacity will then be added to the atmospheric absorption opacity.
-                It may be used to add simple cloud absorption laws, for example, which
+                This opacity will then be added to the atmospheric scattering opacity.
+                It only has an effect if the Radtrans object was initialized with
+                ``scattering_in_emission=True``.
+                It may be used to add simple cloud scattering laws, for example, which
                 have opacities that vary only slowly with wavelength, such that the current
                 model resolution is sufficient to resolve any variations.
                 This is a static (compile-time) argument: pass a stable function reference.
@@ -3190,6 +3198,14 @@ class Radtrans:
             make_analytical_clouds_patchy (Optional[bool]):
                 False by default. If True, analytical clouds (opaque cloud top pressure,
                 power law opacity) will be treated as patchy clouds.
+            make_additional_absorption_opacities_patchy (Optional[bool]):
+                False by default. If True, the opacity of additional_absorption_opacities_function
+                is treated like a patchy cloud: it is present only in the cloudy column, which is
+                mixed with the clear column according to ``cloud_fraction``.
+                If False, it is present in both columns.
+            make_additional_scattering_opacities_patchy (Optional[bool]):
+                Same as make_additional_absorption_opacities_patchy, for the opacity of
+                additional_scattering_opacities_function.
         """
 
         # The Feautrier computation is "chunked", so broken into frequency
@@ -3940,9 +3956,14 @@ class Radtrans:
             gray_opacity (Optional[float]):
                 Gray opacity value, to be added to the opacity at all
                 pressures and wavelengths (units :math:`\\rm cm^2/g`)
-            TODO: add support for additional_absorption_opacities_function,
-                additional_scattering_opacities_function and
-                cloud_photosphere_median_optical_depth.
+            additional_absorption_opacities_function (Optional[function]):
+                Optional user-provided absorption opacity function, see calculate_flux.
+            additional_scattering_opacities_function (Optional[function]):
+                Optional user-provided scattering opacity function, see calculate_flux.
+            additional_opacity_functions_kwargs (Optional[dict]):
+                Extra keyword arguments handed to both additional opacity functions,
+                see calculate_flux.
+            TODO: add support for cloud_photosphere_median_optical_depth.
         """
         if not self._scattering_in_emission:
             raise ValueError(
@@ -4225,7 +4246,7 @@ class Radtrans:
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an isotropic scattering opacity matrix in units of cm^2/g, in the shape of
                     number of wavelength points x number of pressure points.
-                    This opacity will then be added to the atmospheric absorption opacity.
+                    This opacity will then be added to the atmospheric scattering opacity.
                     It may be used to add simple cloud scattering laws, for example, which
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
@@ -4280,6 +4301,14 @@ class Radtrans:
                 make_analytical_clouds_patchy (Optional[bool]):
                     False by default. If True, analytical clouds (opaque cloud top pressure,
                     power law opacity) will be treated as patchy clouds.
+                make_additional_absorption_opacities_patchy (Optional[bool]):
+                    False by default. If True, the opacity of additional_absorption_opacities_function
+                    is treated like a patchy cloud: it is present only in the cloudy column, which is
+                    mixed with the clear column according to ``cloud_fraction``.
+                    If False, it is present in both columns.
+                make_additional_scattering_opacities_patchy (Optional[bool]):
+                    Same as make_additional_absorption_opacities_patchy, for the opacity of
+                    additional_scattering_opacities_function.
             """
 
         # Check whether user-specified pressure array is tp be used

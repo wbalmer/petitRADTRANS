@@ -1054,6 +1054,8 @@ def compute_cloud_continuum_opacities(
             Frequency grid used for continuum outputs.
         frequency_bins_edges:
             Frequency-bin edges used for cloud opacity interpolation.
+        wavelengths_micron:
+            Wavelength grid in micron, passed to the additional opacity functions.
         pressures:
             Atmospheric pressure grid in cgs units.
         temperatures:
@@ -1116,6 +1118,22 @@ def compute_cloud_continuum_opacities(
             Optional target particle radii grid for cloud opacity evaluation.
         target_pressure:
             Optional pressure grid associated with ``target_particle_radii``.
+        additional_absorption_opacities_function:
+            User-supplied function of ``wavelengths`` (micron) and ``pressures``
+            (bar) returning an absorption opacity in cm^2/g, of shape
+            (n_wavelengths, n_pressures). Added to the cloudy branch absorption.
+        additional_scattering_opacities_function:
+            Same as ``additional_absorption_opacities_function``, but for an
+            isotropic scattering opacity, added to the cloudy branch scattering.
+        additional_opacity_functions_kwargs:
+            Optional dictionary of extra keyword arguments handed to both
+            additional opacity functions.
+        make_additional_absorption_opacities_patchy:
+            If ``True``, the additional absorption opacity is excluded from the
+            clear branch. Only relevant if ``compute_clear_opacities`` is ``True``.
+        make_additional_scattering_opacities_patchy:
+            Same as ``make_additional_absorption_opacities_patchy``, for the
+            additional scattering opacity.
         make_analytical_clouds_patchy:
                 If true, the opaque cloud and powerlaw cloud are treated as patchy cloud species,
                 if requested.
