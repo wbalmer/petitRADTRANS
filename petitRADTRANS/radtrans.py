@@ -2069,8 +2069,6 @@ class Radtrans:
             continuum_opacities + cloudy_cloud_continuum_opacities
         )
 
-        zero_continuum_for_combination = jnp.zeros_like(cloudy_continuum_opacities)
-
         # Always return the total scattering continuum so transmission and other
         # callers can consume cloud scattering even when emission scattering is disabled.
         # The microphysical clouds are optionally scaled by (1-g),
@@ -2079,37 +2077,44 @@ class Radtrans:
             continuum_opacities_scattering + cloudy_cloud_continuum_opacities_scattering
         )
 
-        # Combine line opacities
+        # Combine line opacities with continuum absorption opacities.
         # If opacities are summed / c-k combined, the total combined absorption
         # opacity is found in the first line species slot.
-        # No continuum opacities are actually added here yet (see
-        # continuum_opacities=zero_continuum_for_combination), since
-        # we want the same line combination to be used for clear and cloudy
-        # opacities
         # TODO Paul_review look inside
-        line_mix_opacities = continuum.compute_combined_opacities(  # TODO: weird that this is in "continuum."
-            opacities=line_opacities,
-            continuum_opacities=zero_continuum_for_combination,  # clear_continuum_opacities,
-            line_species=self._line_species,
-            line_species_mass_fractions=combined_line_species_mass_fractions,
-            line_opacity_mode=self._line_opacity_mode,
-            sum_opacities=sum_opacities,
-            g_gauss=self._lines_loaded_opacities["g_gauss"],
-            weights_gauss=self._lines_loaded_opacities["weights_gauss"],
-            g_combination_weights=self._lines_loaded_opacities[
-                "ck_g_combination_weights"
-            ],
-            g_combination_weights_sum=self._lines_loaded_opacities[
-                "ck_g_combination_weights_sum"
-            ],
-            input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
-            ck_chunk_size=ck_chunk_size,
-        )
+        def _combine_opacities(continuum_opacities_to_add):
+            return continuum.compute_combined_opacities(  # TODO: weird that this is in "continuum."
+                opacities=line_opacities,
+                continuum_opacities=continuum_opacities_to_add,
+                line_species=self._line_species,
+                line_species_mass_fractions=combined_line_species_mass_fractions,
+                line_opacity_mode=self._line_opacity_mode,
+                sum_opacities=sum_opacities,
+                g_gauss=self._lines_loaded_opacities["g_gauss"],
+                weights_gauss=self._lines_loaded_opacities["weights_gauss"],
+                g_combination_weights=self._lines_loaded_opacities[
+                    "ck_g_combination_weights"
+                ],
+                g_combination_weights_sum=self._lines_loaded_opacities[
+                    "ck_g_combination_weights_sum"
+                ],
+                input_layout="fl_s_ng" if ck_flattened_layout else "ng_f_s_l",
+                ck_chunk_size=ck_chunk_size,
+            )
 
-        # Add cloudy continuum absorption opacities
-        opacities = line_mix_opacities.at[:, :, 0, :].set(
-            line_mix_opacities[:, :, 0, :] + cloudy_continuum_opacities[None, :, :]
-        )
+        # Only the c-k mixing of summed opacities must run without continuum: then the
+        # same line mix serves the cloudy and clear columns exactly, each adding its own
+        # continuum afterwards. In all other cases the combination only weights the
+        # line opacities and adds the continuum, so do that in a single pass over the
+        # opacity array (a separate continuum-adding pass doubled the run time).
+        mix_without_continuum = self._line_opacity_mode == "c-k" and sum_opacities
+
+        if mix_without_continuum:
+            line_mix_opacities = _combine_opacities(jnp.zeros_like(cloudy_continuum_opacities))
+            opacities = line_mix_opacities.at[:, :, 0, :].set(
+                line_mix_opacities[:, :, 0, :] + cloudy_continuum_opacities[None, :, :]
+            )
+        else:
+            opacities = _combine_opacities(cloudy_continuum_opacities)
 
         if compute_clear_opacities:
 
@@ -2128,9 +2133,12 @@ class Radtrans:
             )
 
             # Add continuum absorption opacities for the clear case
-            clear_opacities = line_mix_opacities.at[:,:,0,:].set(
-                line_mix_opacities[:, :, 0, :] + clear_continuum_opacities[None, :, :]
-            )
+            if mix_without_continuum:
+                clear_opacities = line_mix_opacities.at[:,:,0,:].set(
+                    line_mix_opacities[:, :, 0, :] + clear_continuum_opacities[None, :, :]
+                )
+            else:
+                clear_opacities = _combine_opacities(clear_continuum_opacities)
 
         else:
 
