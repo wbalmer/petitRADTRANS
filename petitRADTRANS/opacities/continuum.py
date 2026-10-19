@@ -1,3 +1,5 @@
+"""Computes gas and cloud continuum opacities but also (confusingly) combines c-k opacities."""
+
 import jax.numpy as jnp
 from petitRADTRANS.radtrans_core import radiative_transfer_core
 from petitRADTRANS.opacities.cia import compute_cia_opacities
@@ -24,13 +26,53 @@ def compute_continuum_opacities(
     gas_continuum_contributors,
     gray_opacity,
 ):
+    """Compute the non-cloud continuum absorption opacities.
+
+    Args:
+        frequencies (ArrayLike):
+            frequencies of the Radtrans object (bin centers).
+        frequency_bins_edges (ArrayLike):
+            frequency bin borders
+        pressures (ArrayLike):
+            pressures of the atmospheric layers (cgs units). Shape (N_layers).
+        temperatures (ArrayLike):
+            temperature within the layers (in K). Shape (N_layers).
+        mass_fractions:
+            Dictionary containing mass-fraction profiles for all atmospheric species
+            that have a requested opacity associated to them. Shape: dictionary with
+            shape (N_layers) array per species inside.
+        mean_molar_masses:
+            Mean molecular mass profile in amu. Shape (N_layers).
+        cias_loaded_opacities:
+            Dictionary of dictionaries containing all relevant information to calculate
+            collision-induced absorption (CIA) opacities. Example structure for the H2--H2
+            collision:
+                "H2--H2": {
+                    "molecules":   ["H2", "H2"],    # Collision partners
+                    "weight":      scalar,      # product of the colliders' molar masses
+                    "lambda":      (n_lambda,), # wavelengths in cm
+                    "temperature": (n_T,),
+                    "alpha":       (n_lambda, n_T),  # Needed to calculate the CIA opacities as
+                                                     # function of wavelength, pressure and temperature.
+                }
+        gas_continuum_contributors:
+            tuple listing which continuum gas opacities to include (e.g., "H-", "H2--H2", etc.)
+        gray_opacity:
+            Optional gray absorption opacity added "everywhere"
+            (at all pressures and wavelengths). Scalar.
+
+    Returns:
+        continuum_opacities (ArrayLike):
+            Gas continuum absorption opacities (N_frequencies, N_layers) in cgs (cm^2/g).
+    """
+
     # Reset
     continuum_opacities = jnp.zeros(
         (frequencies.size, pressures.size), dtype=WORKING_JAX_DTYPE
     )
 
     # Add CIA opacities
-    continuum_opacities += compute_cia_opacities(
+    continuum_opacities += compute_cia_opacities( # TODO Paul_review : continue from within here
         cia_dicts=cias_loaded_opacities,
         mass_fractions=mass_fractions,
         pressures=pressures,

@@ -749,9 +749,24 @@ def linear_spline_profile(
 
 
 @jit(static_argnames=("species_basenames",))
-def get_base_species_mass_fractions(
-    mass_fractions: dict, species_basenames: tuple
-) -> dict:
+def get_base_species_mass_fractions(mass_fractions: dict, species_basenames: tuple) -> dict:
+    """Return mass fraction dictionary of the atmosphere, but in an isotope-insensitive way.
+
+    Args:
+         mass_fractions:
+            Dictionary containing mass-fraction profiles for all atmospheric species
+            that have a requested opacity associated to them. Shape: dictionary with
+            shape (N_layers) array per species inside.
+        species_basenames:
+            Tuple of absorber base names in the atmosphere, which is constructed
+            from cutting of isotopologue information from absorber names and appending
+            them, potentially, multiple times.
+
+    Returns:
+        mass fraction dictionary where the contributions of species with the same
+        base species name have been collected into one entry (by summing). keys are
+        the species' base name keys.
+    """
     base_species_mass_fractions = {}
     for i, species in enumerate(sorted(list(mass_fractions.keys()))):
         # Using Opacity.get_species_basename to get the base species name
