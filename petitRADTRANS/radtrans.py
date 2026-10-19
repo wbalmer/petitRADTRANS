@@ -1926,7 +1926,6 @@ class Radtrans:
             cias_loaded_opacities=self._cias_loaded_opacities,
             gas_continuum_contributors=self._gas_continuum_contributors,
             gray_opacity=gray_opacity,
-            # species_basenames=self._species_basenames # TODO remove this commented line?
         )
         # TODO: discuss and remove the whole "scattering_in_transmission" stuff?
         # Continuum opacities, scattering only (currently Rayleigh scattering of gas, only)
@@ -2561,7 +2560,7 @@ class Radtrans:
         }
         # A tuple of items keeps the treedef hashable, so jit dispatch uses hash
         # lookups instead of falling back to per-call dict equality comparisons
-        # This is needed to make cashe lookups fast or even enable them in the first place.
+        # This is needed to make cache lookups fast or even enable them in the first place.
         return children, tuple(sorted(aux_data.items()))
 
     @classmethod
