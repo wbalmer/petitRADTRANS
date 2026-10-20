@@ -245,7 +245,6 @@ def _maybe_add_power_law_cloud_scattering(
 
 def _init_cloud_background_continuum(
     frequencies,
-    wavelengths_micron,
     pressures,
     n_clouds,
     scattering_in_transmission,
@@ -290,6 +289,9 @@ def _init_cloud_background_continuum(
             power_law_opacity_coefficient=power_law_opacity_coefficient,
         )
     )
+
+    # Wavelength grid in micron for the user-supplied additional opacity functions
+    wavelengths_micron = (cst.c / frequencies / 1e-4).astype(WORKING_JAX_DTYPE)
 
     continuum_opacities_add_from_function = additional_absorption_opacities_function(
         wavelengths=wavelengths_micron,
@@ -1006,7 +1008,6 @@ def init_clouds_particle_porosity_factor(
 def compute_cloud_continuum_opacities(
     frequencies: ArrayLike,
     frequency_bins_edges: ArrayLike,
-    wavelengths_micron,
     pressures: ArrayLike,
     temperatures: ArrayLike,
     mass_fractions: dict[str, ArrayLike],
@@ -1054,8 +1055,6 @@ def compute_cloud_continuum_opacities(
             Frequency grid used for continuum outputs.
         frequency_bins_edges:
             Frequency-bin edges used for cloud opacity interpolation.
-        wavelengths_micron:
-            Wavelength grid in micron, passed to the additional opacity functions.
         pressures:
             Atmospheric pressure grid in cgs units.
         temperatures:
@@ -1173,7 +1172,6 @@ def compute_cloud_continuum_opacities(
         scattering_in_transmission,
     ) = _init_cloud_background_continuum(
         frequencies=frequencies,
-        wavelengths_micron=wavelengths_micron,
         pressures=pressures,
         n_clouds=n_clouds,
         scattering_in_transmission=scattering_in_transmission,

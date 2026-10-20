@@ -611,7 +611,6 @@ class Radtrans:
         #   than the opacity file range. For line-by-line, CIA and cloud it crashes.
         #   Look into a fix!
         self._frequencies, self._frequency_bins_edges = self._init_frequency_grid()
-        self._wavelengths_micron = jnp.array(cst.c / self._frequencies / 1e-4, dtype=WORKING_JAX_DTYPE)
 
         # Initialize loaded line opacities variables
         self._lines_loaded_opacities = LockedDict.build_and_lock(
@@ -1965,7 +1964,6 @@ class Radtrans:
         ) = clouds.compute_cloud_continuum_opacities(
             frequencies=self._frequencies,
             frequency_bins_edges=self._frequency_bins_edges,
-            wavelengths_micron=self._wavelengths_micron,
             pressures=pressures,
             temperatures=temperatures,
             mass_fractions=mass_fractions,
@@ -2528,7 +2526,6 @@ class Radtrans:
             self._pressures,
             self._wavelength_boundaries,
             self._frequencies,
-            self._wavelengths_micron,
             self._frequency_bins_edges,
             self._lines_loaded_opacities,
             cia_children,
@@ -2571,7 +2568,6 @@ class Radtrans:
             instance._pressures,
             instance._wavelength_boundaries,
             instance._frequencies,
-            instance._wavelengths_micron,
             instance._frequency_bins_edges,
             instance._lines_loaded_opacities,
             cia_children,
