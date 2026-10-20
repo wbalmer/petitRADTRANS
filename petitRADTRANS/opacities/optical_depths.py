@@ -216,9 +216,16 @@ def compute_optical_depths_with_photospheric_cloud(
             ),
         )
 
-    # Calculate the cloud-free optical depth per wavelength
-    w_gauss_photosphere = weights_gauss[..., jnp.newaxis, jnp.newaxis]
-    optical_depth = jnp.sum(w_gauss_photosphere * optical_depths[:, :, 0, :], axis=0)
+    # Calculate the cloud-free optical depth per wavelength.
+    # Written as an explicit contraction (einsum) rather than as
+    # jnp.sum(weights[..., None, None] * tau, axis=0): the latter spelling is
+    # miscompiled by XLA/CPU (jax 0.10.2, Apple silicon) in some of the
+    # programs calculate_flux() generates, returning numbers that are wrong by
+    # orders of magnitude. See the matching comment in
+    # Radtrans._interpolate_photosphere_radius_profile().
+    optical_depth = jnp.einsum(
+        "g,gfl->fl", weights_gauss, optical_depths[:, :, 0, :]
+    )
 
     if median:
         optical_depth_integral = jnp.median(
