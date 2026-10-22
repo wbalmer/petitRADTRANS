@@ -1177,11 +1177,11 @@ def plot_opacity_contributions(
 
                     _radtrans_object.model_parameters[local_variable] = value
 
-            opacity_contributions = _radtrans_object.calculate_contribution_spectra(
+            opacity_contributions = _radtrans_object.calculate_opacity_contribution_spectra(
                 mode=mode
             )
         else:
-            opacity_contributions = radtrans_object.calculate_contribution_spectra(
+            opacity_contributions = radtrans_object.calculate_opacity_contribution_spectra(
                 mode=mode,
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,

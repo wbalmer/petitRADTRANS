@@ -252,6 +252,12 @@ def _init_cloud_background_continuum(
     power_law_opacity_350nm,
     power_law_opacity_coefficient,
     compute_clear_opacities,
+    additional_absorption_opacities_function,
+    additional_scattering_opacities_function,
+    additional_opacity_functions_kwargs=None,
+    make_analytical_clouds_patchy=False,
+    make_additional_absorption_opacities_patchy=False,
+    make_additional_scattering_opacities_patchy=False,
 ):
     # Convert None sentinels to traceable JAX arrays so that lax.cond and
     # _maybe_add_opaque_cloud_deck / _maybe_add_power_law_cloud_scattering
@@ -272,6 +278,7 @@ def _init_cloud_background_continuum(
         pressures=pressures,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure,
     )
+
     scattering_in_transmission, cloudy_continuum_opacities_scattering = (
         _maybe_add_power_law_cloud_scattering(
             scattering_in_transmission=scattering_in_transmission,
@@ -283,11 +290,39 @@ def _init_cloud_background_continuum(
         )
     )
 
+    # Wavelength grid in micron for the user-supplied additional opacity functions
+    wavelengths_micron = (cst.c / frequencies / 1e-4).astype(WORKING_JAX_DTYPE)
+
+    continuum_opacities_add_from_function = additional_absorption_opacities_function(
+        wavelengths=wavelengths_micron,
+        pressures=pressures * 1e-6,  # convert to bar
+        **(additional_opacity_functions_kwargs or {}),
+    )
+
+    continuum_opacities_scattering_add_from_function = additional_scattering_opacities_function(
+        wavelengths=wavelengths_micron,
+        pressures=pressures * 1e-6,  # convert to bar
+        **(additional_opacity_functions_kwargs or {}),
+    )
+
     if compute_clear_opacities:
-        clear_continuum_opacities, clear_continuum_opacities_scattering, _, _, _, _ = (
-            _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
-        )
+        if make_analytical_clouds_patchy:
+            clear_continuum_opacities, clear_continuum_opacities_scattering, _, _, _, _ = (
+                _init_cloud_branch_outputs(frequencies, pressures, n_clouds)
+            )
+        else:
+            clear_continuum_opacities, clear_continuum_opacities_scattering = (
+                cloudy_continuum_opacities, cloudy_continuum_opacities_scattering
+            )
+        cloudy_continuum_opacities += continuum_opacities_add_from_function
+        if not make_additional_absorption_opacities_patchy:
+            clear_continuum_opacities += continuum_opacities_add_from_function
+        cloudy_continuum_opacities_scattering += continuum_opacities_scattering_add_from_function
+        if not make_additional_scattering_opacities_patchy:
+            clear_continuum_opacities_scattering += continuum_opacities_scattering_add_from_function
     else:
+        cloudy_continuum_opacities += continuum_opacities_add_from_function
+        cloudy_continuum_opacities_scattering += continuum_opacities_scattering_add_from_function
         clear_continuum_opacities = jnp.zeros(
             (frequencies.size, pressures.size), dtype=FEAUTRIER_JAX_DTYPE
         )
@@ -963,6 +998,11 @@ def init_clouds_particle_porosity_factor(
         "cloud_particle_radius_distribution",
         "patchy_clouds",
         "compute_clear_opacities",
+        "make_analytical_clouds_patchy",
+        "additional_absorption_opacities_function",
+        "additional_scattering_opacities_function",
+        "make_additional_absorption_opacities_patchy",
+        "make_additional_scattering_opacities_patchy",
     ]
 )
 def compute_cloud_continuum_opacities(
@@ -996,6 +1036,12 @@ def compute_cloud_continuum_opacities(
     compute_clear_opacities,
     target_particle_radii,
     target_pressure,
+    additional_absorption_opacities_function,
+    additional_scattering_opacities_function,
+    additional_opacity_functions_kwargs=None,
+    make_additional_absorption_opacities_patchy=False,
+    make_additional_scattering_opacities_patchy=False,
+    make_analytical_clouds_patchy=False,
 ):
     """Compute cloud continuum opacity products for cloudy and optional clear branches.
 
@@ -1071,6 +1117,25 @@ def compute_cloud_continuum_opacities(
             Optional target particle radii grid for cloud opacity evaluation.
         target_pressure:
             Optional pressure grid associated with ``target_particle_radii``.
+        additional_absorption_opacities_function:
+            User-supplied function of ``wavelengths`` (micron) and ``pressures``
+            (bar) returning an absorption opacity in cm^2/g, of shape
+            (n_wavelengths, n_pressures). Added to the cloudy branch absorption.
+        additional_scattering_opacities_function:
+            Same as ``additional_absorption_opacities_function``, but for an
+            isotropic scattering opacity, added to the cloudy branch scattering.
+        additional_opacity_functions_kwargs:
+            Optional dictionary of extra keyword arguments handed to both
+            additional opacity functions.
+        make_additional_absorption_opacities_patchy:
+            If ``True``, the additional absorption opacity is excluded from the
+            clear branch. Only relevant if ``compute_clear_opacities`` is ``True``.
+        make_additional_scattering_opacities_patchy:
+            Same as ``make_additional_absorption_opacities_patchy``, for the
+            additional scattering opacity.
+        make_analytical_clouds_patchy:
+                If true, the opaque cloud and powerlaw cloud are treated as patchy cloud species,
+                if requested.
 
     Returns:
         Tuple containing cloudy continuum absorption and scattering opacities,
@@ -1114,6 +1179,12 @@ def compute_cloud_continuum_opacities(
         power_law_opacity_350nm=power_law_opacity_350nm,
         power_law_opacity_coefficient=power_law_opacity_coefficient,
         compute_clear_opacities=compute_clear_opacities,
+        additional_absorption_opacities_function=additional_absorption_opacities_function,
+        additional_scattering_opacities_function=additional_scattering_opacities_function,
+        additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
+        make_analytical_clouds_patchy=make_analytical_clouds_patchy,
+        make_additional_absorption_opacities_patchy=make_additional_absorption_opacities_patchy,
+        make_additional_scattering_opacities_patchy=make_additional_scattering_opacities_patchy,
     )
 
     if len(cloud_species) > 0:
@@ -1134,11 +1205,13 @@ def compute_cloud_continuum_opacities(
     )
 
     (
-        cloudy_continuum_opacities,
-        cloudy_continuum_opacities_scattering,
-        cloud_scattering_opacities,
-        cloud_absorption_opacities,
-        cloud_opacities,
+        cloudy_continuum_opacities, # total cloud *absorption* opacities (may include opaque cloud deck)
+        cloudy_continuum_opacities_scattering, # total cloud *scattering* opacities,
+                                               # optionally scaled by (1-g)
+        cloud_scattering_opacities, # total cloud *scattering* opacities, scaled by (1-g)
+        cloud_absorption_opacities, # total cloud *absorption* opacities
+        cloud_opacities, # total cloud extinction opacity, so continuum and (1-g) (not optional) *
+                         # scattering opacity.
         _cloud_particle_mean_radii,
         cloudy_branch_has_effect,
     ) = _maybe_compute_cloud_branch(

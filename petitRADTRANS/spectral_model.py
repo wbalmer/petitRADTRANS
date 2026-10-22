@@ -1424,7 +1424,7 @@ class SpectralModel(Radtrans):
 
         return wavelengths_tmp, spectrum
 
-    def calculate_contribution_spectra(self, mode=None, **kwargs):
+    def calculate_opacity_contribution_spectra(self, mode=None, **kwargs):
         """Calculate the contribution spectra.
 
         Args:
@@ -1461,7 +1461,7 @@ class SpectralModel(Radtrans):
 
         self.update_spectral_calculation_parameters(mode=mode, **self.model_parameters)
 
-        return super().calculate_contribution_spectra(
+        return super().calculate_opacity_contribution_spectra(
             mode=mode,
             temperatures=self.temperatures,
             mass_fractions=self.mass_fractions,
@@ -1500,6 +1500,7 @@ class SpectralModel(Radtrans):
         emissivities: npt.NDArray[np.floating] = None,
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
+        additional_opacity_functions_kwargs: dict = None,
         adaptive_feautrier_iterations: bool = False,
         chunk_feautrier: bool = None,
         feautrier_chunk_size: int = None,
@@ -1512,6 +1513,7 @@ class SpectralModel(Radtrans):
         return_cloud_contribution: bool = False,
         target_particle_radii: npt.NDArray[np.floating] = None,
         target_pressure: npt.NDArray[np.floating] = None,
+        make_analytical_clouds_patchy: bool = False,
         **kwargs,
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_flux function."""
@@ -1559,6 +1561,7 @@ class SpectralModel(Radtrans):
             emissivities=emissivities,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function,
+            additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
             adaptive_feautrier_iterations=adaptive_feautrier_iterations,
             chunk_feautrier=chunk_feautrier,
             feautrier_chunk_size=feautrier_chunk_size,
@@ -1571,6 +1574,7 @@ class SpectralModel(Radtrans):
             return_cloud_contribution=return_cloud_contribution,
             target_particle_radii=target_particle_radii,
             target_pressure=target_pressure,
+            make_analytical_clouds_patchy=make_analytical_clouds_patchy,
         )
 
         return self.wavelengths, self.fluxes, additional_outputs
@@ -1921,6 +1925,7 @@ class SpectralModel(Radtrans):
         patchy_clouds: list[str] | tuple[str] = None,
         additional_absorption_opacities_function: Callable = None,
         additional_scattering_opacities_function: Callable = None,
+        additional_opacity_functions_kwargs: dict = None,
         frequencies_to_wavelengths: bool = True,
         return_contribution: bool = False,
         return_clear_spectrum: bool = False,
@@ -1928,6 +1933,7 @@ class SpectralModel(Radtrans):
         return_radius_hydrostatic_equilibrium: bool = False,
         target_particle_radii: npt.NDArray[np.floating] = None,
         target_pressure: npt.NDArray[np.floating] = None,
+        make_analytical_clouds_patchy: bool = False,
         **kwargs,
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_transit_radii function."""
@@ -1959,6 +1965,7 @@ class SpectralModel(Radtrans):
                 patchy_clouds=patchy_clouds,
                 additional_absorption_opacities_function=additional_absorption_opacities_function,
                 additional_scattering_opacities_function=additional_scattering_opacities_function,
+                additional_opacity_functions_kwargs=additional_opacity_functions_kwargs,
                 frequencies_to_wavelengths=frequencies_to_wavelengths,
                 return_contribution=return_contribution,
                 return_clear_spectrum=return_clear_spectrum,
@@ -1966,6 +1973,7 @@ class SpectralModel(Radtrans):
                 return_radius_hydrostatic_equilibrium=return_radius_hydrostatic_equilibrium,
                 target_particle_radii=target_particle_radii,
                 target_pressure=target_pressure,
+                make_analytical_clouds_patchy=make_analytical_clouds_patchy,
             )
         )
 

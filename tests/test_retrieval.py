@@ -19,13 +19,14 @@ import tensorflow_probability.substrates.jax as tfp
 from astropy.io import fits
 
 jax.config.update("jax_enable_x64", True)
+'''
 os.environ["DYLD_LIBRARY_PATH"] = (
     "/Users/nasedkin/software/MultiNest/lib/:$DYLD_LIBRARY_PATH"
 )
 os.environ["LD_LIBRARY_PATH"] = (
     "/Users/nasedkin/software/MultiNest/lib/:$LD_LIBRARY_PATH"
 )
-
+'''
 import numpy as np
 
 tfpd = tfp.distributions

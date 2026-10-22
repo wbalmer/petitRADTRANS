@@ -312,6 +312,7 @@ def test_line_by_line_spectral_model_transmission_full_all_with_clouds():
     )
 
     spectral_model.model_parameters["patchy_clouds"] = spectral_model.cloud_species
+    spectral_model.model_parameters["make_analytical_clouds_patchy"] = True
 
     # Test flux cloudy
     spectral_model.model_parameters["cloud_fraction"] = 1
@@ -405,6 +406,7 @@ def test_line_by_line_spectral_model_transmission_full_all_with_complete_coverag
     spectral_model.model_parameters["patchy_clouds"] = test_parameters[
         "cloud_parameters"
     ]["patchy_clouds"]
+    spectral_model.model_parameters["make_analytical_clouds_patchy"] = True
     spectral_model.model_parameters["imposed_mass_fractions"] = mass_fractions
 
     _, flux_coverage1, _, _, _ = calculate_spectrum(

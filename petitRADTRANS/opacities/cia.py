@@ -76,14 +76,54 @@ def get_cia_contributors(gas_continuum_contributors):
 def compute_cia_opacities(
     cia_dicts, mass_fractions, pressures, temperatures, frequencies, mean_molar_masses
 ):
-    """Wrapper to interpolate_cia, calculating each collision's combined mass fraction."""
+    """Compute CIA opacities.
+    Wrapper to interpolate_cia, calculating each collision's combined mass fraction.
+
+    Args:
+        cia_dicts:
+            Dictionary of dictionaries containing all relevant information to calculate
+            collision-induced absorption (CIA) opacities. Example structure for the H2--H2
+            collision:
+                "H2--H2": {
+                    "molecules":   ["H2", "H2"],    # Collision partners
+                    "weight":      scalar,      # product of the colliders' molar masses
+                    "lambda":      (n_lambda,), # wavelengths in cm
+                    "temperature": (n_T,),
+                    "alpha":       (n_lambda, n_T),  # Needed to calculate the CIA opacities as
+                                                     # function of wavelength, pressure and temperature.
+                }
+        mass_fractions:
+            Dictionary containing mass-fraction profiles for all atmospheric species
+            that have a requested opacity associated to them. Shape: dictionary with
+            shape (N_layers) array per species inside.
+        pressures (ArrayLike):
+            pressures of the atmospheric layers (cgs units). Shape (N_layers).
+        temperatures (ArrayLike):
+            temperature within the layers (in K). Shape (N_layers).
+        frequencies (ArrayLike):
+            frequencies of the Radtrans object (bin centers).
+        mean_molar_masses:
+            Mean molecular mass profile in amu. Shape (N_layers).
+
+    Returns:
+        cia_opacities (ArrayLike):
+            CIA continuum absorption opacities (N_frequencies, N_layers) in cgs (cm^2/g).
+    """
+
     # Add mass fractions sharing the same basename
     # Sort keys to match JAX JIT's alphabetical ordering of dict keys
     species_basenames = []
     for species in sorted(mass_fractions.keys()):
+        # From the doc string:
+        #   The species base name is the species chemical formula without isotopic information. It may contain cloud
+        #   information and charge. E.g, 24Mg2-28Si-16O4(s)_crystalline_000__DHS
+        #   becomes Mg2SiO4.
         species_basenames.append(Opacity.get_species_base_name(species))
+
     species_basenames = tuple(species_basenames)
 
+    # How much mass fraction is associated with the base names, neglecting
+    # (summing) over "finer" effects such as isotopologues.
     base_species_mass_fractions = get_base_species_mass_fractions(
         mass_fractions, species_basenames
     )
@@ -102,7 +142,10 @@ def compute_cia_opacities(
                     * base_species_mass_fractions[collision_species]
                 )
             else:
-                raise ValueError(
+                raise ValueError( # Dictionaries keys and CIA
+                                  # species names are never traced
+                                  # so this error here would fire
+                                  # corretly at trace time.
                     f"species '{collision_species}' of CIA '{collision}' "
                     f"not found in mass fractions dict "
                     f"(listed species: {list(mass_fractions.keys())}, "
@@ -134,15 +177,34 @@ def interpolate_cia(
     opacities.
 
     Args:
+        collision_dict:
+            An entry of the cia_dict of dicts looking like this for, for example, H2--H2 collisions:
+            "H2--H2": {
+                    "molecules":   ["H2", "H2"],    # Collision partners
+                    "weight":      scalar,      # product of the colliders' molar masses
+                    "lambda":      (n_lambda,), # wavelengths in cm
+                    "temperature": (n_T,),
+                    "alpha":       (n_lambda, n_T),  # Needed to calculate the CIA opacities as
+                                                     # function of wavelength, pressure and temperature.
+            }
         combined_mass_fractions: combined mass fractions of the colliding species
             e.g., for H2-He and an atmosphere with H2 and He MMR of respectively 0.74 and 0.24,
             combined_mas_fractions = 0.74 * 0.24
-            combined_mas_fractions is divided by the combined weight (e.g. for H2 and He, 2 * 4 AMU^2), so there is
+            combined_mas_fractions is divided by the combined weight later (e.g. for H2 and He, 2 * 4 AMU^2), so there is
             no units issue.
+        pressures (ArrayLike):
+            pressures of the atmospheric layers (cgs units). Shape (N_layers).
+        temperatures (ArrayLike):
+            temperature within the layers (in K). Shape (N_layers).
+        frequencies (ArrayLike):
+            frequencies of the Radtrans object (bin centers).
+        mean_molar_masses:
+            Mean molecular mass profile in amu. Shape (N_layers).
 
     Returns:
         A (wavelength, temperature) array containing the CIA opacities.
     """
+
     weights = jnp.asarray(collision_dict["weight"], dtype=WORKING_JAX_DTYPE)
     alphas = jnp.asarray(collision_dict["alpha"], dtype=WORKING_JAX_DTYPE)
     binned_temperatures = jnp.asarray(
@@ -151,6 +213,8 @@ def interpolate_cia(
     binned_wavelengths = jnp.asarray(
         collision_dict["lambda"], dtype=WORKING_JAX_DTYPE
     )
+
+    # TODO Paul_review : continue from here
 
     factor = (
         combined_mass_fractions
@@ -161,7 +225,7 @@ def interpolate_cia(
         / temperatures
     )
 
-    log10_alpha = jnp.log10(alphas)
+    log10_alpha = jnp.log10(alphas) # TODO: better to safe as log10(alpha) from the start?
 
     # if collision_dict['temperature'].shape[0] > 1:
     # Interpolation on temperatures for each wavelength point

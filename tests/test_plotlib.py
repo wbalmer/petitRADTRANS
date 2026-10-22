@@ -46,7 +46,7 @@ class _FakeContributionRadtrans:
         return super().__getattribute__(name)
 
 
-def test_calculate_contribution_spectra_skips_incomplete_power_law(monkeypatch):
+def test_calculate_opacity_contribution_spectra_skips_incomplete_power_law(monkeypatch):
     original_radtrans_class = petitRADTRANS.radtrans.Radtrans
     atmosphere = _make_minimal_radtrans_stub()
 
@@ -56,7 +56,7 @@ def test_calculate_contribution_spectra_skips_incomplete_power_law(monkeypatch):
         _FakeContributionRadtrans,
     )
 
-    contributions = original_radtrans_class.calculate_contribution_spectra(
+    contributions = original_radtrans_class.calculate_opacity_contribution_spectra(
         atmosphere,
         mode="transmission",
         temperatures=np.ones(atmosphere._pressures.size),
@@ -83,7 +83,7 @@ def test_plot_opacity_contributions_preserves_existing_spectral_model_values(
 
     recorded_gray_opacity = []
 
-    def fake_calculate_contribution_spectra(self, mode=None, **kwargs):
+    def fake_calculate_opacity_contribution_spectra(self, mode=None, **kwargs):
         recorded_gray_opacity.append(self.model_parameters["gray_opacity"])
         return {
             "Total": (
@@ -94,8 +94,8 @@ def test_plot_opacity_contributions_preserves_existing_spectral_model_values(
 
     monkeypatch.setattr(
         petitRADTRANS.spectral_model.SpectralModel,
-        "calculate_contribution_spectra",
-        fake_calculate_contribution_spectra,
+        "calculate_opacity_contribution_spectra",
+        fake_calculate_opacity_contribution_spectra,
     )
 
     plot_opacity_contributions(
