@@ -160,6 +160,24 @@ def _rebuild_locked(spec_path: str):
     return rebuilt
 
 
+def seed_runtime_cache(spec_path: str, priors, parameter_layout, runtime,
+                       uncertainties_mode: str):
+    """Register an already-built runtime under ``spec_path`` instead of rebuilding.
+
+    In a process that already owns the retrieval (the single-process JAXNS
+    backend), rebuilding from the factory would load every opacity table a
+    second time and keep both copies resident for the whole run. Seeding the
+    cache makes :class:`SpecBackedPriorModel` -- including one unpickled from a
+    checkpoint on resume -- reuse the live runtime. Worker processes never have
+    one, so they still rebuild through the factory.
+    """
+    spec_path = os.path.abspath(spec_path)
+    with _REBUILD_LOCK:
+        seeded = (tuple(priors), parameter_layout, runtime, uncertainties_mode)
+        _RUNTIME_CACHE[spec_path] = seeded
+    return seeded
+
+
 def prewarm(spec_path: str, *, background: bool = True) -> threading.Thread | None:
     """Rebuild the runtime for ``spec_path`` before any task needs it.
 
@@ -317,7 +335,7 @@ def distributed_prior_model(spec_path: str) -> SpecBackedPriorModel:
     return SpecBackedPriorModel(spec_path)
 
 
-def build_distributed_prior_model(context, spec_path=None):
+def build_distributed_prior_model(context, spec_path=None, reuse_runtime=False):
     """Build the worker-rebuildable prior model for a distributed JAXNS run.
 
     The configuration factory must be supplied on the retrieval configuration
@@ -326,12 +344,24 @@ def build_distributed_prior_model(context, spec_path=None):
     ``RetrievalConfig`` holds live ``SpectralModel``/``Radtrans`` objects and
     user callables, so only the user knows how to rebuild it from scratch.
 
+    Args:
+        reuse_runtime: seed this process's rebuild cache with the runtime the
+            ``context`` already owns instead of rebuilding it from the factory.
+            Use it when the model is evaluated in this same process (the
+            single-process JAXNS backend, which needs the spec-backed model only
+            so checkpoints can pickle it); the eager rebuild would otherwise
+            keep a second copy of every opacity table resident for the whole
+            run. The factory is still resolved, so an unimportable reference
+            fails here rather than on resume. Leave it False for the
+            distributed coordinator, where the full rebuild is the check that
+            workers will build the same model.
+
     Returns:
         ``(free_parameter_names, prior_model, spec_path)``.
     """
     from petitRADTRANS.retrieval.samplers.interfaces import collect_jaxns_priors
 
-    free_parameter_names, _priors = collect_jaxns_priors(context)
+    free_parameter_names, priors = collect_jaxns_priors(context)
 
     config_factory = getattr(context.configuration, "jaxns_config_factory", None)
     if config_factory is None:
@@ -365,9 +395,21 @@ def build_distributed_prior_model(context, spec_path=None):
         free_parameter_names=free_parameter_names,
     )
 
-    # Validate eagerly on the coordinator: an unimportable factory or a
-    # mismatched parameter list should fail here, not inside a worker.
-    _rebuild(spec_path)
+    if reuse_runtime:
+        # Resolving imports the factory's module without calling the factory:
+        # a bad reference still fails now, not when a resume unpickles the model.
+        _resolve_callable(config_factory)
+        seed_runtime_cache(
+            spec_path,
+            priors,
+            context.parameter_layout,
+            context.runtime,
+            context.uncertainties_mode,
+        )
+    else:
+        # Validate eagerly on the coordinator: an unimportable factory or a
+        # mismatched parameter list should fail here, not inside a worker.
+        _rebuild(spec_path)
 
     return free_parameter_names, distributed_prior_model(spec_path), spec_path
 

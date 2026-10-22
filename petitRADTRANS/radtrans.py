@@ -1339,8 +1339,8 @@ class Radtrans:
                 Cloud absorption opacity contribution used by the optical-depth
                 calculation.
             adaptive_feautrier_iterations:
-                Whether to adapt the number of scattering iterations in the
-                Feautrier solver.
+                If True, the Feautrier solver iterates until the flux has converged. If False, a
+                fixed number of iterations is used, without convergence test.
             return_contribution:
                 If ``True``, also return the emission contribution function.
             return_angle_dependent_intensities:
@@ -3135,14 +3135,17 @@ class Radtrans:
                 use it to pass the parameters of your opacity model, so that changing them neither
                 triggers a recompilation nor breaks differentiability.
             adaptive_feautrier_iterations (Optional[bool]):
-                If True, adapt the number of iterations of the Feautrier scattering-method
-                (scattering_in_emission=True) based on the photon destruction probability.
+                If True (default), the Feautrier scattering method (scattering_in_emission=True)
+                iterates until the flux has converged, with a minimum number of iterations set by the
+                photon destruction probability. If False, a fixed number of iterations is used, without
+                convergence test; the flux is then less accurate, and its gradient is not obtained by
+                implicit differentiation.
             chunk_feautrier (Optional[bool]):
                 If True, evaluate the Feautrier solver in frequency chunks. If None (default),
                 resolves to True.
             feautrier_chunk_size (Optional[int]):
                 Number of frequency bins per chunk when ``chunk_feautrier`` is enabled. If None
-                (default), resolves to 1536. Both chunking settings are static (compile-time)
+                (default), resolves to 128 on CPU and 512 otherwise. Both chunking settings are static (compile-time)
                 arguments: every distinct (chunk_feautrier, feautrier_chunk_size) pair compiles
                 its own kernel.
             thomas_min_batch (Optional[int]):

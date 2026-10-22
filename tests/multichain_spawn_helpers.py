@@ -40,3 +40,12 @@ def write_synthetic_chain(out_dir, names, n_draws, base_name, base_seed, chain_i
     with open(os.path.join(out_dir, f"{name}_worker.json"), "w", encoding="utf-8") as handle:
         json.dump(meta, handle)
     return name
+
+
+def worker_affinity_and_pid(_):
+    """Report this pool worker's pid and CPU affinity (for the pinning test)."""
+    import time
+
+    # Linger so the pool hands tasks to every worker, not just the first.
+    time.sleep(0.2)
+    return os.getpid(), sorted(os.sched_getaffinity(0))

@@ -281,10 +281,13 @@ def require_pymultinest():
 
 ultranest = None
 MLFriends = None
+UltranestSliceSampler = None
+ultranest_generate_mixture_random_direction = None
 
 
 def require_ultranest():
     global ultranest, MLFriends
+    global UltranestSliceSampler, ultranest_generate_mixture_random_direction
 
     if ultranest is not None:
         return
@@ -292,6 +295,10 @@ def require_ultranest():
     try:
         import ultranest as _ultranest
         from ultranest.mlfriends import MLFriends as _MLFriends
+        from ultranest.stepsampler import (
+            SliceSampler as _SliceSampler,
+            generate_mixture_random_direction as _generate_mixture_random_direction,
+        )
     except ImportError as error:
         raise ImportError(
             "UltraNest is not installed. This sampler cannot be used."
@@ -299,6 +306,8 @@ def require_ultranest():
 
     ultranest = _ultranest
     MLFriends = _MLFriends
+    UltranestSliceSampler = _SliceSampler
+    ultranest_generate_mixture_random_direction = _generate_mixture_random_direction
 
 
 dynesty = None
@@ -350,6 +359,14 @@ def require_arviz():
     except ImportError as error:
         raise ImportError(
             "ArviZ is required to plot NumPyro diagnostics but is not installed."
+        ) from error
+    except Exception as error:  # noqa: BLE001
+        # A broken install fails in its own import code (e.g. arviz_plots 1.1
+        # against matplotlib 3.11 raises AttributeError on matplotlib.style.core).
+        # Report it as unavailable: diagnostics plotting must never fail a run
+        # whose sampling has already finished.
+        raise ImportError(
+            f"ArviZ is installed but could not be imported ({type(error).__name__}: {error})."
         ) from error
 
     az = _az

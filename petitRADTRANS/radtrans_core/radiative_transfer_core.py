@@ -4,11 +4,12 @@ JAX implementation of fortran_core.core
 """
 
 from functools import partial
-from typing import Literal, NamedTuple, Optional, overload
+from typing import Any, Callable, Literal, NamedTuple, Optional, overload
 
 import jax
 import jax.numpy as jnp
-from jax import custom_vjp, jit, lax, vmap
+from jax import custom_jvp, jit, lax, vmap
+from jax.scipy.sparse.linalg import gmres
 from jax.typing import ArrayLike
 import petitRADTRANS.physical_constants as cst
 import petitRADTRANS.radtrans_core.physics_core as physics_core
@@ -31,31 +32,71 @@ WORKING_TINIEST = jnp.finfo(WORKING_JAX_DTYPE).tiny
 # Enable via the ``ck_chunk_size`` argument (e.g. 16384-65536)
 DEFAULT_CK_CHUNK_SIZE = 0
 
-# Feautrier chunking defaults. Both values are static (compile-time) arguments of the flux kernels
+# Feautrier chunking defaults. Both values are static (compile-time) arguments of the flux kernels.
+# Each (g, frequency) column stops iterating at its own convergence, so the chunk size changes the runtime
+# but not the result. A chunk keeps sweeping all of its columns until its slowest one has converged, so
+# narrower chunks waste fewer sweeps on converged columns, down to the width below which a sweep no longer
+# keeps the hardware busy. Measured on the c-k benchmark (4536 frequencies): 128 was fastest on 8 CPU cores and
+# within 6% of the fastest on 1 core; 512 was fastest on an A100
 DEFAULT_CHUNK_FEAUTRIER = True
-DEFAULT_FEAUTRIER_CHUNK_SIZE = 1536
+DEFAULT_FEAUTRIER_CHUNK_SIZE = 512
+DEFAULT_FEAUTRIER_CHUNK_SIZE_CPU = 128
 
-# 1e-2 was too loose for gradient calculations.
-SCATTERING_CONVERGENCE_THRESHOLD = 1e-6
+# Relative flux-change tolerance of the scattering iteration, applied to each (g, frequency) column over
+# SCATTERING_CONVERGENCE_CYCLE sweeps. The implicit gradient is exact only at the fixed point of the iteration,
+# so the tolerance is tight
+SCATTERING_CONVERGENCE_THRESHOLD = 1e-5
+
+# Maximum number of scattering iterations.
+SCATTERING_ITER_MAX = 100
+
+# Number of sweeps over which the flux change is measured for the convergence test: one Ng acceleration cycle
+# (the Ng step is applied every 4th sweep, see _advance_state). Between Ng steps a single sweep changes the
+# flux by up to ~100x less than its remaining error, whereas the change over a full cycle, which includes the
+# Ng extrapolation, stays within a few times the error
+SCATTERING_CONVERGENCE_CYCLE = 4
+
+# Relative residual tolerance of the generalized minimal residual method (GMRES) for the implicit gradient
+SCATTERING_IMPLICIT_GRADIENT_TOLERANCE = 1e-12
+
+# Krylov subspace size of the restarted GMRES solve that yields the implicit gradient. Memory scales with this
+# value, as one copy of the scattering state is stored per Krylov vector
+SCATTERING_IMPLICIT_GRADIENT_KRYLOV_SIZE = 20
+
+# Maximum number of GMRES restarts. Strongly scattering atmospheres converge more slowly and may require more
+SCATTERING_IMPLICIT_GRADIENT_MAX_RESTARTS = 10
+
+
+def default_feautrier_chunk_size():
+    """Default Feautrier chunk size for the default JAX backend."""
+    if jax.default_backend() == "cpu":
+        return DEFAULT_FEAUTRIER_CHUNK_SIZE_CPU
+
+    return DEFAULT_FEAUTRIER_CHUNK_SIZE
 
 
 def resolve_feautrier_chunking(
     chunk_feautrier=None,
     feautrier_chunk_size=None,
     fallback_chunk_feautrier=DEFAULT_CHUNK_FEAUTRIER,
-    fallback_chunk_size=DEFAULT_FEAUTRIER_CHUNK_SIZE,
+    fallback_chunk_size=None,
 ):
     """Resolve the Feautrier chunking settings.
 
-    Precedence: explicit argument > caller-supplied fallback. Values are
-    coerced to plain bool/int so the static jit cache keys do not split on
-    equivalent representations (e.g. 1536 vs numpy.int64(1536)).
+    Precedence: explicit argument > caller-supplied fallback > backend default
+    (see :func:`default_feautrier_chunk_size`). Values are coerced to plain
+    bool/int so the static jit cache keys do not split on equivalent
+    representations (e.g. 1536 vs numpy.int64(1536)).
     """
     if chunk_feautrier is None:
         chunk_feautrier = fallback_chunk_feautrier
 
     if feautrier_chunk_size is None:
-        feautrier_chunk_size = fallback_chunk_size
+        feautrier_chunk_size = (
+            default_feautrier_chunk_size()
+            if fallback_chunk_size is None
+            else fallback_chunk_size
+        )
 
     return bool(chunk_feautrier), int(feautrier_chunk_size)
 
@@ -366,7 +407,7 @@ def _combine_ck_opacities_jax(
 
 
 # ---------------------------------------------------------------------------
-# Fortran CPU forward path + custom VJP wrapper
+# Native CPU kernel, differentiated through the JAX implementation
 # ---------------------------------------------------------------------------
 
 
@@ -375,7 +416,7 @@ def _use_ck_mixing_ffi() -> bool:
     return jax.default_backend() == "cpu"
 
 
-@partial(custom_vjp, nondiff_argnums=(7,))
+@partial(custom_jvp, nondiff_argnums=(7,))
 def _combine_ck_opacities_ffi(
     opacities_fortran_order: ArrayLike,
     g_gauss: ArrayLike,
@@ -386,13 +427,15 @@ def _combine_ck_opacities_ffi(
     g_combination_weights_sum: ArrayLike,
     input_layout: str,
 ) -> ArrayLike:
-    """Correlated-k mixing: native FFI forward, JAX backward.
+    """Correlated-k mixing: native FFI value, JAX derivatives.
 
-    The forward pass runs the batched C++ kernel
+    The value is computed by the batched C++ kernel
     (petitRADTRANS/cpp_src/prt_ck_mixing_ffi.cc) as a typed XLA custom call;
     it reproduces the random-overlap mixing of the original Fortran
     implementation, parallelized over (frequency, layer) cells on the XLA
-    intra-op thread pool.
+    intra-op thread pool. JAX cannot differentiate the custom call, so its
+    derivatives are those of the pure-JAX implementation of the same mixing,
+    ``_combine_ck_opacities_jax`` (see ``_combine_ck_ffi_jvp``).
     """
     (
         opacities_flat,
@@ -420,47 +463,28 @@ def _combine_ck_opacities_ffi(
     return _finalize_ck_opacity_shape(mixed_flat, n_frequencies, n_layers, n_g)
 
 
-def _combine_ck_ffi_fwd(
-    opacities_fortran_order,
-    g_gauss,
-    weights_gauss,
-    line_species_mass_fractions,
-    continuum_opacities,
-    g_combination_weights,
-    g_combination_weights_sum,
-    input_layout,
-):
-    result = _combine_ck_opacities_ffi(
-        opacities_fortran_order,
-        g_gauss,
-        weights_gauss,
-        line_species_mass_fractions,
-        continuum_opacities,
-        g_combination_weights,
-        g_combination_weights_sum,
-        input_layout,
-    )
-    residuals = (
-        opacities_fortran_order,
-        g_gauss,
-        weights_gauss,
-        line_species_mass_fractions,
-        continuum_opacities,
-        g_combination_weights,
-        g_combination_weights_sum,
-    )
-    return result, residuals
+@_combine_ck_opacities_ffi.defjvp
+def _combine_ck_ffi_jvp(input_layout, primals, tangents):
+    """Value from the native kernel, tangent from the pure-JAX mixing.
 
+    A JVP rule serves forward-mode differentiation directly and reverse mode by
+    transposition, so the mixing can be differentiated in either mode and to any
+    order. The value is obtained by calling the custom_jvp function itself, which
+    keeps it differentiable when this rule is differentiated again (higher orders).
+    ``jax.checkpoint`` makes reverse mode recompute the JAX mixing in the backward
+    pass instead of storing its (cells, n_g**2) sort intermediates from the
+    forward pass.
+    """
+    result = _combine_ck_opacities_ffi(*primals, input_layout)
 
-def _combine_ck_ffi_bwd(input_layout, residuals, g):
-    _, vjp_fn = jax.vjp(
-        partial(_combine_ck_opacities_jax, input_layout=input_layout),
-        *residuals,
-    )
-    return vjp_fn(g)
+    def _jax_tangent(primals, tangents):
+        return jax.jvp(
+            partial(_combine_ck_opacities_jax, input_layout=input_layout),
+            primals,
+            tangents,
+        )[1]
 
-
-_combine_ck_opacities_ffi.defvjp(_combine_ck_ffi_fwd, _combine_ck_ffi_bwd)
+    return result, jax.checkpoint(_jax_tangent)(primals, tangents)
 
 
 # ---------------------------------------------------------------------------
@@ -481,15 +505,16 @@ def combine_ck_opacities(
 ) -> ArrayLike:
     """Combine correlated-k opacities across species.
 
-    Uses the native FFI kernel on CPU for the forward pass (a typed XLA
-    custom call) and the JAX implementation for reverse-mode
-    differentiation. Non-CPU backends use the pure JAX implementation for both
-    forward and backward execution.
+    On CPU, the value is computed by the native FFI kernel (a typed XLA custom
+    call) and its derivatives, in forward or reverse mode and to any order, by
+    the JAX implementation. Non-CPU backends use the pure JAX implementation for
+    both.
 
-    ``ck_chunk_size`` only affects the pure-JAX path (non-CPU backends, or the
-    reverse-mode VJP of the FFI forward pass): it caps the peak memory of the
-    per-species combination by processing the (frequency, layer) cells in
-    chunks. A non-positive value (the default) disables chunking.
+    ``ck_chunk_size`` only affects the pure JAX path on non-CPU backends: it caps
+    the peak memory of the per-species combination by processing the
+    (frequency, layer) cells in chunks. A non-positive value (the default)
+    disables chunking. The derivatives of the CPU kernel are always computed
+    without chunking.
     """
     if g_combination_weights is None or g_combination_weights_sum is None:
         if weights_gauss is None:
@@ -778,6 +803,8 @@ class _ScatterState(NamedTuple):
     hist1_lm: ArrayLike
     hist2_lm: ArrayLike
     hist3_lm: ArrayLike
+    cycle_flux_gf: ArrayLike  # (n_gf,) flux at the end of the previous convergence cycle
+    converged_gf: ArrayLike  # (n_gf,) bool, columns frozen at convergence, adaptive path only
     all_converged: ArrayLike  # scalar bool, adaptive path only
     solve_count: ArrayLike  # scalar int32 diagnostic
     noop_count: ArrayLike  # scalar int32 diagnostic
@@ -864,6 +891,131 @@ def _ng_accelerated_batched(
 
 
 # ---------------------------------------------------------------------------
+# Implicit differentiation of the scattering fixed point
+# ---------------------------------------------------------------------------
+
+
+def _evaluate_without_tangents(function: Callable[[], Any]) -> Any:
+    """Evaluate ``function()`` with no autodiff tangent reaching any of its inputs.
+
+    Every array that ``function`` closes over is hoisted into an explicit argument
+    (``jax.closure_convert``) and passed through ``lax.stop_gradient``, so forward-
+    and reverse-mode differentiation, at any order, evaluate it as a constant
+    instead of tracing a derivative through it. Without this, closed-over arrays
+    carry tangents into a ``lax.while_loop`` even when its result is discarded by
+    ``lax.stop_gradient``, and second-order differentiation (``jvp`` of ``grad``)
+    fails inside JAX's while_loop JVP rule (jax 0.10.1).
+    """
+    converted, hoisted = jax.closure_convert(function)
+    return converted(*lax.stop_gradient(hoisted))
+
+
+def _differentiate_scattering_fixed_point(
+    advance_state: Callable,
+    converged_state: _ScatterState,
+) -> _ScatterState:
+    """Attach implicit gradients to a converged scattering-iteration state.
+
+    At convergence, the source function S and the upward surface intensity I of the scattering iteration
+    satisfy the fixed-point equation (S, I) = T(S, I), where T is one non-accelerated ALI sweep. The
+    gradient is obtained from this equation through the implicit function theorem, using
+    ``lax.custom_root``, which differentiates with respect to the variables closed over by T. This is
+    exact at the fixed point, independently of how the forward iteration converged, and requires no
+    reverse-mode storage of the iteration.
+
+    The linear system of the implicit function theorem is solved with restarted generalized minimal
+    residual method, see the SCATTERING_IMPLICIT_GRADIENT_* constants.
+
+    Parameters
+    ----------
+    advance_state : callable
+        One scattering sweep, called as ``advance_state(state, iteration_index)`` and returning the next
+        state. An integer ``iteration_index`` of 0 disables the Ng acceleration.
+    converged_state : _ScatterState
+        State at the end of the forward scattering iteration.
+
+    Returns
+    -------
+    _ScatterState
+        ``converged_state`` with its source function, surface intensities and fluxes replaced by values
+        carrying the implicit gradient.
+    """
+    # prevents the flow of gradients during forward or reverse-mode automatic differentiation
+    fixed_point_state = lax.stop_gradient(converged_state)
+
+    def _sweep(source_lm: ArrayLike, I_plus_surface_ga: ArrayLike) -> _ScatterState:
+        next_state = advance_state(
+            fixed_point_state._replace(
+                source_lm=source_lm,
+                I_plus_surface_ga=I_plus_surface_ga,
+            ),
+            0,
+        )
+
+        return next_state
+
+    def _compute_residual(fixed_point: tuple[ArrayLike, ArrayLike]) -> tuple[ArrayLike, ArrayLike]:
+        next_state = _sweep(*fixed_point)
+
+        return (
+            next_state.source_lm - fixed_point[0],
+            next_state.I_plus_surface_ga - fixed_point[1],
+        )
+
+    def _solve_gmres(
+        linear_operator: Callable,
+        right_hand_side: tuple[ArrayLike, ArrayLike],
+    ) -> tuple[ArrayLike, ArrayLike]:
+        solution, _ = gmres(
+            linear_operator,
+            right_hand_side,
+            tol=SCATTERING_IMPLICIT_GRADIENT_TOLERANCE,
+            atol=0.0,
+            restart=SCATTERING_IMPLICIT_GRADIENT_KRYLOV_SIZE,
+            maxiter=SCATTERING_IMPLICIT_GRADIENT_MAX_RESTARTS,
+            solve_method="incremental",
+        )
+
+        return solution
+
+    def _solve_tangent(
+        linear_operator: Callable,
+        right_hand_side: tuple[ArrayLike, ArrayLike],
+    ) -> tuple[ArrayLike, ArrayLike]:
+        # The solver sets its tolerance from the norm of the right-hand side, which cannot be transposed, so
+        # it is wrapped in a linear solve with an explicit transpose to support reverse-mode differentiation
+        return lax.custom_linear_solve(
+            linear_operator,
+            right_hand_side,
+            solve=_solve_gmres,
+            transpose_solve=_solve_gmres,
+        )
+
+    # Differentiably solve for the roots of a function
+    # Gradients of custom_root() are defined with respect to closed-over variables
+    # from the provided function _compute_residual via the implicit function theorem:
+    # https://en.wikipedia.org/wiki/Implicit_function_theorem
+    source_lm, I_plus_surface_ga = lax.custom_root(
+        _compute_residual,
+        (fixed_point_state.source_lm, fixed_point_state.I_plus_surface_ga),
+        solve=lambda _, initial_guess: initial_guess,  # the forward problem is already solved
+        tangent_solve=_solve_tangent,
+    )
+
+    # One sweep from the differentiable fixed point carries the gradient to the fluxes and surface
+    # intensities. At convergence, it changes their values by less than the convergence threshold
+    next_state = _sweep(source_lm, I_plus_surface_ga)
+
+    return fixed_point_state._replace(
+        source_lm=next_state.source_lm,
+        I_plus_surface_ga=next_state.I_plus_surface_ga,
+        flux_gf=next_state.flux_gf,
+        I_minus_gf=next_state.I_minus_gf,
+        I_H_top=next_state.I_H_top,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main function
 # ---------------------------------------------------------------------------
 
@@ -872,7 +1024,8 @@ def _ng_accelerated_batched(
 # diagnostics (e.g. how many steps were required for convergence)
 #
 # We use the decorator because python doesn't natively allow
-# us to overload a function definition.
+# us to overload a function definition. We start by declaring the
+# overloaded function signatures, which are implemented below.
 @overload
 def _compute_feautrier_radiative_transfer_chunk(
     frequencies_bin_edges: ArrayLike,
@@ -890,7 +1043,7 @@ def _compute_feautrier_radiative_transfer_chunk(
     irradiation_geometry_str: str = "dayside_ave",
     return_contribution: bool = False,
     return_solver_diagnostics: Literal[False] = False,
-    iter_scat_max: int = 100,
+    iter_scat_max: int = SCATTERING_ITER_MAX,
     convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike]: ...
@@ -912,13 +1065,14 @@ def _compute_feautrier_radiative_transfer_chunk(
     adaptive_feautrier_iterations: bool = True,
     irradiation_geometry_str: str = "dayside_ave",
     return_contribution: bool = False,
-    return_solver_diagnostics: Literal[True] = True,
-    iter_scat_max: int = 100,
+    return_solver_diagnostics: Literal[True] = True, # With diagnostics
+    iter_scat_max: int = SCATTERING_ITER_MAX,
     convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike, dict[str, ArrayLike]]: ...
 
 
+# This is the actual non-diagnostic definition
 @jit(
     static_argnames=(
         "irradiation_geometry_str",
@@ -945,7 +1099,7 @@ def _compute_feautrier_radiative_transfer_chunk(
     irradiation_geometry_str: str = "dayside_ave",
     return_contribution: bool = False,
     return_solver_diagnostics: bool = False,
-    iter_scat_max: int = 100,
+    iter_scat_max: int = SCATTERING_ITER_MAX,
     convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     thomas_min_batch: int = linalg.DEFAULT_FEAUTRIER_THOMAS_MIN_BATCH,
 ) -> (
@@ -979,8 +1133,11 @@ def _compute_feautrier_radiative_transfer_chunk(
     emissivities : jax.Array, shape (n_freq_bins,)
         Surface or lower-boundary emissivity.
     adaptive_feautrier_iterations : bool, optional
-        Adapt the minimum number of scattering iterations to the local photon
-        destruction probability.
+        If True, iterate until the flux has converged (see SCATTERING_CONVERGENCE_THRESHOLD), with a
+        minimum number of iterations set by the local photon destruction probability, and obtain the
+        gradient by implicit differentiation of the converged solution (see
+        _differentiate_scattering_fixed_point). If False, use a fixed number of iterations without
+        convergence test.
     irradiation_geometry_str : {"dayside_ave", "planetary_ave", "non-isotropic"}, optional
         Illumination geometry used for the stellar source term.
     return_contribution : bool, optional
@@ -988,7 +1145,9 @@ def _compute_feautrier_radiative_transfer_chunk(
     iter_scat_max : int, optional
         Hard iteration cap for the scattering loop.
     convergence_threshold : float, optional
-        Relative flux convergence criterion used per ``(g, frequency)`` pair.
+        Relative change of the flux of each ``(g, frequency)`` pair over one Ng acceleration
+        cycle (``SCATTERING_CONVERGENCE_CYCLE`` sweeps) below which the pair stops iterating.
+        Each pair stops independently, so the result does not depend on the chunk size.
 
     Returns
     -------
@@ -1047,7 +1206,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         ).reshape(n_gf)
 
         # Accumulate each angle contribution in sequence to avoid a full
-        # (layer, gf, angle) exponential cube.
+        # (layer, gf, angle) exponential cube (saves memory).
         def _accumulate_stellar_angle(
             carry: tuple[ArrayLike, ArrayLike],
             angle_inputs: tuple[ArrayLike, ArrayLike, ArrayLike],
@@ -1187,6 +1346,9 @@ def _compute_feautrier_radiative_transfer_chunk(
         I_minus_boundary_gf: ArrayLike,
     ) -> tuple[ArrayLike, ArrayLike, ArrayLike]:
         """
+        This function calls out to the actual tridiagonal solver to compute the
+        radiative transfer solution for the given source function and boundary conditions.
+
         Returns J_bol_lm (l, gf), I_H_top (gf, a), new_I_plus_surface (gf, a).
         """
         r_surf_ga = 0.5 * (
@@ -1244,10 +1406,10 @@ def _compute_feautrier_radiative_transfer_chunk(
     def _advance_state(
         state: _ScatterState,
         iter_idx: ArrayLike,
-    ) -> tuple[_ScatterState, ArrayLike]:
+    ) -> _ScatterState:
+        """Advance the scattering state by one iteration. """
         current_source_lm = state.source_lm
         current_I_plus_surface_ga = state.I_plus_surface_ga
-        current_flux_gf_prev = state.flux_gf
         current_I_minus_gf = state.I_minus_gf
         current_hist0_lm = state.hist0_lm
         current_hist1_lm = state.hist1_lm
@@ -1270,6 +1432,7 @@ def _compute_feautrier_radiative_transfer_chunk(
 
         slot_index = iter_idx % 4
 
+        # Rotate the history slots based on the current iteration index.
         def _slot0(_: None):
             next_hist0 = source_ali
             return (
@@ -1344,6 +1507,7 @@ def _compute_feautrier_radiative_transfer_chunk(
 
         do_ng = (iter_idx > 0) & ((iter_idx + 1) % 4 == 0)
 
+        # Determine if Ng acceleration should be applied on this iteration.
         def _apply_ng(_: None) -> ArrayLike:
             return _ng_accelerated_batched(tn, tn1, tn2, tn3, source_ali)
 
@@ -1362,20 +1526,13 @@ def _compute_feautrier_radiative_transfer_chunk(
         # discarded ill-conditioned rows) that silently zeroed the warm-start
         # gradient at the prior median. Route the gradient through the
         # numerically clean ALI source update instead, keeping the accelerated
-        # value only in the forward pass. At the fixed point the accelerated and
-        # ALI sources coincide, so dS*/dtheta is unchanged
+        # value only in the forward pass. The resulting gradient is approximate, as
+        # the derivative converges more slowly than the accelerated value; the
+        # adaptive iteration therefore uses the implicit gradient instead (see
+        # _differentiate_scattering_fixed_point)
         next_source_lm = source_ali + lax.stop_gradient(next_source_lm - source_ali)
 
         flux_gf_cur = -jnp.einsum("ba,a->b", I_H_top, mu_weight_a)  # (gf,)
-        conv_val_gf = jnp.abs(
-            1.0
-            - current_flux_gf_prev
-            / jnp.where(
-                jnp.abs(flux_gf_cur) < jnp.sqrt(TINIEST),
-                jnp.sqrt(TINIEST),
-                flux_gf_cur,
-            )
-        )
 
         if return_contribution:
             next_I_minus_gf = I_minus_gf_new
@@ -1393,7 +1550,7 @@ def _compute_feautrier_radiative_transfer_chunk(
             hist2_lm=next_hist2_lm,
             hist3_lm=next_hist3_lm,
         )
-        return next_state, conv_val_gf
+        return next_state
 
     initial_carry = _ScatterState(
         source_lm=planck_lm,
@@ -1405,6 +1562,8 @@ def _compute_feautrier_radiative_transfer_chunk(
         hist1_lm=zero_source_lm,
         hist2_lm=zero_source_lm,
         hist3_lm=zero_source_lm,
+        cycle_flux_gf=initial_flux_gf,
+        converged_gf=jnp.zeros(n_gf, dtype=jnp.bool_),
         all_converged=jnp.array(False, dtype=jnp.bool_),
         solve_count=jnp.array(0, dtype=jnp.int32),
         noop_count=jnp.array(0, dtype=jnp.int32),
@@ -1423,6 +1582,11 @@ def _compute_feautrier_radiative_transfer_chunk(
         ArrayLike,
         ArrayLike,
     ]:
+        """Run the radiative transfer calculation without scattering.
+            This path is used when scattering is neglected:
+                (no_atmospheric_scattering = jnp.all(one_minus_pdp_lm <= no_scattering_pdp_tol)
+                non_reflective_lower_boundary = jnp.all(jnp.abs(reflectances) <= TINIEST))
+        """
         direct_I_minus_gf = I_surface_no_scatter_gf
         _, direct_I_H_top, _ = _feautrier_solve(
             planck_lm,
@@ -1462,7 +1626,7 @@ def _compute_feautrier_radiative_transfer_chunk(
         # The iteration count is a static Python int, so unroll the loop at trace time
         final_carry = initial_carry
         for iter_idx in range(fixed_iteration_count):
-            next_state, _ = _advance_state(final_carry, iter_idx)
+            next_state = _advance_state(final_carry, iter_idx)
             final_carry = next_state._replace(
                 all_converged=jnp.array(False, dtype=jnp.bool_),
                 solve_count=final_carry.solve_count + jnp.array(1, dtype=jnp.int32),
@@ -1480,34 +1644,101 @@ def _compute_feautrier_radiative_transfer_chunk(
             configured_iter_budget,
         )
 
-    def _adaptive_scan_step(
-        carry: _ScatterState,
-        iter_idx: ArrayLike,
-    ) -> tuple[_ScatterState, None]:
-        def _advance(state: _ScatterState) -> _ScatterState:
-            next_state, conv_val_gf = _advance_state(state, iter_idx)
-            completed_iterations = iter_idx + jnp.array(1, dtype=jnp.int32)
-            next_all_converged = jnp.all(
-                (completed_iterations >= n_iter_min_gf)
-                & (conv_val_gf < convergence_threshold)
-            )
-            return next_state._replace(
-                all_converged=next_all_converged,
-                solve_count=state.solve_count + jnp.array(1, dtype=jnp.int32),
-            )
+    def _keep_converged_columns(
+        next_state: _ScatterState,
+        state: _ScatterState,
+    ) -> _ScatterState:
+        """Discard the new iterate of the columns that had already converged.
 
-        def _skip(state: _ScatterState) -> _ScatterState:
-            return state._replace(
-                noop_count=state.noop_count + jnp.array(1, dtype=jnp.int32)
-            )
-
-        next_carry = lax.cond(
-            jnp.logical_not(carry.all_converged),
-            _advance,
-            _skip,
-            carry,
+        The Ng history is not reverted: it only feeds the acceleration of its own
+        column, whose result is discarded for as long as the column stays frozen.
+        """
+        frozen_gf = state.converged_gf
+        next_I_minus_gf = (
+            jnp.where(frozen_gf, state.I_minus_gf, next_state.I_minus_gf)
+            if return_contribution
+            else next_state.I_minus_gf
         )
-        return next_carry, None
+
+        return next_state._replace(
+            source_lm=jnp.where(frozen_gf[None, :], state.source_lm, next_state.source_lm),
+            I_plus_surface_ga=jnp.where(
+                frozen_gf[:, None], state.I_plus_surface_ga, next_state.I_plus_surface_ga
+            ),
+            flux_gf=jnp.where(frozen_gf, state.flux_gf, next_state.flux_gf),
+            I_minus_gf=next_I_minus_gf,
+            I_H_top=jnp.where(frozen_gf[:, None], state.I_H_top, next_state.I_H_top),
+        )
+
+    def _advance_and_test_convergence(
+        state: _ScatterState,
+        iter_idx: ArrayLike,
+    ) -> _ScatterState:
+        """Sweep once, then freeze every (g, frequency) column that has converged.
+
+        At the end of each Ng cycle, a column has converged when its flux changed by
+        less than the threshold over the cycle. Each column stops at its own
+        convergence instead of iterating until the slowest column of its chunk has
+        converged, so its result does not depend on the chunk size, nor on which
+        columns share its chunk.
+        """
+        next_state = _advance_state(state, iter_idx)
+        completed_iterations = iter_idx + jnp.array(1, dtype=jnp.int32)
+        cycle_end = completed_iterations % SCATTERING_CONVERGENCE_CYCLE == 0
+        cycle_change_gf = jnp.abs(
+            1.0
+            - state.cycle_flux_gf
+            / jnp.where(
+                jnp.abs(next_state.flux_gf) < jnp.sqrt(TINIEST),
+                jnp.sqrt(TINIEST),
+                next_state.flux_gf,
+            )
+        )
+        converged_gf = state.converged_gf | (
+            cycle_end
+            & (completed_iterations >= n_iter_min_gf)
+            & (cycle_change_gf < convergence_threshold)
+        )
+        next_state = _keep_converged_columns(next_state, state)
+        return next_state._replace(
+            cycle_flux_gf=jnp.where(cycle_end, next_state.flux_gf, state.cycle_flux_gf),
+            converged_gf=converged_gf,
+            all_converged=jnp.all(converged_gf),
+            solve_count=state.solve_count + jnp.array(1, dtype=jnp.int32),
+        )
+
+    def _iterate_until_converged() -> _ScatterState:
+        """Iterate until every column has converged or the iteration cap is reached.
+
+        No derivative is ever taken through these iterations: they are evaluated
+        without tangents (see _evaluate_without_tangents), and the gradient is
+        attached afterwards by implicit differentiation at the fixed point. This is
+        what allows a while_loop, which cannot be reverse-differentiated, to stop
+        as soon as the chunk has converged instead of stepping through the whole
+        iteration budget.
+        """
+
+        def _not_converged(loop_state: tuple[_ScatterState, ArrayLike]) -> ArrayLike:
+            state, iter_idx = loop_state
+            return jnp.logical_not(state.all_converged) & (iter_idx <= iter_scat_max)
+
+        def _sweep(
+            loop_state: tuple[_ScatterState, ArrayLike],
+        ) -> tuple[_ScatterState, ArrayLike]:
+            state, iter_idx = loop_state
+            return (
+                _advance_and_test_convergence(state, iter_idx),
+                iter_idx + jnp.array(1, dtype=jnp.int32),
+            )
+
+        final_carry, _ = lax.while_loop(
+            _not_converged, _sweep, (initial_carry, jnp.array(0, dtype=jnp.int32))
+        )
+
+        # The part of the iteration budget left unused at convergence.
+        return final_carry._replace(
+            noop_count=configured_iter_budget - final_carry.solve_count
+        )
 
     def _run_adaptive_iterations(
         _: None,
@@ -1522,10 +1753,12 @@ def _compute_feautrier_radiative_transfer_chunk(
         ArrayLike,
         ArrayLike,
     ]:
-        final_carry, _ = lax.scan(
-            _adaptive_scan_step,
-            initial_carry,
-            jnp.arange(iter_scat_max + 1, dtype=jnp.int32),
+        # The implicit gradient requires a converged solution, so it is only applied to the
+        # convergence-tested (adaptive) iteration. The forward iteration is evaluated without
+        # tangents, and the gradient is attached to the converged state afterwards.
+        final_carry = _differentiate_scattering_fixed_point(
+            advance_state=_advance_state,
+            converged_state=_evaluate_without_tangents(_iterate_until_converged),
         )
 
         return (
@@ -1682,7 +1915,7 @@ def compute_feautrier_radiative_transfer(
     irradiation_geometry_str: str = "dayside_ave",
     return_contribution: bool = False,
     return_solver_diagnostics: Literal[False] = False,
-    iter_scat_max: int = 100,
+    iter_scat_max: int = SCATTERING_ITER_MAX,
     convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     chunk_feautrier: bool = True,
     feautrier_chunk_size: int = 1536,
@@ -1707,7 +1940,7 @@ def compute_feautrier_radiative_transfer(
     irradiation_geometry_str: str = "dayside_ave",
     return_contribution: bool = False,
     return_solver_diagnostics: Literal[True] = True,
-    iter_scat_max: int = 100,
+    iter_scat_max: int = SCATTERING_ITER_MAX,
     convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     chunk_feautrier: bool = True,
     feautrier_chunk_size: int = 1536,
@@ -1743,7 +1976,7 @@ def compute_feautrier_radiative_transfer(
     irradiation_geometry_str: str = "dayside_ave",
     return_contribution: bool = False,
     return_solver_diagnostics: bool = False,
-    iter_scat_max: int = 100,
+    iter_scat_max: int = SCATTERING_ITER_MAX,
     convergence_threshold: float = SCATTERING_CONVERGENCE_THRESHOLD,
     chunk_feautrier: bool = True,
     feautrier_chunk_size: int = 1536,
@@ -1779,8 +2012,11 @@ def compute_feautrier_radiative_transfer(
     emissivities : jax.Array, shape (n_freq_bins,)
         Surface or lower-boundary emissivity.
     adaptive_feautrier_iterations : bool, optional
-        Adapt the minimum number of scattering iterations to the local photon
-        destruction probability.
+        If True, iterate until the flux has converged (see SCATTERING_CONVERGENCE_THRESHOLD), with a
+        minimum number of iterations set by the local photon destruction probability, and obtain the
+        gradient by implicit differentiation of the converged solution (see
+        _differentiate_scattering_fixed_point). If False, use a fixed number of iterations without
+        convergence test.
     irradiation_geometry_str : {"dayside_ave", "planetary_ave", "non-isotropic"}, optional
         Illumination geometry used for the stellar source term.
     return_contribution : bool, optional
@@ -1788,7 +2024,9 @@ def compute_feautrier_radiative_transfer(
     iter_scat_max : int, optional
         Hard iteration cap for the scattering loop.
     convergence_threshold : float, optional
-        Relative flux convergence criterion used per ``(g, frequency)`` pair.
+        Relative change of the flux of each ``(g, frequency)`` pair over one Ng acceleration
+        cycle (``SCATTERING_CONVERGENCE_CYCLE`` sweeps) below which the pair stops iterating.
+        Each pair stops independently, so the result does not depend on the chunk size.
     chunk_feautrier : bool, optional
         If ``True``, split the frequency axis into chunks before calling the core
         solver to reduce peak memory use.
@@ -1947,7 +2185,6 @@ def compute_feautrier_radiative_transfer(
             angle_dependent_intensities_chunks,
         ) = chunk_outputs
 
-
     # flux per chunk: (cs,)            -> (n_freq_bins,),           freq axis 0
     # angle per chunk: (cs, n_angles)  -> (n_freq_bins, n_angles),  freq axis 0
     # contribution per chunk: (n_layers, cs) -> (n_layers, n_freq_bins), freq axis 1
@@ -2043,13 +2280,7 @@ def compute_optical_depths(
         total_opac = _opacities[:, :, 0, :]
         # Floor the denominator at sqrt(tiny), not tiny. absorptive/total has
         # gradient ~ -absorptive/total**2, and for total just above WORKING_TINIEST
-        # the square underflows to 0 -> inf gradient, which the outer jnp.where
-        # then turns into 0*inf = NaN. Because this photon-destruction
-        # probability feeds the scattering source at every (g, f, layer), that
-        # single NaN propagated into essentially every parameter's gradient at
-        # the prior median. sqrt(tiny) keeps total**2 normal; cells with such
-        # negligible opacity are physically irrelevant, so the forward is
-        # unchanged in practice.
+        # the square underflows to 0 -> inf gradient
         safe_total_opac = jnp.maximum(
             total_opac, jnp.sqrt(WORKING_TINIEST)
         )
@@ -2484,17 +2715,17 @@ def compute_transit_radii(
     )
 
     if weights_gauss.size == 1:
-        transparencies = transparencies[0] # (frequencies, species, layers)
+        transparencies = transparencies[0]  # (frequencies, species, layers)
     else:
         # Integrate over correlated-k's g-coordinate
         transparencies = jnp.einsum(
-            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True # (frequencies, species, layers)
+            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True  # (frequencies, species, layers)
         )
 
     # get rid of species dimension
     # remove axis 1 (species) if only single species
     if transparencies.shape[1] == 1:
-        transparencies = transparencies[:, 0, :] # (frequencies, layers)
+        transparencies = transparencies[:, 0, :]  # (frequencies, layers)
     # combine transmission of several species (exp(-tau1) * exp(-tau2)...)
     else:
         transparencies = jnp.prod(transparencies, axis=1)  # (frequencies, layers)
@@ -2512,7 +2743,7 @@ def compute_transit_radii(
         transparencies[:, 1:] * radius_hydrostatic_equilibrium[None, 1:]
         + transparencies[:, :-1] * radius_hydrostatic_equilibrium[None, :-1]
     )
-    transit_radii = jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1) # (frequencies)
+    transit_radii = jnp.sum(annulus_terms * annulus_radius_increments[None, :], axis=1)  # (frequencies)
 
     # Transform area to transmission radius
     transit_radii = jnp.sqrt(transit_radii + radius_hydrostatic_equilibrium[-1] ** 2.0)
@@ -2725,3 +2956,135 @@ def compute_transmission_spectrum_contribution(
     )
 
     return transmission_contribution_final, radius_hydrostatic_equilibrium
+
+
+@jit
+def compute_hydrostatic_interval_integrals(
+    pressures: ArrayLike,
+    inv_rho: ArrayLike,
+) -> ArrayLike:
+    """Compute per-layer hydrostatic integrals over the pressure grid."""
+    core_integrals = integ_parab(
+        pressures[:-2],
+        pressures[1:-1],
+        pressures[2:],
+        inv_rho[:-2],
+        inv_rho[1:-1],
+        inv_rho[2:],
+        pressures[:-2],
+        pressures[1:-1],
+    )
+    tail_integral = (inv_rho[-2] + inv_rho[-1]) * (pressures[-1] - pressures[-2]) * 0.5
+    return jnp.concatenate((core_integrals, tail_integral[None]))
+
+
+@jit(static_argnames=("variable_gravity"))
+def compute_radius_hydrostatic_equilibrium(
+    pressures: ArrayLike,
+    reference_gravity: ArrayLike,
+    atmosphere_densities: ArrayLike,
+    reference_pressure: ArrayLike,
+    planet_radius: ArrayLike,
+    variable_gravity: bool = True,
+) -> ArrayLike:
+    """
+    Calculate the radius at hydrostatic equilibrium for a planetary atmosphere.
+
+    This function integrates the hydrostatic equilibrium equation to compute the radius
+    at each atmospheric layer, given the pressure grid, atmospheric density profile,
+    reference gravity, reference pressure, and planet radius.
+
+    Args:
+        pressures (jax.Array): 1D array of atmospheric pressures in cgs units (dyne/cm^2).
+                               Shape: (n_layers,).
+        reference_gravity (float): Reference gravity in cgs units (cm/s^2).
+        atmosphere_densities (jax.Array): 1D array of atmospheric densities in cgs units (g/cm^3).
+                                          Shape: (n_layers,).
+        reference_pressure (float): Reference pressure in cgs units (dyne/cm^2).
+        planet_radius (float): Planet radius in cm.
+        variable_gravity (bool, optional): If True, gravity varies as 1/r^2 with radius.
+                                           If False, gravity is constant throughout the atmosphere.
+
+    Returns:
+        jax.Array: 1D array of radius values at each atmospheric layer in cm.
+                   Shape: (n_layers,).
+    """
+
+    n_layers = pressures.shape[0]
+    inv_rho = 1.0 / (atmosphere_densities + TINIEST)
+    dtype = pressures.dtype
+
+    if variable_gravity:
+        coefficient = 1.0 / (reference_gravity * (planet_radius**2) + TINIEST)
+    else:
+        coefficient = -1.0 / (reference_gravity + TINIEST)
+
+    interval_integrals = compute_hydrostatic_interval_integrals(
+        pressures=pressures,
+        inv_rho=inv_rho,
+    )
+    radius_hydrostatic_equilibrium = (
+        -coefficient
+        * jnp.cumsum(
+            interval_integrals[::-1],
+            dtype=dtype,
+        )[::-1]
+    )
+    radius_hydrostatic_equilibrium = jnp.concatenate(
+        (radius_hydrostatic_equilibrium, jnp.zeros(1, dtype=dtype))
+    )
+
+    reference_layer_mask = (pressures[:-1] <= reference_pressure) & (
+        pressures[1:] > reference_pressure
+    )
+    reference_index = jnp.argmax(reference_layer_mask)
+
+    def compute_reference_radius_offset() -> ArrayLike:
+
+        def layer_true() -> ArrayLike:
+            return jnp.asarray(
+                radius_hydrostatic_equilibrium[reference_index + 1]
+                - integ_parab(
+                    pressures[reference_index],
+                    pressures[reference_index + 1],
+                    pressures[reference_index + 2],
+                    inv_rho[reference_index],
+                    inv_rho[reference_index + 1],
+                    inv_rho[reference_index + 2],
+                    reference_pressure,
+                    pressures[reference_index + 1],
+                )
+                * coefficient,
+                dtype=dtype,
+            )
+
+        def layer_false() -> ArrayLike:
+            return jnp.asarray(
+                radius_hydrostatic_equilibrium[reference_index + 1]
+                - (
+                    (inv_rho[reference_index] + inv_rho[reference_index + 1])
+                    * (pressures[reference_index + 1] - reference_pressure)
+                    * coefficient
+                    * 0.5
+                ),
+                dtype=dtype,
+            )
+
+        return jnp.asarray(
+            lax.cond(reference_index <= n_layers - 3, layer_true, layer_false),
+            dtype=dtype,
+        )
+
+    R0 = lax.cond(
+        jnp.any(reference_layer_mask),
+        compute_reference_radius_offset,
+        lambda: jnp.asarray(0.0, dtype=dtype),
+    )
+
+    if variable_gravity:
+        R0 = (1.0 / planet_radius) - R0
+        radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium + R0
+        return 1.0 / (radius_hydrostatic_equilibrium + TINIEST)
+
+    R0 = planet_radius - R0
+    return radius_hydrostatic_equilibrium + R0

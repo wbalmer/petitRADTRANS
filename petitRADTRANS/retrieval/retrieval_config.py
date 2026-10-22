@@ -65,9 +65,11 @@ class RetrievalConfig:
             ``feautrier_chunk_size``). Only relevant when ``scattering_in_emission`` is True.
             Forwarded to the ``ModelContext`` objects.
         adaptive_feautrier_iterations : bool
-            Whether the Feautrier scattering solver adaptively sets the number of iterations based
-            on the photon destruction probability. Only relevant when ``scattering_in_emission`` is
-            True. Forwarded to the ``ModelContext`` objects.
+            If True (default), the Feautrier scattering solver iterates until the flux has converged,
+            with a minimum number of iterations set by the photon destruction probability. If False, a
+            fixed number of iterations is used, without convergence test; the flux is then less accurate,
+            and its gradient is not obtained by implicit differentiation. Only relevant when
+            ``scattering_in_emission`` is True. Forwarded to the ``ModelContext`` objects.
         jaxns_config_factory : str, optional
             JAXNS only. A ``"package.module:function"`` reference to a module-level
             function that rebuilds this ``RetrievalConfig`` from scratch. Required for
@@ -88,7 +90,7 @@ class RetrievalConfig:
         pressures: ArrayLike | None = None,
         feautrier_chunk_size: int | None = None,
         chunk_feautrier: bool = True,
-        adaptive_feautrier_iterations: bool = False,
+        adaptive_feautrier_iterations: bool = True,
         jaxns_config_factory: str | None = None,
         jaxns_config_factory_kwargs: dict | None = None,
         # --- deprecated arguments ---

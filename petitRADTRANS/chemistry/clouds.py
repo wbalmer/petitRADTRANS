@@ -484,7 +484,9 @@ def setup_clouds(pressures, parameters, cloud_species):
     kzz = None
 
     # Setup distribution shape
-    if "sigma_lnorm" in parameters.keys():
+    if any(str(key).startswith("sigma_lnorm_") for key in parameters.keys()):
+        sigma_lnorm = cloud_dict(parameters, "sigma_lnorm", cloud_species)
+    elif "sigma_lnorm" in parameters.keys():
         sigma_lnorm = parameters["sigma_lnorm"]
     elif "b_hans" in parameters.keys():
         b_hans = get_bhans(parameters, cloud_species, pressures.shape[0])

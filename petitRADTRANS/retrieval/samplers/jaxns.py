@@ -32,6 +32,7 @@ import dataclasses
 import gc
 import json
 import os
+import time
 import warnings
 from typing import Any
 
@@ -57,6 +58,10 @@ _JAXNS_DEPTH_FIELDS = (
     "dlogZ",
     "cummax_XL_frac",
 )
+
+# dlogZ above this is almost certainly a MultiNest-style ln Z tolerance passed
+# by mistake; see _build_stopping_conditions.
+_JAXNS_DLOGZ_WARNING_THRESHOLD = 0.01
 
 # Stopping criteria JAXNS moved out of its condition dataclass and into the
 # Python goal loop. pRT still accepts them as sampler kwargs and synthesises
@@ -162,6 +167,192 @@ _JAXNS_REMOVED_SAMPLER_KWARGS = {
         "with a jaxns-cli worker pool for multi-device runs."
     ),
 }
+
+
+def _log_goal_boundary(state, observed, started_at, *, reached):
+    """Print one progress line per completed goal boundary.
+
+    Goal boundaries are also the only points where JAXNS may checkpoint, so this
+    line is the run's heartbeat: without it a multi-day run is silent until it
+    finishes. Reads only cheap State scalars (plus whatever the goal already
+    computed), and tolerates DistributedState lacking any of them.
+    """
+
+    def scalar(name):
+        value = getattr(state, name, None)
+        if value is None:
+            return float("nan")
+        try:
+            return float(np.asarray(value))
+        except (TypeError, ValueError):
+            return float("nan")
+
+    elapsed_h = (time.monotonic() - started_at) / 3600.0
+    parts = [
+        f"iter {int(state.goal_loop_iter)}",
+        f"samples={scalar('num_samples'):.0f}",
+        f"L-evals={scalar('total_num_likelihood_evaluations'):.0f}",
+        f"max logL={scalar('log_L_supremum'):.2f}",
+        f"expected dlogZ={scalar('expected_log_Z_uncert'):.3f}",
+    ]
+    parts += [
+        f"{name}={current:.4g} (goal {target:.4g})"
+        for name, (current, target) in observed.items()
+        if name not in ("num_samples", "total_num_likelihood_evaluations",
+                        "log_L_supremum", "expected_log_Z_uncert")
+    ]
+    parts.append(f"elapsed={elapsed_h:.2f} h")
+    if reached:
+        parts.append("goal reached")
+    print("[pRT-JAXNS] goal boundary: " + ", ".join(parts), flush=True)
+
+
+#: Defaults for the ``gmm_directions`` sampler kwarg. ``min_ess=None`` means
+#: 4 x the number of free parameters.
+GMM_DIRECTION_DEFAULTS = {
+    "min_ess": None,
+    "refit_every": 1,
+    "num_components": 1,
+    "num_iterations": 10,
+    "iso_prob": 0.05,
+    "regularisation": 1e-6,
+}
+
+
+def _resolve_gmm_directions(value):
+    """Validate the ``gmm_directions`` kwarg: None/False (off), True, or a dict."""
+    if value is None or value is False:
+        return None
+    if value is True:
+        value = {}
+    if not isinstance(value, dict):
+        raise TypeError(
+            "gmm_directions must be True, False/None, or a dict of options "
+            f"{sorted(GMM_DIRECTION_DEFAULTS)}; got {type(value).__name__}."
+        )
+    unknown = set(value) - set(GMM_DIRECTION_DEFAULTS)
+    if unknown:
+        raise TypeError(
+            f"Unknown gmm_directions option(s) {sorted(unknown)}; supported: "
+            f"{sorted(GMM_DIRECTION_DEFAULTS)}."
+        )
+    options = {**GMM_DIRECTION_DEFAULTS, **value}
+    if options["min_ess"] is not None and float(options["min_ess"]) < 0:
+        raise ValueError("gmm_directions.min_ess must be non-negative.")
+    if int(options["refit_every"]) < 1 or int(options["num_components"]) < 1:
+        raise ValueError("gmm_directions.refit_every and num_components must be >= 1.")
+    if not 0.0 <= float(options["iso_prob"]) <= 1.0:
+        raise ValueError("gmm_directions.iso_prob must be between 0 and 1.")
+    return options
+
+
+def _scientific_state(state):
+    """The State inside a DistributedState, or the State itself."""
+    return state.state if hasattr(state, "pending") else state
+
+
+def run_with_direction_refits(
+    sampler,
+    goal_cond,
+    *,
+    key,
+    checkpoint_dir,
+    checkpoint_cadence,
+    options,
+    n_free_parameters,
+    log=None,
+    checkpoint_manager_cls=None,
+):
+    """Run the goal loop one round at a time, refitting slice directions between rounds.
+
+    JAXNS 3 draws slice directions isotropically unless a direction law is
+    fitted explicitly at a drained boundary (``fit_gmm_directions``). Its goal
+    loop has no hook for that, so this drives it: one ``resume_until_goal``
+    call per round, then -- once the posterior is resolved well enough (ESS >=
+    ``min_ess``; the fit is posterior-weighted and degenerate before that) -- a
+    refit. A failed fit keeps the current direction law.
+
+    Checkpointing is owned here rather than by JAXNS: a JAXNS run/resume call
+    given a checkpoint directory reloads the latest checkpoint, which "takes
+    precedence over the explicit state", so a refit made between calls would be
+    silently discarded. JAXNS is therefore called with ``checkpoint_dir=None``
+    and this function loads, saves (at most every ``checkpoint_cadence``
+    seconds, after any refit) and finally saves through JAXNS'
+    CheckpointManager -- so a resumed run keeps its fitted directions.
+
+    Works for both the local NestedSampler and DistributedNestedSampler.
+    """
+    from contextlib import nullcontext
+
+    if checkpoint_manager_cls is None:
+        from jaxns.checkpoint import CheckpointManager as checkpoint_manager_cls
+    if log is None:
+        def log(message):
+            print(message, flush=True)
+
+    min_ess = options["min_ess"]
+    if min_ess is None:
+        min_ess = 4 * int(n_free_parameters)
+    min_ess = float(min_ess)
+
+    manager_context = (
+        checkpoint_manager_cls(checkpoint_dir, checkpoint_cadence)
+        if checkpoint_dir is not None
+        else nullcontext()
+    )
+    with manager_context as manager:
+        state = manager.load() if manager is not None else None
+        if state is None:
+            state = sampler.initialise(key)
+        rounds_since_fit = 0
+
+        while True:
+            start_iteration = int(_scientific_state(state).goal_loop_iter)
+            outcome = {"goal": False}
+
+            def one_round(candidate, start_iteration=start_iteration, outcome=outcome):
+                # The boundary we start from was already judged (before a
+                # refit, or before the checkpoint was written); judge only the
+                # next one, then hand control back.
+                if int(_scientific_state(candidate).goal_loop_iter) <= start_iteration:
+                    return False
+                outcome["goal"] = bool(goal_cond(candidate))
+                return True
+
+            state = sampler.resume_until_goal(state, one_round, checkpoint_dir=None)
+            iteration = int(_scientific_state(state).goal_loop_iter)
+            if outcome["goal"] or int(_scientific_state(state).termination_reason) != 0:
+                break
+
+            rounds_since_fit += 1
+            if rounds_since_fit >= int(options["refit_every"]):
+                ess = float(np.asarray(state.to_result().ess))
+                if ess < min_ess:
+                    log(f"[pRT-JAXNS] slice directions: isotropic after iter {iteration} "
+                        f"(ESS {ess:.4g} < {min_ess:g})")
+                else:
+                    try:
+                        state = state.fit_gmm_directions(
+                            num_components=int(options["num_components"]),
+                            num_iterations=int(options["num_iterations"]),
+                            iso_prob=float(options["iso_prob"]),
+                            regularisation=float(options["regularisation"]),
+                        )
+                    except ValueError as problem:
+                        log(f"[pRT-JAXNS] slice directions: GMM fit failed after iter "
+                            f"{iteration} ({problem}); keeping the current law")
+                    else:
+                        rounds_since_fit = 0
+                        log(f"[pRT-JAXNS] slice directions: fitted "
+                            f"{int(options['num_components'])}-component GMM after iter "
+                            f"{iteration} (ESS {ess:.4g})")
+
+            if manager is not None:
+                manager.maybe_save(state)
+
+        if manager is not None:
+            manager.save_if_changed(state)
+    return state
 
 
 class JAXNSSampler(Sampler):
@@ -350,6 +541,23 @@ class JAXNSSampler(Sampler):
             if name in _JAXNS_GOAL_FIELDS
         }
 
+        dlogZ = depth_values.get("dlogZ")
+        if dlogZ is not None and float(dlogZ) > _JAXNS_DLOGZ_WARNING_THRESHOLD:
+            # JAXNS compares dlogZ with the remaining-evidence FRACTION
+            # L*X / (Z + L*X) at the last sample block, and that block carries
+            # the end-of-run drain of the live points (X shrinks by ~1/n_live).
+            # A MultiNest-style tolerance such as 0.5 is therefore met after the
+            # first allocation round: on an 18-parameter pRT benchmark it
+            # stopped runs ~30 nats of compression short of the posterior.
+            warnings.warn(
+                f"JAXNS dlogZ={float(dlogZ):g} is a remaining-evidence fraction, not a "
+                "ln Z tolerance like MultiNest's evidence_tolerance, and values this "
+                "large typically end the run after one allocation round, far from the "
+                "posterior. JAXNS' default is log1p(1e-3) ~ 1e-3; omit dlogZ to use it.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+
         if len(depth_values) > 0:
             depth_condition = _opt.DepthCondition(**depth_values)
         elif len(goal_values) > 0:
@@ -519,6 +727,8 @@ class JAXNSSampler(Sampler):
             # default because it is calibrated tighter than classic shrinkage.
             "evidence_num_samples": int(sampler_kwargs.pop("evidence_num_samples", 4096)),
             "evidence_conditioning": sampler_kwargs.pop("evidence_conditioning", "phantom"),
+            # Posterior-aligned slice directions, refitted between goal rounds.
+            "gmm_directions": _resolve_gmm_directions(sampler_kwargs.pop("gmm_directions", None)),
             "num_phantoms": sampler_kwargs.pop("num_phantoms", None),
             "evidence_batch_size": sampler_kwargs.pop("evidence_batch_size", None),
             "num_equal_weight_samples": sampler_kwargs.pop(
@@ -1269,6 +1479,7 @@ class JAXNSSampler(Sampler):
             checks.append((attribute_name, comparison, needs_result, float(value)))
 
         needs_result = any(check[2] for check in checks)
+        started_at = time.monotonic()
 
         def goal_cond(state):
             # Iteration 0 has no completed allocation round to judge; JAXNS'
@@ -1279,22 +1490,26 @@ class JAXNSSampler(Sampler):
             if depth_reached is not None and bool(
                 depth_reached(state, depth_condition)
             ):
+                _log_goal_boundary(state, {}, started_at, reached=True)
                 return True
 
             # Only materialise the result tree when a criterion needs it
             # (currently just 'ess'); the State scalars are the cheap path.
             result = state.to_result() if needs_result else None
 
+            reached = False
+            observed = {}
             for attribute_name, comparison, from_result, target in checks:
                 source = result if from_result else state
                 current = float(np.asarray(getattr(source, attribute_name)))
+                observed[attribute_name] = (current, target)
                 if comparison == "at_least":
-                    if current >= target:
-                        return True
-                elif current <= target:
-                    return True
+                    reached = reached or current >= target
+                else:
+                    reached = reached or current <= target
 
-            return False
+            _log_goal_boundary(state, observed, started_at, reached=reached)
+            return reached
 
         return goal_cond
 
@@ -1308,6 +1523,24 @@ class JAXNSSampler(Sampler):
         goal_cond = run_config["goal_cond"]
         if goal_cond is None:
             goal_cond = self._build_goal_condition(run_config)
+
+        gmm_options = run_config.get("gmm_directions")
+        if gmm_options is not None:
+            if goal_cond is None:
+                raise ValueError(
+                    "gmm_directions refits slice directions between goal rounds, so it "
+                    "needs a stopping goal (e.g. ess=1000). Without one JAXNS runs a "
+                    "single depth epoch and there is no boundary to refit at."
+                )
+            return run_with_direction_refits(
+                self.sampler,
+                goal_cond,
+                key=jax_random_key,
+                checkpoint_dir=checkpoint_dir,
+                checkpoint_cadence=run_config["checkpoint_cadence"],
+                options=gmm_options,
+                n_free_parameters=len(self.parameter_names),
+            )
 
         if goal_cond is None:
             return self.sampler.run(
