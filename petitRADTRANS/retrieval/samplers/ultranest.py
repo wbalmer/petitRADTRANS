@@ -300,7 +300,7 @@ class UltranestSampler(Sampler):
         # run_kwargs['max_iters'] = self.max_iters if self.max_iters > 0 else None
 
         self.sampler.run(**run_kwargs)
-        self.results = self.sampler.results
+        self.results = _with_sample_log_likelihood(self.sampler.results)
         if self.results:
             self.sampler.print_results()
         return self.results
@@ -373,6 +373,28 @@ class UltranestSampler(Sampler):
 
         parameter_names = header[2:] if len(header) == weighted_rows.shape[1] else []
         return weighted_rows[:, 2:], weighted_rows[:, 1], parameter_names
+
+
+def _with_sample_log_likelihood(results):
+    """UltraNest's in-memory results, with the log likelihood of each equal-weighted sample.
+
+    ``ReactiveNestedSampler.results`` holds the equal-weighted ``samples`` and the
+    weighted chain (``weighted_samples``) but no per-sample log likelihood, so the
+    retrieval would otherwise re-evaluate every sample one by one when it saves them
+    (hours for ~10^4 samples). The values are looked up in the weighted chain, as
+    :meth:`UltranestSampler.load_results` does for the files.
+    """
+    if not isinstance(results, dict) or results.get("samples") is None:
+        return results
+    if "log_likelihood" in results:
+        return results
+    weighted = results.get("weighted_samples")
+    if not isinstance(weighted, dict) or weighted.get("points") is None or weighted.get("logl") is None:
+        return results
+    aligned = _equal_weighted_log_likelihood(results["samples"], weighted["points"], weighted["logl"])
+    if aligned is not None:
+        results["log_likelihood"] = aligned
+    return results
 
 
 def _equal_weighted_log_likelihood(equal_weighted, weighted_points, weighted_log_likelihood):

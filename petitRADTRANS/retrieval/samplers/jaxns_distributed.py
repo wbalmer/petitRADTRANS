@@ -93,25 +93,20 @@ class JAXNSDistributedSampler(JAXNSSampler):
             for key, value in run_config["nested_sampler_kwargs"].items()
             if value is not None
         }
-        # Distributed allocation has no shell width: one pending task is one
-        # logical lineage thread. DistributedNestedSampler accepts neither
-        # 'shell_size' nor 'batch_size' (a worker's batch size is a private
-        # device choice configured per worker in the jaxns-cli TOML), so drop
-        # them here rather than letting them raise a TypeError deep in JAXNS.
-        for unsupported in ("shell_size", "batch_size"):
-            if nested_sampler_kwargs.pop(unsupported, None) is not None:
-                warnings.warn(
-                    f"'{unsupported}' is ignored by the JAXNS distributed backend; "
-                    "worker batching is configured per worker in the jaxns-cli TOML.",
-                    RuntimeWarning,
-                )
+        # Distributed allocation has no replacement width: one pending task is
+        # one logical lineage thread, and a worker's batch size is a private
+        # device choice configured per worker in the jaxns-cli TOML.
+        # DistributedNestedSampler rejects 'replacement_width', so drop it here
+        # rather than letting it raise a TypeError deep in JAXNS.
+        if nested_sampler_kwargs.pop("replacement_width", None) is not None:
+            warnings.warn(
+                "'replacement_width' is ignored by the JAXNS distributed backend; "
+                "worker batching is configured per worker in the jaxns-cli TOML.",
+                RuntimeWarning,
+            )
 
-        slice_kwargs = dict(run_config["slice_sampler_kwargs"])
-        slice_kwargs["collect_phantom_samples"] = nested_sampler_kwargs.get(
-            "collect_phantom_samples", True
-        )
         slice_sampler, slice_summary = self._build_slice_sampler(
-            model, slice_kwargs, len(self.parameter_names)
+            dict(run_config["slice_sampler_kwargs"])
         )
         if slice_sampler is not None:
             nested_sampler_kwargs["sampler"] = slice_sampler

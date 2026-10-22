@@ -212,22 +212,24 @@ API, so a 2.x install will not work.
 
    JAXNS has continued to change its public API after the 3.0.0 release
    *without bumping its version number*, so ``jaxns>=3.0.0`` is a floor, not a
-   guarantee. pRT needs a JAXNS that provides
-   ``jaxns.depth_condition.DepthCondition`` (which replaced
-   ``jaxns.termination_condition``); the 3.0.0 release itself does not. pRT
-   probes for this at import and raises with installation guidance.
+   guarantee. pRT needs a JAXNS that provides ``jaxns.run_config`` (the API
+   cleanup of commit 9efa455, which renamed the live-point and replacement
+   options) and ``jaxns.depth_condition.DepthCondition``; the 3.0.0 release
+   itself provides neither. pRT probes for this at import and raises with
+   installation guidance.
 
 Key parameters:
 
-* ``num_live_points`` (alias ``target_num_live_points``): number of root
-  lineages. Defaults to JAXNS' own ``30 * n_parameters``.
+* ``num_live_points`` (aliases ``root_allocation_degree``,
+  ``target_num_live_points``): number of root lineages. Defaults to JAXNS' own
+  ``30 * n_parameters``.
 * ``max_samples``: hard cap on collected samples. Defaults to JAXNS' own
   ``1000 * num_live_points``; sample storage grows on demand up to it, so
   there is no longer any reason to pre-declare a huge value.
-* ``num_slices`` / ``no_step_out``: slice-sampler controls. Omit both to use the
-  JAXNS default (``5 * n_parameters`` slices, isotropic directions).
-* ``collect_phantom_samples`` (default ``True``) and ``max_phantom_samples``:
-  retain intermediate slice-chain states to condition the evidence estimate.
+* ``num_slices``: slice steps per replacement. Omit it to use the JAXNS default
+  (``5 * n_parameters`` slices, isotropic directions).
+* ``collect_phantom_samples`` (default ``True``): retain every intermediate
+  slice-chain state to condition the evidence estimate.
 * ``evidence_conditioning``: ``"phantom"`` (default), ``"classic"``, or ``None``
   to skip the Monte Carlo evidence entirely. ``evidence_num_samples`` (default
   4096) and ``num_phantoms`` tune the draw.
@@ -237,8 +239,9 @@ Key parameters:
 * ``goal_cond``: an optional Python callable evaluated on the JAXNS ``State`` at
   each depth boundary. Supplying it makes it the *only* stopping rule, so it
   must express everything the run needs, including evidence convergence.
-* ``allocation_target``, ``shell_size``, ``delta_K``, ``initial_capacity``,
-  ``unlimited_samples``: advanced race-tree allocation and storage controls.
+* ``allocation_target``, ``replacement_width`` (formerly ``shell_size``),
+  ``delta_K``, ``initial_capacity``, ``unlimited_samples``: advanced race-tree
+  allocation and storage controls.
 * ``seed``: random seed.
 * ``sanity_check``: run :meth:`jaxns.model.Model.sanity_check` before sampling,
   which catches NaN or ``+inf`` likelihoods before a long run starts.

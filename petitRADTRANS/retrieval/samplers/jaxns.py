@@ -136,19 +136,38 @@ _JAXNS_TERMINATION_REMOVED = {
 # TODO: remove in version 5.0.0
 _JAXNS_REMOVED_SAMPLER_KWARGS = {
     "s": "JAXNS 3 removed 's'. Slice count is now 'num_slices' on the sampler.",
-    "k": "JAXNS 3 removed 'k' (phantom count). Use 'max_phantom_samples'.",
+    "k": (
+        "JAXNS 3 removed 'k' (phantom count). Phantom collection now keeps every "
+        "intermediate slice state; 'num_phantoms' selects a prefix for the evidence."
+    ),
+    "max_phantom_samples": (
+        "JAXNS removed 'max_phantom_samples': phantom collection now keeps every "
+        "intermediate slice state. Use 'num_phantoms' to condition the evidence on "
+        "a shorter prefix."
+    ),
     "c": (
         "JAXNS 3 removed 'c'. Live-point count is 'num_live_points' "
-        "(alias of 'target_num_live_points')."
+        "(alias of 'root_allocation_degree')."
     ),
     "shell_fraction": (
         "JAXNS 3 removed 'shell_fraction'. The replacement vmap width is the "
-        "explicit 'shell_size'."
+        "explicit 'replacement_width'."
+    ),
+    "batch_size": (
+        "JAXNS removed 'batch_size'. The local replacement vmap width is "
+        "'replacement_width'; distributed worker batches are set in the jaxns-cli TOML."
     ),
     "gradient_guided": (
-        "JAXNS 3 moved 'gradient_guided' onto the slice sampler; pass "
-        "'gradient_guided' together with 'num_slices' to build a custom "
-        "UniDimSliceSampler (experimental in JAXNS 3)."
+        "JAXNS removed gradient-guided slice sampling; its slice sampler now "
+        "takes only 'num_slices'."
+    ),
+    "gradient_guided_slices": (
+        "JAXNS removed gradient-guided slice sampling; its slice sampler now "
+        "takes only 'num_slices'."
+    ),
+    "no_step_out": (
+        "JAXNS removed 'no_step_out': its slice sampler always brackets with the "
+        "unit-hypercube bounds and never steps out."
     ),
     "difficult_model": (
         "JAXNS 3 removed 'difficult_model'. Raise 'num_slices' and/or "
@@ -577,16 +596,14 @@ class JAXNSSampler(Sampler):
         return depth_condition, goal_values, dict(termination_condition_values)
 
     @staticmethod
-    def _build_slice_sampler(model, sampler_kwargs: dict[str, Any], n_free_parameters: int):
+    def _build_slice_sampler(sampler_kwargs: dict[str, Any]):
         """Build an explicit UniDimSliceSampler only if the user asked for one.
 
         Returning ``None`` lets JAXNS pick its own default
         (``num_slices = 5 * D``, isotropic directions), which is the reference
-        configuration.
+        configuration. The runner, not the sampler, owns phantom collection.
         """
         num_slices = sampler_kwargs.pop("num_slices", None)
-        no_step_out = sampler_kwargs.pop("no_step_out", None)
-        gradient_guided = sampler_kwargs.pop("gradient_guided_slices", None)
 
         # JAXNS 3 removed UniDimSliceSampler's 'direction' field: ellipsoidal
         # geometry is no longer a sampler option but immutable State data,
@@ -604,31 +621,11 @@ class JAXNSSampler(Sampler):
                 "between depth epochs. Runs default to isotropic directions."
             )
 
-        if all(
-            option is None
-            for option in (num_slices, no_step_out, gradient_guided)
-        ):
+        if num_slices is None:
             return None, {}
 
-        slice_kwargs = {
-            "num_slices": (
-                int(num_slices) if num_slices is not None else max(1, 5 * n_free_parameters)
-            ),
-            "no_step_out": True if no_step_out is None else bool(no_step_out),
-            "gradient_guided": bool(gradient_guided) if gradient_guided else False,
-        }
-
-        sampler = _opt.UniDimSliceSampler(
-            model=model,
-            collect_phantom_samples=sampler_kwargs.get("collect_phantom_samples", True),
-            **slice_kwargs,
-        )
-        summary = {
-            "num_slices": slice_kwargs["num_slices"],
-            "no_step_out": slice_kwargs["no_step_out"],
-            "gradient_guided_slices": slice_kwargs["gradient_guided"],
-        }
-        return sampler, summary
+        sampler = _opt.UniDimSliceSampler(num_slices=int(num_slices))
+        return sampler, {"num_slices": int(num_slices)}
 
     @classmethod
     def _resolve_run_config(cls, sampler_kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -660,35 +657,53 @@ class JAXNSSampler(Sampler):
             cls._build_stopping_conditions(sampler_kwargs)
         )
 
-        num_live_points = sampler_kwargs.pop("num_live_points", None)
-        target_num_live_points = sampler_kwargs.pop("target_num_live_points", None)
-        if num_live_points is not None and target_num_live_points is not None:
+        # The root population: JAXNS' 'root_allocation_degree', with pRT's
+        # 'num_live_points' and JAXNS' former 'target_num_live_points' accepted
+        # as aliases.
+        root_aliases = {
+            name: sampler_kwargs.pop(name)
+            for name in ("num_live_points", "target_num_live_points", "root_allocation_degree")
+            if sampler_kwargs.get(name) is not None
+        }
+        sampler_kwargs.pop("num_live_points", None)
+        sampler_kwargs.pop("target_num_live_points", None)
+        sampler_kwargs.pop("root_allocation_degree", None)
+        if len(set(int(value) for value in root_aliases.values())) > 1:
             raise TypeError(
-                "got both 'num_live_points' and 'target_num_live_points'; they are aliases."
+                f"got different root populations {root_aliases}; 'num_live_points', "
+                "'target_num_live_points' and 'root_allocation_degree' are aliases."
             )
-        if target_num_live_points is None:
-            target_num_live_points = num_live_points
+        root_allocation_degree = (
+            int(next(iter(root_aliases.values()))) if root_aliases else None
+        )
+
+        # The local replacement vmap width; 'shell_size' is its former name.
+        width_aliases = {
+            name: sampler_kwargs.pop(name)
+            for name in ("shell_size", "replacement_width")
+            if sampler_kwargs.get(name) is not None
+        }
+        sampler_kwargs.pop("shell_size", None)
+        sampler_kwargs.pop("replacement_width", None)
+        if len(set(int(value) for value in width_aliases.values())) > 1:
+            raise TypeError(
+                f"got different replacement widths {width_aliases}; 'shell_size' is the "
+                "former name of 'replacement_width'."
+            )
 
         # NestedSampler construction kwargs. None means "let JAXNS decide",
         # which is what makes the v3 defaults (30*D roots, 1000*roots samples,
         # geometric buffer growth) actually apply.
         nested_sampler_kwargs = {
-            "target_num_live_points": (
-                None if target_num_live_points is None else int(target_num_live_points)
-            ),
+            "root_allocation_degree": root_allocation_degree,
             "max_samples": (
                 None
                 if sampler_kwargs.get("max_samples") is None
                 else int(sampler_kwargs.pop("max_samples"))
             ),
-            "shell_size": sampler_kwargs.pop("shell_size", None),
-            # Added by JAXNS after the 3.0.0 release. root_allocation_degree is
-            # the new spelling of the root population and must agree with
-            # target_num_live_points; batch_size bounds one compiled epoch.
-            "root_allocation_degree": sampler_kwargs.pop(
-                "root_allocation_degree", None
+            "replacement_width": (
+                int(next(iter(width_aliases.values()))) if width_aliases else None
             ),
-            "batch_size": sampler_kwargs.pop("batch_size", None),
             "delta_K": sampler_kwargs.pop("delta_K", None),
             "initial_capacity": sampler_kwargs.pop("initial_capacity", None),
             "unlimited_samples": bool(sampler_kwargs.pop("unlimited_samples", False)),
@@ -696,7 +711,6 @@ class JAXNSSampler(Sampler):
             "collect_phantom_samples": bool(
                 sampler_kwargs.pop("collect_phantom_samples", True)
             ),
-            "max_phantom_samples": sampler_kwargs.pop("max_phantom_samples", None),
         }
         sampler_kwargs.pop("max_samples", None)
 
@@ -740,8 +754,6 @@ class JAXNSSampler(Sampler):
                 key: sampler_kwargs.pop(key)
                 for key in (
                     "num_slices",
-                    "no_step_out",
-                    "gradient_guided_slices",
                     # Removed in JAXNS 3; forwarded only so that
                     # _build_slice_sampler can reject it with guidance rather
                     # than letting it fall through to NestedSampler.
@@ -1233,8 +1245,7 @@ class JAXNSSampler(Sampler):
             num_phantoms = None
 
         evidence_kwargs = {
-            "num_samples": run_config["evidence_num_samples"],
-            "conditioning": conditioning,
+            "phantom_conditioning": conditioning == "phantom",
             "key": _opt.random.PRNGKey(self.seed + 1),
             "batch_size": run_config["evidence_batch_size"],
             "diagnostics": False,
@@ -1245,10 +1256,14 @@ class JAXNSSampler(Sampler):
         cpu_device = self._get_cpu_device()
         try:
             if cpu_device is None:
-                evidence_samples = raw_results.sample_evidence_mc(**evidence_kwargs)
+                evidence_samples = raw_results.sample_evidence(
+                    run_config["evidence_num_samples"], **evidence_kwargs
+                )
             else:
                 with _opt.default_device(cpu_device):
-                    evidence_samples = raw_results.sample_evidence_mc(**evidence_kwargs)
+                    evidence_samples = raw_results.sample_evidence(
+                        run_config["evidence_num_samples"], **evidence_kwargs
+                    )
         except Exception as error:
             warnings.warn(
                 f"JAXNS Monte Carlo evidence estimation failed ({error}); falling back "
@@ -1381,12 +1396,8 @@ class JAXNSSampler(Sampler):
             if value is not None
         }
 
-        slice_kwargs = dict(run_config["slice_sampler_kwargs"])
-        slice_kwargs["collect_phantom_samples"] = nested_sampler_kwargs.get(
-            "collect_phantom_samples", True
-        )
         slice_sampler, slice_summary = self._build_slice_sampler(
-            model, slice_kwargs, len(self.parameter_names)
+            dict(run_config["slice_sampler_kwargs"])
         )
         if slice_sampler is not None:
             nested_sampler_kwargs["sampler"] = slice_sampler

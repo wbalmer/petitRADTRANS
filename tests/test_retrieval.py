@@ -1631,15 +1631,14 @@ def test_jaxns_rejects_removed_ellipsoidal_directions():
     run_config = JAXNSSampler._resolve_run_config({"ellipsoidal_directions": True})
 
     with pytest.raises(TypeError, match="ellipsoidal_directions"):
-        JAXNSSampler._build_slice_sampler(
-            None, dict(run_config["slice_sampler_kwargs"]), 3
-        )
+        JAXNSSampler._build_slice_sampler(dict(run_config["slice_sampler_kwargs"]))
 
 
 @pytest.mark.parametrize(
     "removed_kwarg",
     ["s", "k", "c", "shell_fraction", "difficult_model", "parameter_estimation",
-     "init_efficiency_threshold", "devices"],
+     "init_efficiency_threshold", "devices", "max_phantom_samples", "batch_size",
+     "no_step_out", "gradient_guided_slices"],
 )
 def test_jaxns_rejects_removed_v2_sampler_kwargs(removed_kwarg):
     """JAXNS 3 dropped these; dropping them silently would change the run."""
@@ -1665,18 +1664,30 @@ def test_jaxns_run_config_defaults():
     assert run_config["checkpoint_explicit"] is False
     # None lets JAXNS apply its own scaling defaults rather than pRT's old
     # hard-coded num_live_points=400 / max_samples=1e7.
-    assert run_config["nested_sampler_kwargs"]["target_num_live_points"] is None
+    assert run_config["nested_sampler_kwargs"]["root_allocation_degree"] is None
     assert run_config["nested_sampler_kwargs"]["max_samples"] is None
 
 
-def test_jaxns_num_live_points_is_an_alias_for_target_num_live_points():
-    run_config = JAXNSSampler._resolve_run_config({"num_live_points": 123})
-    assert run_config["nested_sampler_kwargs"]["target_num_live_points"] == 123
+def test_jaxns_num_live_points_is_an_alias_for_root_allocation_degree():
+    for name in ("num_live_points", "target_num_live_points", "root_allocation_degree"):
+        run_config = JAXNSSampler._resolve_run_config({name: 123})
+        assert run_config["nested_sampler_kwargs"]["root_allocation_degree"] == 123
 
+    # Agreeing aliases are fine; disagreeing ones are an error.
+    run_config = JAXNSSampler._resolve_run_config(
+        {"num_live_points": 5, "root_allocation_degree": 5}
+    )
+    assert run_config["nested_sampler_kwargs"]["root_allocation_degree"] == 5
     with pytest.raises(TypeError, match="aliases"):
         JAXNSSampler._resolve_run_config(
             {"num_live_points": 1, "target_num_live_points": 2}
         )
+
+
+def test_jaxns_shell_size_is_the_former_replacement_width():
+    run_config = JAXNSSampler._resolve_run_config({"shell_size": 7})
+    assert run_config["nested_sampler_kwargs"]["replacement_width"] == 7
+    assert "shell_size" not in run_config["nested_sampler_kwargs"]
 
 
 def test_jaxns_phantom_conditioning_requires_phantom_collection():
@@ -1746,7 +1757,7 @@ def test_jaxns_run_sampler_passes_depth_condition(monkeypatch, tmp_path):
     )
     results = sampler.run_sampler(run_config=run_config)
 
-    assert captured["init_kwargs"]["target_num_live_points"] == 32
+    assert captured["init_kwargs"]["root_allocation_degree"] == 32
     assert captured["init_kwargs"]["max_samples"] == 4096
     # dlogZ is the only stopping kwarg here, so it stays a DepthCondition on
     # the sampler and the run goes through plain run() rather than a goal.
@@ -1831,7 +1842,7 @@ def test_jaxns_distributed_run_sampler_passes_depth_condition(monkeypatch, tmp_p
     results = sampler.run_sampler(run_config=run_config)
 
     assert captured["coordinator_port"] == 5599
-    assert captured["init_kwargs"]["target_num_live_points"] == 24
+    assert captured["init_kwargs"]["root_allocation_degree"] == 24
     assert captured["init_kwargs"]["max_samples"] == 2048
     # evidence_uncert is a goal criterion now, so it must not reach the
     # constructor, and the run must go through the goal loop. The empty
@@ -1893,6 +1904,24 @@ def test_spec_backed_prior_model_is_picklable_and_small(monkeypatch):
     assert rebuilds == [spec_path, spec_path]
     # Kilobytes, not gigabytes: this is what crosses the wire to every worker.
     assert len(payload) < 1024
+
+
+def test_distributed_prior_model_is_a_jaxns_model_with_a_stable_identity(monkeypatch):
+    """JAXNS accepts only functions and partials as prior models, and keys its
+    JIT cache on their content: two models of one spec must be equal."""
+    from jaxns.model import Model
+    from petitRADTRANS.retrieval.samplers import jaxns_worker
+
+    monkeypatch.setattr(jaxns_worker, "_rebuild", lambda spec_path: None)
+    first = Model(prior_model=jaxns_worker.distributed_prior_model("/a/spec.json"))
+    second = Model(prior_model=jaxns_worker.distributed_prior_model("/a/spec.json"))
+    other = Model(prior_model=jaxns_worker.distributed_prior_model("/b/spec.json"))
+
+    assert first.prior_model == second.prior_model
+    assert hash(first.prior_model) == hash(second.prior_model)
+    assert first.prior_model != other.prior_model
+    restored = pickle.loads(pickle.dumps(first))
+    assert restored.prior_model == first.prior_model
 
 
 def test_spec_backed_prior_model_primes_runtime_before_jit(monkeypatch):
@@ -1991,10 +2020,14 @@ def test_single_process_jaxns_reuses_the_live_runtime(monkeypatch, tmp_path):
     free_parameter_names, prior_model = interfaces.build_jaxns_prior_model(context)
 
     assert free_parameter_names == ["amplitude"]
-    assert isinstance(prior_model, jaxns_worker.SpecBackedPriorModel)
+    # JAXNS accepts only functions and partials: the spec-backed model rides
+    # along as the partial's argument.
+    (spec_model,) = prior_model.args
+    assert prior_model.func is jaxns_worker.call_spec_backed_prior_model
+    assert isinstance(spec_model, jaxns_worker.SpecBackedPriorModel)
     assert rebuilds == []
-    assert jaxns_worker._RUNTIME_CACHE[prior_model.spec_path][2] is context.runtime
-    assert os.path.exists(prior_model.spec_path)
+    assert jaxns_worker._RUNTIME_CACHE[spec_model.spec_path][2] is context.runtime
+    assert os.path.exists(spec_model.spec_path)
     assert prior_model_is_picklable(prior_model)
     assert np.asarray(jax.jit(lambda: prior_model())()).item() == 6.0
 
@@ -2325,8 +2358,8 @@ def test_direction_refits_with_real_jaxns_fit_and_checkpoint_resume(tmp_path):
 
     def make_sampler():
         return NestedSampler(
-            model=Model(prior_model=_correlated_toy_prior_model), target_num_live_points=20,
-            collect_phantom_samples=True, max_phantom_samples=2,
+            model=Model(prior_model=_correlated_toy_prior_model), root_allocation_degree=20,
+            collect_phantom_samples=True,
             depth_condition=DepthCondition(), max_samples=50000,
         )
 
