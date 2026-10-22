@@ -183,7 +183,7 @@ if __name__ == '__main__':
             
             
             retrieval_config.add_parameter(
-               'fsed_'+specie.split('_')[0],
+               'f_sed_'+specie.split('_')[0],
                 True,
                 distribution=tfpd.Uniform(low=0.0, high=10.0))
 
