@@ -18,7 +18,7 @@ run_retrieval = True
 if __name__ == '__main__':
     # Define the pRT run setup
     retrieval_config = RetrievalConfig(
-        retrieval_name="aflepb_example",  # give a useful name for your retrieval
+        retrieval_name="2m0624_example",  # give a useful name for your retrieval
         run_mode="retrieval",  # 'retrieve' to run, or 'evaluate' to make plots
         sampler_type="numpyro_nuts",  # use NumPyro NUTS for this differentiable retrieval
         adaptive_mesh_refinement=True,  # adaptive mesh refinement, slower if True
@@ -33,9 +33,9 @@ if __name__ == '__main__':
     path_to_data = "/projects/b1094/balmer/spectral_data"
 
     retrieval_config.add_data(
-        name="GRAVITY",
-        path_to_observations=f"{path_to_data}/dbf_aflepb_gravity_kband.fits",
-        data_resolution=500,
+        name="JWST_BIN",
+        path_to_observations=f"{path_to_data}/2M0624_bin300.txt",
+        # data_resolution=300,
         model_resolution=1000,
         model_generating_function=gradient_profile_emission,
     )
@@ -122,11 +122,11 @@ if __name__ == '__main__':
     # Clouds
     # Based on an Ackermann-Marley (2001) cloud model
     # Width of particle size distribution
-    retrieval_config.add_parameter("sigma_lnorm", True, distribution=tfpd.Uniform(low=1.05, high=3.0))
+    retrieval_config.add_parameter("sigma_lnorm", is_free_parameter=False, value=2.0)#True, distribution=tfpd.Uniform(low=1.05, high=3.0))
     # Vertical mixing parameters
-    retrieval_config.add_parameter("log_kzz", True, distribution=tfpd.Uniform(low=5.0, high=13.0))
+    # retrieval_config.add_parameter("log_kzz", True, distribution=tfpd.Uniform(low=5.0, high=13.0))
     # Sedimentation parameter
-    retrieval_config.add_parameter("f_sed", True, distribution=tfpd.Uniform(low=0.1, high=11.0))
+    # retrieval_config.add_parameter("f_sed", True, distribution=tfpd.Uniform(low=0.1, high=11.0))
 
     # Define opacity species to be included
     retrieval_config.set_rayleigh_species(("H2", "He"))
@@ -163,6 +163,26 @@ if __name__ == '__main__':
         equilbrium_mass_fraction_scaling_factor=(-3.5, 1.0),
     )
 
+    retrieval_config.add_cloud_species(
+            "SiO2(s)_amorphous__Mie",
+            use_equilibrium_chemistry=False,
+            free_mass_fraction_limits = (-10.0, 0.0),
+            cloud_base_pressure_limits = (-6.0, -2.0)
+            # equilbrium_mass_fraction_scaling_factor=(-3.5, 1.0),
+        )
+
+    for specie in retrieval_config.cloud_species:
+    
+            retrieval_config.add_parameter('log_cloud_radius_'+specie.split('_')[0],
+                                           True,\
+                                           distribution=tfpd.Uniform(low=-8.0, high=2.0))
+            
+            
+            retrieval_config.add_parameter(
+               'fsed_'+specie.split('_')[0],
+                True,
+                distribution=tfpd.Uniform(low=0.0, high=10.0))
+
     # Before we run the retrieval, let's set up plotting.
     # Define what to put into corner plot if run_mode == 'evaluate'
     # We could also do this with the plot_in_corner argument for add_parameter
@@ -172,7 +192,6 @@ if __name__ == '__main__':
     retrieval_config.parameters["log_g"].plot_in_corner = True
     retrieval_config.parameters["log_g"].corner_ranges = [2.0, 5.0]
     retrieval_config.parameters["log_g"].corner_label = "log g"
-    retrieval_config.parameters["f_sed"].plot_in_corner = True
     retrieval_config.parameters["log_kzz"].plot_in_corner = True
     retrieval_config.parameters["log_kzz"].corner_label = "log Kzz"
     retrieval_config.parameters["C/O"].plot_in_corner = True
@@ -181,9 +200,15 @@ if __name__ == '__main__':
     retrieval_config.parameters["log_pquench"].corner_label = "log pquench"
 
     for spec in retrieval_config.cloud_species:
-        cname = spec.split("_")[0]
-        retrieval_config.parameters["eq_scaling_" + cname].plot_in_corner = True
-        retrieval_config.parameters["eq_scaling_" + cname].corner_label = cname
+            cname = spec.split('_')[0]
+            retrieval_config.parameters['log_X_cb_' + cname].plot_in_corner = True
+            retrieval_config.parameters['log_X_cb_' + cname].corner_label = cname
+            retrieval_config.parameters['fsed_' + cname].plot_in_corner = True
+            retrieval_config.parameters['fsed_' + cname].corner_label = 'fsed_'+cname    
+            retrieval_config.parameters['log_cloud_radius_' + cname].plot_in_corner = True
+            retrieval_config.parameters['log_cloud_radius_' + cname].corner_label = 'log_cloud_rad_'+cname
+            retrieval_config.parameters['log_Pbase_' + cname].plot_in_corner = True
+            retrieval_config.parameters['log_Pbase_' + cname].corner_label = 'log_Pbase_'+cname
 
 
 
