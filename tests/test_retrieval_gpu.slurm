@@ -2,8 +2,8 @@
 #SBATCH --job-name=prt4_gpu  # Job name
 #SBATCH --output=output.txt
 #SBATCH --error=error.txt
-#SBATCH --account=b1094 #b53080              # allocation/account
-#SBATCH --partition=ciera-gpu #buyin             # Partition or queue name, debug, shared, wholenode
+#SBATCH --account=b53080   #b1094           # allocation/account
+#SBATCH --partition=buyin #ciera-gpu           # Partition or queue name, debug, shared, wholenode
 #SBATCH --nodes=1                     # Number of nodes
 #SBATCH --ntasks-per-node=1           # Number of tasks per node
 #SBATCH --gres=gpu:1                  # Specify the gpu and card
