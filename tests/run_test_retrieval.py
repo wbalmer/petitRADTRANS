@@ -208,7 +208,7 @@ if __name__ == '__main__':
             # NUTS sampling configuration
             num_warmup=500,  # warm-started, preconditioned chains need less adaptation
             num_samples=2000,
-            num_chains=4,
+            num_chains=1,
             chain_method="vectorized",
             target_acceptance_rate=0.9,
             progress_bar=True,
