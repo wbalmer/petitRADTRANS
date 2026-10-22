@@ -153,14 +153,18 @@ if __name__ == '__main__':
 
     retrieval_config.add_cloud_species(
         "Fe(s)_crystalline_000__DHS",
-        use_equilibrium_chemistry=True,
-        equilbrium_mass_fraction_scaling_factor=(-3.5, 1.0),
+        use_equilibrium_chemistry=False,
+        free_mass_fraction_limits = (-10.0, 0.0),
+        cloud_base_pressure_limits = (-3.0, 3.0)
+        # equilbrium_mass_fraction_scaling_factor=(-3.5, 1.0),
     )
 
     retrieval_config.add_cloud_species(
         "MgSiO3(s)_crystalline_000__DHS",
-        use_equilibrium_chemistry=True,
-        equilbrium_mass_fraction_scaling_factor=(-3.5, 1.0),
+        use_equilibrium_chemistry=False,
+        free_mass_fraction_limits = (-10.0, 0.0),
+        cloud_base_pressure_limits = (-3.0, 3.0)
+        # equilbrium_mass_fraction_scaling_factor=(-3.5, 1.0),
     )
 
     retrieval_config.add_cloud_species(
@@ -198,15 +202,15 @@ if __name__ == '__main__':
     retrieval_config.parameters["log_pquench"].corner_label = "log pquench"
 
     for spec in retrieval_config.cloud_species:
-            cname = spec.split('_')[0]
-            retrieval_config.parameters['log_X_cb_' + cname].plot_in_corner = True
-            retrieval_config.parameters['log_X_cb_' + cname].corner_label = cname
-            retrieval_config.parameters['fsed_' + cname].plot_in_corner = True
-            retrieval_config.parameters['fsed_' + cname].corner_label = 'fsed_'+cname    
-            retrieval_config.parameters['log_cloud_radius_' + cname].plot_in_corner = True
-            retrieval_config.parameters['log_cloud_radius_' + cname].corner_label = 'log_cloud_rad_'+cname
-            retrieval_config.parameters['log_Pbase_' + cname].plot_in_corner = True
-            retrieval_config.parameters['log_Pbase_' + cname].corner_label = 'log_Pbase_'+cname
+        cname = spec.split('_')[0]
+        retrieval_config.parameters['log_X_cb_' + cname].plot_in_corner = True
+        retrieval_config.parameters['log_X_cb_' + cname].corner_label = cname
+        retrieval_config.parameters['fsed_' + cname].plot_in_corner = True
+        retrieval_config.parameters['fsed_' + cname].corner_label = 'fsed_'+cname    
+        retrieval_config.parameters['log_cloud_radius_' + cname].plot_in_corner = True
+        retrieval_config.parameters['log_cloud_radius_' + cname].corner_label = 'log_cloud_rad_'+cname
+        retrieval_config.parameters['log_Pbase_' + cname].plot_in_corner = True
+        retrieval_config.parameters['log_Pbase_' + cname].corner_label = 'log_Pbase_'+cname
 
 
 
