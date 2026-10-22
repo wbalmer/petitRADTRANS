@@ -140,8 +140,8 @@ def require_jaxns():
     # JAXNS 3 has kept changing its public surface *after* the 3.0.0 release
     # without bumping its version (its pyproject still reads 3.0.0), so a
     # version pin cannot express what pRT needs. Probe the actual API instead:
-    # jaxns.depth_condition replaced jaxns.termination_condition, and is the
-    # marker separating the 3.0.0 release from the API pRT targets.
+    # jaxns.run_config arrived with the API cleanup pRT targets (root degree,
+    # replacement_width, sample_evidence); jaxns.depth_condition before it.
     try:
         import jaxns as jaxns_module
         from jaxns.core import NestedSampler as jaxns_nested_sampler
@@ -151,15 +151,16 @@ def require_jaxns():
         from jaxns.constrained_sampler import (
             UniDimSliceSampler as jaxns_unidim_slice_sampler,
         )
+        import jaxns.run_config  # noqa: F401
     except Exception as error:
         raise ImportError(
             "JAXNS 3 (and jaxctx) could not be imported. This sampler cannot be used. "
-            "pRT requires a JAXNS 3 that exposes 'jaxns.depth_condition.DepthCondition'. "
-            "A JAXNS 2.x install will fail here, and so will the JAXNS 3.0.0 release, "
-            "which still had 'jaxns.termination_condition' -- note that JAXNS reports "
-            "itself as 3.0.0 in both cases, so the version number cannot be trusted. "
-            "Install jaxctx>=1.2.0 and a JAXNS 3 from after the depth-scheduling "
-            "change (jaxns commit 4c70caf or later)."
+            "pRT requires a JAXNS 3 that exposes 'jaxns.run_config' and "
+            "'jaxns.depth_condition.DepthCondition'. A JAXNS 2.x install will fail "
+            "here, and so will earlier JAXNS 3 builds -- note that JAXNS reports "
+            "itself as 3.0.0 in every case, so the version number cannot be trusted. "
+            "Install jaxctx>=1.2.0 and a JAXNS 3 from after the API cleanup "
+            "(jaxns commit 9efa455 or later)."
         ) from error
 
     jaxns = jaxns_module
