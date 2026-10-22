@@ -192,8 +192,6 @@ if __name__ == '__main__':
     retrieval_config.parameters["log_g"].plot_in_corner = True
     retrieval_config.parameters["log_g"].corner_ranges = [2.0, 5.0]
     retrieval_config.parameters["log_g"].corner_label = "log g"
-    retrieval_config.parameters["log_kzz"].plot_in_corner = True
-    retrieval_config.parameters["log_kzz"].corner_label = "log Kzz"
     retrieval_config.parameters["C/O"].plot_in_corner = True
     retrieval_config.parameters["Fe/H"].plot_in_corner = True
     retrieval_config.parameters["log_pquench"].plot_in_corner = True
