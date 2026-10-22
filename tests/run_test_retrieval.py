@@ -49,13 +49,13 @@ retrieval_config.add_data(
 # For NumPyro NUTS we define JAX-native priors with TensorFlow Probability distributions.
 
 # Distance to the planet in cm
-retrieval_config.add_parameter(name="system_distance", is_free_parameter=False, value=41.2925 * cst.pc)
+retrieval_config.add_parameter(name="system_distance", is_free_parameter=False, value=26.84 * cst.pc)
 
 # Log of the surface gravity in cgs units.
 retrieval_config.add_parameter(
     "log_g",
     True,
-    distribution=tfpd.Uniform(low=2.0, high=5.5),
+    distribution=tfpd.Uniform(low=3.0, high=5.0),
 )
 
 # Planet radius in cm
