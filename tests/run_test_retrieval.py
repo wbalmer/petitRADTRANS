@@ -122,7 +122,7 @@ if __name__ == '__main__':
     # Clouds
     # Based on an Ackermann-Marley (2001) cloud model
     # Width of particle size distribution
-    retrieval_config.add_parameter("sigma_lnorm", is_free_parameter=False, value=2.0)#True, distribution=tfpd.Uniform(low=1.05, high=3.0))
+    retrieval_config.add_parameter("sigma_lnorm", True, distribution=tfpd.Uniform(low=1.05, high=3.0)) # is_free_parameter=False, value=2.0)
     # Vertical mixing parameters
     # retrieval_config.add_parameter("log_kzz", True, distribution=tfpd.Uniform(low=5.0, high=13.0))
     # Sedimentation parameter
@@ -205,8 +205,8 @@ if __name__ == '__main__':
         cname = spec.split('_')[0]
         retrieval_config.parameters['log_X_cb_' + cname].plot_in_corner = True
         retrieval_config.parameters['log_X_cb_' + cname].corner_label = cname
-        retrieval_config.parameters['fsed_' + cname].plot_in_corner = True
-        retrieval_config.parameters['fsed_' + cname].corner_label = 'fsed_'+cname    
+        retrieval_config.parameters['f_sed_' + cname].plot_in_corner = True
+        retrieval_config.parameters['f_sed_' + cname].corner_label = 'fsed_'+cname    
         retrieval_config.parameters['log_cloud_radius_' + cname].plot_in_corner = True
         retrieval_config.parameters['log_cloud_radius_' + cname].corner_label = 'log_cloud_rad_'+cname
         retrieval_config.parameters['log_Pbase_' + cname].plot_in_corner = True
@@ -226,7 +226,7 @@ if __name__ == '__main__':
         retrieval.plotter.temp_limits = [150, 3000]
         retrieval.plotter.press_limits = [1e2, 1e-5]
 
-    retrieval = Retrieval(retrieval_config, output_directory="./", evaluate_sample_spectra=False)
+    retrieval = Retrieval(retrieval_config, output_directory="./", evaluate_sample_spectra=True)
 
     configure_retrieval_plotter(retrieval)
 
