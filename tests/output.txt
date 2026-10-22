@@ -1,0 +1,37 @@
+Agent pid 3009092
+Setting up Radtrans object for data 'GRAVITY'...
+Loading Radtrans opacities...
+ Loading line opacities of species 'H2O__POKAZATEL.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/H2O/1H2-16O/1H2-16O__POKAZATEL.R1000_0.3-50mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'CO-NatAbund.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/CO/C-O-NatAbund/C-O-NatAbund__Chubb.R1000_0.3-50mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'CH4.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/CH4/12C-1H4/12C-1H4__MM.R1000_0.3-50mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'CO2.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/CO2/12C-16O2/12C-16O2__UCL-4000.R1000_0.3-50mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'HCN.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/HCN/1H-12C-14N/1H-12C-14N__Harris.R1000_0.3-50mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'FeH.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/FeH/56Fe-1H/56Fe-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'H2S.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/H2S/1H2-32S/1H2-32S__AYT2.R1000_0.3-50mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'NH3.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/NH3/14N-1H3/14N-1H3__CoYuTe.R1000_0.3-50mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'PH3.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/PH3/31P-1H3/31P-1H3__SAlTY.R1000_0.3-50mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'Na__NewAllard.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/Na/23Na/23Na__NewAllard.R1000_0.1-250mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'K__Allard.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/K/39K/39K__Allard.R1000_0.1-250mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'TiO.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/TiO/48Ti-16O/48Ti-16O__Plez.R1000_0.1-250mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'VO.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/VO/51V-16O/51V-16O__Plez.R1000_0.1-250mu.ktable.petitRADTRANS.h5'... Done.
+ Loading line opacities of species 'SiO.R1000' from file '/scratch/efn6832/prt_input_data/input_data/opacities/lines/correlated_k/SiO/28Si-16O/28Si-16O__SiOUVenIR.R1000_0.1-50mu.ktable.petitRADTRANS.h5'... Done.
+ Successfully loaded all line opacities
+ Loading CIA opacities for H2--H2 from file '/scratch/efn6832/prt_input_data/input_data/opacities/continuum/collision_induced_absorptions/H2--H2/H2--H2-NatAbund/H2--H2-NatAbund__BoRi.R831_0.6-250mu.ciatable.petitRADTRANS.h5'... Done.
+ Loading CIA opacities for H2--He from file '/scratch/efn6832/prt_input_data/input_data/opacities/continuum/collision_induced_absorptions/H2--He/H2--He-NatAbund/H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu.ciatable.petitRADTRANS.h5'... Done.
+ Successfully loaded all CIA opacities
+ Loading opacities of cloud species 'Fe(s)_crystalline_000__DHS' from file '/scratch/efn6832/prt_input_data/input_data/opacities/continuum/clouds/Fe(s)_crystalline_000/Fe-NatAbund(s)_crystalline_000/Fe-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5' (crystalline_000, using DHS scattering)... Done.
+ Loading opacities of cloud species 'MgSiO3(s)_crystalline_000__DHS' from file '/scratch/efn6832/prt_input_data/input_data/opacities/continuum/clouds/MgSiO3(s)_crystalline_000/Mg-Si-O3-NatAbund(s)_crystalline_000/Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5' (crystalline_000, using DHS scattering)... Done.
+ Successfully loaded all clouds opacities
+Successfully loaded all opacities
+Starting retrieval aflepb_example with numpyro_nuts
+Testing data 'GRAVITY':
+ wavelengths:
+  OK (no NaN, infinite, or negative value detected)
+ spectrum:
+  OK (no NaN, infinite, or negative value detected)
+ uncertainties:
+  OK (no NaN, infinite, or negative value detected)
+Testing model function for data 'GRAVITY'...
+Loading chemical equilibrium chemistry table from file '/scratch/efn6832/prt_input_data/input_data/pre_calculated_chemistry/equilibrium_chemistry/equilibrium_chemistry.chemtable.petitRADTRANS.h5'... Done.
+No errors detected in the model functions!
+optimal_estimation: optimising 16 parameters from 2 start(s); initial log-posterior = -2.166597e+06

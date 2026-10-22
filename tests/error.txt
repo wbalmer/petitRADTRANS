@@ -1,0 +1,64 @@
+Identity added: /home/efn6832/.ssh/id_ed25519 (balmer@northwestern.edu)
+/gpfs/home/efn6832/petitRADTRANS/petitRADTRANS/retrieval/retrieval.py:341: UserWarning: Negative value detected (3 / 233)
+Make sure that this makes sense for the data set you are considering.
+  warnings.warn(
+/gpfs/home/efn6832/petitRADTRANS/petitRADTRANS/chemistry/clouds.py:706: UserWarning: The cloud Fe(s)_crystalline_000__DHS is not currently implemented.
+  warnings.warn(f"The cloud {name} is not currently implemented.")
+Traceback (most recent call last):
+  File "/gpfs/home/efn6832/petitRADTRANS/petitRADTRANS/temperature_profiles/molliere.py", line 119, in conv_branch
+    _, tfinal, _ = lax.while_loop(
+jax._src.source_info_util.JaxStackTraceBeforeTransformation: ValueError: Reverse-mode differentiation does not work for lax.while_loop or lax.fori_loop with dynamic start/stop values. Try using lax.scan, or using fori_loop with static start/stop.
+
+The preceding stack trace is the source of the JAX operation that, once transformed by JAX, triggered the following exception.
+
+--------------------
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/gpfs/home/efn6832/petitRADTRANS/tests/run_test_retrieval.py", line 183, in <module>
+    retrieval.run(
+    ~~~~~~~~~~~~~^
+        # NUTS sampling configuration
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<22 lines>...
+        is_mass_matrix_diagonal=True,  # False for a dense (correlated) metric
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/gpfs/home/efn6832/petitRADTRANS/petitRADTRANS/retrieval/retrieval.py", line 3954, in run
+    sampler, run_kwargs, summary_parameters = sampler_cls.prepare(
+                                              ~~~~~~~~~~~~~~~~~~~^
+        context, **sampler_kwargs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/gpfs/home/efn6832/petitRADTRANS/petitRADTRANS/retrieval/samplers/numpyro.py", line 940, in prepare
+    return cls._prepare_numpyro(context, algorithm_name="nuts", **sampler_kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home/efn6832/petitRADTRANS/petitRADTRANS/retrieval/samplers/numpyro.py", line 229, in _prepare_numpyro
+    initial_position, warmup_best_logdensity = cls._run_optax_warmup(
+                                               ~~~~~~~~~~~~~~~~~~~~~^
+        context=context,
+        ^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+        on_optimum=seed_metric_at_optimum,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/gpfs/home/efn6832/petitRADTRANS/petitRADTRANS/retrieval/samplers/gradient.py", line 130, in _run_optax_warmup
+    optimize_result = optimize_unconstrained_position(
+        logdensity, initial_position, seed=warmup_seed, **warmup_optimizer_kwargs
+    )
+  File "/gpfs/home/efn6832/petitRADTRANS/petitRADTRANS/retrieval/samplers/optimal_estimation.py", line 291, in optimize_unconstrained_position
+    position, value, trace, steps_run, converged = _run_single(start, label)
+                                                   ~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/gpfs/home/efn6832/petitRADTRANS/petitRADTRANS/retrieval/samplers/optimal_estimation.py", line 230, in _run_single
+    position, opt_state, logd, grad_inf_norm = _update(position, opt_state)
+                                               ~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home/efn6832/petitRADTRANS/petitRADTRANS/retrieval/samplers/optimal_estimation.py", line 202, in _update
+    neg_value, grad = value_and_grad(position)
+                      ~~~~~~~~~~~~~~^^^^^^^^^^
+ValueError: Reverse-mode differentiation does not work for lax.while_loop or lax.fori_loop with dynamic start/stop values. Try using lax.scan, or using fori_loop with static start/stop.
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.

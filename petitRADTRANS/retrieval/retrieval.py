@@ -2977,6 +2977,7 @@ class Retrieval:
         for parameter_name, parameter in self.configuration.parameters.items():
             if parameter.is_free_parameter:
                 if use_distribution:
+                    print(parameter_name, parameter.distribution.name, parameter.distribution.mean())
                     if parameter.distribution.name.lower() == "uniform":
                         cube.append(
                             (parameter.distribution.low + parameter.distribution.high)

@@ -8,6 +8,8 @@ __pycache__
 build/
 dist/
 petitRADTRANS.egg-info/
+.jax_cache/
+*evaluate_aflepb_example/
 /builds/
 /div/
 tests/results/
