@@ -115,11 +115,7 @@ To be able to use the retrieval module, execute:
 
     pip install "petitRADTRANS[retrieval]" --no-build-isolation
 
-To be able to use the SBI module, execute:
-
-.. code-block:: bash
-
-    pip install "petitRADTRANS[sbi]" --no-build-isolation
+Simulation-based inference (SBI) is provided by the separate `petitSBI <https://gitlab.com/enasedkin/petitSBI>`_ package, which builds on the retrieval module. See its README for installation instructions.
 
 For the complete installation of all optional dependencies, use
 
@@ -146,12 +142,7 @@ Compiling pRT from source
     .. code-block:: bash
 
         pip install ".[retrieval]" --no-build-isolation
-5. **With SBI:** execute the following command in the terminal:
-
-    .. code-block:: bash
-
-        pip install ".[sbi]" --no-build-isolation
-6. **Full installation:** execute the following command in the terminal:
+5. **Full installation:** execute the following command in the terminal:
 
     .. code-block:: bash
 

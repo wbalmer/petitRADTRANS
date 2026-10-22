@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   (to 1e-8), and the new reference is within 3e-7 of it.
 
 ### Removed
+- Package `petitRADTRANS.experimental` (simulation-based inference), its tests,
+  its examples, and the `sbi` optional-dependency group. SBI now lives in the
+  separate [petitSBI](https://gitlab.com/enasedkin/petitSBI) package: replace
+  `petitRADTRANS.experimental.sbi` with `petitSBI` in imports.
+- `equinox`, `orbax-checkpoint` and `distrax` from the `full` and `test`
+  optional-dependency groups; only the SBI module used them.
 - Module constant `radiative_transfer_core.SCATTERING_IMPLICIT_GRADIENT`: the
   gradient of the adaptive scattering iteration is always obtained by implicit
   differentiation.

@@ -73,10 +73,7 @@ full = [
     "blackjax",
     "numpyro>=0.21.0",
     "dynesty>=3.0.0",
-    "equinox>=0.13.8",
     "optax>=0.2.8",
-    "orbax-checkpoint>=0.6",
-    "distrax>=0.1.5",
     "ultranest",
 ]
 
@@ -100,14 +97,6 @@ retrieval = [
     "ultranest",
 ]
 
-# Dependencies for petitRADTRANS.experimental.sbi (under active development).
-sbi = [
-    "equinox>=0.11",
-    "optax>=0.2.8",
-    "orbax-checkpoint>=0.6",
-    "distrax>=0.1.5"
-]
-
 test = [
     "build",
     "wheel",
@@ -123,7 +112,6 @@ test = [
     "pymultinest",
     "blackjax",
     "numpyro>=0.21.0",
-    "equinox>=0.11",
     "optax>=0.2.8",
     "ultranest",
 ]

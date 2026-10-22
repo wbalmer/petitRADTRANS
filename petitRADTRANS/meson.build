@@ -7,7 +7,6 @@ subdir('plotlib')
 subdir('temperature_profiles')
 subdir('radtrans_core')
 subdir('retrieval')
-subdir('experimental')
 subdir('slurm_runs')
 subdir('stellar_spectra')
 
