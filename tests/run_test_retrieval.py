@@ -3,6 +3,7 @@ import os
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE" # keep hdf5 file locking up across processes 
 
+import jax
 from jax import config
 from jax import profiler
 config.update("jax_enable_x64", True)
@@ -234,31 +235,42 @@ if __name__ == '__main__':
 
     if run_retrieval:
         retrieval.run(
-            # NUTS sampling configuration
-            num_warmup=500,  # warm-started, preconditioned chains need less adaptation
-            num_samples=2000,
-            num_chains=4,
-            chain_method="vectorized",
-            target_acceptance_rate=0.9,
-            progress_bar=True,
+            devices=[jax.devices()[0]],
+            num_live_points=80,
+            max_samples=60_000,
+            s=4,
+            k=0,
+            c=200,
+            shell_fraction=0.5,
+            gradient_guided=False,
+            init_efficiency_threshold=0.05,
+            verbose=True,
             use_jit=True,
-            seed=12345,  # remove or randomize for a production retrieval
-            # Optimal estimation warm-up: find the MAP with optax before sampling
-            optimize_init=True,
-            optimizer_kwargs={
-                "optimizer": "adam",
-                "learning_rate": 1e-2,
-                "clip_norm": 1.0,
-                "n_steps": 400,
-                "n_starts": 2,  # random restarts to guard against local optima
-                "lbfgs_polish_steps": 50,  # second-order polish of the best optimum
-                "walker_jitter": 0.05,  # spread chains 1-3 around the MAP (chain 0 stays at it)
-                "seed": 12345,
-            },
-            # Precondition the NUTS metric with the inverse Hessian at the MAP
-            init_inverse_mass_matrix_from_hessian=True,
-            is_mass_matrix_diagonal=True,  # False for a dense (correlated) metric
+            seed=12345,
         )
+
+    if run_retrieval:
+        free_parameter_names = [
+            name for name, parameter in retrieval.configuration.parameters.items() if parameter.is_free_parameter
+        ]
+
+        summary = retrieval.sampler.get_summary(free_parameter_names=free_parameter_names)
+        print("Evidence:")
+        print(summary.get("evidence", {}))
+        print()
+        print("Diagnostics:")
+        print(summary.get("diagnostics", {}))
+        print()
+        print("Posterior summary:")
+        posterior = summary.get("posterior", {})
+        for name, stats in posterior.items():
+            mean = stats.get("mean")
+            std = stats.get("std")
+            print(f"{name:>16s}: mean={mean}, std={std}")
+
+        print()
+        print("Saved JAXNS results:")
+        print(output_root / "out_JAXNS" / f"{retrieval.configuration.retrieval_name}_jaxns_results.json")
 
 
     if run_retrieval:
