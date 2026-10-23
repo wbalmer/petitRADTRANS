@@ -422,8 +422,8 @@ device mesh.
 
   .. code-block:: python
 
+     # sampler_type="jaxns_distributed" is set on the RetrievalConfig
      retrieval.run(
-         sampler_type="jaxns_distributed",
          num_live_points=800,
          coordinator_port=5555,
      )
