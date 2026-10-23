@@ -571,12 +571,22 @@ class RetrievalPlotter:
             )
 
             for linearised_name in self._linearised_data_names():
-                self.plot_modulation(
-                    sample_dict=sample_dict,
-                    parameters_read=parameters_read,
-                    data_name=linearised_name,
-                    refresh=False,
-                )
+                # The modulation, its correlations and the temperature share one
+                # cached set of solves; the light curves and the map share another
+                for plot_function in (
+                    self.plot_modulation,
+                    self.plot_modulation_correlation,
+                    self.plot_modulation_temperature,
+                ):
+                    plot_function(
+                        sample_dict=sample_dict,
+                        parameters_read=parameters_read,
+                        data_name=linearised_name,
+                        refresh=False,
+                    )
+
+                self.plot_modulation_light_curves(data_name=linearised_name)
+                self.plot_modulation_map(data_name=linearised_name)
 
             print("Finished generating all plots!")
 
@@ -855,18 +865,20 @@ class RetrievalPlotter:
         """Solve the modulation posterior at each of the given reference states.
 
         Every state costs one forward model and one Jacobian, which is why
-        :meth:`plot_modulation` caches the result to disk.
+        :meth:`_modulation_mixture` caches the result to disk.
 
         Returns:
-            ``(means, covariances, times, basis, response_names)``, where
-            ``means`` is ``(n_state, n_column)`` and ``covariances`` is
-            ``(n_state, n_column, n_column)``.
+            A dictionary holding the per-state ``means`` ``(n_state, n_column)``
+            and ``covariances`` ``(n_state, n_column, n_column)``, the free
+            parameter values of every state, ``reference_states``
+            ``(n_state, n_free)`` with their ``free_parameter_names``, and the
+            ``times``, ``basis``, ``response_names`` and ``period`` the states
+            share.
         """
         means = []
         covariances = []
-        times = None
-        basis = None
-        response_names = None
+        states = []
+        posterior = None
 
         for i_state, reference_state in enumerate(reference_states):
             print(
@@ -879,15 +891,125 @@ class RetrievalPlotter:
             )
             means.append(np.asarray(posterior["amplitudes"], dtype=float).ravel())
             covariances.append(np.asarray(posterior["covariance"], dtype=float))
-            # The basis and the times are set by the observation, not by the
-            # reference state, so the last solve speaks for all of them
-            times = np.asarray(posterior["times"], dtype=float)
-            basis = np.asarray(posterior["basis"], dtype=float)
-            response_names = list(posterior["response_names"])
+            states.append(list(posterior["reference_state"].values()))
 
         print()
 
-        return np.asarray(means), np.asarray(covariances), times, basis, response_names
+        # The basis and the times are set by the observation, not by the
+        # reference state, so the last solve speaks for all of them
+        return {
+            "means": np.asarray(means),
+            "covariances": np.asarray(covariances),
+            "times": np.asarray(posterior["times"], dtype=float),
+            "basis": np.asarray(posterior["basis"], dtype=float),
+            "response_names": list(posterior["response_names"]),
+            "period": float(posterior["period"]),
+            "reference_states": np.asarray(states, dtype=float),
+            "free_parameter_names": list(posterior["reference_state"]),
+        }
+
+    def _modulation_mixture(
+        self, sample_dict, parameters_read, data_name, n_reference_samples, refresh
+    ):
+        """The modulation posterior at a set of reference states, cached to disk.
+
+        :meth:`plot_modulation`, :meth:`plot_modulation_correlation` and
+        :meth:`plot_modulation_temperature` all draw from this mixture, so the
+        solves are done once and shared through the cache.
+
+        Returns:
+            The dictionary of :meth:`_solve_modulation_posteriors`.  A cache
+            written before the ``period``, the ``reference_states`` and the
+            ``free_parameter_names`` were recorded still serves the modulation
+            itself, with those three set to None.
+        """
+        cache_file = f"{self.get_base_figure_name()}_modulation_{data_name}.npz"
+
+        if os.path.exists(cache_file) and not refresh:
+            cached = np.load(cache_file)
+
+            return {
+                "means": cached["means"],
+                "covariances": cached["covariances"],
+                "times": cached["times"],
+                "basis": cached["basis"],
+                "response_names": [str(name) for name in cached["response_names"]],
+                "period": (
+                    float(cached["period"]) if "period" in cached.files else None
+                ),
+                "reference_states": (
+                    cached["reference_states"]
+                    if "reference_states" in cached.files
+                    else None
+                ),
+                "free_parameter_names": (
+                    [str(name) for name in cached["free_parameter_names"]]
+                    if "free_parameter_names" in cached.files
+                    else None
+                ),
+            }
+
+        mixture = self._solve_modulation_posteriors(
+            self._modulation_reference_states(
+                sample_dict, parameters_read, n_reference_samples
+            ),
+            data_name,
+        )
+        np.savez(
+            cache_file, **{key: np.asarray(value) for key, value in mixture.items()}
+        )
+
+        return mixture
+
+    def _modulation_fit(self, parameters, data_name, refresh):
+        """The data and the modulation model on the data grid, at one reference state.
+
+        Both fields are logarithms with each wavelength's inverse-variance time
+        mean removed, so ``exp(field) - 1`` is the spectrum divided by its own
+        time average, minus one.  An infinitely wide static offset absorbs
+        exactly that time mean, and removing it from both fields compares the
+        data and the model on the same footing whatever the offset prior.  The
+        model uses the conditional mean amplitudes at the given state.  Cached to
+        disk, since it costs one forward model and one Jacobian.
+
+        Returns:
+            A dictionary with the ``wavelengths``, the ``times`` and the
+            ``period`` in seconds, the ``observed`` and ``modelled`` log fields
+            ``(n_wavelength, n_time)``, and their per-point ``variance``.
+        """
+        cache_file = f"{self.get_base_figure_name()}_modulation_fit_{data_name}.npz"
+
+        if os.path.exists(cache_file) and not refresh:
+            cached = np.load(cache_file)
+
+            return {key: cached[key] for key in cached.files}
+
+        posterior = self.calculate_modulation_posterior(
+            parameters=parameters, data_name=data_name
+        )
+        amplitudes = np.asarray(posterior["amplitudes"], dtype=float)
+        basis = np.asarray(posterior["basis"], dtype=float)
+        variance = np.asarray(posterior["variance"], dtype=float)
+        weights = 1.0 / variance
+
+        def remove_time_mean(field):
+            return field - ((field * weights).sum(axis=1) / weights.sum(axis=1))[:, None]
+
+        fit = {
+            "wavelengths": np.asarray(posterior["wavelengths"], dtype=float),
+            "times": np.asarray(posterior["times"], dtype=float),
+            "period": float(posterior["period"]),
+            "observed": remove_time_mean(
+                np.asarray(posterior["log_residual"], dtype=float)
+            ),
+            "modelled": remove_time_mean(
+                np.asarray(posterior["log_jacobian"], dtype=float) @ (amplitudes @ basis.T)
+            ),
+            "variance": variance,
+        }
+        np.savez(cache_file, **fit)
+
+        return fit
 
     def plot_modulation(
         self,
@@ -956,35 +1078,14 @@ class RetrievalPlotter:
 
         data_name = self._resolve_linearised_data_name(data_name)
         print(f"\nPlotting the modulation of '{data_name}'")
-        cache_file = f"{self.get_base_figure_name()}_modulation_{data_name}.npz"
-
-        if os.path.exists(cache_file) and not refresh:
-            cached = np.load(cache_file)
-            means = cached["means"]
-            covariances = cached["covariances"]
-            times = cached["times"]
-            basis = cached["basis"]
-            response_names = [str(name) for name in cached["response_names"]]
-        else:
-            means, covariances, times, basis, response_names = (
-                self._solve_modulation_posteriors(
-                    self._modulation_reference_states(
-                        sample_dict, parameters_read, n_reference_samples
-                    ),
-                    data_name,
-                )
-            )
-            np.savez(
-                cache_file,
-                basis=basis,
-                covariances=covariances,
-                means=means,
-                response_names=np.asarray(response_names),
-                times=times,
-            )
+        mixture = self._modulation_mixture(
+            sample_dict, parameters_read, data_name, n_reference_samples, refresh
+        )
+        basis = mixture["basis"]
+        response_names = mixture["response_names"]
 
         mean, total_covariance, systematic_covariance = _lin.mixture_moments(
-            means, covariances
+            mixture["means"], mixture["covariances"]
         )
         n_response = len(response_names)
         mean = np.asarray(mean, dtype=float).reshape(n_response, -1)
@@ -997,7 +1098,7 @@ class RetrievalPlotter:
         excursion = np.asarray(excursion, dtype=float)
         total_sd = np.asarray(total_sd, dtype=float)
         statistical_sd = np.asarray(statistical_sd, dtype=float)
-        hours = times / 3600.0
+        hours = mixture["times"] / 3600.0
 
         fig, axes = plt.subplots(
             n_response,
@@ -1048,6 +1149,671 @@ class RetrievalPlotter:
         fig.align_ylabels(axes)
         plt.savefig(
             f"{self.get_base_figure_name()}_modulation_{data_name}.pdf",
+            bbox_inches="tight",
+        )
+        self._synchronize()
+
+        return fig, axes
+
+    def plot_modulation_light_curves(
+        self,
+        parameters="best fit",
+        data_name=None,
+        bands=None,
+        refresh=False,
+        panel_figsize=(12, 1.8),
+    ):
+        """Plot band light curves of a linearised time series, data against model.
+
+        Each panel shows one wavelength band through the observation: the
+        inverse-variance mean over the band of the spectrum divided by its own
+        time average, for the data and for the linearised model at one
+        reference state.  The weights are per wavelength AND per epoch, as in the
+        likelihood.  All bands share one y-scale so that their amplitudes compare
+        directly, and dashed lines mark each completed rotation.
+
+        Args:
+            parameters:
+                The reference state at which the modulation is solved, in any
+                form accepted by
+                :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.calculate_modulation_posterior`.
+                Defaults to the best fit.
+            data_name:
+                Which registered linearised dataset to plot.  May be omitted when
+                exactly one is registered.
+            bands:
+                Sequence of ``(low, high)`` wavelength limits, in the units of
+                the data.  Defaults to six bands of equal width in log wavelength
+                spanning the data.
+            refresh:
+                If True, solve again rather than reuse the fit cached on disk by
+                an earlier call; needed after changing ``parameters``.  The cache
+                is shared with :meth:`plot_modulation_map`.
+            panel_figsize:
+                Size of a single panel.  The figure stacks one panel per band.
+
+        Returns:
+            fig, axes: The figure and its array of axes, or ``(None, None)`` off
+            the plotting root.
+        """
+        import matplotlib.pyplot as plt
+        from petitRADTRANS.plotlib.style import prt_default_colour_cycle
+
+        if not self._is_plotting_root():
+            self._synchronize()
+            return None, None
+
+        if not self.configuration.run_mode == "evaluate":
+            print("Not in evaluate mode. Changing run mode to evaluate.")
+            self.configuration.run_mode = "evaluate"
+
+        data_name = self._resolve_linearised_data_name(data_name)
+        print(f"\nPlotting the light curves of '{data_name}'")
+        fit = self._modulation_fit(parameters, data_name, refresh)
+        wavelengths = fit["wavelengths"]
+        hours = (fit["times"] - fit["times"][0]) / 3600.0
+        period_hours = float(fit["period"]) / 3600.0
+        weights = 1.0 / fit["variance"]
+
+        if bands is None:
+            edges = np.geomspace(wavelengths.min(), wavelengths.max(), 7)
+            bands = list(zip(edges[:-1], edges[1:]))
+
+        def band_mean(field, in_band):
+            # Inverse-variance mean over the band, per epoch, as a percentage
+            band_weights = weights[in_band]
+
+            return 100.0 * np.expm1(
+                (field[in_band] * band_weights).sum(axis=0) / band_weights.sum(axis=0)
+            )
+
+        curves = []
+
+        for i_band, (low, high) in enumerate(bands):
+            # The last band must include the reddest channel
+            upper = wavelengths <= high if i_band == len(bands) - 1 else wavelengths < high
+            in_band = (wavelengths >= low) & upper
+
+            if not np.any(in_band):
+                continue
+
+            curves.append(
+                (
+                    low,
+                    high,
+                    band_mean(fit["observed"], in_band),
+                    band_mean(fit["modelled"], in_band),
+                    100.0 / np.sqrt(weights[in_band].sum(axis=0)),
+                )
+            )
+
+        if not curves:
+            raise ValueError("none of the requested bands contains a data point")
+
+        span = 1.1 * max(np.abs(np.concatenate(curve[2:4])).max() for curve in curves)
+        fig, axes = plt.subplots(
+            len(curves),
+            1,
+            sharex=True,
+            squeeze=False,
+            figsize=(panel_figsize[0], panel_figsize[1] * len(curves)),
+        )
+        axes = axes[:, 0]
+
+        for ax, (low, high, data, model, error) in zip(axes, curves):
+            for boundary in np.arange(period_hours, hours.max(), period_hours):
+                ax.axvline(boundary, color="grey", linewidth=0.8, linestyle="--", zorder=0)
+
+            ax.axhline(0.0, color="black", linewidth=0.8, linestyle=":", zorder=0)
+            ax.plot(hours, data, ".", color="grey", markersize=3, label="data", zorder=1)
+            ax.plot(
+                hours, model, color=prt_default_colour_cycle[0], label="model", zorder=2
+            )
+            ax.set_ylim(-span, span)
+            ax.set_ylabel(f"{low:.3g}-{high:.3g}\nmicron", fontsize=8)
+            ax.text(
+                0.995,
+                0.05,
+                f"rms(data - model) {np.std(data - model):.3g}%, "
+                f"median $\\sigma$ {np.median(error):.3g}%",
+                transform=ax.transAxes,
+                ha="right",
+                fontsize=7,
+            )
+            print(
+                f"  {low:.3g}-{high:.3g}: model peak-to-peak {np.ptp(model):.3g}%, "
+                f"rms(data - model) {np.std(data - model):.3g}%, "
+                f"median uncertainty {np.median(error):.3g}%"
+            )
+
+        axes[0].legend(loc="upper left", ncol=2)
+        axes[-1].set_xlabel("Time [h]")
+        fig.supylabel("Flux / time average - 1 [%]")
+        plt.savefig(
+            f"{self.get_base_figure_name()}_modulation_light_curves_{data_name}.pdf",
+            bbox_inches="tight",
+        )
+        self._synchronize()
+
+        return fig, axes
+
+    def plot_modulation_map(
+        self,
+        parameters="best fit",
+        data_name=None,
+        n_phase_bins=32,
+        refresh=False,
+        figsize=(12, 10),
+    ):
+        """Plot the variability of a linearised time series, folded on the rotation.
+
+        Three panels on one colour scale, with wavelength across and rotational
+        phase up: the data and the linearised model at one reference state, each
+        divided by its own time average, and their difference.  Every cell is the
+        inverse-variance mean, in log flux where the likelihood lives, of the
+        epochs whose phase falls in the bin, and the data and the model are
+        binned identically so the residual is a like-for-like difference.
+
+        Phase zero is the first epoch.  When the observation spans more than one
+        rotation but not a whole number of them, the phases below the dashed
+        line were observed once more than the rest; phases never observed are
+        left blank.
+
+        Args:
+            parameters:
+                The reference state at which the modulation is solved, in any
+                form accepted by
+                :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.calculate_modulation_posterior`.
+                Defaults to the best fit.
+            data_name:
+                Which registered linearised dataset to plot.  May be omitted when
+                exactly one is registered.
+            n_phase_bins:
+                Number of rotational-phase bins.  ``n_harmonics`` harmonics
+                resolve nothing finer than ``1 / (2 * n_harmonics)`` of a
+                rotation, so a few times ``2 * n_harmonics`` bins is enough.
+            refresh:
+                If True, solve again rather than reuse the fit cached on disk by
+                an earlier call; needed after changing ``parameters``.  The cache
+                is shared with :meth:`plot_modulation_light_curves`.
+            figsize:
+                Size of the figure.
+
+        Returns:
+            fig, axes: The figure and its array of axes, or ``(None, None)`` off
+            the plotting root.
+        """
+        import matplotlib.pyplot as plt
+
+        if not self._is_plotting_root():
+            self._synchronize()
+            return None, None
+
+        if not self.configuration.run_mode == "evaluate":
+            print("Not in evaluate mode. Changing run mode to evaluate.")
+            self.configuration.run_mode = "evaluate"
+
+        data_name = self._resolve_linearised_data_name(data_name)
+        print(f"\nPlotting the variability map of '{data_name}'")
+        fit = self._modulation_fit(parameters, data_name, refresh)
+        times = fit["times"] - fit["times"][0]
+        period = float(fit["period"])
+        weights = 1.0 / fit["variance"]
+
+        edges = np.linspace(0.0, 1.0, n_phase_bins + 1)
+        centres = 0.5 * (edges[:-1] + edges[1:])
+        phase_bin = np.clip(
+            np.digitize(np.mod(times, period) / period, edges) - 1, 0, n_phase_bins - 1
+        )
+
+        def fold(field):
+            folded = np.full((field.shape[0], n_phase_bins), np.nan)
+
+            for i_bin in range(n_phase_bins):
+                members = phase_bin == i_bin
+
+                if np.any(members):
+                    bin_weights = weights[:, members]
+                    folded[:, i_bin] = 100.0 * np.expm1(
+                        (field[:, members] * bin_weights).sum(axis=1)
+                        / bin_weights.sum(axis=1)
+                    )
+
+            return folded
+
+        data = fold(fit["observed"])
+        model = fold(fit["modelled"])
+        panels = (
+            ("data", data),
+            ("model", model),
+            ("residual (data - model)", data - model),
+        )
+        limit = float(np.nanpercentile(np.abs(data), 99))
+        rotations = times[-1] / period
+        repeated_below = rotations - np.floor(rotations)
+
+        fig, axes = plt.subplots(3, 1, sharex=True, figsize=figsize)
+
+        for ax, (title, field) in zip(axes, panels):
+            image = ax.pcolormesh(
+                fit["wavelengths"],
+                centres,
+                field.T,
+                cmap="RdBu_r",
+                vmin=-limit,
+                vmax=limit,
+                shading="nearest",
+                rasterized=True,
+            )
+
+            if rotations > 1.0 and repeated_below > 0.0:
+                ax.axhline(repeated_below, color="black", linewidth=0.8, linestyle="--")
+
+            ax.set_ylim(0.0, 1.0)
+            ax.set_ylabel("Rotational phase")
+            ax.set_title(f"{title}, rms {np.nanstd(field):.3g}%", fontsize=10)
+            print(f"  {title}: rms {np.nanstd(field):.3g}%")
+
+        axes[-1].set_xlabel(self.spec_xlabel)
+        fig.colorbar(image, ax=axes, label="Flux / time average - 1 [%]")
+        plt.savefig(
+            f"{self.get_base_figure_name()}_modulation_map_{data_name}.pdf",
+            bbox_inches="tight",
+        )
+        self._synchronize()
+
+        return fig, axes
+
+    def plot_modulation_correlation(
+        self,
+        sample_dict=None,
+        parameters_read=None,
+        data_name=None,
+        n_reference_samples=None,
+        refresh=False,
+        figsize=(8, 15),
+    ):
+        """Plot the correlations of the Fourier amplitudes of a linearised time series.
+
+        The amplitudes are integrated out of the sampled likelihood, so their
+        correlations appear in no corner plot.  The first panel is the
+        correlation of the total covariance of the mixture over reference
+        states, as used by :meth:`plot_modulation`.  The second splits it by the
+        law of total variance: the statistical part, the noise in the data at a
+        fixed reference state, below the diagonal, and the reference-state part,
+        the scatter of the amplitudes across reference states, above it.  The
+        second panel is omitted when the modulation was solved at a single
+        reference state, which has no reference-state part.  Lines separate the
+        blocks of the modulated parameters, whose columns run
+        ``c1, s1, c2, s2, ...``.
+
+        Args:
+            sample_dict:
+                Posterior samples, as returned by
+                :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.get_samples`.
+                If None, the modulation is solved at the best fit alone.
+            parameters_read:
+                Names of the sampled parameters, in the order of the rows of
+                ``sample_dict``.
+            data_name:
+                Which registered linearised dataset to plot.  May be omitted when
+                exactly one is registered.
+            n_reference_samples:
+                How many reference states to solve.  Defaults to
+                ``self.nsample``.
+            refresh:
+                If True, solve again rather than reuse the amplitudes cached on
+                disk.  The cache is shared with :meth:`plot_modulation`.
+            figsize:
+                Size of the figure with both panels; a single panel takes the
+                upper half.
+
+        Returns:
+            fig, axes: The figure and its array of axes, or ``(None, None)`` off
+            the plotting root.
+        """
+        import matplotlib.pyplot as plt
+        from petitRADTRANS.retrieval import linearised as _lin
+
+        if not self._is_plotting_root():
+            self._synchronize()
+            return None, None
+
+        if not self.configuration.run_mode == "evaluate":
+            print("Not in evaluate mode. Changing run mode to evaluate.")
+            self.configuration.run_mode = "evaluate"
+
+        data_name = self._resolve_linearised_data_name(data_name)
+        print(f"\nPlotting the amplitude correlations of '{data_name}'")
+        mixture = self._modulation_mixture(
+            sample_dict, parameters_read, data_name, n_reference_samples, refresh
+        )
+        _, total_covariance, systematic_covariance = _lin.mixture_moments(
+            mixture["means"], mixture["covariances"]
+        )
+        total_covariance = np.asarray(total_covariance, dtype=float)
+        systematic_covariance = np.asarray(systematic_covariance, dtype=float)
+
+        def correlation(covariance):
+            standard_deviation = np.sqrt(np.clip(np.diag(covariance), 0.0, None))
+            outer = np.outer(standard_deviation, standard_deviation)
+
+            return np.divide(
+                covariance, outer, out=np.zeros_like(covariance), where=outer > 0.0
+            )
+
+        panels = [("Total", correlation(total_covariance))]
+        n_state = mixture["means"].shape[0]
+
+        if n_state > 1:
+            n_column = total_covariance.shape[0]
+            split = (
+                np.tril(correlation(total_covariance - systematic_covariance), k=-1)
+                + np.triu(correlation(systematic_covariance), k=1)
+                + np.eye(n_column)
+            )
+            panels.append(
+                (
+                    f"Statistical (lower) and reference-state (upper), "
+                    f"{n_state} reference states",
+                    split,
+                )
+            )
+
+        response_names = mixture["response_names"]
+        n_mode = mixture["basis"].shape[1]
+        block_starts = np.arange(len(response_names)) * n_mode
+        block_centres = block_starts + 0.5 * (n_mode - 1)
+
+        fig, axes = plt.subplots(
+            len(panels),
+            1,
+            squeeze=False,
+            figsize=(figsize[0], figsize[1] * len(panels) / 2),
+        )
+        axes = axes[:, 0]
+
+        for ax, (title, matrix) in zip(axes, panels):
+            image = ax.imshow(
+                matrix, cmap="RdBu_r", vmin=-1.0, vmax=1.0, interpolation="nearest"
+            )
+
+            for start in block_starts[1:]:
+                ax.axhline(start - 0.5, color="black", linewidth=0.8)
+                ax.axvline(start - 0.5, color="black", linewidth=0.8)
+
+            ax.set_xticks(block_centres, labels=response_names, rotation=45, ha="right")
+            ax.set_yticks(block_centres, labels=response_names)
+            ax.tick_params(length=0)
+            ax.set_title(title, fontsize=10)
+
+        fig.colorbar(image, ax=axes, label="Correlation coefficient", shrink=0.8)
+        plt.savefig(
+            f"{self.get_base_figure_name()}_modulation_correlation_{data_name}.pdf",
+            bbox_inches="tight",
+        )
+        self._synchronize()
+
+        return fig, axes
+
+    def plot_modulation_temperature(
+        self,
+        sample_dict=None,
+        parameters_read=None,
+        data_name=None,
+        n_reference_samples=None,
+        n_phases=48,
+        n_amplitude_samples=200,
+        pressure_levels=None,
+        pressure_markers=None,
+        refresh=False,
+        figsize=(12, 9),
+    ):
+        """Plot how the temperature profile changes through one rotation.
+
+        The modulated parameters are shifted by their excursion at each
+        rotational phase and the temperature profile is evaluated through the
+        model function's ``pt_plot_mode``, so this works for any temperature
+        parameterisation.  The excursion is drawn from the same mixture over
+        reference states as :meth:`plot_modulation`: each draw picks a reference
+        state, draws amplitudes from its conditional posterior, and is evaluated
+        about that state.  Every draw is shown as its departure from its own
+        rotation mean, since the static profile is the static retrieval's result
+        and its scatter would swamp the modulation.
+
+        The upper panel shows the median departure and its 68% interval at a few
+        pressures; the lower panel maps the median departure against phase and
+        pressure.  Phase zero is the first epoch.  Nothing is plotted when no
+        modulated parameter changes the temperature profile.
+
+        Args:
+            sample_dict:
+                Posterior samples, as returned by
+                :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.get_samples`.
+                If None, the modulation is solved at the best fit alone.
+            parameters_read:
+                Names of the sampled parameters, in the order of the rows of
+                ``sample_dict``.
+            data_name:
+                Which registered linearised dataset to plot.  May be omitted when
+                exactly one is registered.
+            n_reference_samples:
+                How many reference states to solve.  Defaults to
+                ``self.nsample``.
+            n_phases:
+                Number of rotational phases at which the profile is evaluated.
+            n_amplitude_samples:
+                Number of draws from the amplitude posterior.  The figure costs
+                ``n_phases * n_amplitude_samples`` temperature profiles, evaluated
+                in one batch.
+            pressure_levels:
+                Pressures at which the departure is drawn against phase, in the
+                units of the pressure grid.  Defaults to up to six decades
+                within the grid.
+            pressure_markers:
+                Optional mapping of labels to pressures, marked on the map; for
+                example where the modulated parameters of the temperature
+                profile act.
+            refresh:
+                If True, solve again rather than reuse the amplitudes cached on
+                disk.  The cache is shared with :meth:`plot_modulation`.
+            figsize:
+                Size of the figure.
+
+        Returns:
+            fig, axes: The figure and its array of axes, or ``(None, None)`` off
+            the plotting root or when the temperature profile does not change.
+
+        Raises:
+            ValueError: If a modulated parameter is not a free parameter, since
+                only free parameters can be shifted in the batched evaluation.
+        """
+        import matplotlib.pyplot as plt
+
+        if not self._is_plotting_root():
+            self._synchronize()
+            return None, None
+
+        if not self.configuration.run_mode == "evaluate":
+            print("Not in evaluate mode. Changing run mode to evaluate.")
+            self.configuration.run_mode = "evaluate"
+
+        data_name = self._resolve_linearised_data_name(data_name)
+        print(f"\nPlotting the temperature modulation of '{data_name}'")
+        mixture = self._modulation_mixture(
+            sample_dict, parameters_read, data_name, n_reference_samples, refresh
+        )
+        free_parameter_names = list(self._get_parameter_layout().free_parameter_names)
+        modulated = list(
+            self.configuration.data[data_name].time_series_config["modulated_parameters"]
+        )
+        not_free = [name for name in modulated if name not in free_parameter_names]
+
+        if not_free:
+            raise ValueError(
+                f"modulated parameters {not_free} are not free parameters, so their "
+                "excursion cannot be applied to the temperature profile"
+            )
+
+        # The reference states, in the current free-parameter order. A cache
+        # written before they were recorded falls back to the best fit.
+        n_state = mixture["means"].shape[0]
+
+        if mixture["reference_states"] is not None:
+            cached_names = mixture["free_parameter_names"]
+            reference_states = np.stack(
+                [
+                    mixture["reference_states"][:, cached_names.index(name)]
+                    for name in free_parameter_names
+                ],
+                axis=1,
+            )
+        else:
+            best_fit = self._resolve_configuration_parameters(parameters="best fit")
+            reference_states = np.tile(
+                [float(best_fit[name].value) for name in free_parameter_names],
+                (n_state, 1),
+            )
+
+        period = mixture["period"]
+
+        if period is None:
+            period_parameter = self.configuration.data[data_name].time_series_config[
+                "linearised"
+            ]["period_parameter"]
+            period = self.configuration.parameters[period_parameter].value
+
+        # The basis on a dense phase grid over one rotation, anchored like the
+        # observed one: it differs from the raw harmonics by a constant offset
+        times = mixture["times"]
+        basis = mixture["basis"]
+        n_mode = basis.shape[1]
+        orders = np.arange(1, n_mode // 2 + 1)
+
+        def raw_basis(epochs):
+            angle = (2.0 * np.pi / period) * epochs[:, None] * orders[None, :]
+
+            return np.stack([np.cos(angle), np.sin(angle)], axis=-1).reshape(
+                epochs.size, n_mode
+            )
+
+        anchor = raw_basis(times[:1])[0] - basis[0]
+        phases = np.arange(n_phases) / n_phases
+        phase_basis = raw_basis(times[0] + phases * period) - anchor[None, :]
+
+        components = np.random.randint(0, n_state, size=n_amplitude_samples)
+        amplitudes = np.asarray(
+            [
+                np.random.multivariate_normal(
+                    mixture["means"][component], mixture["covariances"][component]
+                )
+                for component in components
+            ]
+        ).reshape(n_amplitude_samples, -1, n_mode)
+        shifts = np.einsum("drm,pm->drp", amplitudes[:, : len(modulated)], phase_basis)
+
+        rows = np.repeat(reference_states[components][:, None, :], n_phases, axis=1)
+
+        for i_response, name in enumerate(modulated):
+            rows[:, :, free_parameter_names.index(name)] += shifts[:, i_response]
+
+        pressures, temperatures = self.calculate_temperature_profile(
+            rows.reshape(-1, len(free_parameter_names)), data=data_name
+        )
+        pressures = np.asarray(pressures, dtype=float)
+        temperatures = np.asarray(temperatures, dtype=float).reshape(
+            n_amplitude_samples, n_phases, -1
+        )
+        departures = temperatures - temperatures.mean(axis=1, keepdims=True)
+
+        if np.max(np.abs(departures)) <= 1e-10 * np.max(np.abs(temperatures)):
+            print("  no modulated parameter changes the temperature profile; skipping")
+            self._synchronize()
+            return None, None
+
+        low, median, high = np.percentile(departures, [16.0, 50.0, 84.0], axis=0)
+
+        if pressure_levels is None:
+            decades = np.arange(
+                np.ceil(np.log10(pressures.min())), np.floor(np.log10(pressures.max())) + 1
+            )
+
+            if decades.size == 0:
+                decades = np.log10([np.sqrt(pressures.min() * pressures.max())])
+
+            decades = decades[np.round(np.linspace(0, decades.size - 1, 6)).astype(int)]
+            pressure_levels = 10.0 ** np.unique(decades)
+
+        closed_phases = np.append(phases, 1.0)
+
+        def close(values):
+            return np.append(values, values[:1])
+
+        fig, axes = plt.subplots(
+            2, 1, sharex=True, figsize=figsize, gridspec_kw={"height_ratios": [1.0, 1.3]}
+        )
+        colours = plt.get_cmap("viridis")(np.linspace(0.0, 0.85, len(pressure_levels)))
+
+        for colour, level in zip(colours, pressure_levels):
+            i_level = int(np.argmin(np.abs(np.log10(pressures) - np.log10(level))))
+            axes[0].fill_between(
+                closed_phases,
+                close(low[:, i_level]),
+                close(high[:, i_level]),
+                color=colour,
+                alpha=0.25,
+                linewidth=0,
+            )
+            axes[0].plot(
+                closed_phases,
+                close(median[:, i_level]),
+                color=colour,
+                label=f"{pressures[i_level]:.2g} bar",
+            )
+            print(
+                f"  {pressures[i_level]:.2g} bar: median peak-to-peak "
+                f"{np.ptp(median[:, i_level]):.3g} K"
+            )
+
+        axes[0].axhline(0.0, color="black", linewidth=0.8, linestyle=":", zorder=0)
+        axes[0].set_ylabel(r"$\Delta T$ [K]")
+        axes[0].legend(loc="best", ncol=3)
+
+        limit = float(np.abs(median).max())
+        image = axes[1].pcolormesh(
+            closed_phases,
+            pressures,
+            np.vstack([median, median[:1]]).T,
+            cmap="RdBu_r",
+            vmin=-limit,
+            vmax=limit,
+            shading="nearest",
+            rasterized=True,
+        )
+
+        for label, marker_pressure in (pressure_markers or {}).items():
+            axes[1].axhline(marker_pressure, color="black", linewidth=0.8, linestyle="--")
+            axes[1].text(
+                0.99,
+                marker_pressure,
+                label,
+                transform=axes[1].get_yaxis_transform(),
+                ha="right",
+                va="bottom",
+                fontsize=8,
+            )
+
+        axes[1].set_yscale("log")
+        axes[1].set_ylim(pressures.max(), pressures.min())
+        axes[1].set_xlim(0.0, 1.0)
+        axes[1].set_xlabel("Rotational phase")
+        axes[1].set_ylabel("Pressure [bar]")
+        # Attached to both panels, so that they keep the same width
+        fig.colorbar(
+            image, ax=axes, label=r"Median $\Delta T$ [K]", shrink=0.55, anchor=(0.0, 0.0)
+        )
+        plt.savefig(
+            f"{self.get_base_figure_name()}_modulation_temperature_{data_name}.pdf",
             bbox_inches="tight",
         )
         self._synchronize()

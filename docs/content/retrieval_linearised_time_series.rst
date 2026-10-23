@@ -18,7 +18,9 @@ analytically, and the sampler explores only the static reference state.
 
 This page describes how to set such a retrieval up, how to recover the
 modulation once it has run, and which diagnostics must accompany a published
-result.
+result. For a worked example, from generating a synthetic SIMP 0136 time series
+to recovering the injected modulation, see the
+`"Linearised Time-Series Retrievals" tutorial <notebooks/retrieval_time_series.html>`_.
 
 The statistical model
 =====================
@@ -134,15 +136,6 @@ Key arguments
     the extra uncertainty that comes from not knowing how much of the signal a
     smooth component could have produced.
 
-Double precision is required
-----------------------------
-
-The marginal likelihood is compared between models at the level of a few nats,
-on a value of order :math:`10^5`. Single precision leaves a roughness floor of
-about 0.03 nats on it, which is enough to blur genuine model-comparison
-differences. ``add_linearised_time_series_data`` therefore calls
-:func:`~petitRADTRANS.retrieval.linearised.require_double_precision` and raises
-unless ``jax_enable_x64`` is set before petitRADTRANS is imported.
 
 Recovering the modulation
 =========================
@@ -197,6 +190,36 @@ and reused unless ``refresh=True``.
    parameters_read = parameter_dict[retrieval.configuration.retrieval_name]
 
    retrieval.plot_modulation(sample_dict, parameters_read, n_reference_samples=50)
+
+Four more plots draw on the same results:
+
+* :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.plot_modulation_correlation`
+  shows the correlations of the amplitudes, in total and split into the
+  statistical and the reference-state parts. It reads the amplitudes cached by
+  ``plot_modulation``.
+* :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.plot_modulation_temperature`
+  shows how the temperature profile departs from its rotation mean, against
+  rotational phase and pressure. It shifts the modulated parameters by their
+  excursion and evaluates the model's own temperature profile, so it works for
+  any temperature parameterisation, and draws nothing if no modulated parameter
+  changes the profile.
+* :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.plot_modulation_light_curves`
+  and :meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.plot_modulation_map`
+  compare the data with the fitted modulation at one reference state, the best
+  fit by default: as light curves in a few wavelength bands, and as the
+  spectrum divided by its time average, folded on the rotation, for the data,
+  the model and their difference. Their shared solve is cached too, so pass
+  ``refresh=True`` after changing the reference state.
+
+All four are called by
+:meth:`~petitRADTRANS.retrieval.retrieval.Retrieval.plot_all` as well.
+
+.. code-block:: python
+
+   retrieval.plot_modulation_correlation(sample_dict, parameters_read)
+   retrieval.plot_modulation_temperature(sample_dict, parameters_read)
+   retrieval.plot_modulation_light_curves()
+   retrieval.plot_modulation_map()
 
 Diagnostics
 ===========

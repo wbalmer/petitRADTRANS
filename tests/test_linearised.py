@@ -1017,3 +1017,299 @@ def test_modulation_posterior_requires_a_flux_jacobian():
 
     with pytest.raises(ValueError, match="without a 'flux_jacobian'"):
         retrieval.calculate_modulation_posterior()
+
+
+def test_modulation_posterior_reports_the_residual_it_solved():
+    """The data-grid fields must rebuild exactly the system that was solved."""
+    configuration = _linearised_configuration()
+    state = configuration.data["linearised_test"].time_series_config["linearised"]
+    n_wavelength = np.asarray(state["var_point"]).shape[0]
+
+    rng = np.random.default_rng(29)
+    flux_jacobian = jnp.asarray(rng.normal(size=(n_wavelength, 2)) * 1e-16)
+    retrieval, wavelengths, reference = _modulation_posterior_retrieval(
+        configuration, flux_jacobian
+    )
+
+    posterior = retrieval.calculate_modulation_posterior()
+    normal_matrix, normal_vector, chi2_data, basis, log_jacobian, _ = (
+        compute_linearised_system(
+            wavelengths,
+            reference,
+            flux_jacobian,
+            retrieval.runtime.observations["linearised_test"],
+            configuration.parameters,
+            "linearised_test",
+        )
+    )
+    rebuilt = lin.build_linear_system(
+        posterior["log_jacobian"],
+        posterior["basis"],
+        posterior["log_residual"],
+        posterior["variance"],
+        state["offset_variance"],
+        state["correlation_rho"],
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(rebuilt[0]), np.asarray(normal_matrix), rtol=EXACT_RTOL
+    )
+    np.testing.assert_allclose(
+        np.asarray(rebuilt[1]), np.asarray(normal_vector), rtol=EXACT_RTOL
+    )
+    np.testing.assert_allclose(float(rebuilt[2]), float(chi2_data), rtol=EXACT_RTOL)
+    assert np.asarray(posterior["log_residual"]).shape == np.asarray(
+        state["var_point"]
+    ).shape
+    assert posterior["period"] == NOMINAL_PERIOD
+    assert posterior["reference_state"] == {"period": NOMINAL_PERIOD}
+
+
+def _anchored_basis(times, period):
+    """The harmonic basis of the plot tests, anchored on the first epoch."""
+    return np.asarray(lin.reference_anchored_basis(
+        jnp.asarray(times),
+        period,
+        jnp.asarray([0]),
+        N_HARMONICS,
+        jnp.asarray([1.0]),
+    ))
+
+
+def _modulation_fit_stub(plotter, n_wavelength=9, n_time=40, seed=53):
+    """Give the plotter a modulation posterior whose model fits the data exactly.
+
+    The data are the modelled modulation plus a different constant at every
+    wavelength, which is what an infinitely wide static offset absorbs, so once
+    each wavelength's time mean is removed the residual must vanish. Returns the
+    list of calls, so a test can check that the cache spares a second solve.
+    """
+    rng = np.random.default_rng(seed)
+    period = 2.0 * 3600.0
+    times = np.linspace(0.0, 1.5 * period, n_time)
+    basis = _anchored_basis(times, period)
+    amplitudes = 0.01 * rng.normal(size=(2, N_MODE))
+    log_jacobian = rng.normal(size=(n_wavelength, 2))
+    modelled = log_jacobian @ amplitudes @ basis.T
+    calls = []
+
+    def calculate_modulation_posterior(parameters=None, data_name=None):
+        calls.append(parameters)
+
+        return {
+            "amplitudes": amplitudes,
+            "basis": basis,
+            "times": times,
+            "period": period,
+            "wavelengths": np.geomspace(1.0, 5.0, n_wavelength),
+            "log_jacobian": log_jacobian,
+            "log_residual": modelled + rng.normal(size=(n_wavelength, 1)),
+            "variance": rng.uniform(1.0, 2.0, size=(n_wavelength, n_time)) * 1e-4,
+        }
+
+    plotter.retrieval.calculate_modulation_posterior = calculate_modulation_posterior
+
+    return calls
+
+
+def test_plot_modulation_light_curves_compare_data_and_model(tmp_path):
+    configuration = _linearised_configuration()
+    plotter = _stub_plotter(configuration, tmp_path / "figure")
+    calls = _modulation_fit_stub(plotter)
+
+    figure, axes = plotter.plot_modulation_light_curves(data_name="linearised_test")
+
+    assert (tmp_path / "figure_modulation_light_curves_linearised_test.pdf").exists()
+    # Six default bands, all of them populated by the nine channels
+    assert len(axes) == 6
+
+    for ax in axes:
+        data, model = ax.lines[-2], ax.lines[-1]
+        np.testing.assert_allclose(data.get_ydata(), model.get_ydata(), atol=1e-10)
+        assert np.ptp(model.get_ydata()) > 0.0
+
+    plt.close(figure)
+
+    # The variability map reads the same cached fit instead of solving again
+    figure, axes = plotter.plot_modulation_map(data_name="linearised_test")
+
+    assert (tmp_path / "figure_modulation_map_linearised_test.pdf").exists()
+    assert len(calls) == 1
+    residual = np.asarray(axes[2].collections[0].get_array())
+    data = np.asarray(axes[0].collections[0].get_array())
+    assert np.nanmax(np.abs(residual)) < 1e-10
+    assert np.nanmax(np.abs(data)) > 0.0
+    # 1.5 rotations: phases below one half were observed twice
+    np.testing.assert_allclose(axes[0].lines[0].get_ydata(), [0.5, 0.5], rtol=1e-6)
+
+    plt.close(figure)
+
+
+def _write_mixture_cache(base_figure_name, means, covariances, times, period, **extra):
+    np.savez(
+        f"{base_figure_name}_modulation_linearised_test.npz",
+        basis=_anchored_basis(times, period),
+        covariances=covariances,
+        means=means,
+        response_names=np.asarray(["T_bottom", "H2O"]),
+        times=times,
+        period=period,
+        **extra,
+    )
+
+
+def _correlation(covariance):
+    standard_deviation = np.sqrt(np.diag(covariance))
+
+    return covariance / np.outer(standard_deviation, standard_deviation)
+
+
+def test_plot_modulation_correlation_splits_the_covariance(tmp_path):
+    configuration = _linearised_configuration()
+    base_figure_name = tmp_path / "figure"
+    plotter = _stub_plotter(configuration, base_figure_name)
+
+    rng = np.random.default_rng(61)
+    n_column = 2 * N_MODE
+    means = rng.normal(size=(5, n_column))
+    factors = rng.normal(size=(5, n_column, n_column))
+    covariances = np.einsum("sij,skj->sik", factors, factors) / n_column
+    _write_mixture_cache(
+        base_figure_name, means, covariances, np.linspace(0.0, 2.0 * PERIOD, N_TIME), PERIOD
+    )
+
+    figure, axes = plotter.plot_modulation_correlation(data_name="linearised_test")
+
+    assert (tmp_path / "figure_modulation_correlation_linearised_test.pdf").exists()
+    assert len(axes) == 2
+
+    centred = means - means.mean(axis=0)
+    systematic = centred.T @ centred / means.shape[0]
+    statistical = covariances.mean(axis=0)
+    total = np.asarray(axes[0].images[0].get_array())
+    split = np.asarray(axes[1].images[0].get_array())
+    lower, upper = np.tril_indices(n_column, k=-1), np.triu_indices(n_column, k=1)
+
+    np.testing.assert_allclose(total, _correlation(statistical + systematic), rtol=DENSE_RTOL)
+    np.testing.assert_allclose(split[lower], _correlation(statistical)[lower], rtol=DENSE_RTOL)
+    np.testing.assert_allclose(split[upper], _correlation(systematic)[upper], rtol=DENSE_RTOL)
+    np.testing.assert_allclose(np.diag(split), 1.0)
+
+    plt.close(figure)
+
+
+def test_plot_modulation_correlation_of_one_state_has_no_reference_part(tmp_path):
+    configuration = _linearised_configuration()
+    base_figure_name = tmp_path / "figure"
+    plotter = _stub_plotter(configuration, base_figure_name)
+    n_column = 2 * N_MODE
+    _write_mixture_cache(
+        base_figure_name,
+        np.ones((1, n_column)),
+        np.eye(n_column)[None],
+        np.linspace(0.0, 2.0 * PERIOD, N_TIME),
+        PERIOD,
+    )
+
+    figure, axes = plotter.plot_modulation_correlation(data_name="linearised_test")
+
+    assert len(axes) == 1
+    np.testing.assert_allclose(np.asarray(axes[0].images[0].get_array()), np.eye(n_column))
+
+    plt.close(figure)
+
+
+def _temperature_stub_plotter(tmp_path, temperature_of_rows):
+    """A plotter whose temperature profile is a given function of the free values.
+
+    The free parameters are T_bottom, H2O and the period, in that order, and the
+    cached mixture holds two reference states with negligible covariances, so
+    every draw carries the mean amplitudes.
+    """
+    configuration = _linearised_configuration()
+    base_figure_name = tmp_path / "figure"
+    plotter = _stub_plotter(configuration, base_figure_name)
+    free_parameter_names = ("T_bottom", "H2O", "period")
+    plotter.retrieval._get_parameter_layout = lambda: types.SimpleNamespace(
+        free_parameter_names=free_parameter_names
+    )
+    pressures = np.logspace(-4.0, 2.0, 7)
+    plotter.retrieval.calculate_temperature_profile = lambda rows, data=None: (
+        pressures, temperature_of_rows(np.asarray(rows), pressures)
+    )
+
+    period = 2.0 * 3600.0
+    times = 600.0 + np.linspace(0.0, 1.3 * period, N_TIME)
+    amplitudes = np.zeros((2, N_MODE))
+    amplitudes[0] = [12.0, -5.0, 3.0, 1.5]  # T_bottom: c1, s1, c2, s2
+    amplitudes[1] = [0.1, 0.0, 0.0, 0.2]  # H2O, which the profile ignores
+    n_column = amplitudes.size
+    _write_mixture_cache(
+        base_figure_name,
+        np.tile(amplitudes.ravel(), (2, 1)),
+        np.tile(1e-20 * np.eye(n_column), (2, 1, 1)),
+        times,
+        period,
+        # Cached in a different order from the layout, as an older layout might be
+        reference_states=np.asarray([[2000.0, -3.0, period], [2100.0, -3.1, period]])[:, [2, 0, 1]],
+        free_parameter_names=np.asarray(["period", "T_bottom", "H2O"]),
+    )
+
+    return plotter, amplitudes, times, period
+
+
+def test_plot_modulation_temperature_follows_the_excursion(tmp_path):
+    evaluated = []
+
+    def isothermal_at_t_bottom(rows, pressures):
+        evaluated.append(rows)
+
+        return np.repeat(rows[:, :1], pressures.size, axis=1)
+
+    plotter, amplitudes, times, period = _temperature_stub_plotter(
+        tmp_path, isothermal_at_t_bottom
+    )
+    np.random.seed(7)
+    n_phases = 24
+    figure, axes = plotter.plot_modulation_temperature(
+        data_name="linearised_test", n_phases=n_phases, n_amplitude_samples=6
+    )
+
+    assert (tmp_path / "figure_modulation_temperature_linearised_test.pdf").exists()
+
+    # Each draw minus its own rotation mean is the T_bottom excursion minus its
+    # rotation mean, which for whole harmonics on a uniform phase grid is the
+    # raw Fourier series about the first epoch: the anchor drops out.
+    phases = np.arange(n_phases) / n_phases
+    angle = 2.0 * np.pi * (times[0] / period + phases)[:, None] * np.arange(1, N_HARMONICS + 1)
+    raw = np.stack([np.cos(angle), np.sin(angle)], axis=-1).reshape(n_phases, N_MODE)
+    expected = raw @ amplitudes[0]
+
+    for line in axes[0].lines[:-1]:
+        np.testing.assert_allclose(line.get_ydata()[:-1], expected, atol=1e-6)
+        np.testing.assert_allclose(line.get_ydata()[-1], expected[0], atol=1e-6)
+
+    # The cached reference states were reordered into the layout's columns. A
+    # reference state is the state at the anchoring epoch, here the first, so a
+    # draw's rotation mean sits at its state minus the excursion there.
+    rows = evaluated[0].reshape(6, n_phases, 3)
+    angle = 2.0 * np.pi * times[0] / period * np.arange(1, N_HARMONICS + 1)
+    anchor = np.stack([np.cos(angle), np.sin(angle)], axis=-1).ravel()
+    states = rows.mean(axis=1)[:, :2] + amplitudes @ anchor
+    assert set(np.round(states[:, 0], 6)) <= {2000.0, 2100.0}
+    np.testing.assert_allclose(
+        states[:, 1], np.where(states[:, 0] < 2050.0, -3.0, -3.1), atol=1e-9
+    )
+    np.testing.assert_allclose(rows[:, :, 2], period)
+
+    plt.close(figure)
+
+
+def test_plot_modulation_temperature_skips_a_static_profile(tmp_path):
+    def fixed_profile(rows, pressures):
+        return np.tile(1000.0 + 100.0 * np.log10(pressures), (rows.shape[0], 1))
+
+    plotter, _, _, _ = _temperature_stub_plotter(tmp_path, fixed_profile)
+
+    assert plotter.plot_modulation_temperature(data_name="linearised_test") == (None, None)
+    assert not (tmp_path / "figure_modulation_temperature_linearised_test.pdf").exists()

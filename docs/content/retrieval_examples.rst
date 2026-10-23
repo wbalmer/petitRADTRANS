@@ -17,6 +17,7 @@ They also demonstrate the JAX retrieval setup through the same `Data` and `Retri
     retrieval_samplers
     retrieval_parallelisation
     retrieval_linearised_time_series
+    notebooks/retrieval_time_series
     notebooks/retrieval_advanced
     notebooks/retrieval_emission_tutorial
     notebooks/retrieval_model_functions_tutorial

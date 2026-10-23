@@ -565,7 +565,7 @@ Laplace approximation of the posterior from the curvature at that optimum. This 
 the classic *optimal estimation* idea (Rodgers): near the mode the posterior is
 approximately Gaussian with covariance equal to the inverse Hessian of the negative
 log-posterior. It is implemented in
-:mod:`petitRADTRANS.retrieval.optimal_estimation`.
+:mod:`petitRADTRANS.retrieval.samplers.optimal_estimation`.
 
 Like the gradient-MCMC backends, it requires a fully differentiable retrieval
 runtime and operates in the *unconstrained* parameter space (so all prior bounds are
@@ -652,7 +652,7 @@ To avoid this, the NumPyro and BlackJAX backends accept an optional optax warm-u
 replaces the prior-median initial position with a MAP estimate before sampling starts.
 Enable it with ``optimize_init=True`` and configure the optimiser through
 ``optimizer_kwargs`` (forwarded to
-:func:`petitRADTRANS.retrieval.optimal_estimation.optimize_unconstrained_position`,
+:func:`petitRADTRANS.retrieval.samplers.optimal_estimation.optimize_unconstrained_position`,
 so it accepts the same ``optimizer``, ``learning_rate``, ``clip_norm``, ``n_steps``,
 ``patience``, ``n_starts``, and ``lbfgs_polish_steps`` keys as above). The optimiser
 defaults to Adam.

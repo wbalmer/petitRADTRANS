@@ -866,7 +866,15 @@ class Retrieval:
             ``excursion_standard_deviation`` (both ``(n_time, n_response)``),
             the ``times``, the harmonic ``basis`` ``(n_time, 2 * n_harmonics)``
             that maps amplitudes onto that excursion, and the ``log_evidence``
-            and ``chi2`` at this state.
+            and ``chi2`` at this state.  For the time-domain plots it also
+            carries the data-grid fields: the observation ``wavelengths``, the
+            ``log_residual`` ``(n_wavelength, n_time)`` of the data about the
+            projected reference spectrum, its per-point ``variance``, and the
+            projected ``log_jacobian`` ``(n_wavelength, n_response)``, so that
+            ``log_jacobian @ amplitudes @ basis.T`` is the modelled modulation.
+            Finally, ``period`` is the rotation period the basis was built with,
+            and ``reference_state`` maps every free parameter to its value at
+            this state.
 
         Raises:
             ValueError: If no linearised dataset is registered, if ``data_name``
@@ -874,7 +882,10 @@ class Retrieval:
                 a flux Jacobian.
         """
         from petitRADTRANS.retrieval import linearised as _lin
-        from petitRADTRANS.retrieval.runtime import compute_linearised_system
+        from petitRADTRANS.retrieval.runtime import (
+            compute_linearised_system,
+            project_model_to_observation_space,
+        )
 
         data_name = self._resolve_linearised_data_name(data_name)
         configuration_parameters = self._resolve_configuration_parameters(
@@ -954,6 +965,17 @@ class Retrieval:
         )
         response_names = self._linearised_response_names(data_name, n_response)
 
+        # The residual the system was built from, kept for the time-domain plots.
+        # Projecting the reference again costs one convolution, not a forward model.
+        projected_reference = project_model_to_observation_space(
+            wavelengths, reference_spectrum, observation, configuration_parameters, data_name
+        )
+        log_residual = (
+            jnp.asarray(state["log_spectrum"]) - jnp.log(projected_reference)[:, None]
+        )
+        period = configuration_parameters[state["period_parameter"]]
+        period = getattr(period, "value", period)
+
         return {
             "amplitudes": amplitudes,
             "basis": basis,
@@ -965,6 +987,16 @@ class Retrieval:
             "times": jnp.asarray(state["times"]),
             "log_evidence": log_evidence,
             "chi2": chi2,
+            "wavelengths": jnp.asarray(data_object.wavelengths),
+            "log_residual": log_residual,
+            "variance": jnp.asarray(state["var_point"]),
+            "log_jacobian": log_jacobian,
+            "period": float(period),
+            "reference_state": {
+                name: float(np.asarray(parameter.value))
+                for name, parameter in configuration_parameters.items()
+                if parameter.is_free_parameter
+            },
         }
 
     def calculate_temperature_profile(
@@ -5019,6 +5051,144 @@ class Retrieval:
             fig, axes: Matplotlib figure object and its array of axes.
         """
         return self.plotter.plot_modulation(
+            sample_dict=sample_dict,
+            parameters_read=parameters_read,
+            data_name=data_name,
+            n_reference_samples=n_reference_samples,
+            refresh=refresh,
+            **kwargs,
+        )
+
+    def plot_modulation_correlation(
+        self,
+        sample_dict=None,
+        parameters_read=None,
+        data_name=None,
+        n_reference_samples=None,
+        refresh=False,
+        **kwargs,
+    ):
+        """
+        Plot the correlations of the Fourier amplitudes of a linearised time series,
+        in total and split into their statistical and reference-state parts.
+        This is a wrapper for RetrievalPlotter.plot_modulation_correlation.
+
+        Args:
+            sample_dict: Dictionary of posterior samples for each retrieval. If None,
+                the modulation is solved at the best fit alone.
+            parameters_read: List of free parameter names, in the order of the rows of
+                sample_dict.
+            data_name: Name of the linearised dataset to plot. May be omitted when
+                exactly one is registered.
+            n_reference_samples: Number of reference states at which to solve the
+                modulation. Each costs one forward model and one Jacobian.
+            refresh: If True, solve again rather than reuse the cached amplitudes.
+            **kwargs: Additional keyword arguments passed to the plotting function.
+        Returns:
+            fig, axes: Matplotlib figure object and its array of axes.
+        """
+        return self.plotter.plot_modulation_correlation(
+            sample_dict=sample_dict,
+            parameters_read=parameters_read,
+            data_name=data_name,
+            n_reference_samples=n_reference_samples,
+            refresh=refresh,
+            **kwargs,
+        )
+
+    def plot_modulation_light_curves(
+        self,
+        parameters="best fit",
+        data_name=None,
+        bands=None,
+        refresh=False,
+        **kwargs,
+    ):
+        """
+        Plot band light curves of a linearised time series, data against model.
+        This is a wrapper for RetrievalPlotter.plot_modulation_light_curves.
+
+        Args:
+            parameters: The reference state at which the modulation is solved.
+                Defaults to the best fit.
+            data_name: Name of the linearised dataset to plot. May be omitted when
+                exactly one is registered.
+            bands: Sequence of (low, high) wavelength limits. Defaults to six bands of
+                equal width in log wavelength.
+            refresh: If True, solve again rather than reuse the cached fit.
+            **kwargs: Additional keyword arguments passed to the plotting function.
+        Returns:
+            fig, axes: Matplotlib figure object and its array of axes.
+        """
+        return self.plotter.plot_modulation_light_curves(
+            parameters=parameters,
+            data_name=data_name,
+            bands=bands,
+            refresh=refresh,
+            **kwargs,
+        )
+
+    def plot_modulation_map(
+        self,
+        parameters="best fit",
+        data_name=None,
+        n_phase_bins=32,
+        refresh=False,
+        **kwargs,
+    ):
+        """
+        Plot the variability of a linearised time series folded on the rotation:
+        data, model and residual against wavelength and rotational phase.
+        This is a wrapper for RetrievalPlotter.plot_modulation_map.
+
+        Args:
+            parameters: The reference state at which the modulation is solved.
+                Defaults to the best fit.
+            data_name: Name of the linearised dataset to plot. May be omitted when
+                exactly one is registered.
+            n_phase_bins: Number of rotational-phase bins.
+            refresh: If True, solve again rather than reuse the cached fit.
+            **kwargs: Additional keyword arguments passed to the plotting function.
+        Returns:
+            fig, axes: Matplotlib figure object and its array of axes.
+        """
+        return self.plotter.plot_modulation_map(
+            parameters=parameters,
+            data_name=data_name,
+            n_phase_bins=n_phase_bins,
+            refresh=refresh,
+            **kwargs,
+        )
+
+    def plot_modulation_temperature(
+        self,
+        sample_dict=None,
+        parameters_read=None,
+        data_name=None,
+        n_reference_samples=None,
+        refresh=False,
+        **kwargs,
+    ):
+        """
+        Plot how the temperature profile changes through one rotation of a
+        linearised time series.
+        This is a wrapper for RetrievalPlotter.plot_modulation_temperature.
+
+        Args:
+            sample_dict: Dictionary of posterior samples for each retrieval. If None,
+                the modulation is solved at the best fit alone.
+            parameters_read: List of free parameter names, in the order of the rows of
+                sample_dict.
+            data_name: Name of the linearised dataset to plot. May be omitted when
+                exactly one is registered.
+            n_reference_samples: Number of reference states at which to solve the
+                modulation. Each costs one forward model and one Jacobian.
+            refresh: If True, solve again rather than reuse the cached amplitudes.
+            **kwargs: Additional keyword arguments passed to the plotting function.
+        Returns:
+            fig, axes: Matplotlib figure object and its array of axes.
+        """
+        return self.plotter.plot_modulation_temperature(
             sample_dict=sample_dict,
             parameters_read=parameters_read,
             data_name=data_name,
