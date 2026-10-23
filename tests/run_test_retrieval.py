@@ -32,8 +32,8 @@ if __name__ == '__main__':
     # Here we import petitRADTRANS to find the path of the example files on your machine
     # In general this is not required, you just put the files in the folder that you are running
     # Your script in, for example
-    # path_to_data = "/projects/b1094/balmer/spectral_data"
-    path_to_data = "/Users/wbalmer/Downloads"
+    path_to_data = "/projects/b1094/balmer/spectral_data"
+    # path_to_data = "/Users/wbalmer/Downloads"
 
     ns_g395h = np.load(f"{path_to_data}/HIP 99770.npy",allow_pickle=True).item()
     wave = ns_g395h['wave'][ns_g395h['valid']]
