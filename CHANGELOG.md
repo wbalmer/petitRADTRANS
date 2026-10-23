@@ -4,6 +4,41 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [Unreleased]
+### Added
+- Functions `Retrieval.plot_modulation_light_curves` and
+  `Retrieval.plot_modulation_map`, drawing the data of a linearised time series
+  against its fitted modulation: as band light curves through the observation,
+  and as data, model and residual folded on the rotation against wavelength and
+  phase.
+- Function `Retrieval.plot_modulation_correlation`, drawing the correlations of
+  the Fourier amplitudes, in total and split into their statistical and
+  reference-state parts.
+- Function `Retrieval.plot_modulation_temperature`, drawing the departure of the
+  temperature profile from its rotation mean against phase and pressure. It
+  evaluates the model's own temperature profile, so it works for any
+  temperature parameterisation.
+- `Retrieval.plot_all` calls the four new functions for every registered
+  linearised dataset.
+- `Retrieval.calculate_modulation_posterior` also returns the data-grid fields
+  of the solve (`wavelengths`, `log_residual`, `variance` and `log_jacobian`),
+  the `period` of the basis, and the `reference_state` it was solved at.
+- Tutorial notebook "Retrievals: Linearised Time-Series Retrievals", replacing
+  the `time_series_gradient_emission` notebook: a synthetic SIMP 0136 time
+  series made with trigonometric interpolation, retrieved in two stages.
+
+### Changed
+- The amplitude cache written by `Retrieval.plot_modulation` also records the
+  period and the reference states, which `plot_modulation_temperature` needs.
+  Caches written before still serve `plot_modulation` and
+  `plot_modulation_correlation`.
+
+### Fixed
+- The JAXNS calls of the retrieval tutorials used arguments that JAXNS 3
+  removed, so they raised `TypeError`; PyMultiNest calls spelled `max_iter` as
+  `max_iters` and passed UltraNest arguments, which PyMultiNest silently
+  ignores.
+
 ## [4.0.0b5] - 2026-10-03
 ### Added
 - Test of second-order (Hessian-vector product) derivatives of the scattering

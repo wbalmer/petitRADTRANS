@@ -1278,7 +1278,7 @@ class RetrievalPlotter:
                 f"median $\\sigma$ {np.median(error):.3g}%",
                 transform=ax.transAxes,
                 ha="right",
-                fontsize=7,
+                fontsize=8,
             )
             print(
                 f"  {low:.3g}-{high:.3g}: model peak-to-peak {np.ptp(model):.3g}%, "
@@ -1768,10 +1768,10 @@ class RetrievalPlotter:
                 closed_phases,
                 close(median[:, i_level]),
                 color=colour,
-                label=f"{pressures[i_level]:.2g} bar",
+                label=f"{pressures[i_level]:.3g} bar",
             )
             print(
-                f"  {pressures[i_level]:.2g} bar: median peak-to-peak "
+                f"  {pressures[i_level]:.3g} bar: median peak-to-peak "
                 f"{np.ptp(median[:, i_level]):.3g} K"
             )
 
