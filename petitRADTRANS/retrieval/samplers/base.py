@@ -363,6 +363,12 @@ class Sampler(abc.ABC):
         if plot_output is None:
             return None
 
+        # ArviZ >=1.0 returns a PlotCollection: it has `savefig` but is not a
+        # matplotlib figure, which is stored in its `viz` tree instead.
+        viz = getattr(plot_output, "viz", None)
+        if viz is not None and "figure" in viz:
+            return viz["figure"].item()
+
         if hasattr(plot_output, "savefig"):
             return plot_output
 

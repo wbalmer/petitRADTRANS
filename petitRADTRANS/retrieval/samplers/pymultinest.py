@@ -102,7 +102,10 @@ class PymultinestSampler(Sampler):
             "n_iter_before_update": sampler_kwargs.pop("n_iter_before_update", 50),
             "resume": sampler_kwargs.pop("resume", False),
             "verbose": sampler_kwargs.pop("verbose", True),
-            "max_iter": sampler_kwargs.pop("max_iter", 0),
+            # UltraNest spells this option 'max_iters'; accept both.
+            "max_iter": sampler_kwargs.pop(
+                "max_iter", sampler_kwargs.pop("max_iters", 0)
+            ),
             "seed": sampler_kwargs.pop("seed", -1),
             "n_clustering_params": sampler_kwargs.pop("n_clustering_params", None),
             "wrapped_params": sampler_kwargs.pop("wrapped_params", None),
@@ -120,6 +123,12 @@ class PymultinestSampler(Sampler):
             "init_MPI": sampler_kwargs.pop("init_MPI", False),
             "dump_callback": sampler_kwargs.pop("dump_callback", False),
         }
+
+        if sampler_kwargs:
+            warnings.warn(
+                f"Ignoring unknown PyMultiNest argument(s): {sorted(sampler_kwargs)}",
+                RuntimeWarning,
+            )
 
         sampler = cls(
             log_likelihood_func=log_likelihood_func,
