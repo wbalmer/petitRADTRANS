@@ -25,6 +25,7 @@ from petitRADTRANS.radtrans_core.spectrum_utils import (
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data, PhotometryData
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
+from petitRADTRANS.retrieval.parameter_aliases import normalize_parameter_mapping
 from petitRADTRANS.retrieval.models import (
     MODEL_CONTRACT_DIFFERENTIABLE,
     _build_model_context_from_parameters,
@@ -4310,7 +4311,9 @@ class Retrieval:
                 temperature_fit = compute_effective_temperature(
                     wavelengths=wavelengths,
                     flux=model,
-                    orbit_semi_major_axis=parameters["D_pl"].value,
+                    orbit_semi_major_axis=normalize_parameter_mapping(parameters)[
+                        "system_distance"
+                    ].value,
                     planet_radius=parameters["planet_radius"].value,
                     use_si_units=True,
                 )

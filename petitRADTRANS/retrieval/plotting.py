@@ -231,7 +231,6 @@ class RetrievalPlotter:
             print("\nPlotting Abundances profiles")
 
             p_global_keep = self.configuration.pressures
-            min_xaxis = 1e-7
             if mode.strip("-").strip("_").lower() == "bestfit":
                 log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
                 self.build_param_dict(samples_use[:-1, best_fit_index], parameters_read)
@@ -321,8 +320,6 @@ class RetrievalPlotter:
                     )
                 for i, species in enumerate(species_to_plot):
                     species = Opacity([species]).get_full_name().split(".R")[0]
-                    if np.min(abund_dict[species]) < min_xaxis:
-                        min_xaxis = 0.9 * np.min(abund_dict[species])
                     ax.plot(
                         abund_dict[species],
                         pressures,
@@ -331,6 +328,9 @@ class RetrievalPlotter:
                         zorder=0,
                         linewidth=2,
                     )
+
+            ax.set_xscale("log")
+            ax.set_xlim(8e-13, 3)
 
             adaptive_mesh_refinement = self.configuration.adaptive_mesh_refinement
             self.configuration.adaptive_mesh_refinement = False
@@ -392,11 +392,12 @@ class RetrievalPlotter:
                 from scipy.interpolate import interp1d
 
                 contr_em_weigh_intp = interp1d(pressures, contr_em_weigh)
+                x_min, x_max = ax.get_xlim()
                 yborders = pressures
                 for i_p in range(len(yborders) - 1):
                     mean_press = (yborders[i_p + 1] + yborders[i_p]) / 2.0
                     ax.fill_between(
-                        [min_xaxis, 3],
+                        [x_min, x_max],
                         yborders[i_p + 1],
                         yborders[i_p],
                         color="white",
@@ -407,7 +408,7 @@ class RetrievalPlotter:
                     )
 
                 ax.plot(
-                    contr_em_weigh * (3 - min_xaxis) + min_xaxis,
+                    contr_em_weigh * (x_max - x_min) + x_min,
                     pressures,
                     "--",
                     color="black",
@@ -422,12 +423,10 @@ class RetrievalPlotter:
             ax.set_xlabel(xlabel)
             ax.set_ylabel("Pressure [bar]")
             ax.set_yscale("log")
-            ax.set_xscale("log")
             ax.tick_params(axis="both", which="major", labelsize=16)
             ax.tick_params(axis="both", which="minor", labelsize=12)
 
             ax.invert_yaxis()
-            ax.set_xlim(8e-13, 3)
             ax.set_axisbelow(False)
             ax.tick_params(zorder=2)
             ax.legend(loc="center left", bbox_to_anchor=(1, 0.5), fontsize=18)

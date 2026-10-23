@@ -454,7 +454,8 @@ def setup_clouds(pressures, parameters, cloud_species):
             ``parameters['sigma_lnorm']``). Use :func:`setup_clouds_from_legacy_dict`
             if you have a legacy parameter dictionary with ``.value`` attributes.
             Should contain:
-                 *  fsed : sedimentation parameter - can be unique to each cloud type
+                 *  f_sed (or fsed) : sedimentation parameter - can be unique to each cloud type
+                    (f_sed_* or fsed_*)
                 One of:
                   *  sigma_lnorm : Width of cloud particle size distribution (log normal)
                   *  b_hans : Width of cloud particle size distribution (hansen)
@@ -666,7 +667,14 @@ def get_fseds(parameters, cloud_species):
     This function checks to see if the fsed values are input on a per-cloud basis
     or only as a single value, and returns the dictionary providing the fsed values
     for each cloud, or None, if no cloud is used.
+    Aliases such as ``fsed`` and ``fsed_*`` are accepted for ``f_sed`` and ``f_sed_*``.
     """
+    from petitRADTRANS.retrieval.parameter_aliases import normalize_parameter_name
+
+    parameters = {
+        normalize_parameter_name(key): parameters[key] for key in parameters.keys()
+    }
+
     return cloud_dict(parameters, "f_sed", cloud_species)
 
 

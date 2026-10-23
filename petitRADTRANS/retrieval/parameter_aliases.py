@@ -20,10 +20,22 @@ PARAMETER_ALIAS_MAP: dict[str, str] = {
     for alias in aliases
 }
 
+# Per-species parameters (e.g. ``fsed_MgSiO3(s)``): alias prefix -> canonical prefix
+_PREFIX_ALIASES: dict[str, str] = {
+    "fsed_": "f_sed_",
+}
+
 
 def normalize_parameter_name(name: str) -> str:
     """Return the canonical parameter name for a given name or alias."""
-    return PARAMETER_ALIAS_MAP.get(name, name)
+    if name in PARAMETER_ALIAS_MAP:
+        return PARAMETER_ALIAS_MAP[name]
+
+    for alias_prefix, canonical_prefix in _PREFIX_ALIASES.items():
+        if name.startswith(alias_prefix):
+            return canonical_prefix + name[len(alias_prefix):]
+
+    return name
 
 
 def normalize_parameter_mapping(mapping: Mapping[str, Any]) -> dict[str, Any]:
