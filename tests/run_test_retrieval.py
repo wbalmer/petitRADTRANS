@@ -22,7 +22,7 @@ if __name__ == '__main__':
     retrieval_config = RetrievalConfig(
         retrieval_name="2m0624_example",  # give a useful name for your retrieval
         run_mode="retrieval",  # 'retrieve' to run, or 'evaluate' to make plots
-        sampler_type="numpyro_nuts",  # use NumPyro NUTS for this differentiable retrieval
+        sampler_type="jaxns",  # use NumPyro NUTS for this differentiable retrieval
         adaptive_mesh_refinement=True,  # adaptive mesh refinement, slower if True
         scattering_in_emission=True,  # add scattering for emission spectra clouds
     )
