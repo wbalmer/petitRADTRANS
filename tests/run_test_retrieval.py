@@ -4,6 +4,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE" # keep hdf5 file locking up across processes 
 
 from jax import config
+from jax import profiler
 config.update("jax_enable_x64", True)
 
 import tensorflow_probability.substrates.jax as tfp
@@ -30,7 +31,8 @@ if __name__ == '__main__':
     # Here we import petitRADTRANS to find the path of the example files on your machine
     # In general this is not required, you just put the files in the folder that you are running
     # Your script in, for example
-    path_to_data = "/projects/b1094/balmer/spectral_data"
+    # path_to_data = "/projects/b1094/balmer/spectral_data"
+    path_to_data = "/Users/wbalmer/petitshell/example_data"
 
     retrieval_config.add_data(
         name="JWST_BIN",
@@ -235,7 +237,7 @@ if __name__ == '__main__':
             # NUTS sampling configuration
             num_warmup=500,  # warm-started, preconditioned chains need less adaptation
             num_samples=2000,
-            num_chains=1,
+            num_chains=4,
             chain_method="vectorized",
             target_acceptance_rate=0.9,
             progress_bar=True,
@@ -257,6 +259,7 @@ if __name__ == '__main__':
             init_inverse_mass_matrix_from_hessian=True,
             is_mass_matrix_diagonal=True,  # False for a dense (correlated) metric
         )
+
 
     if run_retrieval:
         retrieval.plot_all(contribution=True)

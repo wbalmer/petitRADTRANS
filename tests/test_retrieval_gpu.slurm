@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=prt4_gpu  # Job name
+#SBATCH --job-name=prt4_gpux4  # Job name
 #SBATCH --output=output.txt
 #SBATCH --error=error.txt
 #SBATCH --account=b53080   #b1094           # allocation/account
 #SBATCH --partition=buyin #ciera-gpu           # Partition or queue name, debug, shared, wholenode
 #SBATCH --nodes=1                     # Number of nodes
 #SBATCH --ntasks-per-node=1           # Number of tasks per node
-#SBATCH --gres=gpu:1                  # Specify the gpu and card
+#SBATCH --gres=gpu:4                  # Specify the gpu and card
 #SBATCH --mem-per-cpu=80G	      # set the amount of memory for the node
 #SBATCH --time=12:00:00                  # Maximum runtime (D-HH:MM:SS)
 #SBATCH --mail-type=END               # Send email at job completion
