@@ -4308,13 +4308,12 @@ class Retrieval:
                 else:
                     wavelengths, model, __ = ret_val
 
+                normalized_parameters = normalize_parameter_mapping(parameters)
                 temperature_fit = compute_effective_temperature(
                     wavelengths=wavelengths,
                     flux=model,
-                    orbit_semi_major_axis=normalize_parameter_mapping(parameters)[
-                        "system_distance"
-                    ].value,
-                    planet_radius=parameters["planet_radius"].value,
+                    orbit_semi_major_axis=normalized_parameters["system_distance"].value,
+                    planet_radius=normalized_parameters["planet_radius"].value,
                     use_si_units=True,
                 )
                 temperature_fits.append(temperature_fit)
