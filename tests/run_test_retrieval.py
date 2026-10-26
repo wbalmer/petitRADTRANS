@@ -41,7 +41,6 @@ if __name__ == '__main__':
 
     ns_g395h = np.load(f"{path_to_data}/HIP 99770.npy",allow_pickle=True).item()
     wave = ns_g395h['wave'][ns_g395h['valid']]
-    print(wave>4.1)
     flux = ns_g395h['spec'][ns_g395h['valid']][wave>4.1]
     err = ns_g395h['err'][ns_g395h['valid']][wave>4.1]
     wave = wave[wave>4.1]
@@ -269,9 +268,11 @@ if __name__ == '__main__':
     retrieval_config.parameters["planet_radius"].plot_in_corner = True
     retrieval_config.parameters["planet_radius"].corner_label = r"$R_{\rm P}$ ($\rm R_{Jup}$)"
     retrieval_config.parameters["planet_radius"].corner_transform = lambda x: x / cst.r_jup_mean
-    retrieval_config.parameters["log_g"].plot_in_corner = True
-    retrieval_config.parameters["log_g"].corner_ranges = [2.0, 5.0]
-    retrieval_config.parameters["log_g"].corner_label = "log g"
+    # retrieval_config.parameters["log_g"].plot_in_corner = True
+    # retrieval_config.parameters["log_g"].corner_ranges = [2.0, 5.0]
+    # retrieval_config.parameters["log_g"].corner_label = "log g"
+    retrieval_config.parameters["mass"].plot_in_corner = True
+    retrieval_config.parameters["mass"].corner_label = r"$M_{\rm P}$ ($\rm M_{Jup}$)"
     retrieval_config.parameters["C/O"].plot_in_corner = True
     retrieval_config.parameters["Fe/H"].plot_in_corner = True
     retrieval_config.parameters["log_pquench"].plot_in_corner = True
