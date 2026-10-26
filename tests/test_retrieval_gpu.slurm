@@ -8,7 +8,7 @@
 #SBATCH --ntasks-per-node=1           # Number of tasks per node
 #SBATCH --gres=gpu:1                  # Specify the gpu and card
 #SBATCH --mem-per-cpu=80G	      # set the amount of memory for the node
-#SBATCH --time=1:00:00                  # Maximum runtime (D-HH:MM:SS)
+#SBATCH --time=6:00:00                  # Maximum runtime (D-HH:MM:SS)
 #SBATCH --mail-type=END               # Send email at job completion
 #SBATCH --mail-user=balmer@northwestern.edu  # Email address for notifications
 
