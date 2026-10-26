@@ -3,6 +3,7 @@ import os
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE" # keep hdf5 file locking up across processes 
 
+import jax
 from jax import config
 from jax import profiler
 config.update("jax_enable_x64", True)
@@ -23,7 +24,7 @@ if __name__ == '__main__':
     retrieval_config = RetrievalConfig(
         retrieval_name="29cygb_g395h",  # give a useful name for your retrieval
         run_mode="retrieval",  # 'retrieve' to run, or 'evaluate' to make plots
-        sampler_type="numpyro_nuts",  # use NumPyro NUTS for this differentiable retrieval
+        sampler_type="ultranest",  
         adaptive_mesh_refinement=True,  # adaptive mesh refinement, slower if True
         scattering_in_emission=True,  # add scattering for emission spectra clouds
     )
@@ -70,23 +71,23 @@ if __name__ == '__main__':
         model_generating_function=gradient_profile_emission,
     )
 
-    retrieval_config.add_data(
-        name="CHARIS-H",
-        path_to_observations=f"{path_to_data}/29cygb_charis_h-band_wm2um.dat",
-        model_resolution=160,
-        fit_covariance=True,
-        covariance_mode='global',
-        model_generating_function=gradient_profile_emission,
-    )
+    # retrieval_config.add_data(
+    #     name="CHARIS-H",
+    #     path_to_observations=f"{path_to_data}/29cygb_charis_h-band_wm2um.dat",
+    #     model_resolution=160,
+    #     fit_covariance=True,
+    #     covariance_mode='global',
+    #     model_generating_function=gradient_profile_emission,
+    # )
 
-    retrieval_config.add_data(
-        name="CHARIS-K",
-        path_to_observations=f"{path_to_data}/29cygb_charis_k-band_wm2um.dat",
-        model_resolution=160,
-        fit_covariance=True,
-        covariance_mode='global',
-        model_generating_function=gradient_profile_emission,
-    )
+    # retrieval_config.add_data(
+    #     name="CHARIS-K",
+    #     path_to_observations=f"{path_to_data}/29cygb_charis_k-band_wm2um.dat",
+    #     model_resolution=160,
+    #     fit_covariance=True,
+    #     covariance_mode='global',
+    #     model_generating_function=gradient_profile_emission,
+    # )
 
 
 
@@ -131,9 +132,9 @@ if __name__ == '__main__':
 
     # Log of the surface gravity in cgs units.
     retrieval_config.add_parameter(
-        "log_g",
+        "mass",
         True,
-        distribution=tfpd.Uniform(low=3.0, high=5.0),
+        distribution=tfpd.TruncatedNormal(loc=13, scale=5, low=1.0, high=25.0),
     )
 
     # Planet radius in cm
@@ -307,30 +308,34 @@ if __name__ == '__main__':
 
     if run_retrieval:
         retrieval.run(
+            # ultranest with cpu + gpu            
+            n_live_points=400,
+            use_MPI=True,
+            likelihood_devices=jax.devices("gpu"),   # e.g. [CudaDevice(0), CudaDevice(1)]
             # NUTS sampling configuration
-            num_warmup=500,  # warm-started, preconditioned chains need less adaptation
-            num_samples=2000,
-            num_chains=1,
-            chain_method="vectorized",
-            target_acceptance_rate=0.9,
-            progress_bar=True,
-            use_jit=True,
-            seed=12345,  # remove or randomize for a production retrieval
-            # Optimal estimation warm-up: find the MAP with optax before sampling
-            optimize_init=True,
-            optimizer_kwargs={
-                "optimizer": "adam",
-                "learning_rate": 1e-2,
-                "clip_norm": 1.0,
-                "n_steps": 400,
-                "n_starts": 2,  # random restarts to guard against local optima
-                "lbfgs_polish_steps": 50,  # second-order polish of the best optimum
-                "walker_jitter": 0.05,  # spread chains 1-3 around the MAP (chain 0 stays at it)
-                "seed": 12345,
-            },
-            # Precondition the NUTS metric with the inverse Hessian at the MAP
-            init_inverse_mass_matrix_from_hessian=True,
-            is_mass_matrix_diagonal=True,  # False for a dense (correlated) metric
+            # num_warmup=500,  # warm-started, preconditioned chains need less adaptation
+            # num_samples=2000,
+            # num_chains=1,
+            # chain_method="vectorized",
+            # target_acceptance_rate=0.9,
+            # progress_bar=True,
+            # use_jit=True,
+            # seed=12345,  # remove or randomize for a production retrieval
+            # # Optimal estimation warm-up: find the MAP with optax before sampling
+            # optimize_init=True,
+            # optimizer_kwargs={
+            #     "optimizer": "adam",
+            #     "learning_rate": 1e-2,
+            #     "clip_norm": 1.0,
+            #     "n_steps": 400,
+            #     "n_starts": 2,  # random restarts to guard against local optima
+            #     "lbfgs_polish_steps": 50,  # second-order polish of the best optimum
+            #     "walker_jitter": 0.05,  # spread chains 1-3 around the MAP (chain 0 stays at it)
+            #     "seed": 12345,
+            # },
+            # # Precondition the NUTS metric with the inverse Hessian at the MAP
+            # init_inverse_mass_matrix_from_hessian=True,
+            # is_mass_matrix_diagonal=True,  # False for a dense (correlated) metric
         )
 
 
