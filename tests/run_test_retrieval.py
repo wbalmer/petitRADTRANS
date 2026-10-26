@@ -15,7 +15,7 @@ from petitRADTRANS import physical_constants as cst
 
 tfpd = tfp.distributions
 
-run_retrieval = False
+run_retrieval = True
 plot = True
 
 if __name__ == '__main__':
@@ -347,11 +347,9 @@ if __name__ == '__main__':
         # The corner plot produces 1,2 and 3 sigma contours for the 2D plots
         retrieval.plot_corner(sample_dict, parameter_dict, parameters_read, title_kwargs={"fontsize": 10})
 
-        fig, ax, ax_r = retrieval.plot_spectra(samples_use, parameters_read, refresh=True, mode="bestfit")
-
-        fig, ax = retrieval.plot_pt(sample_dict, parameters_read, contribution=False)
-
         fig, ax = retrieval.plot_pt(sample_dict, parameters_read, contribution=True)
+
+        fig, ax, ax_r = retrieval.plot_spectra(samples_use, parameters_read, refresh=True, mode="bestfit")
 
         retrieval.plot_all(contribution=True)
 
