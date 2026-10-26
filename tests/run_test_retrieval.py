@@ -36,12 +36,14 @@ if __name__ == '__main__':
     path_to_data = "/projects/b1094/balmer/spectral_data"
     # path_to_data = "/Users/wbalmer/Downloads"
 
+    phot_path = path_to_data+"/29cygb_photometry.dat"
+
     ns_g395h = np.load(f"{path_to_data}/HIP 99770.npy",allow_pickle=True).item()
     wave = ns_g395h['wave'][ns_g395h['valid']]
-    print(wave>4.0)
-    flux = ns_g395h['spec'][ns_g395h['valid']][wave>4.0]
-    err = ns_g395h['err'][ns_g395h['valid']][wave>4.0]
-    wave = wave[wave>4.0]
+    print(wave>4.1)
+    flux = ns_g395h['spec'][ns_g395h['valid']][wave>4.1]
+    err = ns_g395h['err'][ns_g395h['valid']][wave>4.1]
+    wave = wave[wave>4.1]
 
     retrieval_config.add_data(
         name="G395H",
@@ -54,6 +56,39 @@ if __name__ == '__main__':
         model_resolution=3e4,
         model_generating_function=gradient_profile_emission,
     )
+
+    retrieval_config.add_photometry(
+        phot_path,
+        gradient_profile_emission,
+        model_resolution=40,
+    )
+
+    retrieval_config.add_data(
+        name="CHARIS-LOW",
+        path_to_observations=f"{path_to_data}/29cygb_charis_wm2um.dat",
+        model_resolution=40,
+        model_generating_function=gradient_profile_emission,
+    )
+
+    retrieval_config.add_data(
+        name="CHARIS-H",
+        path_to_observations=f"{path_to_data}/29cygb_charis_h-band_wm2um.dat",
+        model_resolution=160,
+        fit_covariance=True,
+        covariance_mode='global',
+        model_generating_function=gradient_profile_emission,
+    )
+
+    retrieval_config.add_data(
+        name="CHARIS-K",
+        path_to_observations=f"{path_to_data}/29cygb_charis_k-band_wm2um.dat",
+        model_resolution=160,
+        fit_covariance=True,
+        covariance_mode='global',
+        model_generating_function=gradient_profile_emission,
+    )
+
+
 
     # hpf nirspec hyperparameters
     retrieval_config.add_parameter(
@@ -92,7 +127,7 @@ if __name__ == '__main__':
     # For NumPyro NUTS we define JAX-native priors with TensorFlow Probability distributions.
 
     # Distance to the planet in cm
-    retrieval_config.add_parameter(name="system_distance", is_free_parameter=False, value=26.84 * cst.pc)
+    retrieval_config.add_parameter(name="system_distance", is_free_parameter=False, value=40.7 * cst.pc)
 
     # Log of the surface gravity in cgs units.
     retrieval_config.add_parameter(
