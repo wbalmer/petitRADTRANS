@@ -15,7 +15,8 @@ from petitRADTRANS import physical_constants as cst
 
 tfpd = tfp.distributions
 
-run_retrieval = True
+run_retrieval = False
+plot = True
 
 if __name__ == '__main__':
     # Define the pRT run setup
@@ -298,6 +299,27 @@ if __name__ == '__main__':
         )
 
 
-    if run_retrieval:
+    if plot:
+        # These are dictionaries in case we want to look at multiple retrievals.
+        # The keys for the dictionaries are the retrieval_names
+        sample_dict, parameter_dict = retrieval.get_samples(output_directory=retrieval.output_directory)
+
+        # Pick the current retrieval to look at.
+        samples_use = sample_dict[retrieval.configuration.retrieval_name]
+        parameters_read = parameter_dict[retrieval.configuration.retrieval_name]
+
+        # Corner plot
+        # The corner plot produces 1,2 and 3 sigma contours for the 2D plots
+        retrieval.plot_corner(sample_dict, parameter_dict, parameters_read, title_kwargs={"fontsize": 10})
+
+        fig, ax, ax_r = retrieval.plot_spectra(samples_use, parameters_read, refresh=True, mode="bestfit")
+
+        fig, ax = retrieval.plot_pt(sample_dict, parameters_read, contribution=False)
+
+        fig, ax = retrieval.plot_pt(sample_dict, parameters_read, contribution=True)
+
         retrieval.plot_all(contribution=True)
+
+        
+
 
