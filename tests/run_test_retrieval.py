@@ -57,11 +57,11 @@ if __name__ == '__main__':
         model_generating_function=gradient_profile_emission,
     )
 
-    retrieval_config.add_photometry(
-        phot_path,
-        gradient_profile_emission,
-        model_resolution=40,
-    )
+    # retrieval_config.add_photometry(
+    #     phot_path,
+    #     gradient_profile_emission,
+    #     model_resolution=40,
+    # )
 
     retrieval_config.add_data(
         name="CHARIS-LOW",
