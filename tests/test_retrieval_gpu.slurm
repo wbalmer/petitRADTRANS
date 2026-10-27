@@ -25,6 +25,7 @@ mamba activate prt4
 export OMP_NUM_THREADS=1
 export JAX_PLATFORMS=cuda,cpu
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export CUDA_VISIBLE_DEVICES=$(( SLURM_LOCALID % 2 ))
 srun python run_test_retrieval.py
 
 # Deactivate the virtual environment

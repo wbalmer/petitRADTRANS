@@ -8,6 +8,9 @@ from jax import config
 from jax import profiler
 config.update("jax_enable_x64", True)
 
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+
 import numpy as np
 import tensorflow_probability.substrates.jax as tfp
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
@@ -307,6 +310,10 @@ if __name__ == '__main__':
     retrieval = Retrieval(retrieval_config, output_directory="./", evaluate_sample_spectra=True)
 
     configure_retrieval_plotter(retrieval)
+
+    print("Retrieval was set up")
+        
+    comm.Barrier()
 
     if run_retrieval:
         retrieval.run(
