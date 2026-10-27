@@ -236,41 +236,33 @@ def ism_extinction(av_mag, rv_red, wavelengths):
     a_coeff = jnp.zeros(x_wavel.size)
     b_coeff = jnp.zeros(x_wavel.size)
 
-    indices = jnp.where(x_wavel < 1.1)[0]
+    indices_less = jnp.where(x_wavel < 1.1)[0]
 
-    if len(indices) > 0:
-        a_coeff_temp_less = 0.574 * x_wavel[indices] ** 1.61
-        b_coeff_temp_less = -0.527 * x_wavel[indices] ** 1.61
-    else:
-        a_coeff_temp_less = jnp.array([])
-        b_coeff_temp_less = jnp.array([])
+    a_coeff_temp_less = 0.574 * x_wavel[indices_less] ** 1.61
+    b_coeff_temp_less = -0.527 * x_wavel[indices_less] ** 1.61
 
-    indices = jnp.where(x_wavel >= 1.1)[0]
+    indices_gtr = jnp.where(x_wavel >= 1.1)[0]
 
-    if len(indices) > 0:
-        a_coeff_temp_gtr = (
-            1.0
-            + 0.17699 * y_wavel[indices]
-            - 0.50447 * y_wavel[indices] ** 2
-            - 0.02427 * y_wavel[indices] ** 3
-            + 0.72085 * y_wavel[indices] ** 4
-            + 0.01979 * y_wavel[indices] ** 5
-            - 0.77530 * y_wavel[indices] ** 6
-            + 0.32999 * y_wavel[indices] ** 7
-        )
+    a_coeff_temp_gtr = (
+        1.0
+        + 0.17699 * y_wavel[indices_gtr]
+        - 0.50447 * y_wavel[indices_gtr] ** 2
+        - 0.02427 * y_wavel[indices_gtr] ** 3
+        + 0.72085 * y_wavel[indices_gtr] ** 4
+        + 0.01979 * y_wavel[indices_gtr] ** 5
+        - 0.77530 * y_wavel[indices_gtr] ** 6
+        + 0.32999 * y_wavel[indices_gtr] ** 7
+    )
 
-        b_coeff_temp_gtr = (
-            1.41338 * y_wavel[indices]
-            + 2.28305 * y_wavel[indices] ** 2
-            + 1.07233 * y_wavel[indices] ** 3
-            - 5.38434 * y_wavel[indices] ** 4
-            - 0.62251 * y_wavel[indices] ** 5
-            + 5.30260 * y_wavel[indices] ** 6
-            - 2.09002 * y_wavel[indices] ** 7
-        )
-    else:
-        a_coeff_temp_gtr = jnp.array([])
-        b_coeff_temp_gtr = jnp.array([])
+    b_coeff_temp_gtr = (
+        1.41338 * y_wavel[indices_gtr]
+        + 2.28305 * y_wavel[indices_gtr] ** 2
+        + 1.07233 * y_wavel[indices_gtr] ** 3
+        - 5.38434 * y_wavel[indices_gtr] ** 4
+        - 0.62251 * y_wavel[indices_gtr] ** 5
+        + 5.30260 * y_wavel[indices_gtr] ** 6
+        - 2.09002 * y_wavel[indices_gtr] ** 7
+    )
 
     a_coeff = jnp.concatenate([a_coeff_temp_less, a_coeff_temp_gtr])
     b_coeff = jnp.concatenate([b_coeff_temp_less, b_coeff_temp_gtr])
