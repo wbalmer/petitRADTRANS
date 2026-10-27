@@ -261,8 +261,8 @@ def ism_extinction(av_mag, rv_red, wavelengths):
         - 2.09002 * y_wavel_gtr ** 7
     )
 
-    a_coeff = jnp.add([a_coeff_temp_less, a_coeff_temp_gtr])
-    b_coeff = jnp.add([b_coeff_temp_less, b_coeff_temp_gtr])
+    a_coeff = a_coeff_temp_less + a_coeff_temp_gtr
+    b_coeff = b_coeff_temp_less + b_coeff_temp_gtr
 
     return av_mag * (a_coeff + b_coeff / rv_red)
 
