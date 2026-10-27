@@ -24,7 +24,7 @@ if __name__ == '__main__':
     retrieval_config = RetrievalConfig(
         retrieval_name="29cygb_g395h",  # give a useful name for your retrieval
         run_mode="retrieval",  # 'retrieve' to run, or 'evaluate' to make plots
-        sampler_type="ultranest",  
+        sampler_type="pymultinest",  
         adaptive_mesh_refinement=True,  # adaptive mesh refinement, slower if True
         scattering_in_emission=True,  # add scattering for emission spectra clouds
     )
@@ -313,6 +313,9 @@ if __name__ == '__main__':
             n_live_points=400,
             use_MPI=True,
             likelihood_devices=jax.devices("gpu"),   # e.g. [CudaDevice(0), CudaDevice(1)]
+            # multinest
+            sampling_efficiency=0.05, # to run faster perhaps 
+            const_efficiency_mode=True,
             # NUTS sampling configuration
             # num_warmup=500,  # warm-started, preconditioned chains need less adaptation
             # num_samples=2000,
