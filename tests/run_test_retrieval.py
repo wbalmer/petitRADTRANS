@@ -12,6 +12,8 @@ from mpi4py import MPI
 comm = MPI.COMM_WORLD
 
 import numpy as np
+import astropy.units as u
+import astropy.constants as acst
 import tensorflow_probability.substrates.jax as tfp
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
 from petitRADTRANS.retrieval.models import molliere_2020_emission, gradient_profile_emission
@@ -49,6 +51,16 @@ if __name__ == '__main__':
     err = ns_g395h['err'][ns_g395h['valid']][wave>4.1]
     wave = wave[wave>4.1]
 
+    # g395h dispersion 
+
+    lam_piv = 38891.71 * u.AA ## A. J. Shajib et al. 2025, G395H, IFU
+    sigprime_piv = 41.98 * u.km/u.s
+    alpha = 0.239
+    sig_pn = 6.90 * u.km/u.s
+    sig_inst_lam = lambda l : ((sigprime_piv/(1+(alpha*(l-lam_piv)/u.micron)))**2 - (sig_pn)**2)**(1/2)
+
+    R_array = (acst.c/(2.355*sig_inst_lam(wave*u.micron))).decompose().value
+
     retrieval_config.add_data(
         name="G395H",
         wavelengths=wave,
@@ -57,15 +69,16 @@ if __name__ == '__main__':
         # covariance=covar,
         subtract_continuum=True,
         line_opacity_mode='lbl',
+        data_resolution=R_array,
         model_resolution=3e4,
         model_generating_function=gradient_profile_emission,
     )
 
-    # retrieval_config.add_photometry(
-    #     phot_path,
-    #     gradient_profile_emission,
-    #     model_resolution=40,
-    # )
+    retrieval_config.add_photometry(
+        phot_path,
+        gradient_profile_emission,
+        model_resolution=40,
+    )
 
     retrieval_config.add_data(
         name="CHARIS-LOW",
@@ -104,20 +117,20 @@ if __name__ == '__main__':
     retrieval_config.add_parameter(
         'G395H_radial_velocity',
         True,
-        distribution=tfpd.Uniform(low=-100.0, high=100.0)
+        distribution=tfpd.Normal(loc=17.9, scale=5.0)
     )
 
-    retrieval_config.add_parameter(
-        'G395H_R_slope',
-        True,
-        distribution=tfpd.Uniform(low=100, high=1900.0)
-    )
+    # retrieval_config.add_parameter(
+    #     'G395H_R_slope',
+    #     True,
+    #     distribution=tfpd.Uniform(low=100, high=1900.0)
+    # )
 
-    retrieval_config.add_parameter(
-        'G395H_R_int',
-        True,
-        distribution=tfpd.Uniform(low=200.0, high=4000.0)
-    )
+    # retrieval_config.add_parameter(
+    #     'G395H_R_int',
+    #     True,
+    #     distribution=tfpd.Uniform(low=200.0, high=4000.0)
+    # )
 
     # Note that in Mollière et al. (2020), additional data sets from SPHERE and GPI were used
 
