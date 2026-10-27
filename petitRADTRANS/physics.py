@@ -239,26 +239,16 @@ def ism_extinction(av_mag, rv_red, wavelengths):
     indices = jnp.where(x_wavel < 1.1)[0]
 
     if len(indices) > 0:
-        # a_coeff[indices] = 0.574 * x_wavel[indices] ** 1.61
-        a_coeff = a_coeff.at[indices].set(0.574 * x_wavel[indices] ** 1.61)
-        # b_coeff[indices] = -0.527 * x_wavel[indices] ** 1.61
-        b_coeff = b_coeff.at[indices].set(-0.527 * x_wavel[indices] ** 1.61)
+        a_coeff_temp_less = 0.574 * x_wavel[indices] ** 1.61
+        b_coeff_temp_less = -0.527 * x_wavel[indices] ** 1.61
+    else:
+        a_coeff_temp_less = jnp.array([])
+        b_coeff_temp_less = jnp.array([])
 
     indices = jnp.where(x_wavel >= 1.1)[0]
 
     if len(indices) > 0:
-        # a_coeff[indices] = (
-        #     1.0
-        #     + 0.17699 * y_wavel[indices]
-        #     - 0.50447 * y_wavel[indices] ** 2
-        #     - 0.02427 * y_wavel[indices] ** 3
-        #     + 0.72085 * y_wavel[indices] ** 4
-        #     + 0.01979 * y_wavel[indices] ** 5
-        #     - 0.77530 * y_wavel[indices] ** 6
-        #     + 0.32999 * y_wavel[indices] ** 7
-        # )
-
-        a_coeff = a_coeff.at[indices].set(
+        a_coeff_temp_gtr = (
             1.0
             + 0.17699 * y_wavel[indices]
             - 0.50447 * y_wavel[indices] ** 2
@@ -269,16 +259,7 @@ def ism_extinction(av_mag, rv_red, wavelengths):
             + 0.32999 * y_wavel[indices] ** 7
         )
 
-        # b_coeff[indices] = (
-        #     1.41338 * y_wavel[indices]
-        #     + 2.28305 * y_wavel[indices] ** 2
-        #     + 1.07233 * y_wavel[indices] ** 3
-        #     - 5.38434 * y_wavel[indices] ** 4
-        #     - 0.62251 * y_wavel[indices] ** 5
-        #     + 5.30260 * y_wavel[indices] ** 6
-        #     - 2.09002 * y_wavel[indices] ** 7
-        # )
-        b_coeff = b_coeff.at[indices].set(
+        b_coeff_temp_gtr = (
             1.41338 * y_wavel[indices]
             + 2.28305 * y_wavel[indices] ** 2
             + 1.07233 * y_wavel[indices] ** 3
@@ -287,6 +268,12 @@ def ism_extinction(av_mag, rv_red, wavelengths):
             + 5.30260 * y_wavel[indices] ** 6
             - 2.09002 * y_wavel[indices] ** 7
         )
+    else:
+        a_coeff_temp_gtr = jnp.array([])
+        b_coeff_temp_gtr = jnp.array([])
+
+    a_coeff = jnp.concatenate([a_coeff_temp_less, a_coeff_temp_gtr])
+    b_coeff = jnp.concatenate([b_coeff_temp_less, b_coeff_temp_gtr])
 
     return av_mag * (a_coeff + b_coeff / rv_red)
 
