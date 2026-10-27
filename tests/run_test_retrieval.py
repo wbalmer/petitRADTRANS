@@ -17,6 +17,7 @@ from petitRADTRANS import physical_constants as cst
 tfpd = tfp.distributions
 
 run_retrieval = True
+resume = True
 plot = True
 
 if __name__ == '__main__':
@@ -316,6 +317,7 @@ if __name__ == '__main__':
             # multinest
             sampling_efficiency=0.05, # to run faster perhaps 
             const_efficiency_mode=True,
+            resume=resume,
             # NUTS sampling configuration
             # num_warmup=500,  # warm-started, preconditioned chains need less adaptation
             # num_samples=2000,
