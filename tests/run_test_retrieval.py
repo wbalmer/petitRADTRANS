@@ -17,7 +17,7 @@ from petitRADTRANS import physical_constants as cst
 tfpd = tfp.distributions
 
 run_retrieval = True
-resume = True
+resume = False
 plot = True
 
 if __name__ == '__main__':

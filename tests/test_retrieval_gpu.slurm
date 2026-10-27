@@ -5,7 +5,7 @@
 #SBATCH --account=b53080   #b1094           # allocation/account
 #SBATCH --partition=buyin #ciera-gpu           # Partition or queue name, debug, shared, wholenode
 #SBATCH --nodes=1                     # Number of nodes
-#SBATCH --ntasks-per-node=4           # Number of tasks per node
+#SBATCH --ntasks-per-node=8           # Number of tasks per node
 #SBATCH --gres=gpu:1                  # Specify the gpu and card
 #SBATCH --mem-per-cpu=80G	      # set the amount of memory for the node
 #SBATCH --time=1-00:00:00                  # Maximum runtime (D-HH:MM:SS)
