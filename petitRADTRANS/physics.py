@@ -239,13 +239,26 @@ def ism_extinction(av_mag, rv_red, wavelengths):
     indices = jnp.where(x_wavel < 1.1)[0]
 
     if len(indices) > 0:
-        a_coeff[indices] = 0.574 * x_wavel[indices] ** 1.61
-        b_coeff[indices] = -0.527 * x_wavel[indices] ** 1.61
+        # a_coeff[indices] = 0.574 * x_wavel[indices] ** 1.61
+        a_coeff = a_coeff.at[indices].set(0.574 * x_wavel[indices] ** 1.61)
+        # b_coeff[indices] = -0.527 * x_wavel[indices] ** 1.61
+        b_coeff = b_coeff.at[indices].set(-0.527 * x_wavel[indices] ** 1.61)
 
     indices = jnp.where(x_wavel >= 1.1)[0]
 
     if len(indices) > 0:
-        a_coeff[indices] = (
+        # a_coeff[indices] = (
+        #     1.0
+        #     + 0.17699 * y_wavel[indices]
+        #     - 0.50447 * y_wavel[indices] ** 2
+        #     - 0.02427 * y_wavel[indices] ** 3
+        #     + 0.72085 * y_wavel[indices] ** 4
+        #     + 0.01979 * y_wavel[indices] ** 5
+        #     - 0.77530 * y_wavel[indices] ** 6
+        #     + 0.32999 * y_wavel[indices] ** 7
+        # )
+
+        a_coeff = a_coeff.at[indices].set(
             1.0
             + 0.17699 * y_wavel[indices]
             - 0.50447 * y_wavel[indices] ** 2
@@ -256,7 +269,16 @@ def ism_extinction(av_mag, rv_red, wavelengths):
             + 0.32999 * y_wavel[indices] ** 7
         )
 
-        b_coeff[indices] = (
+        # b_coeff[indices] = (
+        #     1.41338 * y_wavel[indices]
+        #     + 2.28305 * y_wavel[indices] ** 2
+        #     + 1.07233 * y_wavel[indices] ** 3
+        #     - 5.38434 * y_wavel[indices] ** 4
+        #     - 0.62251 * y_wavel[indices] ** 5
+        #     + 5.30260 * y_wavel[indices] ** 6
+        #     - 2.09002 * y_wavel[indices] ** 7
+        # )
+        b_coeff = b_coeff.at[indices].set(
             1.41338 * y_wavel[indices]
             + 2.28305 * y_wavel[indices] ** 2
             + 1.07233 * y_wavel[indices] ** 3
