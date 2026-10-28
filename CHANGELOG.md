@@ -73,8 +73,6 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   model and the modulation posterior interpret `parameters` identically.
 
 ### Fixed
-- `retrieval.linearised` was absent from the meson install sources, so it was
-  missing from every non-editable installation.
 - `NameError` is raised whenever a cloud-base smoothing width is given
   explicitly, because `Tracer` was used in `chemistry.utils` without being
   imported.
