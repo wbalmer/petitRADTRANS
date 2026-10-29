@@ -1624,10 +1624,10 @@ class RetrievalConfig:
                 )
             nominal_period = float(self.parameters[period_parameter].value)
 
-        reference_indices = _lin.reference_bin_indices(
+        reference_indices = _lin.setup_reference_bin_indices(
             times, float(nominal_period), n_phase_bins, reference_bin
         )
-        reference_weights = _lin.collapse_reference_weights(
+        reference_weights = _lin.average_reference_weights(
             _lin.reference_weights(uncertainties, reference_indices)
         )
         log_spectrum, var_point = _lin.log_observation(spectrum, uncertainties)

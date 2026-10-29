@@ -5,6 +5,9 @@ into posterior samples. ``Retrieval`` never talks to a backend library
 directly; it builds a :class:`SamplerContext` and drives the sampler through
 the small lifecycle below.
 
+TODO: Eventually use python 3.15 lazy loading syntax rather than loading
+from within functions. e.g. ``lazy import pymultinest``.
+
 Workflow
 ---------
 

@@ -1,14 +1,14 @@
 """Closed-form modulation solve for linearised time-series retrievals.
 
-The time variation of a rotating object's spectrum is small -- of order one
-percent -- so to first order the model is linear in the modulation and the
+The time variability of a rotating object's spectrum is about
+1%, so to first order the model is linear in the modulation and the
 modulation amplitudes enter as a linear-Gaussian problem.  They can therefore be
-integrated out ANALYTICALLY, leaving a sampler to explore only the static
-reference state.  This module holds the algebra for that marginalisation.
+integrated out analytically, leaving a sampler to explore only the static
+reference state and the period.  This module holds the algebra for that marginalisation.
 
-The statistical model
----------------------
-The module fits the LOG of the observed flux directly::
+The model
+---------
+The module fits the log of the observed flux ::
 
     ln d_ij = ln M_i(theta_ref) + a_i + sum_pm J_ip Phi_jm beta_pm + eps_ij
 
@@ -17,7 +17,7 @@ for wavelength ``i`` and epoch ``j``, with
 ``ln M_i(theta_ref)``
     the reference model spectrum, projected onto the observation grid;
 ``a_i ~ N(0, s^2)``
-    a STATIC per-wavelength offset representing residual error in the forward
+    a static per-wavelength offset representing residual error in the forward
     model.  It is a nuisance: never sampled, always marginalised;
 ``J_ip = dln M_i / dtheta_p``
     the log Jacobian, the fractional change in flux per unit change in
@@ -35,7 +35,7 @@ an effective noise covariance at each wavelength::
 
     Sigma_i = S_i + s^2 * 1 1^T
 
-which is "diagonal plus rank one" and is inverted in closed form by the
+which is diagonal plus rank one and is inverted in closed form by the
 Sherman-Morrison identity (see :func:`build_linear_system`).  Every contraction
 below is therefore a weighted sum over epochs; no ``(n_time, n_time)`` matrix is
 ever formed.
@@ -44,7 +44,7 @@ Argument roles
 --------------
 ``setup``
     Evaluated once when the runtime builds the observation.  Concrete values;
-    may raise Python exceptions.  ``reference_bin_indices``,
+    may raise Python exceptions.  ``setup_reference_bin_indices``,
     ``reference_weights``, ``log_observation``, ``harmonic_outer_products``,
     ``smooth_wavelength_modes``.
 ``traced``
@@ -75,9 +75,9 @@ __all__ = [
     "amplitude_bias_projection",
     "amplitude_column_names",
     "amplitude_fixed_point",
-    "basis_orthogonality",
+    "basis_orthogonality_test",
     "build_linear_system",
-    "collapse_reference_weights",
+    "average_reference_weights",
     "curvature_expansion_parameter",
     "curvature_linearising_exponent",
     "curvature_response_columns",
@@ -92,7 +92,7 @@ __all__ = [
     "posterior_eigenspectrum",
     "predictive_log_density",
     "reference_anchored_basis",
-    "reference_bin_indices",
+    "setup_reference_bin_indices",
     "reference_weights",
     "require_double_precision",
     "second_order_field",
@@ -105,10 +105,6 @@ __all__ = [
 #: ``period`` and ``offset_variance`` are such arguments.
 Scalar = Array | float
 
-
-# ---------------------------------------------------------------------------
-# 0. Precision policy
-# ---------------------------------------------------------------------------
 
 def require_double_precision() -> None:
     """Force double precision, single precision is insufficient for linearised time-series retrievals.
@@ -186,14 +182,14 @@ def trigonometric_resampling_matrix(
     ``period`` if that is ever wanted.
 
     The spectrum's time dependence is band-limited, and a band-limited periodic
-    signal is recovered EXACTLY from``2H + 1`` samples per period by fitting
+    signal is recovered exactly from``2H + 1`` samples per period by fitting
     the harmonics. This builds the ``(n_target, n_node)`` matrix that does it::
 
         interpolated = matrix @ spectra_at_nodes
 
-    This requires ``2 * n_harmonics + 1`` samples at DISTINCT ROTATIONAL PHASES.
+    This requires ``2 * n_harmonics + 1`` samples at distinct phases.
 
-    Choosing ``n_harmonics``.  The MODEL's time dependence is not band-limited
+    Choosing ``n_harmonics``.  The model's time dependence is not band-limited
     at ``K`` even though the parameters are: the spectrum is a nonlinear
     function of the parameters, so a modulation truncated at ``K`` produces
     spectral harmonics up to ``2K`` at second order and beyond.  Pass ``2 * K``
@@ -258,7 +254,7 @@ def trigonometric_resampling_matrix(
     return design_matrix(target_times) @ jnp.linalg.pinv(at_nodes)
 
 
-def basis_orthogonality(basis: Array) -> tuple[Array, Array]:
+def basis_orthogonality_test(basis: Array) -> tuple[Array, Array]:
     """How close the basis is to orthogonal, in the space the fit works in.
 
     Diagnostic.  Returns ``(max_off_diagonal, max_column_mean)``, both relative,
@@ -282,7 +278,7 @@ def basis_orthogonality(basis: Array) -> tuple[Array, Array]:
     )
 
 
-def reference_bin_indices(
+def setup_reference_bin_indices(
     observation_times: Array,
     period: float,
     n_phase_bins: int = 24,
@@ -290,7 +286,7 @@ def reference_bin_indices(
 ) -> Array:
     """Epoch indices forming the reference set, as one bin of equal phase count.
 
-    Setup only.  The reference set is deliberately held FIXED at a nominal
+    Setup only.  The reference set is deliberately held fixed at a nominal
     period rather than re-derived as the period varies: re-binning by phase
     would move epochs between bins discretely and put a step discontinuity into
     an otherwise smooth objective.  ``reference_anchored_basis`` then tracks the
@@ -340,7 +336,7 @@ def reference_weights(uncertainties: Array, reference_indices: Array) -> Array:
         uncertainties:
             ``(n_time, n_wavelength)``.
         reference_indices:
-            ``(n_reference,)`` from :func:`reference_bin_indices`.
+            ``(n_reference,)`` from :func:`setup_reference_bin_indices`.
 
     Returns:
         ``(n_reference, n_wavelength)``, columns summing to one.
@@ -349,7 +345,7 @@ def reference_weights(uncertainties: Array, reference_indices: Array) -> Array:
     return weights / jnp.sum(weights, axis=0, keepdims=True)
 
 
-def collapse_reference_weights(weights: Array) -> Array:
+def average_reference_weights(weights: Array) -> Array:
     """Collapse per-wavelength reference weights to one vector over epochs.
 
     The anchoring weights are formally wavelength dependent, because the
@@ -411,7 +407,7 @@ def reference_anchored_basis(
             Static; sets the column count.
         reference_weight_vector:
             ``(n_reference,)``, already normalised to sum to one; from
-            :func:`collapse_reference_weights`.
+            :func:`average_reference_weights`.
 
     Returns:
         ``(n_time, 2 * n_harmonics)``.
@@ -519,21 +515,19 @@ def smooth_wavelength_modes(wavelengths: Array, n_modes: int) -> Array:
 
     Setup only.
 
-    The per-wavelength offset ``a_i`` absorbs STATIC forward-model error exactly,
+    The per-wavelength offset ``a_i`` absorbs statoc forward-model error exactly,
     however it is correlated in wavelength, because each wavelength gets its own
     free offset.  What it cannot absorb is model error that VARIES IN TIME and is
     smooth in wavelength -- for example a modulated cloud whose spectral response
-    the frozen-cloud model cannot express.  That is the residual structure behind
-    the measured disagreement between the blue and red halves of the spectrum.
+    the frozen-cloud model cannot express.
 
     This returns a low-order polynomial basis in ``ln(wavelength)``, orthonormal
     over the observation grid, intended to be concatenated onto the physical log
     Jacobian.  Those extra columns then acquire their own harmonic amplitudes,
     which are marginalised along with the physical ones and reported separately.
-    The model stays exactly linear-Gaussian -- nothing about the closed form is
-    given up -- and the physical amplitudes acquire the extra uncertainty that
-    comes from not knowing how much of the signal a smooth time-varying
-    component could have produced.
+    The model stays exactly linear-Gaussian, and the physical amplitudes
+    acquire the extra uncertainty that comes from not knowing how much of the
+    signal a smooth time-varying component could have produced.
 
     Mode 0 is constant in wavelength: a GREY time-varying component, which is the
     single most useful nuisance mode, since grey variability is exactly what a
@@ -686,16 +680,13 @@ def build_linear_system(
 ) -> tuple[Array, Array, Array]:
     """Assemble the normal equations for the modulation amplitudes.
 
-    The design separates, ``A[(i,j),(p,m)] = J_p(lam_i) Phi_jm``, so
+    The design matrix is seperable, ``A[(i,j),(p,m)] = J_p(lam_i) Phi_jm``, so
 
         A^T Sigma^-1 A = sum_i (J_i J_i^T) kron (Phi^T Sigma_i^-1 Phi)
 
-    and the full ``(n_wavelength * n_time, n_column)`` design -- 208,000 x 30 for
-    a typical dataset -- is never formed.  Each wavelength contributes a
-    ``(2K, 2K)`` inner product weighted by an ``(n_response, n_response)`` outer
-    product.  ("Separable" means every entry of the design is a product of one
-    factor depending only on wavelength and one depending only on time; that is
-    what a Kronecker product is, and it is what makes the problem cheap.)
+    and the full ``(n_wavelength * n_time, n_column)`` design is never formed.
+    Each wavelength contributes a ``(2K, 2K)`` inner product weighted by an
+    ``(n_response, n_response)`` outer product.
 
     **Inverting the noise covariance.**
     ``Sigma_i = S_i + s^2 1 1^T`` where ``S_i`` is the measurement noise
@@ -895,9 +886,7 @@ def modulation_log_evidence(
     **A caution about what this quantity can and cannot settle.**
     ``ln Z`` here is conditional on the amplitude priors being right.  Widening
     one parameter's prior by a factor of ten moves its variant by
-    ``2K ln 10 ~ 14`` nats with no change in the data or the physics.  That is a
-    general property of marginal likelihoods with weakly informative priors, and
-    it bites hardest in exactly the comparison this framework exists to make.
+    ``2K ln 10 ~ 14`` with no change in the data or the physics.
     Never report a Bayes factor from this function without running
     :func:`evidence_prior_scan` and confirming the sign survives; where it does
     not, :func:`predictive_log_density` answers the same question without
@@ -934,10 +923,10 @@ def amplitude_bias_projection(
 ) -> Array:
     """How far a known model error moves the amplitudes, in units of their error.
 
-    THIS is the gate on the linearisation.
+    This is the gate on the linearisation.
 
-    What biases an amplitude is not the MEAN of the error but its
-    PROJECTION onto the columns of the design,
+    What biases an amplitude is not the mean of the error but its
+    projection onto the columns of the design,
 
         delta_beta = C A^T Sigma^-1 r.
 
@@ -956,7 +945,7 @@ def amplitude_bias_projection(
             ``(n_wavelength, n_time)``, a known additive error in log space.
 
     **Validity of the single pass.**
-    The shift returned is the LEADING term.  Strictly the calculation is
+    The shift returned is the leading term.  Strictly the calculation is
     self-referential: ``error_field`` must be evaluated at the fitted
     amplitudes, but those amplitudes are themselves displaced by the very shift
     being computed, so the exact answer is a fixed point.  Iterating would
@@ -964,23 +953,17 @@ def amplitude_bias_projection(
 
     It does not need to, because the correction is second order in the shift:
     re-evaluating at the displaced amplitudes changes the answer by
-    ``O(shift^2)``.  The function is therefore self-diagnosing -- a returned
+    ``O(shift^2)``.  The function is therefore self-diagnosing: a returned
     value well below one means the single pass is accurate, and a value near or
     above one means the linearisation is failing badly enough that this estimate
-    is itself unreliable and the quadratic term must be retained.  Read a large
-    return as "not trustworthy", never as a correction to apply.
+    is itself unreliable and the quadratic term must be retained.  Aa large
+    return value should be read as "not trustworthy", not as a correction to apply.
 
     Returns:
         ``(n_column,)``.  With ``units="sigma"`` (the default) the shift in each
         amplitude divided by its posterior standard deviation; with
         ``units="absolute"`` the shift itself, which is what
         :func:`amplitude_fixed_point` subtracts.
-
-        A returned value far above one is a DIAGNOSIS, not a measurement.  The
-        projection is itself linear in the error field, and the error field is
-        evaluated at amplitudes that the same bias has displaced; when the
-        displacement is large the single pass only gives the leading term.  Iterate
-        with :func:`amplitude_fixed_point` before quoting a corrected number.
     """
     normal_matrix, normal_vector, _ = build_linear_system(
         log_jacobian,
@@ -1009,15 +992,6 @@ def curvature_expansion_parameter(
     """The dimensionless number that decides whether linearising is allowed.
 
     Diagnostic.  Cheap: one Hessian diagonal from the model, no sampler.
-
-    Taylor's theorem says the term we drop carries the square of the
-    displacement, so linearising is safe when the displacement is "small".  The
-    question is small COMPARED WITH WHAT, and the obvious answers are wrong.
-    An excursion divided by its own parameter value is not even dimensionless
-    when the parameter is a logarithm, and the largest excursion in the fit is
-    not the controlling quantity either -- halving it on this dataset changed
-    the error by 12%, not by the factor of four a naive reading predicts.
-
     The invariant measure is the ratio of the dropped term to the kept one::
 
         eps_p = | G_pp delta_p^2 / 2 |  /  | J_p delta_p |
@@ -1026,14 +1000,9 @@ def curvature_expansion_parameter(
     evaluated at the largest excursion each parameter actually reaches.  It is
     the fractional error the linearisation makes in that parameter's own
     response, so ``eps = 0.04`` means the recovered amplitude is wrong by about
-    4%.  Compare it with the amplitude's fractional PRECISION: a parameter
+    4%.  Compare it with the amplitude's fractional precision: a parameter
     measured to 1% and linearised to 4% is being reported wrongly, whatever the
     formal error bar says.
-
-    Note what this measure does NOT respond to.  It is invariant under any
-    LINEAR change of the modulated coordinates, because such a change rescales
-    ``delta``, ``J`` and ``G`` in exactly compensating ways -- the same physical
-    trajectory is described, so the same term is dropped.
 
     Args:
         log_jacobian:
@@ -1217,7 +1186,7 @@ def amplitude_fixed_point(
 ) -> tuple[Array, Array, bool]:
     """Iterate the bias correction to a fixed point.
 
-    Diagnostic, and NOT a foundation -- read the caveats before using the result.
+    Diagnostic
 
     :func:`amplitude_bias_projection` computes the shift a known model error
     induces, but the error itself depends on the amplitudes, which the shift has
@@ -1233,18 +1202,13 @@ def amplitude_fixed_point(
     itself the finding that the expansion has broken down.
 
     **What a converged answer does and does not give you.**
-    It corrects the MEAN.  It does not correct the posterior covariance, which
+    It corrects the mean.  It does not correct the posterior covariance, which
     still comes from the linear design, so the reported error bars belong to a
     model whose centre has just moved.  It does not correct the marginal
-    likelihood either, so model comparison -- the reason this framework exists
-    -- is not restored by it.  And if the correction is applied at every
-    reference-state draw, as consistency with the mixture over ``theta_ref``
-    demands, each draw costs a full exact-model evaluation, which is the cost
-    the linearisation was adopted to avoid.  The dimensional saving survives;
-    the claim that the marginalisation is free does not.
+    likelihood.
 
-    Use it to measure how large the correction really is.  Prefer
-    :func:`curvature_response_columns` if the answer is to be published.
+    Measures how large the correction really is.  However,
+    :func:`curvature_response_columns` is probably a better solution.
 
     Args:
         mean:
@@ -1308,17 +1272,13 @@ def evidence_prior_scan(
 ) -> Array:
     """``ln Z`` as the amplitude prior is widened and narrowed.
 
-    A marginal likelihood is a statement about a model INCLUDING its priors.
     Because the ``-ln|Sigma_beta|/2`` term grows like the number of amplitudes
     times the log of the prior width, a comparison between models with different
     numbers of modulated parameters can be driven entirely by a width that was
-    chosen for convenience.  This is a well-known property of Bayes factors under
-    vague priors, sometimes called the Bartlett or Lindley paradox, and it is at
-    its worst exactly here: the priors are deliberately generous, and the models
-    being compared differ in how many amplitudes they carry.
+    chosen for convenience.
 
     Run this for every variant being compared and plot ``ln Z`` against the
-    scale.  A conclusion is only reportable if the ORDERING of the variants is
+    scale.  A conclusion is only reportable if the ordering of the variants is
     the same across the range of widths that are physically defensible.  Where it
     is not, the data do not settle the question and
     :func:`predictive_log_density` should be used instead.
@@ -1351,8 +1311,7 @@ def posterior_eigenspectrum(
     """Directions in amplitude space the data determine, best first.
 
     An individual amplitude is only meaningful if the design can tell it apart
-    from the others.  Where two response spectra look alike -- a deep temperature
-    change and a temperature-gradient change, for instance -- the data constrain
+    from the others.  Where two response spectra look alike the data constrain
     a combination tightly and each amplitude separately hardly at all, and
     quoting per-amplitude error bars then overstates what was measured.
 
@@ -1389,25 +1348,12 @@ def predictive_log_density(
     part of the data, then ask how well the fitted model predicts the part that
     was withheld.  A model that wins only because its priors are wide will not
     predict better, so this answers the model-comparison question without
-    inheriting the sensitivity that :func:`evidence_prior_scan` exposes.
+    inheriting the sensitivity of :func:`evidence_prior_scan`.
 
     The predictive distribution of the held-out data is Gaussian with covariance
     ``Sigma_test + A_test C A_test^T``: the measurement noise, plus the
     uncertainty in the amplitudes propagated through the design.  Both terms are
     handled without forming any large matrix, using two standard identities.
-
-    The Woodbury identity generalises Sherman-Morrison from a rank-one update to
-    a rank-M one:
-
-        (S + A C A^T)^-1 = S^-1 - S^-1 A (C^-1 + A^T S^-1 A)^-1 A^T S^-1
-
-    and the matching determinant identity is
-
-        |S + A C A^T| = |S| |C| |C^-1 + A^T S^-1 A|.
-
-    Both right-hand sides need only ``A^T S^-1 A`` and ``A^T S^-1 r`` on the
-    held-out block -- which is exactly what :func:`build_linear_system` returns
-    when it is handed the test epochs and the residual about the fitted model.
 
     Usage.  Split the epochs into folds.  For each fold: build the system on the
     training epochs, solve for the mean, form the residual of the held-out
@@ -1471,7 +1417,7 @@ def modulation_time_series(
 def mixture_moments(means: Array, covariances: Array) -> tuple[Array, Array, Array]:
     """Combine per-sample amplitude posteriors into one, splitting the variance.
 
-    The closed-form posterior of :func:`solve_modulation` is CONDITIONAL on the
+    The closed-form posterior of :func:`solve_modulation` is conditional on the
     reference state.  The unconditional posterior is the mixture over the
     reference-state samples,
 
@@ -1486,12 +1432,6 @@ def mixture_moments(means: Array, covariances: Array) -> tuple[Array, Array, Arr
 
         Cov(beta) = <C_s>_s          (statistical: noise in the data)
                   + Cov_s(beta_s)    (systematic: not knowing theta_ref)
-
-    Keeping them separate matters because the second has been measured to
-    dominate.  Reporting only the first understates the uncertainty badly; the
-    conditional posteriors must therefore be computed AT EVERY DRAW, since
-    fixing the reference state and solving once afterwards discards the second
-    term entirely.
 
     Args:
         means:
