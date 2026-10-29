@@ -44,13 +44,14 @@ device_get = None
 clear_caches = None
 jnp = None
 P = None
+AxisType = None
 
 
 def require_jax():
     """Import JAX and publish the handles the samplers use."""
     global lax, random, tree, vmap, tree_util, jit, local_device_count
     global make_mesh, shard_map, set_mesh, devices, default_device, device_get
-    global clear_caches, jnp, P
+    global clear_caches, jnp, P, AxisType
 
     if jnp is not None:
         return
@@ -73,7 +74,7 @@ def require_jax():
             clear_caches as _clear_caches,
         )
         import jax.numpy as _jnp
-        from jax.sharding import PartitionSpec as _ps
+        from jax.sharding import AxisType as _axis_type, PartitionSpec as _ps
     except ImportError as error:
         raise ImportError(
             "JAX is required for JAX-based samplers but is not installed."
@@ -95,6 +96,7 @@ def require_jax():
     clear_caches = _clear_caches
     jnp = _jnp
     P = _ps
+    AxisType = _axis_type
 
 
 # --------------------------------------------------------------------------- #

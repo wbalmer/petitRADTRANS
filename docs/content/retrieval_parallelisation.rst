@@ -86,14 +86,14 @@ Capability matrix
      - Not supported
      - Not supported
    * - ``jaxns``
-     - Device mesh (limited on CPU)
-     - Advanced only (multi-host)
-     - **Yes** (``devices``)
+     - Single device (XLA threading)
+     - **No**
+     - **Yes** (one GPU)
      - N/A (whole sampler is on-device)
-   * - ``jaxnsshardedstaticnestedsampler``
-     - Device mesh (limited on CPU)
-     - Advanced only (multi-host)
-     - **Yes** (sharded)
+   * - ``jaxns_distributed``
+     - ``jaxns-cli`` worker pool
+     - Advanced only (worker pool)
+     - **Yes** (one worker per GPU)
      - N/A
    * - ``numpyronuts`` / ``numpyrohmc``
      - Chains via mesh (limited) or independent processes
@@ -440,11 +440,12 @@ device mesh.
 
   .. note::
 
-     On JAX builds that put the device-mesh axes in *Explicit* sharding mode, the
-     multi-device NumPyro path passes the initial position into ``shard_map`` as
-     an argument rather than closing over it; closing over an Explicit-sharded
-     array raises ``NotImplementedError: Closing over inputs to shard_map ...``.
-     This is handled inside pRT; no user action is required.
+     Chains are spread over the largest number of devices that divides
+     ``num_chains`` evenly, so every device runs the same number of chains and
+     none is dropped. With 4 GPUs, ``num_chains=8`` runs two chains per device,
+     but ``num_chains=6`` uses only 2 of the GPUs (three chains each), and a
+     prime ``num_chains`` such as 5 is not sharded at all: its chains are
+     vectorised on a single device.
 
 **Incompatible: Dynesty** (no GPU path) and the **MPI nested samplers' kernels**
 (PyMultiNest/UltraNest run their search on the host — only their *likelihood* can

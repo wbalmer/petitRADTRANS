@@ -56,6 +56,33 @@ class UltranestSampler(Sampler):
         """UltraNest's own run folder, which it creates and populates itself."""
         return os.path.join(output_directory, "out_" + retrieval_name + "_ultranest")
 
+    @staticmethod
+    def _get_run_dir(log_dir):
+        """The folder holding the outputs of the most recent UltraNest run.
+
+        With ``resume="subfolder"`` (pRT's default) UltraNest writes each run
+        into a new ``run<N>`` subfolder of ``log_dir``, numbered with the first
+        unused N; the other resume modes write into ``log_dir`` itself.
+        Returns ``log_dir`` when it holds no run output either way.
+        """
+        def has_outputs(directory):
+            return any(
+                os.path.isdir(os.path.join(directory, name)) for name in ("info", "chains")
+            )
+
+        if has_outputs(log_dir) or not os.path.isdir(log_dir):
+            return log_dir
+
+        run_numbers = []
+        for name in os.listdir(log_dir):
+            if name.startswith("run") and name[3:].isdigit():
+                if has_outputs(os.path.join(log_dir, name)):
+                    run_numbers.append(int(name[3:]))
+
+        if not run_numbers:
+            return log_dir
+        return os.path.join(log_dir, f"run{max(run_numbers)}")
+
     @classmethod
     def _resolve_vectorized(cls, context: SamplerContext, requested: bool) -> bool:
         if not requested:
@@ -160,7 +187,7 @@ class UltranestSampler(Sampler):
         return sampler, run_kwargs, summary_parameters
 
     def load_results(self):
-        log_dir = self._get_output_directory()
+        log_dir = self._get_run_dir(self._get_output_directory())
         results_file = os.path.join(log_dir, "info", "results.json")
         equal_weighted_file = os.path.join(
             log_dir, "chains", "equal_weighted_post.txt"
@@ -354,7 +381,7 @@ class UltranestSampler(Sampler):
         fallback for a run whose generic archive is missing.
         """
         weighted_file = os.path.join(
-            cls._get_log_dir(output_directory, retrieval_name),
+            cls._get_run_dir(cls._get_log_dir(output_directory, retrieval_name)),
             "chains",
             "weighted_post.txt",
         )

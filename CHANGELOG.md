@@ -4,6 +4,47 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [Unreleased]
+### Added
+- File `VERSION.txt`, the single source of the package version. `meson.build`
+  reads it, `pyproject.toml` declares the version dynamic, `docs/conf.py` reads
+  it, and the build generates `petitRADTRANS/_version.py` from it, so an
+  editable install reports the current version.
+- Function `OptimalEstimationSampler.load_results`, restoring the MAP results
+  (best fit, Laplace covariance, convergence) in `run_mode="evaluate"`.
+- Tests that run BlackJAX, NumPyro and the optax optimiser against the
+  installed library versions, including multi-chain runs on two forced CPU
+  devices.
+
+### Changed
+- BlackJAX 1.7 or later is required. Its progress bar is now shown through
+  `blackjax.progress_bar()`, which needs the optional `jaxtap` package
+  (`blackjax[progress]`).
+- Multi-chain BlackJAX and NumPyro runs spread their chains over the largest
+  number of devices that divides `num_chains` evenly. The NumPyro multi-device
+  path now starts each chain from its own position and reports the adapted
+  step size and mass matrix per chain.
+- The `retrieval`, `full` and `test` extras install `tfp-nightly`, which
+  `petitRADTRANS.retrieval` imports; `full` and `test` also install `jaxns`.
+  Importing the retrieval module without TensorFlow Probability raises an
+  `ImportError` explaining what to install.
+- Retired `sampler_type` `jaxnsshardedstaticnestedsampler` raises a
+  `ValueError` pointing to `jaxns_distributed`.
+
+### Fixed
+- BlackJAX runs raised `TypeError` with BlackJAX >= 1.6, which removed the
+  `progress_bar` argument of `window_adaptation`.
+- Multi-chain BlackJAX and NumPyro runs on more than one device raised in
+  `shard_map` on current JAX. NumPyro also silently dropped chains when
+  `num_chains` was not a multiple of the device count.
+- UltraNest results could not be reloaded after a run with the default
+  `resume="subfolder"`, which writes into a `run<N>` subfolder.
+- The retrieval summary of an optax optimisation was lost in
+  `run_mode="evaluate"`.
+- `Data` built without a spectrum called the deprecated `jnp.shape(None)`.
+- The installation instructions omitted JAX from the packages needed before a
+  `--no-build-isolation` install.
+
 ## [4.0.0b5] - 2026-10-23
 ### Added
 - Test of second-order (Hessian-vector product) derivatives of the scattering

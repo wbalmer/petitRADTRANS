@@ -1,5 +1,7 @@
 """Test petitRADTRANS utility functions."""
 
+import pathlib
+
 import jax
 import numpy as np
 
@@ -8,6 +10,12 @@ from petitRADTRANS.utils import intersection_indices
 from .utils import reference_filenames, test_parameters, temperature_guillot_2010
 
 relative_tolerance = 1e-6
+
+
+def test_version_matches_the_version_file():
+    """VERSION.txt is the single source of the version; the build passes it on."""
+    version_file = pathlib.Path(__file__).resolve().parents[1] / "VERSION.txt"
+    assert petitRADTRANS.__version__ == version_file.read_text().strip()
 
 
 def test_guillot_2010_temperature_profile():

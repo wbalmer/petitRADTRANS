@@ -176,7 +176,10 @@ class Data:
         self.mask: ArrayLike
 
         if mask is None:
-            self.mask = jnp.zeros(jnp.shape(self.spectrum), dtype=bool)
+            # A spectrum loaded later from a file gets a scalar mask here;
+            # jnp.shape(None) is deprecated in JAX.
+            spectrum_shape = () if self.spectrum is None else jnp.shape(self.spectrum)
+            self.mask = jnp.zeros(spectrum_shape, dtype=bool)
         else:
             self.mask = mask
 

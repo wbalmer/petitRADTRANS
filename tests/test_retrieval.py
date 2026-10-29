@@ -593,6 +593,9 @@ def test_runtime_scores_shared_grid_time_series_by_projecting_model_times_first(
     )
 
 
+# Data built from a file has no spectrum yet when its mask is made; that must
+# not go through jnp.shape(None), which JAX deprecates.
+@pytest.mark.filterwarnings("error:shape requires ndarray:DeprecationWarning")
 def test_data_loadfits_accepts_structured_spectrum_tables(tmp_path):
     spectrum_path = tmp_path / "structured_spectrum.fits"
     wavelengths = np.array([1.0, 1.1, 1.2], dtype=np.float64)
@@ -3585,6 +3588,40 @@ def test_ultranest_sampler_load_results_reads_saved_outputs(tmp_path):
     np.testing.assert_allclose(
         results["weighted_samples"]["logl"], np.array([-1.0, -2.0])
     )
+
+
+def test_ultranest_sampler_reloads_the_latest_run_subfolder(tmp_path):
+    """resume="subfolder" (pRT's default) writes each run into log_dir/run<N>."""
+    sampler = object.__new__(UltranestSampler)
+    sampler.output_directory = str(tmp_path)
+    sampler.retrieval_name = "ultranest_runs"
+    sampler.results = None
+
+    log_directory = tmp_path / "out_ultranest_runs_ultranest"
+    # run10 must win over run2: run numbers compare as integers, not strings.
+    for run_number, logz in ((2, -5.0), (10, 1.2)):
+        run_directory = log_directory / f"run{run_number}"
+        (run_directory / "info").mkdir(parents=True)
+        (run_directory / "chains").mkdir(parents=True)
+        (run_directory / "info" / "results.json").write_text(json.dumps({"logz": logz}))
+        np.savetxt(
+            run_directory / "chains" / "weighted_post.txt",
+            np.array([[1.0, logz, run_number]], dtype=float),
+            header="weight logl amplitude",
+            comments="",
+        )
+    # A run that crashed before writing anything is skipped.
+    (log_directory / "run11").mkdir()
+
+    results = sampler.load_results()
+    assert results["logz"] == 1.2
+
+    samples, log_likelihood, parameter_names = UltranestSampler.load_samples_archive(
+        str(tmp_path), "ultranest_runs"
+    )
+    np.testing.assert_allclose(samples, np.array([[10.0]]))
+    np.testing.assert_allclose(log_likelihood, np.array([1.2]))
+    assert parameter_names == ["amplitude"]
 
 
 def test_run_saves_named_sample_archive_for_completed_retrieval(tmp_path):

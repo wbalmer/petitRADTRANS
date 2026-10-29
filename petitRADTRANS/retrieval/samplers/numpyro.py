@@ -956,23 +956,22 @@ class NumPyroSampler(GradientSampler):
 
         extra_fields = ("potential_energy", "accept_prob", "diverging", "num_steps")
         rng_key = _opt.random.PRNGKey(seed)
-        n_devices = _opt.local_device_count()
-        use_multi_device = (
-            n_devices > 1 and num_chains > 1 and chain_method != "sequential"
-        )
+        # Chains are sharded over as many devices as divide them evenly; when
+        # that is a single device, the ordinary path below vectorises them.
+        effective_devices = self._chain_device_count(num_chains)
+        use_multi_device = effective_devices > 1 and chain_method != "sequential"
 
         if use_multi_device:
-            # Multi-device path: distribute chains across devices via shard_map.
-            effective_devices = min(n_devices, num_chains)
-            chains_per_device = max(1, num_chains // effective_devices)
+            # Multi-device path: each device runs its own block of chains
+            # through its own NumPyro MCMC, vectorised within the device.
+            chains_per_device = num_chains // effective_devices
             _kernel_class = self.kernel_class
             _kernel_kwargs = kernel_kwargs
-            _initial_position = initial_position
-            mesh = _opt.make_mesh((effective_devices,), ("devices",))
+            mesh = self._chain_mesh(effective_devices)
 
-            def run_on_device(base_key, init_position):
-                device_idx = _opt.lax.axis_index("devices")
-                device_key = _opt.random.fold_in(base_key, device_idx)
+            def run_on_device(device_keys, device_positions):
+                # Each device receives a leading block of size 1 (its key) and
+                # chains_per_device (its chain starts).
                 device_kernel = _kernel_class(**_kernel_kwargs)
                 device_mcmc = _opt.NumPyroMCMC(
                     device_kernel,
@@ -984,12 +983,22 @@ class NumPyroSampler(GradientSampler):
                     chain_method="vectorized",
                     jit_model_args=False,
                 )
+                # A single chain takes one position, not a stack of one.
+                init_params = (
+                    device_positions[0] if chains_per_device == 1 else device_positions
+                )
                 device_mcmc.run(
-                    device_key, init_params=init_position, extra_fields=extra_fields
+                    device_keys[0], init_params=init_params, extra_fields=extra_fields
                 )
                 unc = device_mcmc.get_samples(group_by_chain=False)
                 ex = device_mcmc.get_extra_fields(group_by_chain=False)
                 adapt = device_mcmc.last_state.adapt_state
+                # Give the adapted parameters a leading chain axis even for one
+                # chain, so every output concatenates across devices on axis 0.
+                step_size = _opt.jnp.reshape(adapt.step_size, (chains_per_device,))
+                inverse_mass_matrix = adapt.inverse_mass_matrix
+                if chains_per_device == 1:
+                    inverse_mass_matrix = inverse_mass_matrix[None]
                 # Return a flat tuple so out_specs can be an explicit matching tuple.
                 return (
                     unc,
@@ -997,18 +1006,23 @@ class NumPyroSampler(GradientSampler):
                     ex["accept_prob"],
                     ex["diverging"],
                     ex["num_steps"],
-                    adapt.step_size,
-                    adapt.inverse_mass_matrix,
+                    step_size,
+                    inverse_mass_matrix,
                 )
 
             run_sharded = _opt.shard_map(
                 run_on_device,
                 mesh=mesh,
-                # base_key and init_position both replicated to every device.
-                in_specs=(_opt.P(), _opt.P()),
+                # One key and one block of chain starts per device.
+                in_specs=(_opt.P("devices"), _opt.P("devices")),
                 out_specs=(_opt.P("devices"),)
                 * 7,  # all 7 outputs concatenated along axis 0
+                # pRT's forward model starts some lax.scan carries from
+                # replicated constants, which the varying-axis check rejects.
+                check_vma=False,
             )
+            device_keys = _opt.random.split(rng_key, effective_devices)
+            chain_starts = self._per_chain_positions(initial_position, num_chains)
             with _opt.set_mesh(mesh):
                 (
                     all_unc,
@@ -1018,7 +1032,7 @@ class NumPyroSampler(GradientSampler):
                     all_steps,
                     all_step_sizes,
                     all_imm,
-                ) = run_sharded(rng_key, _initial_position)
+                ) = run_sharded(device_keys, chain_starts)
 
             unconstrained_samples = np.asarray(all_unc)
             potential_energy = np.asarray(all_pe)
@@ -1026,9 +1040,10 @@ class NumPyroSampler(GradientSampler):
             acceptance_rate = np.asarray(all_accept)
             is_divergent = np.asarray(all_diverge)
             num_integration_steps = np.asarray(all_steps)
+            # Per chain, as the single-device vectorised path reports them.
             warmup_parameters = {
-                "step_size": float(np.mean(np.asarray(all_step_sizes))),
-                "inverse_mass_matrix": np.mean(np.asarray(all_imm), axis=0),
+                "step_size": np.asarray(all_step_sizes),
+                "inverse_mass_matrix": np.asarray(all_imm),
             }
             self.mcmc = None
         elif checkpoint_interval and int(checkpoint_interval) > 0 and num_chains == 1:

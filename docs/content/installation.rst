@@ -94,9 +94,11 @@ Before starting the installation of pRT, make sure to install the following Pyth
 
 .. code-block:: bash
 
-    pip install numpy meson-python ninja
+    pip install numpy meson-python ninja jax
 
 On some distributions, ``pip`` may need to be replaced with ``pip3``.
+
+JAX is needed at build time because pRT's native kernel is compiled against the XLA FFI headers shipped with the installed ``jaxlib``. With ``--no-build-isolation`` (see below) the kernel is built against the JAX already in your environment, so install the JAX build you intend to run with (e.g. a CUDA build) first, and reinstall pRT after upgrading JAX.
 
 
 Installation of petitRADTRANS via pip install
@@ -114,6 +116,8 @@ To be able to use the retrieval module, execute:
 .. code-block:: bash
 
     pip install "petitRADTRANS[retrieval]" --no-build-isolation
+
+.. note:: The retrieval extra installs ``tfp-nightly``, which provides the ``tensorflow_probability`` package used for priors. The stable ``tensorflow-probability`` release does not support current JAX versions; do not install it alongside ``tfp-nightly``, since both provide the same package and the last one installed wins.
 
 Simulation-based inference (SBI) is provided by the separate `petitSBI <https://gitlab.com/enasedkin/petitSBI>`_ package, which builds on the retrieval module. See its README for installation instructions.
 

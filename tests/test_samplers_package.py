@@ -6,15 +6,28 @@ These tests protect the three invariants that the split of the old monolithic
 1. the ``sampler_type`` registry stays consistent with the classes it names;
 2. importing the package does not drag in any optional backend;
 3. no module binds a lazy third-party handle by value at import time.
+
+They also run each backend briefly against the installed library versions.
 """
 
 import ast
+import importlib.util
+import os
 import pathlib
 import subprocess
 import sys
+import warnings
 from types import SimpleNamespace
 
+import jax
+
+# pRT fixes its floating-point precision when first imported, so enable x64
+# before importing it, as the other test modules do through tests/context.py.
+# Otherwise the precision would depend on which test module pytest collects first.
+jax.config.update("jax_enable_x64", True)
+
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from tensorflow_probability.substrates.jax import distributions as tfpd
 
@@ -305,3 +318,108 @@ def test_blackjax_prepare_does_not_gain_numpyro_only_keys(tmp_path):
     assert "thinning" not in run_kwargs
     assert "chain_method" not in summary_parameters
     assert "thinning" not in summary_parameters
+
+
+# --------------------------------------------------------------------------- #
+# 5. The backends really run against the installed library versions
+# --------------------------------------------------------------------------- #
+def test_blackjax_single_chain_runs(tmp_path):
+    """BlackJAX >= 1.6 rejects window_adaptation's former progress_bar kwarg."""
+    pytest.importorskip("blackjax")
+
+    sampler_class = resolve_sampler_class("blackjaxnuts")
+    context = _build_minimal_context(tmp_path, "blackjax_run")
+    sampler, run_kwargs, _ = sampler_class.prepare(
+        context, num_samples=50, num_warmup=50, progress_bar=True
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        results = sampler.run_sampler(**run_kwargs)
+
+    assert results.samples.shape == (50, 2)
+    if importlib.util.find_spec("jaxtap") is None:
+        assert any("jaxtap" in str(warning.message) for warning in caught)
+
+
+def test_optimal_estimation_results_survive_a_reload(tmp_path):
+    pytest.importorskip("optax")
+    from petitRADTRANS.retrieval.samplers.optimal_estimation import (
+        OptimalEstimationResults,
+    )
+
+    sampler_class = resolve_sampler_class("optimal_estimation")
+    context = _build_minimal_context(tmp_path, "optax_reload")
+    sampler, run_kwargs, _ = sampler_class.prepare(
+        context, n_steps=30, n_posterior_samples=40, verbose=False
+    )
+    ran = sampler.run_sampler(**run_kwargs)
+
+    # A fresh sampler, as run_mode="evaluate" builds one.
+    reloader, _, _ = sampler_class.prepare(context)
+    reloaded = reloader.load_results()
+
+    assert isinstance(reloaded, OptimalEstimationResults)
+    assert reloaded.best_logdensity == pytest.approx(ran.best_logdensity)
+    np.testing.assert_allclose(reloaded.samples, ran.samples)
+    assert reloaded.parameter_names == ["alpha", "beta"]
+
+    summary = reloader.get_summary(free_parameter_names=["alpha", "beta"])
+    assert summary["parameters"]["best_logdensity"] == pytest.approx(ran.best_logdensity)
+    assert len(summary["posterior"]) == 2
+
+
+_MULTI_DEVICE_SCRIPT = """
+import importlib.util
+import sys
+
+import jax
+
+spec = importlib.util.spec_from_file_location("samplers_tests", {test_file!r})
+tests = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tests)
+
+assert jax.local_device_count() == 2, jax.local_device_count()
+sampler_class = tests.resolve_sampler_class({sampler_type!r})
+for num_chains in (2, 3, 4):
+    context = tests._build_minimal_context({output_directory!r}, f"chains_{{num_chains}}")
+    sampler, run_kwargs, _ = sampler_class.prepare(
+        context, num_samples=20, num_warmup=20, num_chains=num_chains
+    )
+    results = sampler.run_sampler(**run_kwargs)
+    print(num_chains, results.samples.shape[0], results.samples.shape[1])
+"""
+
+
+@pytest.mark.parametrize("sampler_type", ["blackjaxnuts", "numpyronuts"])
+def test_multi_chain_runs_shard_over_devices_without_dropping_chains(
+    tmp_path, sampler_type
+):
+    """2 and 4 chains are sharded over two devices; 3 do not divide, so they
+    are vectorised on one. Every chain must contribute its draws.
+
+    Run in a subprocess: the host device count is fixed when JAX initialises.
+    """
+    pytest.importorskip({"blackjaxnuts": "blackjax", "numpyronuts": "numpyro"}[sampler_type])
+
+    script = _MULTI_DEVICE_SCRIPT.format(
+        test_file=str(pathlib.Path(__file__).resolve()),
+        sampler_type=sampler_type,
+        output_directory=str(tmp_path),
+    )
+    environment = dict(os.environ, XLA_FLAGS="--xla_force_host_platform_device_count=2")
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env=environment,
+    )
+    assert completed.returncode == 0, completed.stderr[-3000:]
+
+    shapes = [
+        tuple(int(value) for value in line.split())
+        for line in completed.stdout.splitlines()
+        if line.strip() and line.split()[0].isdigit()
+    ]
+    assert shapes == [(2, 40, 2), (3, 60, 2), (4, 80, 2)]

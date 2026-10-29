@@ -936,6 +936,44 @@ class OptimalEstimationSampler(Sampler):
 
         return results.output_file, results.metadata_file
 
+    def load_results(self):
+        """Rebuild the results that ``_save_results`` wrote, for ``run_mode="evaluate"``.
+
+        Falls back to the generic equal-weight archive when this run's own
+        files are missing, in which case only the samples are available.
+        """
+        prefix = self._get_output_prefix()
+        samples_file = f"{prefix}_samples.npz"
+        params_file = f"{prefix}_params.json"
+        metadata_file = f"{prefix}_metadata.json"
+
+        if not all(os.path.exists(path) for path in (samples_file, params_file, metadata_file)):
+            return super().load_results()
+
+        with np.load(samples_file, allow_pickle=False) as archive:
+            arrays = {name: np.asarray(archive[name]) for name in archive.files}
+        with open(params_file, "r") as handle:
+            parameter_names = list(json.load(handle))
+        with open(metadata_file, "r") as handle:
+            metadata = json.load(handle)
+
+        self.parameter_names = parameter_names
+        self.results = OptimalEstimationResults(
+            samples=arrays["samples"],
+            log_likelihood=arrays["log_likelihood"],
+            best_fit=arrays["best_fit"],
+            best_logdensity=metadata["best_logdensity"],
+            parameter_names=parameter_names,
+            covariance=arrays.get("covariance"),
+            covariance_is_positive_definite=metadata.get("covariance_is_positive_definite"),
+            unconstrained_samples=arrays.get("unconstrained_samples"),
+            trace=arrays.get("trace"),
+            converged=metadata.get("converged"),
+            output_file=samples_file,
+            metadata_file=metadata_file,
+        )
+        return self.results
+
     def pretty_print_results(self):
         results = self.results
         if results is None:
@@ -964,6 +1002,13 @@ class OptimalEstimationSampler(Sampler):
         results = self.results
         if results is None:
             return super().get_summary(free_parameter_names)
+        if not isinstance(results, OptimalEstimationResults):
+            # Reloaded from the generic sample archive: samples only.
+            summary = super().get_summary(free_parameter_names)
+            summary["posterior"] = self._posterior_summary_from_matrix(
+                results.get("samples"), free_parameter_names
+            )
+            return summary
         return {
             "sampler": self.__class__.__name__,
             "parameters": {

@@ -21,7 +21,15 @@ from petitRADTRANS.retrieval.utils import uniform_prior
 from petitRADTRANS.synthetic_photometry import SyntheticPhotometry
 
 # Import prior distributions
-import tensorflow_probability.substrates.jax as tfp
+try:
+    import tensorflow_probability.substrates.jax as tfp
+except ImportError as error:
+    raise ImportError(
+        "The retrieval module needs TensorFlow Probability's JAX substrate. Install "
+        "the retrieval extra with `pip install 'petitRADTRANS[retrieval]'`, or "
+        "`pip install tfp-nightly` (the stable tensorflow-probability release does "
+        "not support current JAX)."
+    ) from error
 
 tfpd = tfp.distributions
 

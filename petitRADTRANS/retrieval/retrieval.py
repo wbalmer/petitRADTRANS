@@ -4109,7 +4109,8 @@ class Retrieval:
                     numpyronuts - requires NumPyro and runs NUTS with warmup adaptation.
                     numpyrohmc - requires NumPyro and runs HMC with warmup adaptation.
                     jaxns - Requires JAXNS. Default choice for JAXNS
-                    jaxnsshardedstaticnestedsampler - Requires JAXNS. Advanced option for JAXNS
+                    jaxns_distributed - Requires JAXNS[distributed]. Multi-device JAXNS
+                        (replaces the removed jaxnsshardedstaticnestedsampler)
                     ultranest - Requires ultranest. Implements.
         """
         sampler_type = self.configuration.sampler_type

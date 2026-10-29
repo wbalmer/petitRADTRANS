@@ -27,3 +27,11 @@ py.install_sources([
     ],
     subdir: 'petitRADTRANS'
 )
+
+configure_file(
+    input: '_version.py.in',
+    output: '_version.py',
+    configuration: {'VERSION': meson.project_version()},
+    install: true,
+    install_dir: py.get_install_dir() / 'petitRADTRANS',
+)

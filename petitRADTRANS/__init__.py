@@ -2,7 +2,12 @@ import importlib.metadata
 import os
 import sys
 
-__version__ = importlib.metadata.version("petitRADTRANS")
+try:
+    # Generated at build time from VERSION.txt, so an editable install
+    # reports the current version rather than the one it was installed with.
+    from petitRADTRANS._version import __version__
+except ImportError:  # an unbuilt source tree
+    __version__ = importlib.metadata.version("petitRADTRANS")
 
 # Windows fixes
 if sys.platform == "win32":

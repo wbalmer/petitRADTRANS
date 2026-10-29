@@ -78,10 +78,11 @@ Choosing a sampler
      - Nested sampling
      - JAXNS, JAX, TFP
      - Default JAX-native nested sampler for differentiable retrievals.
-   * - ``jaxnsshardedstaticnestedsampler``
+   * - ``jaxns_distributed``
      - Nested sampling
-     - JAXNS, JAX, TFP
-     - Advanced static/sharded JAXNS backend for more specialized distributed runs.
+     - JAXNS (``jaxns[distributed]``), JAX, TFP
+     - Multi-device JAXNS through a worker pool; replaces the removed
+       ``jaxnsshardedstaticnestedsampler``, which now raises ``ValueError``.
    * - ``numpyronuts`` / ``numpyro_nuts``
      - Gradient MCMC
      - NumPyro, JAX
@@ -479,6 +480,8 @@ NumPyro is a good choice when you want adaptive Hamiltonian MCMC rather than nes
 BlackJAX NUTS / HMC
 ~~~~~~~~~~~~~~~~~~~
 
+pRT requires BlackJAX 1.7 or later.
+
 Key parameters shared by both BlackJAX samplers:
 
 * ``num_samples``: number of post-warmup draws.
@@ -490,6 +493,10 @@ Key parameters shared by both BlackJAX samplers:
   own start, so multi-chain runs are independent and their R-hat is meaningful.
 * ``seed``: random seed.
 * ``use_jit``: JIT the per-chain sampling loop.
+* ``progress_bar``: show BlackJAX's progress bar. It needs the optional ``jaxtap``
+  package (``pip install 'blackjax[progress]'``); without it pRT warns and runs
+  without one. Chains sharded over several devices never show one, because the
+  bar would count each step once per device.
 
 Additional HMC control:
 

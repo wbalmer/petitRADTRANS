@@ -11,6 +11,10 @@ reloading, summaries) lives in
 :mod:`~petitRADTRANS.retrieval.samplers.gradient`.
 """
 
+import contextlib
+import importlib.util
+import warnings
+
 import numpy as np
 
 from petitRADTRANS.retrieval.samplers import _optional_imports as _opt
@@ -47,6 +51,26 @@ class BlackJAXSampler(GradientSampler):
     def algorithm_factory(self):
         """The BlackJAX algorithm constructor, e.g. ``blackjax.nuts``."""
         raise NotImplementedError
+
+    @staticmethod
+    def _progress_bar_context(enabled):
+        """A context that shows BlackJAX's progress bar around the code it wraps.
+
+        BlackJAX >= 1.6 dropped the ``progress_bar`` argument of its
+        algorithms; ``blackjax.progress_bar()`` instruments the outermost
+        ``lax.scan`` instead. It needs the optional ``jaxtap`` package
+        (``blackjax[progress]``), so without it the run proceeds silently.
+        """
+        if not enabled:
+            return contextlib.nullcontext()
+        if importlib.util.find_spec("jaxtap") is None:
+            warnings.warn(
+                "BlackJAX progress bars need the optional 'jaxtap' package "
+                "(`pip install 'blackjax[progress]'`); running without one.",
+                RuntimeWarning,
+            )
+            return contextlib.nullcontext()
+        return _opt.blackjax.progress_bar()
 
     @classmethod
     def _prepare_blackjax(
@@ -130,8 +154,6 @@ class BlackJAXSampler(GradientSampler):
             is_mass_matrix_diagonal=is_mass_matrix_diagonal,
             initial_step_size=initial_step_size,
             target_acceptance_rate=target_acceptance_rate,
-            # A warmup mapped over chains cannot drive a progress bar.
-            progress_bar=progress_bar and num_chains == 1,
             **blackjax_kwargs,
         )
 
@@ -153,19 +175,24 @@ class BlackJAXSampler(GradientSampler):
             )
             return chain_states, chain_infos
 
+        # Spread the chains over as many devices as divide them evenly, so no
+        # chain is dropped; one device just vmaps them all.
+        effective_devices = self._chain_device_count(num_chains)
+
         if num_chains == 1:
-            (initial_state, warmup_parameters), _ = warmup.run(
-                warmup_key,
-                initial_position,
-                num_steps=num_warmup,
-            )
+            with self._progress_bar_context(progress_bar):
+                (initial_state, warmup_parameters), _ = warmup.run(
+                    warmup_key,
+                    initial_position,
+                    num_steps=num_warmup,
+                )
 
-            def run_one_chain(chain_sample_key):
-                return sample_from(chain_sample_key, initial_state, warmup_parameters)
+                def run_one_chain(chain_sample_key):
+                    return sample_from(chain_sample_key, initial_state, warmup_parameters)
 
-            if use_jit:
-                run_one_chain = _opt.jit(run_one_chain)
-            states, infos = run_one_chain(sample_key)
+                if use_jit:
+                    run_one_chain = _opt.jit(run_one_chain)
+                states, infos = run_one_chain(sample_key)
         else:
             # Every chain runs its own window adaptation from its own start, so
             # the chains are independent and R-hat compares genuinely separate
@@ -190,15 +217,10 @@ class BlackJAXSampler(GradientSampler):
                     chain_parameters["inverse_mass_matrix"],
                 )
 
-            # Spread the chains over as many devices as divide them evenly, so
-            # no chain is dropped; one device just vmaps them all.
-            n_devices = _opt.local_device_count()
-            effective_devices = max(
-                d for d in range(1, min(n_devices, num_chains) + 1) if num_chains % d == 0
-            )
-
             if effective_devices > 1:
-                mesh = _opt.make_mesh((effective_devices,), ("devices",))
+                # No progress bar here: under shard_map it fires once per
+                # device per step, so the count would be misleading.
+                mesh = self._chain_mesh(effective_devices)
                 run_all = _opt.shard_map(
                     _opt.vmap(warm_and_sample),
                     mesh=mesh,
@@ -216,9 +238,11 @@ class BlackJAXSampler(GradientSampler):
                 run_all = _opt.vmap(warm_and_sample)
                 if use_jit:
                     run_all = _opt.jit(run_all)
-                all_states, all_infos, step_sizes, inverse_mass_matrices = run_all(
-                    chain_keys, initial_positions
-                )
+                # Under vmap the bar fires once per step for the whole batch.
+                with self._progress_bar_context(progress_bar):
+                    all_states, all_infos, step_sizes, inverse_mass_matrices = run_all(
+                        chain_keys, initial_positions
+                    )
 
             warmup_parameters = {
                 "step_size": step_sizes,
