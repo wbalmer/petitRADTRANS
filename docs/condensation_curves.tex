@@ -1,0 +1,431 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage[round]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\pvap}{p_{\rm vap}}
+\newcommand{\Pcond}{P_{\rm cond}}
+\newcommand{\MH}{[\mathrm{M/H}]}
+\newcommand{\chem}[1]{\mathrm{#1}}
+
+\title{Vapour pressures and condensation curves in \textsc{petitRADTRANS}}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+
+This note lists the saturation vapour pressure curves implemented in
+\code{petitRADTRANS/chemistry/vapour\_pressures.py}, together with the
+original reference for each. They are used in
+\code{chemistry/clouds.py} to locate the base of equilibrium-condensation
+clouds.
+
+\paragraph{Notation.}
+$T$ is the temperature in K, $\pvap$ the saturation vapour pressure, $P$
+the total gas pressure, $\MH$ the metallicity relative to solar in $\log_{10}$
+units, and $\bar{\mu}$ the mean molar mass of the atmosphere. The equations
+below are written in the form used in the code: some use the natural
+logarithm and some $\log_{10}$, and they do not all return the same pressure
+unit. The unit of each function's return value is listed in
+Table~\ref{tab:summary} and stated with each equation.
+
+\paragraph{From vapour pressure to condensation curve.}
+For a condensate $c$ with mass fraction $X_c$ and molar mass $M_c$, the
+partial pressure of the condensing gas is $P X_c\bar{\mu}/M_c$. The
+condensation curve is the total pressure at which this partial pressure
+equals the saturation vapour pressure:
+\begin{equation}
+  \Pcond(T) = \frac{\pvap(T)}{X_c\,\bar{\mu}/M_c} .
+  \label{eq:pcond}
+\end{equation}
+$X_c$ is either derived from the elemental abundances (set by $\MH$ and
+C/O, limited by the least abundant element of the condensate), or given as
+a free parameter. The cloud base is placed at the deepest intersection
+of the temperature profile with the condensation temperature
+$T_{\rm cond}(P)$, which is obtained by inverting Eq.~\eqref{eq:pcond}
+numerically on a temperature grid. The intersection is located by linear
+interpolation in $\log P$.
+
+The exception is \chem{Mg_2SiO_4} with metallicity dependence
+(Sect.~\ref{sec:mg2sio4}), for which the fit already gives $\Pcond$ directly.
+
+Several fits are expressed in terms of the vapour pressure of the
+limiting \emph{gas-phase} species (e.g.\ Na, Mn or Zn atoms), rather
+than of a hypothetical gas of the condensate molecule. These cases are
+noted below.
+
+\begin{table}[h]
+\centering
+\caption{Summary of implemented curves. ``Unit'' is the pressure unit of
+the value returned by the function in \code{vapour\_pressures.py}.}
+\label{tab:summary}
+\begin{tabular}{lllll}
+\toprule
+Species & Function & Unit & $\MH$ & Original reference \\
+\midrule
+Fe(s), Fe(l)        & \code{vapour\_pressure\_fe\_solid/\_liquid} & bar & no  & \citet{barshay1976} \\
+\chem{MgSiO_3}      & \code{vapour\_pressure\_mgsio3}      & bar & no  & \citet{barshay1976} \\
+\chem{Mg_2SiO_4}    & \code{vapour\_pressure\_mg2sio4}     & bar & yes & \citet{visscher2010} \\
+\chem{Na_2S}        & \code{vapour\_pressure\_na2s}        & bar & yes & \citet{visscher2006} \\
+KCl                 & \code{vapour\_pressure\_kcl}         & bar & no  & \citet{morley2012} \\
+SiO                 & \code{vapour\_pressure\_sio}         & bar & no  & \citet{wetzel2013} \\
+\chem{TiO_2}        & \code{vapour\_pressure\_tio2}        & dyn\,cm$^{-2}$ & yes & \citet{marley2021} \\
+Cr                  & \code{vapour\_pressure\_cr}          & dyn\,cm$^{-2}$ & no  & \citet{morley2012} \\
+ZnS                 & \code{vapour\_pressure\_zns}         & dyn\,cm$^{-2}$ & yes & \citet{visscher2006} \\
+MnS                 & \code{vapour\_pressure\_mns}         & dyn\,cm$^{-2}$ & yes & \citet{visscher2006} \\
+\chem{NH_3}         & \code{vapour\_pressure\_nh3}         & dyn\,cm$^{-2}$ & no  & \citet{lodders1998} \\
+\chem{H_2O}         & \code{vapour\_pressure\_h2o}         & dyn\,cm$^{-2}$ & no  & \citet{buck1981}; \citet{wexler1976,wexler1977} \\
+\chem{CH_4}         & \code{vapour\_pressure\_ch4}         & dyn\,cm$^{-2}$ & no  & \citet{lodders1998} \\
+\chem{Al_2O_3}      & \code{vapour\_pressure\_al2o3}       & dyn\,cm$^{-2}$ & yes & \citet{morley2024} \\
+\chem{CaTiO_3}      & \code{vapour\_pressure\_catio3}      & dyn\,cm$^{-2}$ & yes & \citet{wakeford2017} \\
+\chem{CaAl_{12}O_{19}} & \code{vapour\_pressure\_caal12o19} & dyn\,cm$^{-2}$ & yes & \citet{wakeford2017} \\
+\chem{SiO_2}        & \code{vapour\_pressure\_sio2}        & dyn\,cm$^{-2}$ & yes & \citet{grant2023} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The curves for \chem{TiO_2} and all species below it in
+Table~\ref{tab:summary} follow the implementation in the \textsc{virga}
+cloud code \citep{batalha2025}, which also compiles the original
+references.
+
+\section{Iron and silicates}
+
+\subsection{Fe}
+Solid (below the melting point) and liquid iron, from
+\citet{barshay1976} as adopted by \citet[][Eqs.~A3a,b]{ackerman2001}:
+\begin{align}
+  \ln \pvap^{\rm Fe(s)} &= 15.71 - \frac{47664}{T}, \\
+  \ln \pvap^{\rm Fe(l)} &= 9.86 - \frac{37120}{T},
+\end{align}
+with $\pvap$ in bar. \citet{ackerman2001} do not state the unit; the pRT
+source notes that, per an erratum, the unit is bar and not
+dyn\,cm$^{-2}$. When computing the Fe cloud base, pRT takes the
+condensation curve as the smaller of the solid and liquid
+$\Pcond$ (Eq.~\ref{eq:pcond}) at each temperature.
+
+\subsection{\texorpdfstring{\chem{MgSiO_3}}{MgSiO3}}
+Enstatite, from \citet{barshay1976} as adopted by
+\citet[][Eq.~A4]{ackerman2001}:
+\begin{equation}
+  \ln \pvap^{\rm MgSiO_3} = 25.37 - \frac{58663}{T},
+\end{equation}
+with $\pvap$ in bar (same erratum as for Fe).
+
+\subsection{\texorpdfstring{\chem{Mg_2SiO_4}}{Mg2SiO4}}
+\label{sec:mg2sio4}
+If a metallicity is given, the forsterite condensation curve of
+\citet{visscher2010} is used,
+\begin{equation}
+  \frac{10^4}{T_{\rm cond}} = 5.89 - 0.37\log_{10}\Pcond - 0.73\,\MH ,
+\end{equation}
+with $\Pcond$ in bar. Solved for $\Pcond$, as implemented, this is
+\begin{equation}
+  \log_{10} \Pcond^{\rm Mg_2SiO_4} = 15.92 - \frac{27027.03}{T} - 1.97\,\MH .
+\end{equation}
+This is the total pressure of condensation, so Eq.~\eqref{eq:pcond} is not
+applied. Here $\MH$ stands for [Fe/H] in \citet{visscher2010}.
+
+If no metallicity is given (the free-abundance case), the function instead
+returns the \chem{MgSiO_3} vapour pressure of \citet{barshay1976},
+$\ln\pvap = 25.37 - 58663/T$ (bar), which is then used in
+Eq.~\eqref{eq:pcond} with the \chem{Mg_2SiO_4} mass fraction and molar mass.
+
+\subsection{SiO}
+Solid SiO, from \citet[][Eq.~3]{wetzel2013}, who fitted the laboratory
+measurements of \citet{ferguson2008} and their own group:
+\begin{equation}
+  \ln \pvap^{\rm SiO} = 33.848 - \frac{42648}{T},
+\end{equation}
+with $\pvap$ in dyn\,cm$^{-2}$ in the original. The code multiplies by
+$10^{-6}$ to return bar.
+
+\subsection{\texorpdfstring{\chem{SiO_2}}{SiO2}}
+Quartz, as listed in \citet{batalha2025}, citing \citet{grant2023}:
+\begin{equation}
+  \log_{10} \pvap^{\rm SiO_2} = 13.168 - \frac{28265}{T} - \MH ,
+\end{equation}
+with $\pvap$ in bar; the code returns dyn\,cm$^{-2}$. This is the
+``undepleted gas'' version. The code also mentions a ``depleted gas''
+alternative, $13.360 - 28265/T - \MH$, which is not used. The pRT
+docstring flags this curve as a placeholder that is not yet suitable for
+public use.
+
+\section{Refractory oxides}
+
+\subsection{\texorpdfstring{\chem{TiO_2}}{TiO2}}
+From \citet{marley2021}, see also \citet{lodders2002}, as implemented in
+\textsc{virga}:
+\begin{equation}
+  \log_{10} \pvap^{\rm TiO_2} = 13.95 - \frac{38266}{T} - \MH ,
+\end{equation}
+with $\pvap$ in bar; the code returns dyn\,cm$^{-2}$.
+
+\subsection{\texorpdfstring{\chem{Al_2O_3}}{Al2O3}}
+Corundum, from the Sonora Diamondback models \citep{morley2024}, see also
+\citet{wakeford2017}:
+\begin{equation}
+  \log_{10} \pvap^{\rm Al_2O_3} = 15.24 - \frac{41481}{T} - 1.66\,\MH ,
+\end{equation}
+with $\pvap$ in bar; the code returns dyn\,cm$^{-2}$. The metallicity
+coefficient $1.66$ follows the \textsc{virga} source code. Table~2 of
+\citet{batalha2025} gives $1.50$. An older fit based on
+\citet{wakeford2017}, $\log_{10}\pvap = 17.7 - 45892.6/T - 1.66\,\MH$, is
+kept as a comment in the code.
+
+\subsection{\texorpdfstring{\chem{CaTiO_3}}{CaTiO3}}
+Perovskite, derived from the condensation curve of \citet{wakeford2017}:
+\begin{equation}
+  \log_{10} \pvap^{\rm CaTiO_3} = 30.24 - \frac{72160}{T}
+  - \log_{10}\!\left(\frac{P}{1\,\mathrm{bar}}\right) - 2\,\MH ,
+\end{equation}
+with $\pvap$ in bar; the code returns dyn\,cm$^{-2}$ and takes $P$ in
+dyn\,cm$^{-2}$. \citet{batalha2025} list the same expression with $-3\,\MH$.
+In \code{clouds.py}, $P$ is currently fixed to $1$\,bar, so the pressure
+term vanishes.
+
+\subsection{\texorpdfstring{\chem{CaAl_{12}O_{19}}}{CaAl12O19}}
+Hibonite, derived from the condensation curve of \citet{wakeford2017}:
+\begin{equation}
+  \log_{10} \pvap^{\rm CaAl_{12}O_{19}} = 16.46 - \frac{44021}{T}
+  - 0.083\log_{10}\!\left(\frac{P}{1\,\mathrm{bar}}\right) - 1.67\,\MH ,
+\end{equation}
+with $\pvap$ in bar; the code returns dyn\,cm$^{-2}$. As for \chem{CaTiO_3},
+$P$ is fixed to $1$\,bar in \code{clouds.py}.
+
+\section{Sulfides, salts and Cr}
+
+The following fits are from \citet{morley2012}, who derived them from the
+thermochemical models of \citet{visscher2006} (sulfides) and
+\citet{lodders1999} (KCl). Pressures are in bar in the original.
+
+\subsection{Cr}
+Vapour pressure of Cr gas over Cr metal \citep[][Eq.~5]{morley2012}:
+\begin{equation}
+  \log_{10} \pvap^{\rm Cr} = 7.49 - \frac{20592}{T} .
+\end{equation}
+The code returns dyn\,cm$^{-2}$. The \code{metallicity} argument is
+accepted but not used.
+
+\subsection{MnS}
+Vapour pressure of Mn gas over condensed MnS
+\citep[][Eq.~9, from \citealt{visscher2006}]{morley2012}:
+\begin{equation}
+  \log_{10} \pvap^{\rm Mn} = 11.5315 - \frac{23810}{T} - \MH .
+\end{equation}
+The code returns dyn\,cm$^{-2}$.
+
+\subsection{ZnS}
+Vapour pressure of Zn gas over condensed ZnS
+\citep[][Eq.~15, from \citealt{visscher2006}]{morley2012}:
+\begin{equation}
+  \log_{10} \pvap^{\rm Zn} = 12.8117 - \frac{15873}{T} - \MH .
+\end{equation}
+The code returns dyn\,cm$^{-2}$.
+
+\subsection{\texorpdfstring{\chem{Na_2S}}{Na2S}}
+\citet[][Eq.~12, from \citealt{visscher2006}]{morley2012} give the partial
+pressure of Na over condensed \chem{Na_2S},
+$\log_{10} p^{\rm Na} = 8.55 - 13889/T - 0.5\,\MH$ (bar). pRT divides this by
+two to obtain the partial pressure of a hypothetical \chem{Na_2S} gas, as in
+\citet{charnay2018}. This is valid as long as S is more abundant than Na,
+as it is for solar abundance ratios:
+\begin{equation}
+  \pvap^{\rm Na_2S} = \tfrac{1}{2}\,10^{\,8.55 - 13889/T - 0.5\,\MH} ,
+\end{equation}
+returned in bar.
+
+In the free-abundance case, the code replaces $\MH$ by a proxy for [Na/H]
+derived from the mass fraction. As currently implemented, the mass fraction
+cancels out, and the expression evaluated is
+\begin{equation}
+  \pvap^{\rm Na_2S} = \tfrac{1}{2}\,
+  10^{\,8.55 - 13889/T - 0.5\left[\log_{10}(2\bar{\mu}) + 5.7\right]} .
+\end{equation}
+The code comments suggest that the intended proxy is
+$[\mathrm{Na/H}] \approx \log_{10}(2X_{\rm Na_2S}\bar{\mu}/M_{\rm Na_2S}) + 5.7$,
+which assumes that the solar abundance is $\log_{10}(\mathrm{Na/H})_\odot \approx -5.7$.
+
+\subsection{KCl}
+Vapour pressure of KCl over solid KCl \citep[][Eq.~18]{morley2012}, based
+on \citet{lodders1999}:
+\begin{equation}
+  \log_{10} \pvap^{\rm KCl} = 7.6106 - \frac{11382}{T} ,
+\end{equation}
+returned in bar.
+
+\section{Ices}
+
+\subsection{\texorpdfstring{\chem{NH_3}}{NH3}}
+From \citet{lodders1998}, piecewise around the triple point at 195.4\,K:
+\begin{equation}
+  \log_{10} \pvap^{\rm NH_3} =
+  \begin{cases}
+    6.900 - 1588/T, & T < 195.4\,\mathrm{K}\ \text{(solid)},\\
+    5.201 - 1248/T, & T \ge 195.4\,\mathrm{K}\ \text{(liquid)},
+  \end{cases}
+\end{equation}
+with $\pvap$ in bar; the code returns dyn\,cm$^{-2}$.
+
+\subsection{\texorpdfstring{\chem{H_2O}}{H2O}}
+Three temperature regimes are used, following \citet{ackerman2001}.
+By default (\code{do\_buck=True}), the expressions of \citet{buck1981} are
+used, with $t \equiv T - 273.16$ the temperature in $^\circ$C and $\pvap$ in
+dyn\,cm$^{-2}$:
+\begin{equation}
+  \pvap^{\rm H_2O} =
+  \begin{cases}
+    6111.5\,\exp\!\left[\left(23.036 - \dfrac{t}{333.7}\right)\dfrac{t}{t + 279.82}\right],
+      & T < 273.16\,\mathrm{K}\ \text{(ice)},\\[2ex]
+    6112.1\,\exp\!\left[\left(18.729 - \dfrac{t}{227.3}\right)\dfrac{t}{t + 257.87}\right],
+      & 273.16 \le T < 1048\,\mathrm{K}\ \text{(liquid)},\\[2ex]
+    6\times10^{8}, & T \ge 1048\,\mathrm{K}.
+  \end{cases}
+\end{equation}
+The constant value above 1048\,K (600\,bar) follows \citet{ackerman2001},
+who note that the Buck expressions are unsuitable at higher temperatures.
+
+With \code{do\_buck=False}, the formulations of \citet{wexler1977} for ice
+and \citet{wexler1976} for liquid water are used, with coefficients as
+given by \citet{flatau1992}. The factor 10 converts Pa to dyn\,cm$^{-2}$:
+\begin{align}
+  \pvap^{\rm ice} &= 10\,\exp\!\left[\frac{h_0}{T} + h_1 + h_2 T + h_3 T^2
+     + h_4 T^3 + h_5 \ln T\right], \\
+  \pvap^{\rm liq} &= 10\,\exp\!\left[\frac{g_0}{T^2} + \frac{g_1}{T} + g_2
+     + g_3 T + g_4 T^2 + g_5 T^3 + g_6 T^4 + g_7 \ln T\right],
+\end{align}
+with
+\begin{align*}
+  (h_0,\dots,h_5) &= (-5.8653696\times10^{3},\ 2.224103300\times10^{1},\
+     1.3749042\times10^{-2},\ -3.4031775\times10^{-5},\\
+     &\qquad 2.6967687\times10^{-8},\ 6.918651\times10^{-1}),\\
+  (g_0,\dots,g_7) &= (-2.9912729\times10^{3},\ -6.0170128\times10^{3},\
+     1.887643854\times10^{1},\ -2.8354721\times10^{-2},\\
+     &\qquad 1.7838301\times10^{-5},\ -8.4150417\times10^{-10},\
+     4.4412543\times10^{-13},\ 2.858487).
+\end{align*}
+The same temperature ranges and high-temperature cap as above apply.
+
+\subsection{\texorpdfstring{\chem{CH_4}}{CH4}}
+From \citet{lodders1998}. The Clausius--Clapeyron equation is integrated
+with a temperature-independent difference in heat capacity
+$\Delta c_p = c_{p,\rm gas} - c_{p,\rm cond}$ between gas and condensate,
+and anchored at the triple point
+($T_{\rm tp} = 90.68$\,K, $p_{\rm tp} = 0.11719$\,bar):
+\begin{equation}
+  \pvap^{\rm CH_4} = A\,T^{C}\exp\!\left(\frac{B}{T}\right),
+\end{equation}
+\begin{equation}
+  C = -\frac{M}{R}\,\Delta c_p, \qquad
+  B = -\frac{M}{R}\left(L + \Delta c_p\,T_{\rm tp}\right), \qquad
+  A = p_{\rm tp}\,T_{\rm tp}^{-C}\exp\!\left(-\frac{B}{T_{\rm tp}}\right),
+\end{equation}
+with $M/R = 16.043/8.3143$. The other constants depend on the phase:
+\begin{itemize}
+  \item solid ($T \le T_{\rm tp}$): $\Delta c_p = 2.213 - 2.650$ and latent
+        heat of sublimation $L = 611.10$;
+  \item liquid ($T > T_{\rm tp}$): $\Delta c_p = 2.213 - 3.370$ and latent
+        heat of vaporisation $L = 552.36$;
+\end{itemize}
+with heat capacities in J\,g$^{-1}$\,K$^{-1}$ and latent heats in
+J\,g$^{-1}$. The result is in bar, and the code returns dyn\,cm$^{-2}$.
+
+\begin{thebibliography}{99}
+
+\bibitem[Ackerman \& Marley(2001)]{ackerman2001}
+Ackerman, A.~S., \& Marley, M.~S. 2001, ApJ, 556, 872,
+\emph{Precipitating Condensation Clouds in Substellar Atmospheres}
+
+\bibitem[Barshay \& Lewis(1976)]{barshay1976}
+Barshay, S.~S., \& Lewis, J.~S. 1976, ARA\&A, 14, 81,
+\emph{Chemistry of Primitive Solar Material}
+
+\bibitem[Batalha et al.(2025)]{batalha2025}
+Batalha, N.~E., Rooney, C.~M., Visscher, C., et al. 2025,
+arXiv:2508.15102,
+\emph{Condensation Clouds in Substellar Atmospheres with Virga};
+code: \url{https://github.com/natashabatalha/virga}
+
+\bibitem[Buck(1981)]{buck1981}
+Buck, A.~L. 1981, J. Appl. Meteorol., 20, 1527,
+\emph{New Equations for Computing Vapor Pressure and Enhancement Factor}
+
+\bibitem[Charnay et al.(2018)]{charnay2018}
+Charnay, B., B\'ezard, B., Baudino, J.-L., et al. 2018, ApJ, 854, 172,
+\emph{A Self-consistent Cloud Model for Brown Dwarfs and Young Giant
+Exoplanets: Comparison with Photometric and Spectroscopic Observations}
+
+\bibitem[Ferguson \& Nuth(2008)]{ferguson2008}
+Ferguson, F.~T., \& Nuth, J.~A. 2008, J. Chem. Eng. Data, 53, 2824,
+\emph{Vapor Pressure of Silicon Monoxide}
+
+\bibitem[Flatau et al.(1992)]{flatau1992}
+Flatau, P.~J., Walko, R.~L., \& Cotton, W.~R. 1992, J. Appl. Meteorol.,
+31, 1507, \emph{Polynomial Fits to Saturation Vapor Pressure}
+
+\bibitem[Grant et al.(2023)]{grant2023}
+Grant, D., Lewis, N.~K., Wakeford, H.~R., et al. 2023, ApJL, 956, L29,
+\emph{JWST-TST DREAMS: Quartz Clouds in the Atmosphere of WASP-17b}
+
+\bibitem[Lodders(1999)]{lodders1999}
+Lodders, K. 1999, ApJ, 519, 793,
+\emph{Alkali Element Chemistry in Cool Dwarf Atmospheres}
+
+\bibitem[Lodders(2002)]{lodders2002}
+Lodders, K. 2002, ApJ, 577, 974,
+\emph{Titanium and Vanadium Chemistry in Low-Mass Dwarf Stars}
+
+\bibitem[Lodders \& Fegley(1998)]{lodders1998}
+Lodders, K., \& Fegley, B. 1998,
+\emph{The Planetary Scientist's Companion} (New York: Oxford University Press)
+
+\bibitem[Marley et al.(2021)]{marley2021}
+Marley, M.~S., Saumon, D., Visscher, C., et al. 2021, ApJ, 920, 85,
+\emph{The Sonora Brown Dwarf Atmosphere and Evolution Models. I.}
+
+\bibitem[Morley et al.(2012)]{morley2012}
+Morley, C.~V., Fortney, J.~J., Marley, M.~S., et al. 2012, ApJ, 756, 172,
+\emph{Neglected Clouds in T and Y Dwarf Atmospheres}
+
+\bibitem[Morley et al.(2024)]{morley2024}
+Morley, C.~V., Mukherjee, S., Marley, M.~S., et al. 2024, ApJ, 975, 59,
+\emph{The Sonora Substellar Atmosphere Models. III. Diamondback}
+
+\bibitem[Visscher et al.(2006)]{visscher2006}
+Visscher, C., Lodders, K., \& Fegley, B. 2006, ApJ, 648, 1181,
+\emph{Atmospheric Chemistry in Giant Planets, Brown Dwarfs, and Low-Mass
+Dwarf Stars. II. Sulfur and Phosphorus}
+
+\bibitem[Visscher et al.(2010)]{visscher2010}
+Visscher, C., Lodders, K., \& Fegley, B. 2010, ApJ, 716, 1060,
+\emph{Atmospheric Chemistry in Giant Planets, Brown Dwarfs, and Low-Mass
+Dwarf Stars. III. Iron, Magnesium, and Silicon}
+
+\bibitem[Wakeford et al.(2017)]{wakeford2017}
+Wakeford, H.~R., Visscher, C., Lewis, N.~K., et al. 2017, MNRAS, 464, 4247,
+\emph{High-temperature Condensate Clouds in Super-hot Jupiter Atmospheres}
+
+\bibitem[Wetzel et al.(2013)]{wetzel2013}
+Wetzel, S., Klevenz, M., Gail, H.-P., Pucci, A., \& Trieloff, M. 2013,
+A\&A, 553, A92, \emph{Laboratory Measurement of Optical Constants of Solid
+SiO and Application to Circumstellar Dust}
+
+\bibitem[Wexler(1976)]{wexler1976}
+Wexler, A. 1976, J. Res. Natl. Bur. Stand., 80A, 775,
+\emph{Vapor Pressure Formulation for Water in Range 0 to 100\,$^\circ$C.
+A Revision}
+
+\bibitem[Wexler(1977)]{wexler1977}
+Wexler, A. 1977, J. Res. Natl. Bur. Stand., 81A, 5,
+\emph{Vapor Pressure Formulation for Ice}
+
+\end{thebibliography}
+
+\end{document}

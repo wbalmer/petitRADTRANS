@@ -1,0 +1,15 @@
+{#- Logo shown in the left sidebar, above the global table of contents. -#}
+<div class="sidebar-logo">
+  <a href="{{ pathto(root_doc) }}">
+    <img src="{{ pathto('_static/pRTv4Logov1.png', 1) }}" alt="{{ project }} logo" />
+  </a>
+</div>
+
+{#- Preserve the theme's original discussion link, if configured. -#}
+{%- if theme_discussion_url -%}
+<div class="sidebar-links">
+  <ul>
+    <li>{%- include "components/discussion-link.html" -%}</li>
+  </ul>
+</div>
+{%- endif -%}
