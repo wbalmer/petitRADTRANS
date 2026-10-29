@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   `ImportError` explaining what to install.
 - Retired `sampler_type` `jaxnsshardedstaticnestedsampler` raises a
   `ValueError` pointing to `jaxns_distributed`.
+- tox and the GitLab CI test Python 3.12, 3.13, 3.14 and 3.15 (tox environments
+  `py312` to `py315`, run as a CI matrix). tox uses `tox-uv`, which downloads
+  the Python versions that are not installed, builds a petitRADTRANS wheel per
+  Python version with build isolation, and installs it with the `test` extra so
+  every sampler backend is tested. The CI image adds `libhdf5-dev`, needed to
+  build h5py on Python versions it has no wheels for yet.
 
 ### Fixed
 - BlackJAX runs raised `TypeError` with BlackJAX >= 1.6, which removed the
