@@ -1317,7 +1317,7 @@ class RetrievalConfig:
                 1-D array of observation times in seconds (absolute or relative
                 to the first observation).
             model_generating_function : Callable
-                A runtime-native model function (e.g.
+                A differentiable model function (e.g.
                 ``time_series_gradient_emission``).
             n_model_timesteps : int
                 Number of model spectra computed at regular intervals spanning

@@ -4,8 +4,15 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [Unreleased]
+## [4.0.0b5] - 2026-10-29
 ### Added
+- Test of second-order (Hessian-vector product) derivatives of the scattering
+  emission flux in `tests/test_feautrier_scattering.py`.
+- Tests that the native CPU correlated-k mixing kernel matches its JAX
+  implementation, and that its forward- and reverse-mode derivatives agree to
+  second order, in `tests/test_fortran_modules.py`.
+- Time-series retrieval framework. Includes full end-to-end running, tests, plotting,
+  and documentation. Core functionality lives in `retrieval/linearised.py`.
 - File `VERSION.txt`, the single source of the package version. `meson.build`
   reads it, `pyproject.toml` declares the version dynamic, `docs/conf.py` reads
   it, and the build generates `petitRADTRANS/_version.py` from it, so an
@@ -17,6 +24,20 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   devices.
 
 ### Changed
+- Each (g, frequency) column of the Feautrier scattering iteration now stops at
+  its own convergence, so emission spectra no longer depend on
+  `feautrier_chunk_size`.
+- The convergence test of the Feautrier scattering iteration measures the
+  relative flux change over one Ng acceleration cycle (4 iterations) instead of
+  over a single iteration, and `SCATTERING_CONVERGENCE_THRESHOLD` is 1e-5
+  (was 1e-3).
+- The adaptive Feautrier iteration stops as soon as it has converged instead of
+  stepping through the whole iteration budget, which is faster on GPU.
+- Regenerated the reference file of
+  `test_correlated_k_emission_spectrum_surface_scattering_with_adaptive_feautrier_iterations`.
+  The previous reference (4.0.0a42) recorded a scattering iteration that was
+  1.1e-3 from its converged solution; the converged solution itself is unchanged
+  (to 1e-8), and the new reference is within 3e-7 of it.
 - BlackJAX 1.7 or later is required. Its progress bar is now shown through
   `blackjax.progress_bar()`, which needs the optional `jaxtap` package
   (`blackjax[progress]`).
@@ -38,6 +59,14 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   build h5py on Python versions it has no wheels for yet.
 
 ### Fixed
+- Forward-mode (`jax.jvp`, `jax.jacfwd`) and second-order derivatives of
+  correlated-k emission spectra with `scattering_in_emission=True` on CPU raised
+  `TypeError`: the native correlated-k mixing kernel defined only a reverse-mode
+  derivative. It now defines a forward-mode rule, from which JAX derives both.
+- The JAXNS calls of the retrieval tutorials used arguments that JAXNS 3
+  removed, so they raised `TypeError`; PyMultiNest calls spelled `max_iter` as
+  `max_iters` and passed UltraNest arguments, which PyMultiNest silently
+  ignores.
 - BlackJAX runs raised `TypeError` with BlackJAX >= 1.6, which removed the
   `progress_bar` argument of `window_adaptation`.
 - Multi-chain BlackJAX and NumPyro runs on more than one device raised in
@@ -50,42 +79,6 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - `Data` built without a spectrum called the deprecated `jnp.shape(None)`.
 - The installation instructions omitted JAX from the packages needed before a
   `--no-build-isolation` install.
-
-## [4.0.0b5] - 2026-10-23
-### Added
-- Test of second-order (Hessian-vector product) derivatives of the scattering
-  emission flux in `tests/test_feautrier_scattering.py`.
-- Tests that the native CPU correlated-k mixing kernel matches its JAX
-  implementation, and that its forward- and reverse-mode derivatives agree to
-  second order, in `tests/test_fortran_modules.py`.
-- Time-series retrieval framework. Includes full end-to-end running, tests, plotting,
-  and documentation. Core functionality lives in `retrieval/linearised.py`.
-
-### Changed
-- Each (g, frequency) column of the Feautrier scattering iteration now stops at
-  its own convergence, so emission spectra no longer depend on
-  `feautrier_chunk_size`.
-- The convergence test of the Feautrier scattering iteration measures the
-  relative flux change over one Ng acceleration cycle (4 iterations) instead of
-  over a single iteration, and `SCATTERING_CONVERGENCE_THRESHOLD` is 1e-5
-  (was 1e-3).
-- The adaptive Feautrier iteration stops as soon as it has converged instead of
-  stepping through the whole iteration budget, which is faster on GPU.
-- Regenerated the reference file of
-  `test_correlated_k_emission_spectrum_surface_scattering_with_adaptive_feautrier_iterations`.
-  The previous reference (4.0.0a42) recorded a scattering iteration that was
-  1.1e-3 from its converged solution; the converged solution itself is unchanged
-  (to 1e-8), and the new reference is within 3e-7 of it.
-
-### Fixed
-- Forward-mode (`jax.jvp`, `jax.jacfwd`) and second-order derivatives of
-  correlated-k emission spectra with `scattering_in_emission=True` on CPU raised
-  `TypeError`: the native correlated-k mixing kernel defined only a reverse-mode
-  derivative. It now defines a forward-mode rule, from which JAX derives both.
-- The JAXNS calls of the retrieval tutorials used arguments that JAXNS 3
-  removed, so they raised `TypeError`; PyMultiNest calls spelled `max_iter` as
-  `max_iters` and passed UltraNest arguments, which PyMultiNest silently
-  ignores.
 
 ### Removed
 - Package `petitRADTRANS.experimental` (simulation-based inference), its tests,
@@ -217,7 +210,7 @@ to run natively on GPUs and TPUs. Version 4.0 is in beta, and is subject to chan
 - a16: Shard_map parallelisation for MCMC samplers
 - a15 Reverse-mode differentiation changes to rebinning and particle radius functions.
 - a15 Renamed retrieval dataset controls from `scale`, `scale_err`, and `offset_bool` to `scale_flux`, `scale_uncertainties`, and `fit_flux_offset` throughout `Data`, `RetrievalConfig`, runtime metadata, plotting, tests, and tutorials.
-- a15 Documented the runtime-native retrieval workflow around `RetrievalRuntime` and the built-in JAX retrieval models exported from `petitRADTRANS.retrieval.models`.
+- a15 Documented the differentiable retrieval workflow around `RetrievalRuntime` and the built-in JAX retrieval models exported from `petitRADTRANS.retrieval.models`.
 - a14 Added BlackJAX and Numpyro HMC and NUTS samplers. Integrated samplers into retrieval summary.
 - a14 Moved retrieval plotting into RetrievalPlotter class, inheriting from Retrieval.
 - a12 Optimised Feautrier and ensured consistency with Fortran implementation.
@@ -262,7 +255,7 @@ to run natively on GPUs and TPUs. Version 4.0 is in beta, and is subject to chan
 - a15 Added RetrievalPlotter class, replacing plotting functions and `plot_kwargs` from the Retrieval class.
 - a15 Added automatic calculation of BIC, AIC and BPICS following retrievals.
 - a15 Added covariance fitting for spectroscopic retrieval datasets, including automatic covariance hyperparameters in `RetrievalConfig`, covariance construction in `Data`, and Cholesky-based covariance likelihood evaluation in `LogLikelihood`.
-- a15 Added a dedicated runtime-native JAX emission retrieval tutorial using the built-in runtime model exports.
+- a15 Added a dedicated differentiable JAX emission retrieval tutorial using the built-in runtime model exports.
 - a15 Added the `petitRADTRANS.experimental.sbi` package scaffold for simulation-based inference workflows built on the retrieval runtime.
 - a14: Added autodiff version of calculate_transit_radii function.
 - a13: Added autodiff version of calculate_flux functions.

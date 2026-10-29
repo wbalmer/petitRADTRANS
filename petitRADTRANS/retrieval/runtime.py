@@ -14,7 +14,7 @@ The core responsibilities of the module are:
 
 The classes in this file are intentionally small, immutable containers with a
 few conversion helpers. Together they provide the bridge between the legacy
-retrieval configuration objects and the newer runtime-native execution model.
+retrieval configuration objects and the newer differentiable execution model.
 
 AI tools were used to help develop this module.
 """
@@ -234,9 +234,9 @@ class LikelihoodState:
 
 @dataclass(frozen=True)
 class ModelContext:
-    """Execution context passed to runtime-native model functions.
+    """Execution context passed to differentiable model functions.
 
-    A runtime-native model receives this context instead of the legacy mutable
+    A differentiable model receives this context instead of the legacy mutable
     ``Parameter`` dictionary plus a collection of loosely coupled flags.
     """
 
@@ -265,7 +265,7 @@ class ModelContext:
 class ModelInputs:
     """Structured physical inputs consumed by low-level spectrum calculators.
 
-    Runtime-native model builders populate this container once they have
+    differentiable model builders populate this container once they have
     derived thermodynamic, chemical, and cloud state from the current
     parameters.
     """
@@ -537,7 +537,7 @@ class RetrievalRuntime:
             n_free_parameters = parameter_layout.n_free_parameters
 
         # Map (alias-normalized) parameter names to their astropy units so that
-        # runtime-native model functions can convert parameter values to the cgs
+        # differentiable model functions can convert parameter values to the cgs
         # units expected by the radiative transfer. Parameters without units are
         # omitted, leaving an empty map when no parameter declares units.
         parameter_units = {

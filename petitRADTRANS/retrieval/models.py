@@ -1127,34 +1127,26 @@ def make_linearised_time_series_model(static_model_function, jacobian_mode="jacf
 
     The linearised time-series method needs two things from the forward model:
     the spectrum at the reference state, and its derivative with respect to each
-    modulated parameter.  Everything else -- the harmonic basis, the noise, the
-    marginalisation -- belongs to the scorer.
+    modulated parameter.
 
     This wrapper is deliberately physics-agnostic.  It differentiates whatever
     static model it is handed, so a change to the temperature profile, the
     cloud treatment or the abundance parameterisation needs no change here.
-    Contrast :func:`time_series_gradient_emission`, which evaluates the
-    atmosphere at every model epoch: this evaluates it once and costs one full
-    solution plus ``n_modulated`` tangent solves, independent of the number of
-    epochs.
 
-    The Jacobian is returned in FLUX, not log space, and that is load-bearing.
-    Projection onto the instrument grid -- convolution then rebinning -- is
-    linear in flux.  Both ``M_ref`` and ``dM/dtheta`` are fluxes, so the scorer
-    pushes them through the SAME projector and forms the log Jacobian
-    afterwards, ``J = R(dM/dtheta) / R(M_ref)``.  Returning ``dln M/dtheta`` and
-    rebinning that would average a ratio where a ratio of averages is wanted,
-    and the two differ exactly at the sharp molecular features that carry the
-    variability signal.
+    The Jacobian is returned in FLUX, not log space because
+    convolution then rebinning is also linear in flux.
+    Both ``M_ref`` and ``dM/dtheta`` are fluxes, so the scorer
+    pushes them through the same projection and forms the log Jacobian
+    afterwards, ``J = R(dM/dtheta) / R(M_ref)``.
 
-    Derivatives are taken with respect to an ADDITIVE displacement of the
+    Derivatives are taken with respect to an additive displacement of the
     modulated parameters rather than the parameters themselves, so one
     differentiation over a length-``n_modulated`` vector covers every parameter
-    whatever its units -- kelvin, dex, or dimensionless.
+    regadless of units.
 
     Args:
         static_model_function:
-            Any runtime-native model function, e.g.
+            Any differentiable model function, e.g.
             :func:`gradient_profile_emission`.
         jacobian_mode:
             All three give identical numbers; they differ only in how the
@@ -1169,13 +1161,8 @@ def make_linearised_time_series_model(static_model_function, jacobian_mode="jacf
             6.20 s warm, 1.55 s/sample at batch 8. Lowest memory, 3x slower.
 
             ``"linearize"`` runs the forward pass once and evaluates every
-            direction against the STORED intermediates. It is the textbook
-            choice and it is unusable at production size: those intermediates
-            are a ~100x multiplier on the forward pass, so it asked for ~100 GiB
-            against a 30 GiB device and failed. It is retained for small models
-            only. Note that a failed attempt does not release what the allocator
-            already took, so it will bring down anything that runs after it in
-            the same process.
+            direction against the stored intermediates. Requires too much
+            memory to be practicle.
 
     Returns:
         A model-generating function with the standard runtime signature, whose
@@ -1233,10 +1220,7 @@ def make_linearised_time_series_model(static_model_function, jacobian_mode="jacf
             )
             flux_jacobian = jax.vmap(tangent)(directions).T
         elif jacobian_mode == "jacfwd":
-            # One primal trace with all tangents pushed through together. Costs
-            # roughly n_modulated times a forward pass in memory -- not the
-            # ~100x that linearize's stored intermediates cost -- while avoiding
-            # the n_modulated separate primal evaluations that "jvp" pays.
+            # One trace with all tangents pushed through together.
             spectrum, wavelengths = spectrum_of(zero)
             flux_jacobian = jax.jacfwd(lambda d: spectrum_of(d)[0])(zero)
         else:
@@ -1254,7 +1238,7 @@ def make_linearised_time_series_model(static_model_function, jacobian_mode="jacf
         )
 
     linearised_model.__name__ = f"linearised_{static_model_function.__name__}"
-    # Opt in to the runtime-native contract. The dispatcher does NOT inspect
+    # Opt in to the differentiable contract. The dispatcher does NOT inspect
     # signatures -- a model that does not declare itself is routed through the
     # legacy adapter and called as ``f(radtrans, parameters)``, so the model
     # context never arrives and the modulated-parameter list looks empty.
@@ -4299,7 +4283,7 @@ def _infer_model_function_contract(model_function, declared_contract: str) -> st
     3. Fallback to :data:`MODEL_CONTRACT_LEGACY`.
 
     No signature inspection is performed — models must opt in to the
-    runtime-native contract via the decorator or by setting the attribute
+    differentiable contract via the decorator or by setting the attribute
     directly.
     """
     if model_function is None:

@@ -63,7 +63,7 @@ Setting up a retrieval
 ======================
 
 The model function must return the reference spectrum *and* its flux Jacobian.
-Wrap any runtime-native model with
+Wrap any differentiable model with
 :func:`~petitRADTRANS.retrieval.models.make_linearised_time_series_model`:
 
 .. code-block:: python
