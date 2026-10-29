@@ -175,6 +175,9 @@ def check_all_close(a, b, **kwargs):
     elif isinstance(a, str):
         if a != b:
             raise AssertionError(f"'{a}' != '{b}'")
+    elif isinstance(a, np.ndarray) and a.dtype.kind in "SU":  # array of strings (e.g. loaded from an HDF5 file)
+        if np.shape(a) != np.shape(b) or not np.all(a.astype(str) == np.asarray(b).astype(str)):
+            raise AssertionError(f"'{a}' != '{b}'")
     elif isinstance(a, Array):
         if not jnp.allclose(a, b, **kwargs):
             raise AssertionError(
@@ -189,7 +192,7 @@ def check_all_close(a, b, **kwargs):
     elif isinstance(b, list):
         if isinstance(b[0], str):
             for i, value in enumerate(a):
-                if value != b[0]:
+                if value != b[i]:
                     raise AssertionError(f"'{a}' != '{b}'")
         elif not np.allclose(a, b, **kwargs):
             raise AssertionError(
@@ -434,8 +437,8 @@ def hdf52dict(hdf5_file):
 def intersection_indices(array1: npt.NDArray, array2: npt.NDArray):
     """Get the indices of the intersection between two sorted arrays in decreasing order.
 
-    For example, if array1 is [0.1, ..., 0.3, ..., 3][::-1] and array2 is interval [0.3, ..., 3, ..., 28][::-1], then the output
-    indices will be the indices corresponding to [0.3, ..., 3][::-1] in both arrays.
+    For example, if array1 is [0.1, ..., 0.3, ..., 3][::-1] and array2 is interval [0.3, ..., 3, ..., 28][::-1], then
+    the output indices will be the indices corresponding to [0.3, ..., 3][::-1] in both arrays.
     The [::-1] denotes changing the array from increasing to decreasing order, since intersection_indices
     only works for decreasing order arrays.
 

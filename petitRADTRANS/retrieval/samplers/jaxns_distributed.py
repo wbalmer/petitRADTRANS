@@ -144,4 +144,3 @@ class JAXNSDistributedSampler(JAXNSSampler):
 
         with _opt.default_device(cpu_device):
             return state.to_result().trim()
-

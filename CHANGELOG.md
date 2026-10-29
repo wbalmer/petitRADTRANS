@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0b5] - 2026-10-29
+## [4.0.0rc1] - 2026-10-29
 ### Added
 - Test of second-order (Hessian-vector product) derivatives of the scattering
   emission flux in `tests/test_feautrier_scattering.py`.
@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Tests that run BlackJAX, NumPyro and the optax optimiser against the
   installed library versions, including multi-chain runs on two forced CPU
   devices.
+- Tests of the correlated-k binning (`opacities/correlated_k_binning.py`), in
+  `tests/test_correlated_k_binning.py`, including a comparison with exo-k when
+  it is installed.
+- Tests of the scaling of cloud opacities to `cloud_photosphere_median_optical_depth`,
+  in `tests/test_optical_depths.py` and `tests/test_radtrans_correlated_k_scattering.py`.
 
 ### Changed
 - Each (g, frequency) column of the Feautrier scattering iteration now stops at
@@ -29,8 +34,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   `feautrier_chunk_size`.
 - The convergence test of the Feautrier scattering iteration measures the
   relative flux change over one Ng acceleration cycle (4 iterations) instead of
-  over a single iteration, and `SCATTERING_CONVERGENCE_THRESHOLD` is 1e-5
-  (was 1e-3).
+  over a single iteration, and `SCATTERING_CONVERGENCE_THRESHOLD` is 1e-6
+  (was 1e-3). A threshold of 1e-5 left a strongly scattering atmosphere with
+  an optically thick lowest layer 3e-6 from its converged flux; at 1e-6 it is
+  within 4e-7. The correlated-k scattering benchmark spectra change by less
+  than 3e-7.
 - The adaptive Feautrier iteration stops as soon as it has converged instead of
   stepping through the whole iteration budget, which is faster on GPU.
 - Regenerated the reference file of
@@ -38,6 +46,24 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   The previous reference (4.0.0a42) recorded a scattering iteration that was
   1.1e-3 from its converged solution; the converged solution itself is unchanged
   (to 1e-8), and the new reference is within 3e-7 of it.
+- Regenerated with 4.0.0rc1 the reference files of the correlated-k emission
+  tests of `tests/test_radtrans_correlated_k.py` (4 tests),
+  `tests/test_radtrans_correlated_k_scattering.py` (7),
+  `tests/test_radtrans_correlated_k_surface_scattering.py` (1) and
+  `test_correlated_k_spectral_model_emission_equilibrium_chemistry_imposed`,
+  so that they are compared with a relative tolerance of 1e-6. The previous
+  references (3.1.3, 3.2.0a8, 3.2.0a31 and 4.0.0a42) differed from the 4.0.0rc1
+  spectra by 1e-6 to 1e-5 (float32 opacities against the double-precision
+  Fortran of pRT 3), and the stellar intensities by up to 4.5e-6.
+- Regenerated the reference file of
+  `test_line_by_line_spectral_model_transmission_ccf`: the previous one
+  (4.0.0a42) was calculated with the incorrect convolution fixed in this
+  version.
+- The comparison tolerance of the line-by-line `SpectralModel` tests is 1e-6
+  (was 1e-3), except for `test_line_by_line_spectral_model_emission_full_all`
+  and `test_line_by_line_spectral_model_transmission_full_all_with_complete_coverage`,
+  which still differ from their pRT 3.2.0a8 references by up to 3.9e-4 and
+  1.3e-5 for a reason not yet identified, and keep 1e-3.
 - BlackJAX 1.7 or later is required. Its progress bar is now shown through
   `blackjax.progress_bar()`, which needs the optional `jaxtap` package
   (`blackjax[progress]`).
@@ -79,6 +105,35 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - `Data` built without a spectrum called the deprecated `jnp.shape(None)`.
 - The installation instructions omitted JAX from the packages needed before a
   `--no-build-isolation` install.
+- Constant-resolution convolutions (`SpectralModel` with `convolve=True`, and
+  the convolution of retrieval models to the data resolution) truncated the
+  Gaussian kernel at 20 bins, whatever its width: convolving an R = 1e6
+  spectrum to R = 1e4 was off by 3%, and to R = 1e3 by 5%. The kernel now
+  extends to 4 standard deviations, as in `scipy.ndimage.gaussian_filter1d`.
+  The edges were also padded in scipy's "mirror" mode instead of the "reflect"
+  mode of pRT 3. Results match pRT 3 to 1e-10. Under `jax.jit` with traced
+  inputs the kernel size must be static (20 bins by default, `max_radius`
+  otherwise), and a kernel too small for the resolving powers returns NaN.
+- `calculate_flux` with `cloud_photosphere_median_optical_depth` and
+  `scattering_in_emission=True` raised `TypeError`. The scaling of the cloud
+  opacities to that optical depth is ported to JAX: it no longer uses an
+  undefined variable or SciPy-style interpolation, works under `jax.jit`, and
+  accepts the scalar `cloud_f_sed` values that pRT stores as 0-d arrays.
+- Setting `Radtrans.cloud_species` or `Radtrans.rayleigh_species` raised
+  `NameError`.
+- `utils.check_all_close` compared every element of a sequence of strings with
+  its first element, and could not compare arrays of strings.
+- Loading an HDF5 k-table whose frequency grid is misaligned by one bin with the
+  model grid raised `NameError`.
+- `Ktable.write_hdf5` of the correlated-k binning raised `AttributeError`
+  (missing `molar_mass`, `wnrange` and `wlrange`), so
+  `file_conversion.rebin_ck_line_opacities` could not write the binned-down
+  table.
+- Module `petitRADTRANS.opacities.file_conversion`, documented in "Adding
+  opacities", was not installed.
+- flake8 reports no errors on `petitRADTRANS/` (unused imports, a duplicated
+  definition of `compute_hydrostatic_interval_integrals` and
+  `compute_radius_hydrostatic_equilibrium`, and formatting).
 
 ### Removed
 - Package `petitRADTRANS.experimental` (simulation-based inference), its tests,

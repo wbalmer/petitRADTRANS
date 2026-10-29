@@ -61,6 +61,7 @@ _RETIRED_SAMPLER_TYPES: dict[str, str] = {
 #: resolution cache for the built-in table.
 SAMPLER_DISPATCH: dict[str, type[Sampler]] = {}
 
+
 def resolve_sampler_class(
     sampler_type: str,
     strict: bool = True,

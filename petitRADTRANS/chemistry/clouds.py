@@ -6,7 +6,6 @@ import warnings
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.core import Tracer
 from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 from petitRADTRANS.opacities.opacities import CloudOpacity
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass

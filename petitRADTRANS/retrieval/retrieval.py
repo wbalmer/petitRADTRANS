@@ -1,7 +1,6 @@
 import os
 import sys
 import copy
-import importlib
 import json
 import traceback
 import warnings
@@ -46,11 +45,11 @@ from petitRADTRANS.retrieval.utils import (
     extract_spectrum_parameters,
     process_spectrum_pipeline,
 )
+# SAMPLER_DISPATCH is re-exported: registering a custom sampler through
+# `from petitRADTRANS.retrieval.retrieval import SAMPLER_DISPATCH` is the
+# documented extension point, and it is the same object either way.
+from petitRADTRANS.retrieval.samplers import SAMPLER_DISPATCH  # noqa: F401
 from petitRADTRANS.retrieval.samplers import (
-    # SAMPLER_DISPATCH is re-exported: registering a custom sampler through
-    # `from petitRADTRANS.retrieval.retrieval import SAMPLER_DISPATCH` is the
-    # documented extension point, and it is the same object either way.
-    SAMPLER_DISPATCH,  # noqa: F401
     Sampler,
     SamplerContext,
     resolve_sampler_class,
@@ -1858,11 +1857,14 @@ class Retrieval:
         Builds a matrix of parameter samples and their corresponding log-likelihoods from the sampler results.
 
         Args:
-            results (dict or object, optional): The sampler results to process. If None, the active sampler results are used.
-            parameter_names (list of str, optional): The names of the parameters. If None, the free parameter names are used.
+            results (dict or object, optional): The sampler results to process. If None, the active sampler results
+                are used.
+            parameter_names (list of str, optional): The names of the parameters. If None, the free parameter names
+                are used.
 
         Returns:
-            tuple: A tuple containing the matrix of parameter samples with log-likelihoods appended as the last row, and the ordered parameter names.
+            tuple: A tuple containing the matrix of parameter samples with log-likelihoods appended as the last row,
+                and the ordered parameter names.
         """
         if parameter_names is None:
             parameter_names = list(self._free_parameter_names_cache)

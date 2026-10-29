@@ -3,6 +3,7 @@ py.install_sources([
     'clouds.py',
     'continuum.py',
     'correlated_k_binning.py',
+    'file_conversion.py',
     'hminus.py',
     'load.py',
     'opacities.py',

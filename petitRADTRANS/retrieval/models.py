@@ -19,7 +19,6 @@ All models must take the same set of inputs:
         and temperature arrays instead of computing the flux.
 """
 
-import os
 import re
 import inspect
 from functools import wraps
@@ -957,7 +956,10 @@ def _cartesian_harmonic_orders(base: str, all_keys) -> tuple[int, ...]:
             "almost always a typo; declare every order up to the highest one."
         )
     return orders
+
+
 _SHARED_PERIOD_KEY = "period"
+
 
 def _build_timestep_params(physical_params, t_idx, t_value):
     """Build a :class:`PhysicalParams` snapshot for a single model timestep.
@@ -1574,7 +1576,7 @@ def guillot_transmission(
     gamma = _resolve_guillot_gamma(physical_params)
     redistribution_coefficient = _get_parameter_value(physical_params, "redistribution_coefficient")
     if redistribution_coefficient is None:
-        redistribution_coefficient = 0.25 # global Guillot profile
+        redistribution_coefficient = 0.25  # global Guillot profile
 
     temperature_builder = _wrap_runtime_temperature_builder(
         physical_params,
@@ -3924,7 +3926,8 @@ def legacy_power_law_profile_transmission(
         spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/stellar_radius**2
         contr-em : ArrayLike
-            Optional, the transmission contribution function, relative contributions for each wavelength and pressure level.
+            Optional, the transmission contribution function, relative contributions for each wavelength and pressure
+            level.
     """
     p_use, PGLOBAL = initialize_pressure_from_legacy_dict(
         prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement

@@ -83,6 +83,41 @@ def test_spline_continuum_subtraction_accepts_flat_knot_array():
     assert float(jnp.max(jnp.abs(filtered[1:-1]))) < 0.1
 
 
+@pytest.mark.parametrize("convolve_resolving_power", [1e5, 1e4, 1e3])
+def test_convolve_constant_resolution_matches_scipy_gaussian_filter(convolve_resolving_power):
+    # pRT 3 convolved with scipy.ndimage.gaussian_filter1d(mode="reflect"); the kernel must not be truncated before
+    # 4 standard deviations, whatever their number of bins (~4 to ~400 here)
+    from scipy.ndimage import gaussian_filter1d
+
+    input_resolving_power = 1e6
+    wavelengths = 2.3e-4 * (1 + 1 / input_resolving_power) ** np.arange(4000)
+    spectrum = 1.0 + 0.3 * np.sin(np.arange(wavelengths.size) / 7.0) + 1e-3 * np.arange(wavelengths.size)
+
+    convolved = petitRADTRANS.radtrans_core.spectrum_utils.convolve_constant_resolution(
+        wavelengths, spectrum, convolve_resolving_power
+    )
+
+    sigma = np.mean(wavelengths[:-1] / np.diff(wavelengths) + 0.5) / convolve_resolving_power / (
+        2 * np.sqrt(2 * np.log(2))
+    )
+    np.testing.assert_allclose(convolved, gaussian_filter1d(spectrum, sigma, mode="reflect"), rtol=1e-10)
+
+
+def test_convolve_constant_resolution_under_jit_refuses_a_too_small_kernel():
+    wavelengths = 2.3e-4 * (1 + 1e-6) ** np.arange(500)
+    spectrum = 1.0 + 0.3 * np.sin(np.arange(wavelengths.size) / 7.0)
+    convolve = jax.jit(petitRADTRANS.radtrans_core.spectrum_utils.convolve_constant_resolution)
+
+    # sigma ~4 bins fits in the default traced kernel half-width
+    np.testing.assert_allclose(
+        convolve(wavelengths, spectrum, 1e5),
+        petitRADTRANS.radtrans_core.spectrum_utils.convolve_constant_resolution(wavelengths, spectrum, 1e5),
+        rtol=1e-12,
+    )
+    # sigma ~42 bins does not: the result is NaN instead of a silently truncated convolution
+    assert np.all(np.isnan(convolve(wavelengths, spectrum, 1e4)))
+
+
 def test_linear_spline_interpolation_knot_set_forms():
     x_samples = jnp.linspace(1.0, 2.0, 50, dtype=jnp.float64)
     spline_interpolation = petitRADTRANS.radtrans_core.spectrum_utils.linear_spline_interpolation

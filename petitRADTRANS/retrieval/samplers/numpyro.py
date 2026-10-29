@@ -399,6 +399,7 @@ class NumPyroSampler(GradientSampler):
 
         return kernel_kwargs
     # --- block-wise checkpoint / resume (timeout-resilient single-chain NUTS) ---
+
     def _checkpoint_path(self):
         return self._get_output_prefix() + "_checkpoint.pkl"
 
@@ -899,6 +900,7 @@ class NumPyroSampler(GradientSampler):
             self._concat_or_none(steps_chunks),
             warmup_parameters,
         )
+
     def run_sampler(
         self,
         initial_position,
@@ -1177,6 +1179,7 @@ class NumPyroSampler(GradientSampler):
         self.plot_diagnostics(self.results)
 
         return self.results
+
     def plot_diagnostics(self, results=None):
         if results is None:
             results = self.results

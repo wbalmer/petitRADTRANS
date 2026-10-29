@@ -1,6 +1,5 @@
 import jax.numpy as jnp
 from jax import debug
-from interpax import interp1d
 from petitRADTRANS.radtrans_core import radiative_transfer_core
 from petitRADTRANS.opacities.continuum import combine_opacities
 from petitRADTRANS.opacities.clouds import compute_species_optical_depths
@@ -62,6 +61,8 @@ def compute_optical_depths(
                 reference_gravity=reference_gravity,
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
+                photospheric_cloud_optical_depths=photospheric_cloud_optical_depths,
+                scattering_in_emission=scattering_in_emission,
                 **custom_cloud_parameters,
             )
         else:
@@ -107,8 +108,8 @@ def compute_optical_depths(
             compute_species_optical_depths(
                 reference_gravity=reference_gravity,
                 pressures=pressures,
-                cloud_opacities=opacities, # TODO David: these are opacities per (gas) species, too
-                                           #    not just clouds. Fix function naming.
+                cloud_opacities=opacities,  # TODO David: these are opacities per (gas) species, too
+                                            #    not just clouds. Fix function naming.
             ),
             dtype=WORKING_JAX_DTYPE,
         )
@@ -216,23 +217,14 @@ def compute_optical_depths_with_photospheric_cloud(
             ),
         )
 
-    # Calculate the cloud-free optical depth per wavelength.
-    # Written as an explicit contraction (einsum) rather than as
-    # jnp.sum(weights[..., None, None] * tau, axis=0): the latter spelling is
-    # miscompiled by XLA/CPU (jax 0.10.2, Apple silicon) in some of the
-    # programs calculate_flux() generates, returning numbers that are wrong by
-    # orders of magnitude. See the matching comment in
-    # Radtrans._interpolate_photosphere_radius_profile().
-    optical_depth = jnp.einsum(
-        "g,gfl->fl", weights_gauss, optical_depths[:, :, 0, :]
-    )
+    def _integrate_over_frequencies(optical_depth):
+        if median:
+            # Masking with NaN instead of boolean indexing keeps the shapes static under jit
+            return jnp.nanmedian(
+                jnp.where(wavelengths_select[:, jnp.newaxis], optical_depth, jnp.nan), axis=0
+            )
 
-    if median:
-        optical_depth_integral = jnp.median(
-            optical_depth[wavelengths_select, :], axis=0
-        )
-    else:
-        optical_depth_integral = (
+        return (
             jnp.sum(
                 (optical_depth[1:, :] + optical_depth[:-1, :])
                 * jnp.diff(frequencies)[..., jnp.newaxis],
@@ -242,54 +234,47 @@ def compute_optical_depths_with_photospheric_cloud(
             / 2.0
         )
 
-    optical_depth_cloud = jnp.sum(
-        w_gauss_photosphere * total_tau_cloud[:, :, 0, :], axis=0
+    # Calculate the cloud-free and cloud-only optical depths per wavelength.
+    # Written as an explicit contraction (einsum) rather than as
+    # jnp.sum(weights[..., None, None] * tau, axis=0): the latter spelling is
+    # miscompiled by XLA/CPU (jax 0.10.2, Apple silicon) in some of the
+    # programs calculate_flux() generates, returning numbers that are wrong by
+    # orders of magnitude. See the matching comment in
+    # Radtrans._interpolate_photosphere_radius_profile().
+    optical_depth_integral = _integrate_over_frequencies(
+        jnp.einsum("g,gfl->fl", weights_gauss, optical_depths[:, :, 0, :])
+    )
+    optical_depth_cloud_integral = _integrate_over_frequencies(
+        jnp.einsum("g,gfl->fl", weights_gauss, total_tau_cloud[:, :, 0, :])
     )
 
-    if median:
-        optical_depth_cloud_integral = jnp.median(
-            optical_depth_cloud[wavelengths_select, :], axis=0
-        )
-    else:
-        optical_depth_cloud_integral = (
-            jnp.sum(
-                (optical_depth_cloud[1:, :] + optical_depth_cloud[:-1, :])
-                * jnp.diff(frequencies)[..., jnp.newaxis],
-                axis=0,
-            )
-            / (frequencies[-1] - frequencies[0])
-            / 2.0
-        )
-
-    # Interpolate the pressure where the optical
-    # depth of cloud-free atmosphere is 1.0
-    if jnp.min(optical_depth_integral) < 1 < jnp.max(optical_depth_integral):
-        press_bol_clear = interp1d(optical_depth_integral, pressures)
-        p_phot_clear = press_bol_clear(1.0)
-    else:
-        p_phot_clear = pressures[-1]
+    # Interpolate the pressure where the optical depth of the cloud-free atmosphere is 1.0
+    # (the optical depth increases with pressure, as jnp.interp requires)
+    p_phot_clear = jnp.where(
+        (jnp.min(optical_depth_integral) < 1) & (1 < jnp.max(optical_depth_integral)),
+        jnp.interp(1.0, optical_depth_integral, pressures),
+        pressures[-1],
+    )
 
     # Interpolate the optical depth of the cloud-only atmosphere at the pressure of the cloud-free photosphere
-    tau_bol_cloud = interp1d(pressures, optical_depth_cloud_integral)
-    tau_cloud_at_phot_clear = tau_bol_cloud(p_phot_clear)
+    tau_cloud_at_phot_clear = jnp.interp(p_phot_clear, pressures, optical_depth_cloud_integral)
 
     # Apply cloud scaling
     cloud_scaling_factor = photospheric_cloud_optical_depths / tau_cloud_at_phot_clear
 
-    if len(cloud_f_sed) > 0:
+    if cloud_f_sed is not None and len(cloud_f_sed) > 0:
         max_rescaling = 1e100
 
         for f in cloud_f_sed.keys():
-            if isinstance(cloud_f_sed[f], jnp.ndarray):
+            if jnp.ndim(cloud_f_sed[f]) > 0:
                 raise ValueError(
                     "Only scalar cloud_f_sed values are allowed for cloud rescaling!"
                 )
 
             _max_rescaling = 2.0 * (cloud_f_sed[f] + 1.0)
-            max_rescaling = min(max_rescaling, _max_rescaling)
+            max_rescaling = jnp.minimum(max_rescaling, _max_rescaling)
 
         relative_cloud_scaling_factor = cloud_scaling_factor / max_rescaling
-        print(f"Relative cloud scaling factor: {relative_cloud_scaling_factor}")
 
     # Get continuum scattering opacity, including clouds:
     continuum_opacities_scattering_emission = (

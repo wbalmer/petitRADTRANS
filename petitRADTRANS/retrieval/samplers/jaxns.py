@@ -133,7 +133,7 @@ _JAXNS_TERMINATION_REMOVED = {
 # NestedSampler kwargs removed in JAXNS 3, mapped to what replaces them. These
 # are rejected loudly rather than dropped: silently ignoring, say, 'devices'
 # would change the execution model without telling the user.
-# TODO: remove in version 5.0.0
+# TODO: remove in version 5.0.0
 _JAXNS_REMOVED_SAMPLER_KWARGS = {
     "s": "JAXNS 3 removed 's'. Slice count is now 'num_slices' on the sampler.",
     "k": (

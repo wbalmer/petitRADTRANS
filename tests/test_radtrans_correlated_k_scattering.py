@@ -23,7 +23,7 @@ from .utils import (
     temperature_guillot_2010,
 )
 
-relative_tolerance = 1e-4  # relative tolerance when comparing with older spectra
+relative_tolerance = 1e-6  # relative tolerance when comparing with older spectra
 
 
 # Initializations
@@ -134,6 +134,41 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
         frequencies_to_wavelengths=False,
         adaptive_feautrier_iterations=True,
     )
+
+
+def test_correlated_k_emission_spectrum_scaled_to_cloud_photosphere_median_optical_depth():
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = (
+        get_cloud_parameters("mass_fractions_correlated_k")
+    )
+
+    def calculate_flux(cloud_photosphere_median_optical_depth):
+        return atmosphere_ck_scattering.calculate_flux(
+            temperatures=temperature_guillot_2010,
+            mass_fractions=mass_fractions,
+            reference_gravity=test_parameters["planetary_parameters"]["reference_gravity"],
+            mean_molar_masses=test_parameters["mean_molar_mass"],
+            eddy_diffusion_coefficients=test_parameters["planetary_parameters"][
+                "eddy_diffusion_coefficients"
+            ],
+            cloud_f_sed=cloud_f_sed,
+            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+            cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
+            frequencies_to_wavelengths=False,
+        )
+
+    _, thin_cloud_flux, thin_cloud_outputs = calculate_flux(0.1)
+    _, thick_cloud_flux, thick_cloud_outputs = calculate_flux(10.0)
+
+    assert np.all(np.isfinite(thin_cloud_flux))
+    assert np.all(np.isfinite(thick_cloud_flux))
+    # The cloud opacities are scaled linearly with the requested optical depth
+    np.testing.assert_allclose(
+        thick_cloud_outputs["relative_cloud_scaling_factor"],
+        100.0 * thin_cloud_outputs["relative_cloud_scaling_factor"],
+        rtol=1e-5,
+    )
+    # A thicker cloud hides the hotter, deeper layers
+    assert np.sum(thick_cloud_flux) < np.sum(thin_cloud_flux)
 
 
 def test_correlated_k_photospheric_radius_calculation():

@@ -668,4 +668,3 @@ class DynestySampler(Sampler):
             list(free_parameter_names or self.parameter_names),
         )
         return summary
-

@@ -4,9 +4,10 @@ import pathlib
 
 import jax
 import numpy as np
+import pytest
 
 from .context import petitRADTRANS
-from petitRADTRANS.utils import intersection_indices
+from petitRADTRANS.utils import check_all_close, intersection_indices
 from .utils import reference_filenames, test_parameters, temperature_guillot_2010
 
 relative_tolerance = 1e-6
@@ -164,3 +165,18 @@ def test_intersection_indices_handles_mixed_precision_boundaries():
 
     assert np.nonzero(indices_frequencies)[0].size == frequencies.size
     assert np.array_equal(np.nonzero(indices_file)[0], np.arange(1, file_frequencies.size))
+
+
+def test_check_all_close_compares_strings_element_wise():
+    # Species lists are stored in the reference files as arrays of strings
+    species = np.array(["H2O", "CO"])
+
+    check_all_close(species, ("H2O", "CO"))
+    check_all_close(["H2O", "CO"], ["H2O", "CO"])
+
+    for different_species in (("H2O", "CH4"), ("CO", "H2O"), ("H2O",)):
+        with pytest.raises(AssertionError):
+            check_all_close(species, different_species)
+
+    with pytest.raises(AssertionError):
+        check_all_close(np.array([1.0, 2.0]), ["H2O", "CO"])
