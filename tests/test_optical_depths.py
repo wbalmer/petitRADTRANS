@@ -7,6 +7,7 @@ config.update("jax_enable_x64", True)
 import jax  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
+import pytest  # noqa: E402
 
 from .context import petitRADTRANS  # noqa: E402
 
@@ -28,7 +29,7 @@ _CLOUD_SCATTERING_OPACITIES = jnp.full((_N_FREQUENCIES, _N_LAYERS), 2e-3, dtype=
 
 
 def _compute_scaled_optical_depths(photospheric_cloud_optical_depths, cloud_f_sed):
-    return optical_depths_module.compute_optical_depths(
+    return optical_depths_module.compute_optical_depths_and_pdp(
         pressures=_PRESSURES,
         reference_gravity=_REFERENCE_GRAVITY,
         # The cloud opacities are already included in the total opacities, as in Radtrans
@@ -56,7 +57,7 @@ def test_photospheric_cloud_scaling_sets_the_cloud_optical_depth_at_the_clear_ph
         )
     )
 
-    clear_optical_depths, _ = optical_depths_module._compute_total_optical_depths(
+    clear_optical_depths, _ = optical_depths_module._compute_total_optical_depths_and_pdp(
         pressures=_PRESSURES,
         reference_gravity=_REFERENCE_GRAVITY,
         opacities=_GAS_OPACITIES,
@@ -68,7 +69,7 @@ def test_photospheric_cloud_scaling_sets_the_cloud_optical_depth_at_the_clear_ph
     clear_optical_depth = np.median(np.asarray(clear_optical_depths[0, :, 0, :]), axis=0)
     cloud_optical_depth = np.median(np.asarray(optical_depths - clear_optical_depths)[0, :, 0, :], axis=0)
 
-    unscaled_cloud_optical_depths, _ = optical_depths_module._compute_total_optical_depths(
+    unscaled_cloud_optical_depths, _ = optical_depths_module._compute_total_optical_depths_and_pdp(
         pressures=_PRESSURES,
         reference_gravity=_REFERENCE_GRAVITY,
         opacities=jnp.broadcast_to(_CLOUD_ABSORPTION_OPACITIES[None, :, None, :], _GAS_OPACITIES.shape),
@@ -102,3 +103,32 @@ def test_photospheric_cloud_scaling_is_jit_compatible():
     assert eager[2] is None
     np.testing.assert_allclose(jitted[0], eager[0], rtol=1e-6)
     np.testing.assert_allclose(jitted[1], eager[1], rtol=1e-6)
+
+
+def test_photospheric_cloud_scaling_uses_the_smallest_f_sed_under_jit():
+    cloud_f_sed = {"a": jnp.asarray(3.0), "b": jnp.asarray(1.0)}
+
+    eager = _compute_scaled_optical_depths(jnp.asarray(0.5), cloud_f_sed)
+    jitted = jax.jit(_compute_scaled_optical_depths)(jnp.asarray(0.5), cloud_f_sed)
+    without_f_sed = _compute_scaled_optical_depths(jnp.asarray(0.5), None)
+
+    assert without_f_sed[2] is None
+    np.testing.assert_allclose(jitted[2], eager[2], rtol=1e-6)
+    # The maximum rescaling is set by the smallest f_sed
+    np.testing.assert_allclose(
+        eager[2],
+        _compute_scaled_optical_depths(jnp.asarray(0.5), {"b": jnp.asarray(1.0)})[2],
+        rtol=1e-12,
+    )
+
+
+@pytest.mark.parametrize("use_jit", [False, True])
+def test_photospheric_cloud_scaling_rejects_non_scalar_f_sed(use_jit):
+    compute = jax.jit(_compute_scaled_optical_depths) if use_jit else _compute_scaled_optical_depths
+
+    for cloud_f_sed in (
+        {"a": jnp.linspace(1.0, 3.0, _N_LAYERS)},  # per-layer f_sed
+        {"a": jnp.asarray(2.0), "b": jnp.linspace(1.0, 3.0, _N_LAYERS)},
+    ):
+        with pytest.raises(ValueError, match="Only scalar cloud_f_sed values"):
+            compute(jnp.asarray(0.5), cloud_f_sed)
