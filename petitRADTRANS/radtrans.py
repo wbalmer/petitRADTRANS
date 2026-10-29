@@ -30,7 +30,7 @@ from petitRADTRANS.opacities.opacities import (
     Opacity,
 )
 from petitRADTRANS.opacities import cia, clouds, continuum, hminus, load, rosseland
-from petitRADTRANS.opacities.optical_depths import compute_optical_depths
+from petitRADTRANS.opacities.optical_depths import compute_optical_depths_and_pdp
 from petitRADTRANS.physics import (
     flux_hz2flux_cm,
     frequency2wavelength,
@@ -1312,7 +1312,7 @@ class Radtrans:
                 Continuum scattering opacity array with frequency and layer
                 dimensions.
             irradiation_geometry:
-                Irradiation geometry passed to the emission solver.
+                Irradiation geometry passed to the emission solver. # todo: options?
             star_irradiation_cos_angle:
                 Cosine of the stellar irradiation angle.
             stellar_intensity:
@@ -1362,8 +1362,8 @@ class Radtrans:
             optical_depths,
             photon_destruction_probabilities,
             relative_cloud_scaling_factor,
-        ) = compute_optical_depths(  # TODO review left for David
-                                     #   remove TODO when done.
+        ) = compute_optical_depths_and_pdp(  # TODO review left for David
+                                             #   remove TODO when done.
             pressures=pressures,
             reference_gravity=reference_gravity,
             opacities=opacities,
@@ -1380,7 +1380,9 @@ class Radtrans:
             cloud_absorption_opacities=cloud_absorption_opacities,
             photospheric_cloud_optical_depths=photospheric_cloud_optical_depths,
         )
+
         angle_dependent_intensities = None
+
         if self._scattering_in_emission:
             flux, emission_contribution, angle_dependent_intensities = (
                 radiative_transfer_core.compute_feautrier_radiative_transfer(  # TODO review left for David
@@ -1430,6 +1432,7 @@ class Radtrans:
                     thomas_min_batch=thomas_min_batch,
                 )
             )
+
         else:
             if self._line_opacity_mode == "lbl" and len(self._line_species) > 1:
                 _optical_depths = optical_depths[:, :, :1, :]
@@ -1527,7 +1530,7 @@ class Radtrans:
 
         # This branch never executes in that case but just
         # calls to create opacities in the normal way.
-        optical_depths, _, _ = compute_optical_depths(
+        optical_depths, _, _ = compute_optical_depths_and_pdp(
             pressures=pressures,
             reference_gravity=reference_gravity,
             opacities=opacities,
@@ -3722,7 +3725,7 @@ class Radtrans:
                                                         #    remove when done.
                     reference_gravity=reference_gravity,
                     pressures=pressures,
-                    cloud_opacities=cloud_opacities,
+                    species_opacities=cloud_opacities,
                 )
             )
         if return_angle_dependent_intensities:
@@ -4674,7 +4677,7 @@ class Radtrans:
                 clouds.compute_species_optical_depths(
                     reference_gravity=reference_gravity,
                     pressures=pressures,
-                    cloud_opacities=cloud_opacities,
+                    species_opacities=cloud_opacities,
                 )
             )
 

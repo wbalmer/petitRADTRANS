@@ -1,26 +1,68 @@
+_file_purpose="Calculating the optical depths and photon destruction probabilities."
+
+from typing import Optional, Tuple, Dict
+
 import jax.numpy as jnp
+from interpax import interp1d
 from jax import debug
-from petitRADTRANS.radtrans_core import radiative_transfer_core
-from petitRADTRANS.opacities.continuum import combine_opacities
-from petitRADTRANS.opacities.clouds import compute_species_optical_depths
-from petitRADTRANS.physics import frequency2wavelength
+from jax.typing import ArrayLike
 
 from petitRADTRANS.jax_dtype import WORKING_JAX_DTYPE
+from petitRADTRANS.opacities.clouds import compute_species_optical_depths
+from petitRADTRANS.opacities.continuum import combine_opacities
+from petitRADTRANS.physics import frequency2wavelength
+from petitRADTRANS.radtrans_core import radiative_transfer_core
 
 
-def _total_absorption_opacity(opacities):
+def _total_absorption_opacity(
+        opacities: ArrayLike,
+) -> ArrayLike:
+    """
+    In case of sum_opacities=True, the third dimension of the opacities (species) has the already summed opacities, so
+    only this is taken into account.
+
+    Args:
+        opacities: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
+            (cm^2/g) The opacities in the atmosphere.
+
+    Returns:
+        jnp.ndarray, shape (n_g, n_frequencies, 1, n_layers)
+            (cm^2/g) The opacity in the atmosphere, but with only one dimension in the species dimension
+    """
     return jnp.asarray(opacities[:, :, :1, :], dtype=WORKING_JAX_DTYPE)
 
 
-def _compute_total_optical_depths(
-    pressures,
-    reference_gravity,
-    opacities,
-    continuum_opacities_scattering,
-    scattering_in_emission,
-):
+def _compute_total_optical_depths_and_pdp(
+    pressures: ArrayLike,
+    reference_gravity: float,
+    opacities: ArrayLike,
+    scattering_in_emission: bool,
+    continuum_opacities_scattering: Optional[ArrayLike],
+) -> tuple[ArrayLike, ArrayLike]:
+    """
+    Wrapper function to compute the optical depths and photon destruction probabilities.
+
+    Args:
+        pressures: jnp.ndarray, shape (n_layers, )
+            (barye) The pressures in the atmosphere.
+        reference_gravity: float
+            (cm/s^2) The reference gravity in the atmosphere.
+        opacities: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
+            (cm^2/g) The opacities in the atmosphere.
+        scattering_in_emission: bool
+            Whether to include scattering in the emission calculation.
+        continuum_opacities_scattering: Optional[ArrayLike]
+            (cm^2/g) The continuum scattering opacity in the atmosphere.
+
+    Returns:
+        tuple[jax.Array, jax.Array]
+            optical_depths: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
+                The optical depths in the atmosphere.
+            photon_destruction_probabilities: jnp.ndarray, shape (n_g, n_frequencies, n_layers)
+                The photon destruction probabilities in the atmosphere.
+    """
     optical_depths, photon_destruction_probabilities = (
-        radiative_transfer_core.compute_optical_depths(
+        radiative_transfer_core.compute_optical_depths_and_pdp_core(
             reference_gravity=reference_gravity,
             pressures=pressures,
             opacities=_total_absorption_opacity(opacities),
@@ -35,17 +77,50 @@ def _compute_total_optical_depths(
     )
 
 
-def compute_optical_depths(
-    pressures,
-    reference_gravity,
-    opacities,
-    continuum_opacities_scattering,
-    scattering_in_emission,
-    sum_opacities,
-    photospheric_cloud_optical_depths=None,
-    absorber_present=True,
+def compute_optical_depths_and_pdp(
+    pressures: ArrayLike,
+    reference_gravity: float,
+    opacities: ArrayLike,
+    continuum_opacities_scattering: ArrayLike,
+    scattering_in_emission: bool,
+    sum_opacities: bool,
+    photospheric_cloud_optical_depths: Optional[float] = None,
+    absorber_present: bool = True,
     **custom_cloud_parameters,
-):
+) -> tuple[ArrayLike, ArrayLike, float]:
+    """
+    Compute the optical depths and photon destruction probabilities.
+
+    Args:
+        pressures: jnp.ndarray, shape (n_layers, )
+            (barye) The pressures in the atmosphere.
+        reference_gravity: float
+            (cm/s^2) The reference gravity in the atmosphere.
+        opacities: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
+            (cm^2/g) The opacities in the atmosphere.
+        continuum_opacities_scattering: jnp.ndarray, shape (n_g or 1, n_frequencies, n_layers) or (n_frequencies,
+                                        n_layers)
+            (cm^2/g) The continuum scattering opacities in the atmosphere.
+        scattering_in_emission: bool
+            Whether to include scattering in the emission calculation.
+        sum_opacities: bool
+            Whether to sum the opacities or not.
+        photospheric_cloud_optical_depths: float, optional
+            The photospheric cloud optical depths in the atmosphere. Default is None.
+        absorber_present: bool
+            Whether an absorber is present in the atmosphere. Default is True.
+        custom_cloud_parameters: dict
+            Custom cloud parameters to be passed to the cloud opacity calculation.#todo is that correct?
+
+    Returns:
+        optical_depths: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
+            The cumulative optical depths in the atmosphere.
+        photon_destruction_probabilities: jnp.ndarray, shape (n_g, n_frequencies, n_layers)
+            The photon destruction probabilities in the atmosphere.
+        relative_cloud_scaling_factor: Optional[float]
+            The relative cloud scaling factor in the atmosphere:
+            cloud_scaling_factor / max_rescaling with max_rescaling = 2(min_f_sed + 1).
+    """
     photon_destruction_probabilities = None
     relative_cloud_scaling_factor = None
 
@@ -56,7 +131,7 @@ def compute_optical_depths(
                 optical_depths,
                 photon_destruction_probabilities,
                 relative_cloud_scaling_factor,
-            ) = compute_optical_depths_with_photospheric_cloud(
+            ) = compute_optical_depths_and_pdp_with_photospheric_cloud(
                 pressures=pressures,
                 reference_gravity=reference_gravity,
                 opacities=opacities,
@@ -73,7 +148,7 @@ def compute_optical_depths(
                     continuum_opacities_scattering.shape, dtype=WORKING_JAX_DTYPE
                 )
             optical_depths, photon_destruction_probabilities = (
-                _compute_total_optical_depths(
+                _compute_total_optical_depths_and_pdp(
                     pressures=pressures,
                     reference_gravity=reference_gravity,
                     opacities=opacities,
@@ -108,8 +183,7 @@ def compute_optical_depths(
             compute_species_optical_depths(
                 reference_gravity=reference_gravity,
                 pressures=pressures,
-                cloud_opacities=opacities,  # TODO David: these are opacities per (gas) species, too
-                                            #    not just clouds. Fix function naming.
+                species_opacities=opacities,
             ),
             dtype=WORKING_JAX_DTYPE,
         )
@@ -120,21 +194,60 @@ def compute_optical_depths(
         relative_cloud_scaling_factor,
     )
 
+def compute_optical_depths_and_pdp_with_photospheric_cloud(
+    pressures: ArrayLike,
+    reference_gravity: float,
+    opacities: ArrayLike,
+    continuum_opacities_scattering: ArrayLike,
+    frequencies: ArrayLike,
+    weights_gauss: ArrayLike,
+    cloud_wavelengths: ArrayLike,
+    cloud_f_sed: Dict,
+    cloud_anisotropic_scattering_opacities: ArrayLike,
+    cloud_absorption_opacities: ArrayLike,
+    photospheric_cloud_optical_depths: float,
+    scattering_in_emission: bool,
+) -> Tuple[ArrayLike, ArrayLike, float]:
+    """
+    Compute the optical depths and photon destruction probabilities, including the effect of clouds.
 
-def compute_optical_depths_with_photospheric_cloud(
-    pressures,
-    reference_gravity,
-    opacities,
-    continuum_opacities_scattering,
-    frequencies,
-    weights_gauss,
-    cloud_wavelengths,
-    cloud_f_sed,
-    cloud_anisotropic_scattering_opacities,
-    cloud_absorption_opacities,
-    photospheric_cloud_optical_depths,
-    scattering_in_emission,
-):
+    Args:
+        pressures: jnp.ndarray, shape (n_layers, )
+            (barye) The pressures in the atmosphere.
+        reference_gravity: float
+            (cm/s^2) The reference gravity in the atmosphere.
+        opacities: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
+            (cm^2/g) The opacities in the atmosphere.
+        continuum_opacities_scattering: jnp.ndarray, shape (n_g or 1, n_frequencies, n_layers) or (n_frequencies,
+                                        n_layers)
+            (cm^2/g) The continuum scattering opacities in the atmosphere.
+        frequencies: jnp.ndarray, shape (n_frequencies,)
+            (Hz) The frequencies in the atmosphere.
+        weights_gauss: jnp.ndarray, shape (n_gauss,)
+            The Gauss-Legendre weights for integration over angles.
+        cloud_wavelengths: jnp.ndarray, shape (2,)
+            (micron) The wavelength range for cloud calculations.
+        cloud_f_sed: dict
+            The cloud sedimentation efficiency parameters for each cloud species.
+        cloud_anisotropic_scattering_opacities: jnp.ndarray, shape (n_g, n_frequencies, n_layers)
+            (cm^2/g) The anisotropic scattering opacities of clouds in the atmosphere.
+        cloud_absorption_opacities: jnp.ndarray, shape (n_g, n_frequencies, n_layers)
+            (cm^2/g) The absorption opacities of clouds in the atmosphere.
+        photospheric_cloud_optical_depths: float
+            The photospheric cloud optical depth.
+        scattering_in_emission: bool
+            Whether to include scattering in the emission calculation.
+
+    Returns:
+        tuple[jax.Array, jax.Array, float]
+            optical_depths: jnp.ndarray, shape (n_g, n_frequencies, n_species, n_layers)
+                The cumulative optical depths in the atmosphere, including clouds.
+            photon_destruction_probabilities: jnp.ndarray, shape (n_layers,)
+                The photon destruction probabilities in the atmosphere, including clouds.
+            relative_cloud_scaling_factor: Optional[float]
+                The relative cloud scaling factor in the atmosphere:
+                cloud_scaling_factor / max_rescaling with max_rescaling = 2(min_f_sed + 1).
+    """
     relative_cloud_scaling_factor = None
     total_absorption_opacities = _total_absorption_opacity(opacities)
 
@@ -165,7 +278,7 @@ def compute_optical_depths_with_photospheric_cloud(
         )
 
     # Calculate optical depths without clouds
-    optical_depths, photon_destruction_probabilities = _compute_total_optical_depths(
+    optical_depths, photon_destruction_probabilities = _compute_total_optical_depths_and_pdp(
         pressures=pressures,
         reference_gravity=reference_gravity,
         opacities=total_absorption_opacities,
@@ -178,7 +291,7 @@ def compute_optical_depths_with_photospheric_cloud(
         cloud_anisotropic_scattering_opacities is None
         or cloud_absorption_opacities is None
     ):
-        return optical_depths, photon_destruction_probabilities, None
+        return (optical_depths, photon_destruction_probabilities, None)
 
     cloud_only_absorption_opacities = combine_opacities(
         line_species_mass_fractions=_mass_fractions_1,
@@ -187,7 +300,7 @@ def compute_optical_depths_with_photospheric_cloud(
     )
 
     # Calculate optical depth of cloud only
-    total_tau_cloud, _ = _compute_total_optical_depths(
+    total_tau_cloud, _ = _compute_total_optical_depths_and_pdp(
         pressures=pressures,
         reference_gravity=reference_gravity,
         opacities=cloud_only_absorption_opacities,
@@ -248,33 +361,40 @@ def compute_optical_depths_with_photospheric_cloud(
         jnp.einsum("g,gfl->fl", weights_gauss, total_tau_cloud[:, :, 0, :])
     )
 
-    # Interpolate the pressure where the optical depth of the cloud-free atmosphere is 1.0
-    # (the optical depth increases with pressure, as jnp.interp requires)
+    # todo Evert: I changed the interpolation here because interp1d from interpax takes the value(s) where to
+    #  interpolate directly. Also, it was not jitable.
+    # Interpolate the pressure where the optical
+    # depth of cloud-free atmosphere is 1.0
+    tau_one_bracketed = jnp.logical_and(
+        jnp.min(optical_depth_integral) < 1.0,
+        jnp.max(optical_depth_integral) > 1.0,
+    )
     p_phot_clear = jnp.where(
-        (jnp.min(optical_depth_integral) < 1) & (1 < jnp.max(optical_depth_integral)),
+        tau_one_bracketed,
         jnp.interp(1.0, optical_depth_integral, pressures),
         pressures[-1],
     )
 
     # Interpolate the optical depth of the cloud-only atmosphere at the pressure of the cloud-free photosphere
-    tau_cloud_at_phot_clear = jnp.interp(p_phot_clear, pressures, optical_depth_cloud_integral)
+    tau_cloud_at_phot_clear = interp1d(p_phot_clear, pressures, optical_depth_cloud_integral, method="linear")
 
     # Apply cloud scaling
     cloud_scaling_factor = photospheric_cloud_optical_depths / tau_cloud_at_phot_clear
 
-    if cloud_f_sed is not None and len(cloud_f_sed) > 0:
+    if len(cloud_f_sed) > 0:
         max_rescaling = 1e100
-
-        for f in cloud_f_sed.keys():
-            if jnp.ndim(cloud_f_sed[f]) > 0:
-                raise ValueError(
-                    "Only scalar cloud_f_sed values are allowed for cloud rescaling!"
-                )
-
-            _max_rescaling = 2.0 * (cloud_f_sed[f] + 1.0)
-            max_rescaling = jnp.minimum(max_rescaling, _max_rescaling)
-
+        # cloud_f_sed values are traced scalars under jit; scalar validation
+        # happens outside the jitted kernel.
+        min_f_sed = jnp.min(jnp.asarray(list(cloud_f_sed.values())))
+        _max_rescaling = 2.0 * (min_f_sed + 1.0)
+        max_rescaling = jnp.minimum(max_rescaling, _max_rescaling) # safety
         relative_cloud_scaling_factor = cloud_scaling_factor / max_rescaling
+
+        # todo Evert: should we keep that? Then we have to move it outside of jit
+        #if isinstance(cloud_f_sed[f], jnp.ndarray):
+        #    raise ValueError(
+        #        "Only scalar cloud_f_sed values are allowed for cloud rescaling!"
+        #    )
 
     # Get continuum scattering opacity, including clouds:
     continuum_opacities_scattering_emission = (
@@ -289,7 +409,7 @@ def compute_optical_depths_with_photospheric_cloud(
     )
 
     # Calculate total optical depth, including clouds
-    updated_optical_depths, photon_destruction_probabilities = _compute_total_optical_depths(
+    updated_optical_depths, photon_destruction_probabilities = _compute_total_optical_depths_and_pdp(
         pressures=pressures,
         reference_gravity=reference_gravity,
         opacities=total_absorption_opacities,

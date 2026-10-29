@@ -10,6 +10,14 @@ dist/
 petitRADTRANS.egg-info/
 /builds/
 /div/
+.coverage
+.tox/
+tests/errors/
+.idea/
+input_data/
+pixi.lock
+pixi.toml
+experiment_spot.py
 tests/results/
 
 # Local input data (opacities, chemistry tables, stellar spectra, ...)

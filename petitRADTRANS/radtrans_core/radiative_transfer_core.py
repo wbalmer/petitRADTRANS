@@ -739,8 +739,8 @@ def compute_ck_flux(
 
 
 @jit
-def compute_species_optical_depths(
-    reference_gravity: ArrayLike,
+def compute_species_optical_depths_core(
+    reference_gravity: float,
     pressures: ArrayLike,
     opacities: ArrayLike,
 ) -> ArrayLike:
@@ -748,12 +748,16 @@ def compute_species_optical_depths(
     Calculate optical depths with 2nd order accuracy for clouds using JAX.
 
     Args:
-        reference_gravity (DeviceArray): Reference gravity (scalar).
-        pressures (DeviceArray): Pressures at each layer with shape (n_layers,).
-        opacities (DeviceArray): Opacities with shape (..., n_layers).
+        reference_gravity: float
+            (cm/s^2) Reference gravity at the surface of the planet.
+        pressures: jax.numpy.ndarray
+            (barye) Pressures at each layer with shape (n_layers,).
+        opacities: jax.numpy.ndarray
+            (cm^2/g) Opacities with shape (n_g, n_frequencies, n_species, n_layers).
 
     Returns:
-        DeviceArray: Optical depths with the same leading shape as ``opacities``.
+        optical_depths: jax.numpy.ndarray
+            Optical depths with the same leading shape as ``opacities``.
     """
     opacities_work = jnp.asarray(opacities, dtype=WORKING_JAX_DTYPE)
     pressures_work = jnp.asarray(pressures, dtype=WORKING_JAX_DTYPE)
@@ -2226,7 +2230,7 @@ def compute_feautrier_radiative_transfer(
 
 
 @jit
-def compute_optical_depths(
+def compute_optical_depths_and_pdp_core(
     reference_gravity: ArrayLike,
     pressures: ArrayLike,
     opacities: ArrayLike,
@@ -2235,27 +2239,23 @@ def compute_optical_depths(
 ) -> tuple[ArrayLike, ArrayLike]:
     """Integrate total optical depth and photon destruction probabilities.
 
-    Parameters
-    ----------
-    reference_gravity : float
-        Surface gravity in cgs units.
-    pressures : jax.Array, shape (n_layers,)
-        Pressure grid in cgs units, ordered from top to bottom of the atmosphere.
-    opacities : jax.Array, shape (n_g, n_frequencies, n_species, n_layers)
-        Absorptive opacity contribution for each g point, frequency, species, and layer.
-    scattering_in_emission : bool, optional
-        If ``True``, include ``continuum_opacities_scattering`` in the total opacity
-        used by the emission solver.
-    continuum_opacities_scattering : jax.Array, optional
-        Shape (n_g or 1, n_frequencies, n_layers) or (n_frequencies, n_layers).
-        Scattering opacity added to the first species channel when emission scattering
-        is enabled.
+    Args:
+        reference_gravity : float
+            (cm/s^2) Surface gravity of the object.
+        pressures : jax.numpy.ndarray,  shape (n_layers,)
+            (barye) Pressure grid in cgs units, ordered from top to bottom of the atmosphere.
+        opacities : jax.Array, shape (n_g, n_frequencies, n_species, n_layers)
+            (cm^2/g) Absorptive opacity contribution for each g point, frequency, species, and layer.
+        scattering_in_emission : bool, optional
+            If ``True``, include ``continuum_opacities_scattering`` in the total opacity used by the emission solver.
+        continuum_opacities_scattering : jax.Array, optional,
+            Shape (n_g or 1, n_frequencies, n_layers) or (n_frequencies, n_layers)
+            (cm^2/g) Scattering opacity added to the first species channel when emission scattering is enabled.
 
-    Returns
-    -------
-    tuple[jax.Array, jax.Array]
-        Optical depths with shape ``(n_g, n_frequencies, n_species, n_layers)`` and
-        photon destruction probabilities with shape ``(n_g, n_frequencies, n_layers)``.
+    Returns:
+        tuple[jax.Array, jax.Array]
+            Optical depths with shape (n_g, n_frequencies, n_species, n_layers) and
+            photon destruction probabilities with shape (n_g, n_frequencies, n_layers).
     """
 
     opacities_work = jnp.asarray(opacities, dtype=WORKING_JAX_DTYPE)
@@ -2314,7 +2314,9 @@ def compute_optical_depths(
     d_optical_depths = (
         avg_opacities * pressure_diffs / reference_gravity_work
     )  # (..., n_layers-1)
+
     # Pad with zeros at the start for cumulative sum
+    # from shape(n_g, n_frequencies, n_species, n_layers-1) to shape(n_g, n_frequencies, n_species, n_layers)
     d_optical_depths_padded = jnp.pad(
         d_optical_depths, [(0, 0)] * (d_optical_depths.ndim - 1) + [(1, 0)]
     )
