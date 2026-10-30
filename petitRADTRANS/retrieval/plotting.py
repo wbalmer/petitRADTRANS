@@ -2156,6 +2156,8 @@ class RetrievalPlotter:
                 "sampled_spectra/"
             )
 
+            os.makedirs(path, exist_ok=True)
+
             wavelength_min = np.inf
             wavelength_max = -np.inf
 
