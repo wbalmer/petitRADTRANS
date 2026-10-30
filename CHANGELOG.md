@@ -103,6 +103,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   build h5py on Python versions it has no wheels for yet.
 
 ### Fixed
+- The vectorized path of the `ultranest` sampler did not compile its likelihood or
+  prior transform, even though it reported `use_jit=True`, and so was retraced on every
+  call. It now compiles both, padding batches to a few fixed sizes.
 - Forward-mode (`jax.jvp`, `jax.jacfwd`) and second-order derivatives of
   correlated-k emission spectra with `scattering_in_emission=True` on CPU raised
   `TypeError`: the native correlated-k mixing kernel defined only a reverse-mode

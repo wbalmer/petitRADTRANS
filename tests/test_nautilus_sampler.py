@@ -148,6 +148,35 @@ def test_batched_prior_transform_matches_the_eager_one(tmp_path):
     assert np.allclose(batched(cube), context.parameter_layout.prior_transform_numpy(cube))
 
 
+def test_batched_prior_transform_tolerates_float32_rounding_near_zero():
+    """Bounds given as Python numbers make a distribution float32, even under x64.
+
+    Its eager quantile then rounds to float32, and the compiled one does not. That
+    error is small compared to the prior, but not to a value close to zero, as at
+    the fifth probe point of the check (0.57) here.
+    """
+
+    def transform(x):
+        # The eager path hands over NumPy scalars, which do subclass float.
+        return x - 0.57 + (1e-6 if isinstance(x, float) else 0.0)
+
+    parameters = {
+        name: Parameter(name=name, is_free_parameter=True, transform_prior_cube_coordinate=transform)
+        for name in ("a", "b")
+    }
+    layout = ParameterLayout.from_parameters(parameters)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        batched = build_batched_prior_transform(SimpleNamespace(parameter_layout=layout))
+
+    assert batched != layout.prior_transform_numpy
+
+    # This is what makes the prior a test: relative to each value, the two disagree.
+    probe = np.linspace(0.01, 0.99, 8)[:, np.newaxis] * np.ones(2)
+    assert not np.allclose(batched(probe), layout.prior_transform_numpy(probe), rtol=1e-5)
+
+
 @pytest.mark.parametrize(
     "transform, match",
     [

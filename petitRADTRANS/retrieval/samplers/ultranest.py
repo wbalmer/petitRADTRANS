@@ -6,8 +6,8 @@ a pRT ``.npz``.
 
 Two likelihood modes are available. The default drives the scalar
 ``Retrieval.log_likelihood`` callback one point at a time (and can dispatch it
-to a chosen JAX device). ``vectorized=True`` instead hands UltraNest a batched
-JAX likelihood, which is much faster but requires a fully differentiable,
+to a chosen JAX device). ``vectorized=True`` instead hands UltraNest a batched,
+jitted likelihood, which is much faster but requires a fully differentiable,
 non-ragged retrieval -- :meth:`UltranestSampler._resolve_vectorized` checks
 that and downgrades with a warning rather than failing mid-run.
 """
@@ -22,7 +22,10 @@ import numpy as np
 from petitRADTRANS.retrieval.samplers import _optional_imports as _opt
 from petitRADTRANS.retrieval.samplers.base import Sampler, SamplerContext
 from petitRADTRANS.retrieval.samplers.interfaces import (
+    build_batched_prior_transform,
     build_device_likelihood_wrapper,
+    build_jitted_batched_likelihood,
+    pad_batches_to_buckets,
     resolve_scalar_likelihood,
     vectorization_disable_reason,
 )
@@ -129,23 +132,12 @@ class UltranestSampler(Sampler):
                 target_device = None
             prior_func = context.prior_ultranest_func
         else:
-            parameter_layout = context.parameter_layout
-            runtime = context.runtime
-
-            def prior_transform(cube):
-                return parameter_layout.prior_transform_numpy(cube)
-
-            def log_likelihood_batch(physical_positions):
-                return np.asarray(
-                    runtime.evaluate_likelihood_jax_batched(
-                        free_parameter_values=physical_positions,
-                        uncertainties_mode=context.uncertainties_mode,
-                        print_log_likelihood_for_debugging=False,
-                    )
-                )
-
-            log_likelihood_func = log_likelihood_batch
-            prior_func = prior_transform
+            # UltraNest's batches change size on every call, so padding them is
+            # what keeps compilation from repeating throughout the run.
+            log_likelihood_func = pad_batches_to_buckets(
+                build_jitted_batched_likelihood(context)
+            )
+            prior_func = pad_batches_to_buckets(build_batched_prior_transform(context))
 
         sampler = cls(
             log_likelihood_func=log_likelihood_func,

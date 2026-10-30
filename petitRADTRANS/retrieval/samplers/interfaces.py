@@ -189,6 +189,33 @@ def build_jitted_batched_likelihood(context: SamplerContext, target_device=None)
     return jitted_likelihood
 
 
+def pad_batches_to_buckets(batched_function, smallest_bucket=8):
+    """Let a jitted function of ``(n_points, ...)`` take any batch size cheaply.
+
+    A jitted function compiles once per input shape, which is a problem for a
+    sampler whose batches change size on every call. This pads each batch to the
+    next power of two (at least ``smallest_bucket``) by repeating its last point,
+    and returns only the results of the real points, so that a handful of shapes
+    get compiled at the price of up to twice the evaluations per batch.
+    """
+
+    def padded_function(points):
+        points = np.asarray(points, dtype=float)
+
+        if points.ndim == 1:
+            return padded_function(points[np.newaxis])[0]
+
+        n_points = points.shape[0]
+        if n_points == 0:
+            return batched_function(points)
+
+        bucket = max(smallest_bucket, 1 << (n_points - 1).bit_length())
+        padding = np.repeat(points[-1:], bucket - n_points, axis=0)
+        return batched_function(np.concatenate((points, padding)))[:n_points]
+
+    return padded_function
+
+
 def build_batched_prior_transform(context: SamplerContext):
     """Return a prior transform for ``(n_points, n_free)`` unit-cube arrays.
 
@@ -217,10 +244,14 @@ def build_batched_prior_transform(context: SamplerContext):
         probe = np.linspace(0.01, 0.99, 8)[:, np.newaxis] * np.ones(
             parameter_layout.n_free_parameters
         )
-        transforms_agree = np.allclose(
-            batched_transform(probe),
-            parameter_layout.prior_transform_numpy(probe),
-            rtol=1e-5,
+        eager_values = parameter_layout.prior_transform_numpy(probe)
+        # Relative to the range of each prior rather than to each value. Bounds
+        # given as Python numbers make a distribution float32 even under x64, so
+        # its eager quantile rounds to float32 while the compiled one does not,
+        # and that rounding is large compared to a value close to zero.
+        transforms_agree = np.all(
+            np.abs(batched_transform(probe) - eager_values)
+            <= 1e-5 * np.ptp(eager_values, axis=0)
         )
     except Exception as error:  # noqa: BLE001
         warnings.warn(

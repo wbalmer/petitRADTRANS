@@ -143,6 +143,9 @@ UltraNest
 Key parameters:
 
 * ``vectorized``: evaluate batches of samples at once when the retrieval is fully differentiable.
+  The likelihood and the prior transform are compiled, with each batch padded to the next power
+  of two (at least 8), so expect a few compilations early on, and up to twice the evaluations
+  per batch.
 * ``resume``: reuse an existing UltraNest log directory.
 * ``dlogz``: evidence convergence target.
 * ``frac_remain``: stop when the remaining live-point weight drops below this fraction.
