@@ -27,8 +27,25 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   it is installed.
 - Tests of the scaling of cloud opacities to `cloud_photosphere_median_optical_depth`,
   in `tests/test_optical_depths.py` and `tests/test_radtrans_correlated_k_scattering.py`.
+- Rayleigh scattering documentation (`docs/rayleigh_scattering.tex`, with its
+  bibliography `docs/rayleigh_scattering.bib`), the H2 scattering table
+  `h2_rayleigh_singor2024.npz` in the new input_data directory
+  `opacities/continuum/rayleigh`, the script that regenerates it
+  (`examples/prepare_h2_rayleigh_data.py`), and `tests/test_rayleigh_scattering.py`.
+- Argument `ext` of `find_input_file`, to search the Keeper library for files that
+  are not `.h5`.
 
 ### Changed
+- Rayleigh scattering opacities use updated treatments:
+  H2 uses Singor et al. (2024), elastic and Raman, with LTE rovibrational
+  populations, calibrated to Peck & Huang (1977); He uses Puchalski et al. (2016);
+  H2O uses Egan (2026) with the temperature slope of Egan & Yang (2024); CH4 uses
+  He et al. (2021). H2 opacity at 500 nm rises by 8 to 21% between 300 and 3000 K,
+  He by 45% at 500 nm, and H2O opacity at 500 nm changes by -4% at 300 K and +38%
+  at 3000 K. CH4 falls by 23%. In a clear H2/He test atmosphere, the transit radius
+  at 0.3--0.5 um rises by 0.08 to 0.13 scale heights between 300 and 2000 K. The
+  31 test references affected by this were regenerated. See
+  `docs/rayleigh_scattering.tex`.
 - Each (g, frequency) column of the Feautrier scattering iteration now stops at
   its own convergence, so emission spectra no longer depend on
   `feautrier_chunk_size`.
@@ -134,6 +151,14 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - flake8 reports no errors on `petitRADTRANS/` (unused imports, a duplicated
   definition of `compute_hydrostatic_interval_integrals` and
   `compute_radius_hydrostatic_equilibrium`, and formatting).
+- CO and CO2 Rayleigh scattering copied misprinted coefficients from Sneep & Ubachs
+  (2005), Eqs. 17 and 13. CO was a factor of 2 too low at 532 nm.
+- CO2 Rayleigh scattering was 17% too high in the optical, from a positive floor on
+  its dispersion denominators, and gave NaN in float32 at its 4.135 um pole.
+- N2 Rayleigh scattering used a molecular mass of 34 instead of 28 amu, and was
+  zero beyond 2.059 um.
+- With 64-bit JAX disabled, Rayleigh scattering opacities were exactly zero for all
+  species except H2.
 
 ### Removed
 - Package `petitRADTRANS.experimental` (simulation-based inference), its tests,

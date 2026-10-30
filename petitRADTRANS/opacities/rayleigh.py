@@ -26,12 +26,14 @@ def compute_rayleigh_scattering_opacities(
     mean_molar_masses,
     frequencies,
     haze_factor=1.0,
+    path_input_data=None,
 ):
     """Add Rayleigh scattering opacities to scattering continuum opacities.
 
     Args:
         temperatures: temperatures in each atmospheric layer
         mass_fractions: dictionary of the Rayleigh scattering species mass fractions
+        path_input_data: input_data directory, by default the configured one
     """
     wavelengths_angstroem = jnp.array(
         frequency2wavelength(frequencies) * 1e8, dtype=FEAUTRIER_JAX_DTYPE
@@ -65,6 +67,7 @@ def compute_rayleigh_scattering_opacities(
             mean_molar_masses,
             temperatures,
             pressures,
+            path_input_data=path_input_data,
         )
 
     return rayleigh_scattering_opacities

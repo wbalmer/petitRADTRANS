@@ -22,6 +22,7 @@ from petitRADTRANS.radtrans_core.interpolate_line_opacities import (
 )
 from petitRADTRANS.radtrans_core import radiative_transfer_core
 from petitRADTRANS.radtrans_core import linalg
+from petitRADTRANS.radtrans_core.rayleigh_scattering import load_h2_rayleigh_table
 from petitRADTRANS.radtrans_core.spectrum_utils import compute_bins_edges
 from petitRADTRANS.opacities.opacities import (
     CIAOpacity,
@@ -1939,6 +1940,7 @@ class Radtrans:
                 mean_molar_masses=mean_molar_masses,
                 rayleigh_species=self._rayleigh_species,
                 haze_factor=haze_factor,
+                path_input_data=self._path_input_data,
                 # species_basenames=self._species_basenames # TODO remove this commented line?
             )
         )
@@ -4727,6 +4729,10 @@ class Radtrans:
         if len(self._cloud_species) > 0:
             # Inherited from ReadOpacities in _read_opacities.py
             self.load_cloud_opacities(self._path_input_data)
+
+        # Rayleigh scattering; only H2 uses a data file
+        if "H2" in self._rayleigh_species:
+            load_h2_rayleigh_table(self._path_input_data)
 
         print("Successfully loaded all opacities")
 

@@ -296,6 +296,7 @@ def get_input_data_subpaths() -> LockedDict:
         "line_by_line_opacities": os.path.join("opacities", "lines", "line_by_line"),
         "planet_data": "planet_data",
         "pre_calculated_chemistry": "pre_calculated_chemistry",
+        "rayleigh_opacities": os.path.join("opacities", "continuum", "rayleigh"),
         "stellar_spectra": "stellar_spectra",
         "unknown_opacities": os.path.join("opacities", "unknown"),
     })

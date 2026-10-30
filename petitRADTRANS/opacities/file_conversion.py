@@ -2522,6 +2522,7 @@ def _refactor_input_data_folder(
             "line_by_line_opacities": None,
             "planet_data": None,
             "pre_calculated_chemistry": "equilibrium_chemistry",
+            "rayleigh_opacities": None,
             "stellar_spectra": "phoenix",
         }
     )

@@ -188,6 +188,7 @@ def compute_continuum_scattering_opacities(
     mean_molar_masses,
     rayleigh_species,
     haze_factor,
+    path_input_data=None,
 ):
     # Reset
     continuum_opacities_scattering = jnp.zeros(
@@ -207,6 +208,7 @@ def compute_continuum_scattering_opacities(
             mean_molar_masses=mean_molar_masses,
             frequencies=frequencies,
             haze_factor=haze_factor,
+            path_input_data=path_input_data,
         )
 
     return continuum_opacities_scattering, scattering_in_transmission

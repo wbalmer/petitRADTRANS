@@ -1085,25 +1085,25 @@ Hereafter are the explicit file naming rules for cloud species:
 
 Rayleigh scatterers
 ===================
-In contrast with the above opacities, Rayleigh scattering cross-sections are are not stored into files. Instead, the cross-sections are calculated using wavelength-dependent best-fit parameters to measurements (see sources below) on-the-fly in petitRADTRANS.
+In contrast with the above opacities, most Rayleigh scattering cross-sections are not read from opacity files. Instead, they are calculated on-the-fly in petitRADTRANS from measured or theoretical refractivities and polarizabilities (see sources below). The exception is H2, which uses a small table of rovibrationally resolved cross-sections, located in ``input_data/opacities/continuum/rayleigh/``.
 
 .. caution::
-    For the high resolution mode of pRT (``mode='lbl'``) the numerical cost of calculating Rayleigh cross sections becomes noticeable. Currently, the H2 and He Rayleigh scattering cross-sections benefit from an optimised code and are faster to calculate than the other listed species.
+    For the high resolution mode of pRT (``line_opacity_mode='lbl'``) the numerical cost of calculating Rayleigh cross sections becomes noticeable, because it scales with the number of wavelengths and layers. H2 is the most expensive species, at about 2 to 5 times the cost of the others.
 
-    **We intend to optimise all the Rayleigh scattering absorption calculations in a future update**.
-
-    For low-resolution calculations (``mode='c-k'``) the cost of calculating Rayleigh cross sections is negligible.
+    For low-resolution calculations (``line_opacity_mode='c-k'``) the cost of calculating Rayleigh cross sections is negligible.
 
 The Rayleigh scattering cross-sections available in pRT are listed below:
 
-- CH4 (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
-- CO (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
-- CO2 (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
-- H2 (`Dalgarno & Williams 1962 <https://ui.adsabs.harvard.edu/abs/1962ApJ...136..690D/abstract>`_)
-- H2O (`Harvey et al. 1998 <https://ui.adsabs.harvard.edu/abs/1998JPCRD..27..761H/abstract>`_)
-- He (`Chan & Dalgarno 1965 <https://ui.adsabs.harvard.edu/abs/1965PPS....85..227C/abstract>`_)
-- N2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
-- O2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
+- CH4 (`He et al. 2021 <https://doi.org/10.5194/acp-21-14927-2021>`_)
+- CO (`Sneep & Ubachs 2005 <https://doi.org/10.1016/j.jqsrt.2004.07.025>`_, with a corrected dispersion coefficient)
+- CO2 (`Sneep & Ubachs 2005 <https://doi.org/10.1016/j.jqsrt.2004.07.025>`_, with a corrected dispersion coefficient)
+- H2 (`Singor et al. 2024 <https://doi.org/10.1063/5.0235703>`_, elastic and Raman, calibrated to `Peck & Huang 1977 <https://doi.org/10.1364/JOSA.67.001550>`_)
+- H2O (`Egan 2026 <https://doi.org/10.1088/1361-6501/ae6e94>`_, `Egan & Yang 2024 <https://doi.org/10.1007/s10765-024-03380-w>`_)
+- He (`Puchalski et al. 2016 <https://doi.org/10.1103/PhysRevA.93.032515>`_)
+- N2 (`Thalman et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
+- O2 (`Thalman et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
+
+The H2 and H2O cross-sections depend on temperature, and H2 populations assume local thermal equilibrium. No cross-section depends on pressure. Some treatments are extrapolated beyond their measured ranges. The equations, ranges and differences from earlier versions are documented in ``docs/rayleigh_scattering.tex`` in the repository.
 
 .. caution::
     Make sure to add abundances for all Rayleigh species you request. For example, including the ``'H2'`` scatterer requires mass fractions for ``H2`` (N.B. for ``SpectralModel``, ``filling_species`` can be used instead in this case).
