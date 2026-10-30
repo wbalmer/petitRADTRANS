@@ -27,13 +27,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   it is installed.
 - Tests of the scaling of cloud opacities to `cloud_photosphere_median_optical_depth`,
   in `tests/test_optical_depths.py` and `tests/test_radtrans_correlated_k_scattering.py`.
-- Rayleigh scattering documentation (`docs/rayleigh_scattering.tex`, with its
-  bibliography `docs/rayleigh_scattering.bib`), the H2 scattering table
-  `h2_rayleigh_singor2024.npz` in the new input_data directory
-  `opacities/continuum/rayleigh`, the script that regenerates it
-  (`examples/prepare_h2_rayleigh_data.py`), and `tests/test_rayleigh_scattering.py`.
-- Argument `ext` of `find_input_file`, to search the Keeper library for files that
-  are not `.h5`.
+-  H2 Rayleigh scattering table
+  `1H2__Singor.DeltaWavenumber363_0.207-27.5mu.rayleightable.petitRADTRANS.h5` in the
+  new input_data directory `opacities/continuum/rayleigh`.
 
 ### Changed
 - Rayleigh scattering opacities use updated treatments:

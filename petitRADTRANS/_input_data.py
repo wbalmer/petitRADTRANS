@@ -166,12 +166,10 @@ def default_file_selection(files: tuple[str, ...] | list[str], full_path: str, s
 
 
 def find_input_file(file: str, path_input_data: str, sub_path: str = None,
-                    match_function: Callable = None, find_all: bool = False, search_online: bool = True,
-                    ext: str = 'h5'):
+                    match_function: Callable = None, find_all: bool = False, search_online: bool = True):
     '''Given a base species filename, input data path and sub_path for the data category
     (e.g., CIA, clouds, etc.) and a match_function that knows how the input files of a given category
     are supposed to look like, return all absolute paths to opacity files in the folder in question.
-    The extension ext selects which files of the Keeper library are considered, if it is searched.
     '''
     if match_function is None:
         match_function = match_function_default
@@ -191,8 +189,7 @@ def find_input_file(file: str, path_input_data: str, sub_path: str = None,
             path_input_data=path_input_data,
             sub_path=sub_path,
             filename=file,
-            find_all=find_all,
-            ext=ext
+            find_all=find_all
         )
     else:
         matches = match_function(
@@ -212,8 +209,7 @@ def find_input_file(file: str, path_input_data: str, sub_path: str = None,
                 path_input_data=path_input_data,
                 sub_path=sub_path,
                 filename=file,
-                find_all=find_all,
-                ext=ext
+                find_all=find_all
             )
 
     if len(matches) == 0 and not find_all:

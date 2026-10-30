@@ -6,6 +6,116 @@ import petitRADTRANS
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 
 
+def write_h2_rayleigh_opacities(
+    hdf5_file,
+    wavenumbers,
+    elastic_reduced_cross_sections,
+    raman_reduced_cross_sections,
+    rotational_quantum_numbers,
+    vibrational_quantum_numbers,
+    excitation_energies,
+    anti_stokes_hold_energy,
+    channel_count,
+    source_archive_md5,
+    doi="",
+    description="",
+):
+    with h5py.File(hdf5_file, "w") as fh5:
+        dataset = fh5.create_dataset(name="DOI", shape=(1,), data=doi)
+        dataset.attrs["long_name"] = "Data object identifier linked to the data"
+        dataset.attrs["additional_description"] = description
+
+        dataset = fh5.create_dataset(
+            name="Date_ID",
+            shape=(1,),
+            data=f"petitRADTRANS-v{petitRADTRANS.__version__}_"
+            f"{datetime.datetime.now(datetime.timezone.utc).isoformat()}",
+        )
+        dataset.attrs["long_name"] = (
+            "ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) "
+            "at which the table has been created, "
+            "along with the version of petitRADTRANS"
+        )
+
+        dataset = fh5.create_dataset(name="wavenumbers", data=wavenumbers)
+        dataset.attrs["long_name"] = (
+            "Scattering table wavenumbers; the first node, 0, holds the zero-energy limit"
+        )
+        dataset.attrs["units"] = "cm^-1"
+
+        dataset = fh5.create_dataset(
+            name="elastic_reduced_cross_sections", data=elastic_reduced_cross_sections
+        )
+        dataset.attrs["long_name"] = (
+            "Table of elastic cross sections divided by the photon energy to the power 4, "
+            "with axes (initial state, wavenumber)"
+        )
+        dataset.attrs["units"] = "Mb.eV^-4"
+
+        dataset = fh5.create_dataset(
+            name="raman_reduced_cross_sections", data=raman_reduced_cross_sections
+        )
+        dataset.attrs["long_name"] = (
+            "Table of Raman cross sections summed over final states, divided by the photon "
+            "energy to the power 4, with axes (initial state, wavenumber)"
+        )
+        dataset.attrs["units"] = "Mb.eV^-4"
+
+        dataset = fh5.create_dataset(
+            name="rotational_quantum_numbers", data=rotational_quantum_numbers
+        )
+        dataset.attrs["long_name"] = "Rotational quantum number of the initial states"
+
+        dataset = fh5.create_dataset(
+            name="vibrational_quantum_numbers", data=vibrational_quantum_numbers
+        )
+        dataset.attrs["long_name"] = "Vibrational quantum number of the initial states"
+
+        dataset = fh5.create_dataset(name="excitation_energies", data=excitation_energies)
+        dataset.attrs["long_name"] = "Energy of the initial states relative to the lowest state"
+        dataset.attrs["units"] = "eV"
+
+        dataset = fh5.create_dataset(
+            name="anti_stokes_hold_energy", data=anti_stokes_hold_energy
+        )
+        dataset.attrs["long_name"] = (
+            "Photon energy below which the reduced cross sections of anti-Stokes channels are held"
+        )
+        dataset.attrs["units"] = "eV"
+
+        dataset = fh5.create_dataset(name="channel_count", data=channel_count)
+        dataset.attrs["long_name"] = "Number of scattering channels in the table"
+
+        dataset = fh5.create_dataset(
+            name="source_archive_md5", shape=(1,), data=source_archive_md5
+        )
+        dataset.attrs["long_name"] = "MD5 checksum of the source data archive"
+
+        dataset = fh5.create_dataset(
+            name="mol_mass", data=np.array([float(get_species_molar_mass("H2"))])
+        )
+        dataset.attrs["long_name"] = "Mass of the species"
+        dataset.attrs["units"] = "AMU"
+
+        dataset = fh5.create_dataset(name="mol_name", shape=(1,), data="H2")
+        dataset.attrs["long_name"] = "Name of the species described"
+
+        positive_wavenumbers = wavenumbers[wavenumbers > 0]
+
+        dataset = fh5.create_dataset(
+            name="wlrange",
+            data=np.array([1 / positive_wavenumbers.max(), 1 / positive_wavenumbers.min()]) * 1e4,  # cm to um
+        )
+        dataset.attrs["long_name"] = "Wavelength range covered"
+        dataset.attrs["units"] = "µm"
+
+        dataset = fh5.create_dataset(
+            name="wnrange", data=np.array([positive_wavenumbers.min(), positive_wavenumbers.max()])
+        )
+        dataset.attrs["long_name"] = "Wavenumber range covered"
+        dataset.attrs["units"] = "cm^-1"
+
+
 def write_cia_opacities(
     hdf5_cia_file,
     molecules,

@@ -1,10 +1,10 @@
 """Numerical and literature-anchor checks; no external opacity data required."""
 
-import json
 import hashlib
 import os
 import shutil
 
+import h5py
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -13,13 +13,16 @@ import pytest
 from petitRADTRANS import _input_data
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
+from petitRADTRANS.opacities.opacities import Opacity
 from petitRADTRANS.opacities.rayleigh import compute_rayleigh_scattering_opacities
+from petitRADTRANS.opacities.write import write_h2_rayleigh_opacities
 from petitRADTRANS.radtrans_core import rayleigh_scattering as rayleigh
 
 
 MASSES = dict(H2=2, He=4, H2O=18, CO2=44, O2=32, N2=28, CO=28, CH4=16)
 # Sneep & Ubachs (2005) Table 2 measurement wavenumber, and reference density.
 SNEEP_UBACHS_WAVELENGTH = 1e8 / 18788.4
+H2_TABLE_SHA256 = "b6828930ced3b4befe0911074a83d448a3a685ff594fada733b469bbd42708eb"
 
 
 def inputs(species, dtype):
@@ -215,25 +218,42 @@ def _h2_table_file():
 
 
 def _full_h2_table():
-    with np.load(_h2_table_file(), allow_pickle=False) as table:
-        return {key: table[key].copy() for key in table}
+    with h5py.File(_h2_table_file(), "r") as table:
+        return dict(
+            photon_energy_ev=table["wavenumbers"][:] * rayleigh.HC_EV_UM * 1e-4,
+            rotational_n=table["rotational_quantum_numbers"][:],
+            vibrational_v=table["vibrational_quantum_numbers"][:],
+            excitation_energy_ev=table["excitation_energies"][:],
+            sigma_over_energy4_mb=table["elastic_reduced_cross_sections"][:],
+            raman_over_energy4_mb=table["raman_reduced_cross_sections"][:],
+        )
 
 
 def test_h2_table_is_read_from_the_input_data_directory():
     path_input_data = petitradtrans_config_parser.get_input_data_path()
     assert _h2_table_file() == os.path.join(
-        path_input_data, "opacities", "continuum", "rayleigh", "h2_rayleigh_singor2024.npz"
+        path_input_data, "opacities", "continuum", "rayleigh",
+        "1H2__Singor.DeltaWavenumber363_0.207-27.5mu.rayleightable.petitRADTRANS.h5"
     )
 
 
 def test_h2_table_follows_path_input_data(tmp_path):
     # A table with doubled cross sections shows which directory has actually been read.
     table = _full_h2_table()
-    table["sigma_over_energy4_mb"] *= 2.
-    table["raman_over_energy4_mb"] *= 2.
     directory = tmp_path / get_input_data_subpaths()["rayleigh_opacities"]
     directory.mkdir(parents=True)
-    np.savez(directory / rayleigh._H2_TABLE_FILE, **table)
+    write_h2_rayleigh_opacities(
+        hdf5_file=directory / rayleigh._H2_TABLE_FILE,
+        wavenumbers=table["photon_energy_ev"] / (rayleigh.HC_EV_UM * 1e-4),
+        elastic_reduced_cross_sections=2. * table["sigma_over_energy4_mb"],
+        raman_reduced_cross_sections=2. * table["raman_over_energy4_mb"],
+        rotational_quantum_numbers=table["rotational_n"],
+        vibrational_quantum_numbers=table["vibrational_v"],
+        excitation_energies=table["excitation_energy_ev"],
+        anti_stokes_hold_energy=1.,
+        channel_count=9582,
+        source_archive_md5="",
+    )
     with jax.enable_x64(True):
         x, wavelengths, temperatures = jnp.ones(1), jnp.array([5000.]), jnp.array([1000.])
         default = rayleigh.H2_rayleigh(wavelengths, x, temperatures)
@@ -259,46 +279,58 @@ def test_h2_table_follows_path_input_data(tmp_path):
 
 @pytest.mark.parametrize("directory_exists", [False, True])
 def test_missing_h2_table_is_downloaded_from_keeper(tmp_path, monkeypatch, directory_exists):
-    # The Keeper listing keeps only files with the requested extension, so it must be "npz".
     requested_extensions = []
 
     def list_keeper_files(path, ext, **_):
         requested_extensions.append(ext)
-        return {rayleigh._H2_TABLE_FILE: "https://keeper/file"} if ext == "npz" else {}
+        return {rayleigh._H2_TABLE_FILE: "https://keeper/file"}
 
     def download(destination, source, **_):
         assert source == "https://keeper/file"
         os.makedirs(os.path.dirname(destination), exist_ok=True)
-        shutil.copy(_h2_table_file_original, destination)
+        shutil.copy(table_file, destination)
 
-    _h2_table_file_original = _h2_table_file()
+    table_file = _h2_table_file()
     monkeypatch.setattr(_input_data, "_get_cli_functions", lambda: (download, list_keeper_files))
     if directory_exists:
         (tmp_path / get_input_data_subpaths()["rayleigh_opacities"]).mkdir(parents=True)
     file = rayleigh._get_h2_table_file(str(tmp_path))
-    assert requested_extensions == ["npz"]
+    assert requested_extensions == ["h5"]
     assert file == os.path.join(str(tmp_path), get_input_data_subpaths()["rayleigh_opacities"],
                                 rayleigh._H2_TABLE_FILE)
     assert os.path.isfile(file)
 
 
 def test_h2_source_integrity():
-    manifest_file = _input_data.find_input_file(
-        file="h2_rayleigh_singor2024.json",
-        path_input_data=petitradtrans_config_parser.get_input_data_path(),
-        sub_path=get_input_data_subpaths()["rayleigh_opacities"],
-        ext="json",
-    )
-    with open(manifest_file) as stream:
-        manifest = json.load(stream)
-    with open(_h2_table_file(), "rb") as stream:
-        assert hashlib.sha256(stream.read()).hexdigest() == manifest["table_sha256"]
-    assert manifest["channel_count"] == 9582
     table = _full_h2_table()
-    assert len(table["rotational_n"]) == manifest["state_count"] == 293
+    # Date_ID makes each written file unique, so the hash covers the source data rather than the file.
+    assert hashlib.sha256(
+        table["sigma_over_energy4_mb"].tobytes() + table["raman_over_energy4_mb"].tobytes()
+    ).hexdigest() == H2_TABLE_SHA256
+    assert len(table["rotational_n"]) == 293
     assert np.all(np.diff(table["photon_energy_ev"]) > 0)
     assert np.all(np.isfinite(table["sigma_over_energy4_mb"])) and np.all(table["sigma_over_energy4_mb"] > 0)
     assert np.all(np.isfinite(table["raman_over_energy4_mb"])) and np.all(table["raman_over_energy4_mb"] >= 0)
+
+
+def test_h2_table_has_the_format_of_the_other_data_files():
+    assert Opacity.split_species_all_info(rayleigh._H2_TABLE_FILE.split(".rayleightable")[0]) == (
+        "1H2", "", "", "", "Singor", "DeltaWavenumber363_0.207-27.5mu"
+    )
+    assert rayleigh._H2_TABLE_FILE.endswith(".rayleightable.petitRADTRANS.h5")
+    with h5py.File(_h2_table_file(), "r") as table:
+        for name in ("DOI", "Date_ID", "mol_name", "mol_mass", "wavenumbers", "wlrange", "wnrange"):
+            assert name in table
+        for name, dataset in table.items():
+            assert "long_name" in dataset.attrs, name
+        for name in ("mol_mass", "wavenumbers", "wlrange", "wnrange", "excitation_energies",
+                     "elastic_reduced_cross_sections", "raman_reduced_cross_sections"):
+            assert "units" in table[name].attrs, name
+        assert table["DOI"][0].decode() == "10.5281/zenodo.13441472"
+        assert table["mol_name"][0].decode() == "H2"
+        assert table["channel_count"][()] == 9582
+        assert table["source_archive_md5"][0].decode() == "40b5f1679bdcfdac4dcde5cf0fb86870"
+        np.testing.assert_allclose(table["wlrange"][:], [0.207, 27.5], atol=0.05)
 
 
 def test_h2_reduced_rank_reproduces_full_thermal_sum():

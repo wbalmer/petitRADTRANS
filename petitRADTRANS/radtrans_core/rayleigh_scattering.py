@@ -87,8 +87,8 @@ Sources
 """
 
 from functools import lru_cache
-import os
 
+import h5py
 import jax.numpy as jnp
 from jax import jit
 import numpy as np
@@ -111,7 +111,7 @@ _H2_PECK_HUANG_CALIBRATION = 1.02876
 _H2_RANK = 12
 _H2_TEMPERATURE_NODES = 128
 _H2_MINIMUM_TEMPERATURE, _H2_MAXIMUM_TEMPERATURE = 1.0, 10000.0
-_H2_TABLE_FILE = "h2_rayleigh_singor2024.npz"
+_H2_TABLE_FILE = "1H2__Singor.DeltaWavenumber363_0.207-27.5mu.rayleightable.petitRADTRANS.h5"
 
 
 def _opacity_from_lorentz_lorenz_volume(
@@ -160,7 +160,6 @@ def _get_h2_table_file(path_input_data):
         file=_H2_TABLE_FILE,
         path_input_data=path_input_data,
         sub_path=get_input_data_subpaths()["rayleigh_opacities"],
-        ext=os.path.splitext(_H2_TABLE_FILE)[1][1:],
     )
 
 
@@ -172,11 +171,12 @@ def _h2_data(path_input_data):
     the thermal coefficients in temperature, is 5 times faster than summing all states at
     runtime, with a largest error of 3e-4 in the thermal cross section.
     """
-    with np.load(_get_h2_table_file(path_input_data), allow_pickle=False) as table:
-        grid, rotational_n, excitation_ev, elastic, raman = (table[key].copy() for key in (
-            "photon_energy_ev", "rotational_n", "excitation_energy_ev",
-            "sigma_over_energy4_mb", "raman_over_energy4_mb",
-        ))
+    with h5py.File(_get_h2_table_file(path_input_data), "r") as table:
+        wavenumbers = table["wavenumbers"][:]
+        rotational_n = table["rotational_quantum_numbers"][:]
+        excitation_ev = table["excitation_energies"][:]
+        elastic = table["elastic_reduced_cross_sections"][:]
+        raman = table["raman_reduced_cross_sections"][:]
     total = _H2_PECK_HUANG_CALIBRATION * (elastic + raman)
     left, singular_values, right = np.linalg.svd(total, full_matrices=False)
     rank_weights = left[:, :_H2_RANK] * singular_values[:_H2_RANK]
@@ -187,7 +187,7 @@ def _h2_data(path_input_data):
     odd = rotational_n % 2 == 1
     weights = (2.0 * rotational_n + 1.0) * np.where(odd, 3.0, 1.0)
     return dict(
-        energy2=grid**2,
+        energy2=(wavenumbers * HC_EV_UM * 1e-4)**2,
         basis=right[:_H2_RANK],
         log_temperatures=log_temperatures,
         thermal=_h2_thermal_coefficients(np.arange(odd.size), weights, excitation_ev, rank_weights, log_temperatures),
