@@ -2204,11 +2204,12 @@ class RetrievalPlotter:
                 n_samples = int(self.nsample)
 
             rng = np.random.default_rng()
-            random_ints = rng.choice(np.linspace(0, len_samples, len_samples, dtype=int), size=int(n_samples), replace=False)
-
-            random_ints = np.random.randint(
-                low=0, high=len_samples, size=int(n_samples)
+            random_ints = rng.choice(
+                np.linspace(0, len_samples, len_samples, dtype=int),
+                size=int(n_samples),
+                replace=False
             )
+
             sample_matrix = np.asarray(samples_use[:-1, random_ints].T, dtype=float)
             sampled_wavelengths = [None] * len(random_ints)
             sampled_models = [None] * len(random_ints)
