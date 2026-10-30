@@ -2153,7 +2153,7 @@ class RetrievalPlotter:
             path = os.path.join(
                 self.output_directory,
                 "evaluate_" + self.configuration.retrieval_name,
-                "sampled_spectra/"
+                "sampled_spectra"
             )
 
             os.makedirs(path, exist_ok=True)
