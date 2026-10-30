@@ -2151,7 +2151,9 @@ class RetrievalPlotter:
             print("This could take some time...")
             len_samples = samples_use.shape[1]
             path = os.path.join(
-                self.output_directory, "evaluate_" + self.configuration.retrieval_name
+                self.output_directory,
+                "evaluate_" + self.configuration.retrieval_name,
+                "sampled_spectra/"
             )
 
             wavelength_min = np.inf
@@ -2199,7 +2201,10 @@ class RetrievalPlotter:
             n_samples = nsample
 
             if nsample is None:
-                n_samples = self.nsample
+                n_samples = int(self.nsample)
+
+            rng = np.random.default_rng()
+            random_ints = rng.choice(np.linspace(0, len_samples, len_samples, dtype=int), size=int(n_samples), replace=False)
 
             random_ints = np.random.randint(
                 low=0, high=len_samples, size=int(n_samples)
