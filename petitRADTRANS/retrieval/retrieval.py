@@ -4106,6 +4106,7 @@ class Retrieval:
                 The type of sampler to use. Can be one of the following:
                     pymultinest - requires Multinest installation.
                     dynesty - requires Dynesty and runs dynamic nested sampling.
+                    nautilus - requires Nautilus and runs importance nested sampling.
                     blackjaxnuts - requires BlackJAX and runs NUTS with window adaptation.
                     blackjaxhmc - requires BlackJAX and runs HMC with window adaptation.
                     numpyronuts - requires NumPyro and runs NUTS with warmup adaptation.

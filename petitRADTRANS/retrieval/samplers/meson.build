@@ -9,6 +9,8 @@ py.install_sources([
     'jaxns_distributed.py',
     'jaxns.py',
     'jaxns_worker.py',
+    'nautilus_pool.py',
+    'nautilus.py',
     'numpyro.py',
     'optimal_estimation.py',
     '_optional_imports.py',

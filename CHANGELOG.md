@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [4.0.0rc1] - 2026-10-29
 ### Added
+- Nautilus sampler (`sampler_type="nautilus"`), for importance nested sampling with
+  neural networks. It parallelises over MPI ranks, a `spawn` process pool, or batches
+  on GPUs, and refuses to resume from a checkpoint of a different problem. Unlike
+  Nautilus itself it defaults to `discard_exploration=True`, and it reuses a checkpoint
+  when run again unless given `resume=False`.
 - Test of second-order (Hessian-vector product) derivatives of the scattering
   emission flux in `tests/test_feautrier_scattering.py`.
 - Tests that the native CPU correlated-k mixing kernel matches its JAX

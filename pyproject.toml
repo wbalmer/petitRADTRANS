@@ -76,6 +76,7 @@ full = [
     "tfp-nightly",
     "jaxns>=3.0.0",
     "dynesty>=3.0.0",
+    "nautilus-sampler>=1.0.5",
     "pymultinest",
     "blackjax>=1.7",
     "numpyro>=0.21.0",
@@ -101,6 +102,7 @@ retrieval = [
     # so this bound is a floor only. require_jaxns() probes the real API.
     "jaxns>=3.0.0",
     "dynesty>=3.0.0",
+    "nautilus-sampler>=1.0.5",
     "pymultinest",
     "blackjax>=1.7",
     "numpyro>=0.21.0",
@@ -122,6 +124,7 @@ test = [
     "tfp-nightly",
     "jaxns>=3.0.0",
     "dynesty>=3.0.0",
+    "nautilus-sampler>=1.0.5",
     "pymultinest",
     "blackjax>=1.7",
     "numpyro>=0.21.0",

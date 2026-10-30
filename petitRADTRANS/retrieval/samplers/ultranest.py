@@ -24,6 +24,7 @@ from petitRADTRANS.retrieval.samplers.base import Sampler, SamplerContext
 from petitRADTRANS.retrieval.samplers.interfaces import (
     build_device_likelihood_wrapper,
     resolve_scalar_likelihood,
+    vectorization_disable_reason,
 )
 
 
@@ -87,21 +88,10 @@ class UltranestSampler(Sampler):
     def _resolve_vectorized(cls, context: SamplerContext, requested: bool) -> bool:
         if not requested:
             return False
-        runtime = context.runtime
-        if any(
-            group.model_contract != "differentiable" for group in runtime.model_groups
-        ):
+        disable_reason = vectorization_disable_reason(context)
+        if disable_reason is not None:
             warnings.warn(
-                "UltraNest vectorized mode disabled because the retrieval contains legacy model groups.",
-                RuntimeWarning,
-            )
-            return False
-        if any(
-            getattr(obs.spectrum, "dtype", None) == "O"
-            for obs in runtime.observations.values()
-        ):
-            warnings.warn(
-                "UltraNest vectorized mode disabled because the retrieval contains ragged observation groups.",
+                f"UltraNest vectorized mode disabled because {disable_reason}.",
                 RuntimeWarning,
             )
             return False

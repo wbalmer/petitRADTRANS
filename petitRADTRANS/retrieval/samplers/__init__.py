@@ -27,6 +27,7 @@ _SAMPLER_REGISTRY: dict[str, tuple[str, str]] = {
     "pymultinest": ("pymultinest", "PymultinestSampler"),
     "ultranest": ("ultranest", "UltranestSampler"),
     "dynesty": ("dynesty", "DynestySampler"),
+    "nautilus": ("nautilus", "NautilusSampler"),
     "blackjaxhmc": ("blackjax", "BlackJAXHMCSampler"),
     "blackjax_hmc": ("blackjax", "BlackJAXHMCSampler"),
     "hmc": ("blackjax", "BlackJAXHMCSampler"),

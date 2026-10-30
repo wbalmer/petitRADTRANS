@@ -36,7 +36,7 @@ Added
 -  Built-in differentiable JAX retrieval models exported from
     ``petitRADTRANS.retrieval.models``, together with dedicated tutorials for
       emission, transmission, and time-series retrievals.
--  New retrieval samplers: ``dynesty``, ``jaxns``, ``blackjax`` HMC and NUTS,
+-  New retrieval samplers: ``dynesty``, ``nautilus``, ``jaxns``, ``blackjax`` HMC and NUTS,
     and ``numpyro`` HMC and NUTS, in addition to the existing PyMultiNest and
     UltraNest workflows.
 -  Ability to use optimal estimation to find the maximum a posteriori (MAP) solution

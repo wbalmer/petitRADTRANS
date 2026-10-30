@@ -4,13 +4,14 @@ Each backend wants the retrieval's posterior in a different shape:
 
 * PyMultiNest and non-vectorized UltraNest want scalar callbacks over the unit
   hypercube (optionally dispatched to a specific JAX device).
+* Nautilus wants a prior transform and a log-likelihood over batches of points.
 * BlackJAX, NumPyro and the optax optimiser want a differentiable
   log-posterior over an *unconstrained* space, plus the transform back to
   physical parameters and the change-of-variables Jacobian.
 * JAXNS 3 wants a single callable that realises its JAXCTX priors and returns
   the scalar log likelihood.
 
-The builders here derive all three from a :class:`~petitRADTRANS.retrieval.samplers.base.SamplerContext`,
+The builders here derive all of them from a :class:`~petitRADTRANS.retrieval.samplers.base.SamplerContext`,
 so no backend needs to know how a ``RetrievalRuntime`` or a ``ParameterLayout``
 is put together.
 """
@@ -141,6 +142,103 @@ def build_device_likelihood_wrapper(context: SamplerContext):
     target_device = likelihood_devices[rank % len(likelihood_devices)]
 
     return build_jitted_scalar_likelihood(context, target_device), target_device
+
+
+def vectorization_disable_reason(context: SamplerContext) -> str | None:
+    """Why this retrieval cannot use a batched likelihood, or ``None`` if it can."""
+    runtime = context.runtime
+
+    if any(group.model_contract != "differentiable" for group in runtime.model_groups):
+        return "the retrieval contains legacy model groups"
+
+    if any(
+        getattr(observation.spectrum, "dtype", None) == "O"
+        for observation in runtime.observations.values()
+    ):
+        return "the retrieval contains ragged observation groups"
+
+    return None
+
+
+def build_jitted_batched_likelihood(context: SamplerContext, target_device=None):
+    """Return a jitted log-likelihood mapping ``(n_points, n_free)`` to ``(n_points,)``.
+
+    It compiles once per batch shape, so callers should keep the batch size fixed.
+    ``target_device`` pins every evaluation to one JAX device; ``None`` uses the
+    process default. Requires a retrieval that passes :func:`vectorization_disable_reason`.
+    """
+    _opt.require_jax()
+    runtime = context.runtime
+    uncertainties_mode = context.uncertainties_mode
+    default_device = _opt.default_device
+
+    @_opt.jit
+    def _jit_evaluate(free_parameter_values):
+        return runtime.evaluate_likelihood_jax_batched(
+            free_parameter_values=free_parameter_values,
+            uncertainties_mode=uncertainties_mode,
+            print_log_likelihood_for_debugging=False,
+        )
+
+    def jitted_likelihood(points):
+        if target_device is None:
+            return np.asarray(_jit_evaluate(points))
+        with default_device(target_device):
+            return np.asarray(_jit_evaluate(points))
+
+    return jitted_likelihood
+
+
+def build_batched_prior_transform(context: SamplerContext):
+    """Return a prior transform for ``(n_points, n_free)`` unit-cube arrays.
+
+    ``ParameterLayout.prior_transform_numpy`` evaluates each distribution eagerly,
+    one parameter of one point at a time, which costs milliseconds per point for
+    a typical retrieval. That adds up for a sampler that transforms every point
+    in its main process, so this compiles the transform and keeps it on the CPU,
+    leaving accelerators to the likelihood.
+
+    A custom ``transform_prior_cube_coordinate`` need not be traceable, or may
+    trace into something else, so the compiled transform is checked against the
+    eager one and replaced by it, with a warning, if the two disagree.
+    """
+    parameter_layout = context.parameter_layout
+
+    try:
+        _opt.require_jax()
+        default_device = _opt.default_device
+        cpu_device = _opt.devices("cpu")[0]
+        jitted_transform = _opt.jit(parameter_layout.transform_cube_to_physical_batch)
+
+        def batched_transform(cube_positions):
+            with default_device(cpu_device):
+                return np.asarray(jitted_transform(cube_positions), dtype=float)
+
+        probe = np.linspace(0.01, 0.99, 8)[:, np.newaxis] * np.ones(
+            parameter_layout.n_free_parameters
+        )
+        transforms_agree = np.allclose(
+            batched_transform(probe),
+            parameter_layout.prior_transform_numpy(probe),
+            rtol=1e-5,
+        )
+    except Exception as error:  # noqa: BLE001
+        warnings.warn(
+            f"The prior transform could not be compiled ({type(error).__name__}: {error}); "
+            "using the slower eager transform.",
+            RuntimeWarning,
+        )
+        return parameter_layout.prior_transform_numpy
+
+    if not transforms_agree:
+        warnings.warn(
+            "The compiled prior transform disagrees with the eager one; "
+            "using the slower eager transform.",
+            RuntimeWarning,
+        )
+        return parameter_layout.prior_transform_numpy
+
+    return batched_transform
 
 
 def build_unconstrained_mcmc_interface(context: SamplerContext):

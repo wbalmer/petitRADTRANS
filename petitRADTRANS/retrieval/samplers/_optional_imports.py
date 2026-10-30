@@ -1,8 +1,8 @@
 """Lazy imports of the optional third-party libraries the samplers wrap.
 
 Every sampler backend (JAX, JAXNS, BlackJAX, NumPyro, PyMultiNest, UltraNest,
-Dynesty, ArviZ, matplotlib) is optional: a user installs only the ones they
-intend to run. This module holds one ``require_<library>()`` function per
+Dynesty, Nautilus, ArviZ, matplotlib) is optional: a user installs only the ones
+they intend to run. This module holds one ``require_<library>()`` function per
 backend that imports it on first use and publishes its handles as **module
 globals**, so importing any sampler module stays free.
 
@@ -24,6 +24,8 @@ globals**, so importing any sampler module stays free.
        _opt.require_jax()
        jnp, random, jit = _opt.jnp, _opt.random, _opt.jit
 """
+
+import inspect
 
 # --------------------------------------------------------------------------- #
 # JAX
@@ -342,6 +344,37 @@ def require_dynesty():
     DynestyPool = _DynestyPool
     dyplot = _dyplot
     dyfunc = _dyfunc
+
+
+nautilus = None
+NautilusBackend = None
+
+
+def require_nautilus():
+    global nautilus, NautilusBackend
+
+    if nautilus is not None:
+        return
+
+    try:
+        import nautilus as _nautilus
+        from nautilus import Sampler as _NautilusBackend
+    except ImportError as error:
+        raise ImportError(
+            "Nautilus is not installed. This sampler cannot be used. "
+            "Install it with `pip install nautilus-sampler`."
+        ) from error
+
+    # pRT sizes its equal-weight posterior through this argument, which arrived
+    # in nautilus 1.0.5.
+    if "equal_weight_boost" not in inspect.signature(_NautilusBackend.posterior).parameters:
+        raise ImportError(
+            "pRT requires nautilus-sampler>=1.0.5, whose Sampler.posterior accepts "
+            f"equal_weight_boost; found version {_nautilus.__version__}."
+        )
+
+    nautilus = _nautilus
+    NautilusBackend = _NautilusBackend
 
 
 # --------------------------------------------------------------------------- #

@@ -33,13 +33,13 @@ All built-in samplers follow the same high-level flow:
 4. ``Retrieval`` saves a generic ``out_samples/<retrieval_name>_samples.npz`` archive for downstream plotting and analysis.
 
 If a backend is inherently weighted, it should convert its posterior to equal-weight samples before handing the results back to ``Retrieval``.
-The built-in Dynesty and JAXNS integrations already do this.
+The built-in Dynesty, Nautilus and JAXNS integrations already do this.
 
 Where the code lives
 --------------------
 
 Each backend is one module under ``petitRADTRANS/retrieval/samplers/``:
-``pymultinest.py``, ``ultranest.py``, ``dynesty.py``, ``jaxns.py``,
+``pymultinest.py``, ``ultranest.py``, ``dynesty.py``, ``nautilus.py``, ``jaxns.py``,
 ``jaxns_distributed.py``, ``blackjax.py``, ``numpyro.py`` and
 ``optimal_estimation.py``. Around them:
 
@@ -74,6 +74,10 @@ Choosing a sampler
      - Dynamic nested sampling
      - Dynesty
      - Dynamic nested sampling with pure-Python control flow and optional JIT-compiled likelihood evaluation.
+   * - ``nautilus``
+     - Importance nested sampling
+     - Nautilus
+     - Neural-network boosted sampling that often needs far fewer likelihood calls than nested sampling, with evidence, checkpointing, and pool, MPI or GPU parallelism.
    * - ``jaxns``
      - Nested sampling
      - JAXNS, JAX, TFP
@@ -202,6 +206,97 @@ For example, a parallel Dynesty run can be configured as:
    )
 
 In practice, ``queue_size`` should usually match the number of worker processes, and ``pool`` and ``pool_njobs`` should not be passed together.
+
+Nautilus
+~~~~~~~~
+
+`Nautilus <https://nautilus-sampler.readthedocs.io/>`_ is an importance nested sampler that
+trains neural networks to decide where to sample, which often takes far fewer likelihood
+calls than nested sampling. Install it with ``pip install nautilus-sampler``; it is also
+part of the ``retrieval`` extra. It needs at least 2 free parameters, and its documentation
+reports testing up to about 60.
+
+Key parameters:
+
+* ``n_live`` (default ``2000``): number of live points. Nautilus recommends at least 1000.
+* ``n_eff`` (default ``10000``): stop once the effective sample size reaches this.
+* ``f_live`` (default ``0.01``): end the exploration phase once the live set holds less than
+  this fraction of the evidence.
+* ``discard_exploration`` (default ``True``): drop the points of the exploration phase, which
+  Nautilus requires for a fully unbiased posterior and evidence. **pRT's default differs from
+  that of Nautilus**, which recommends ``True`` for publications but defaults to ``False``.
+* ``n_like_max`` / ``timeout``: stop after this many likelihood calls, or seconds. ``timeout``
+  is only checked between batches, so leave some margin before a wall-clock limit.
+* ``resume`` (default ``True``): continue from the checkpoint if there is one. See below.
+* ``filepath``: path of the checkpoint, by default
+  ``out_Nautilus/<retrieval name>_checkpoint.hdf5``. ``filepath=None`` turns checkpointing off.
+* ``verify_checkpoint`` (default ``True``): refuse a checkpoint of a different problem. See below.
+* ``pool_njobs``: run the likelihood in this many worker processes on one node.
+* ``sampler_pool_njobs``: train the neural networks in this many worker processes, for a run
+  without ``pool_njobs``, such as a vectorized one.
+* ``vectorized`` (default ``False``): evaluate each batch with ``jax.vmap``, which is what a GPU
+  wants. It is disabled, with a warning, for legacy model groups and ragged observations.
+* ``n_batch``: number of likelihood evaluations per step, by default the smallest multiple of
+  the number of workers that is at least 100. Pick it to fit the GPU memory in vectorized mode.
+* ``likelihood_devices``: list of JAX devices, assigned per MPI rank (see :ref:`gpu_likelihood_dispatch`).
+* ``use_mpi`` (default ``True``): parallelise over the MPI ranks when launched with ``mpiexec``.
+* ``use_jit`` (default ``True``): as for PyMultiNest.
+* ``equal_weight_boost``: see the note on the posterior below.
+* ``max_initial_invalid_calls`` (default ``100 * n_live``): raise an error if this many
+  likelihood calls in a row find no valid point. Nautilus would never stop on its own.
+* ``enlarge_per_dim``, ``n_points_min``, ``split_threshold``, ``n_networks``,
+  ``neural_network_kwargs``, ``n_update``, ``n_like_new_bound``, ``periodic``, ``n_shell``,
+  ``seed``, ``verbose``: passed on to Nautilus unchanged.
+
+Unknown arguments raise a ``TypeError``.
+
+For example, on one node:
+
+.. code-block:: python
+
+   if __name__ == "__main__":
+       retrieval.run(n_live=2000, n_eff=10000, pool_njobs=32)
+
+**Start method.** ``pool_njobs`` uses ``spawn`` workers on every platform, because JAX is already
+running by then and forking a multithreaded process can deadlock. The main code of your
+retrieval script therefore has to sit under ``if __name__ == "__main__":``. Each worker receives
+a copy of the retrieval runtime and compiles the model itself, so the first batch is slow; see
+``compilation_cache_dir`` to reuse compiled code. On a GPU node set ``JAX_PLATFORMS=cpu`` for such
+a run, so that the workers do not compete for the GPU. See :ref:`par_nautilus` for the thread
+count of the workers, and for MPI.
+
+**Resuming.** Because ``resume`` is on by default, **running the same script again continues
+the previous run**, and a run that had finished returns its results without new likelihood
+calls. This is what turns a wall-clock limit into a continuation, and to get more samples you
+can simply raise ``n_eff``. Pass ``resume=False`` to start over, which overwrites the checkpoint.
+
+Nautilus itself would restore a checkpoint without comparing it to the retrieval at hand, so
+pRT writes a ``<retrieval name>_checkpoint_fingerprint.json`` next to it. It holds the parameter
+names, the prior at a few points, the log-likelihood at the centre of the prior (which depends
+on the data, the model and the fixed parameters), and the sampler settings that determine the
+sampling regions. If any of these changed, the run stops with a ``ValueError`` naming them.
+The stopping criteria are not part of it. If you know the checkpoint is still valid, for example
+because the likelihood differs by more than the relative tolerance of ``1e-6`` between two kinds
+of hardware, pass ``verify_checkpoint=False``.
+
+Nautilus prints ``Resuming nautilus run...`` on every run, even a new one, because pRT draws the
+first batch separately to check for valid points. pRT prints its own line when it really does
+resume from a checkpoint.
+
+**Stopping early.** A run stopped before the end of the exploration phase has no usable posterior,
+so it warns, saves nothing and returns ``None``; the checkpoint is what you resume from. One stopped
+later saves its posterior with ``converged`` set to ``False`` in the results and the summary.
+
+**Posterior.** The native posterior is weighted. It is kept as ``weighted_samples``, and is what
+to use for high-precision estimates. The equal-weight ``samples`` are drawn from it, aiming for one
+draw per effective sample, which can repeat a few points. Set ``equal_weight_boost=1`` for
+Nautilus' own default, which repeats none but gives many fewer samples (656 instead of about 5000
+in one test). As for Dynesty, the first row is replaced by the maximum-likelihood point, because
+the best fit is read from these samples.
+
+**Evidence.** Nautilus does not report an error on ``ln Z``. pRT gives its statistical estimate,
+``1 / sqrt(n_eff)``, which does not include systematic errors; to check those, Nautilus recommends
+repeating the run with a few times as many live points and checking that the results are stable.
 
 JAXNS
 ~~~~~

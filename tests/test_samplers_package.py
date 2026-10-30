@@ -56,6 +56,7 @@ OPTIONAL_BACKENDS = (
     "numpyro",
     "blackjax",
     "dynesty",
+    "nautilus",
     "pymultinest",
     "ultranest",
     "optax",
