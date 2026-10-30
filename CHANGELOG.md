@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 -  H2 Rayleigh scattering table
   `1H2__Singor.DeltaWavenumber363_0.207-27.5mu.rayleightable.petitRADTRANS.h5` in the
   new input_data directory `opacities/continuum/rayleigh`.
+- The environment variable `PRT_LEGACY_RAYLEIGH=1` selects the previous Rayleigh
+  scattering treatments, for comparison tests of retrievals. It is temporary.
 
 ### Changed
 - Rayleigh scattering opacities use updated treatments:

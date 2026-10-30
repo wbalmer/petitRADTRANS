@@ -17,6 +17,7 @@ from petitRADTRANS.opacities.opacities import Opacity
 from petitRADTRANS.opacities.rayleigh import compute_rayleigh_scattering_opacities
 from petitRADTRANS.opacities.write import write_h2_rayleigh_opacities
 from petitRADTRANS.radtrans_core import rayleigh_scattering as rayleigh
+from petitRADTRANS.radtrans_core import rayleigh_scattering_legacy
 
 
 MASSES = dict(H2=2, He=4, H2O=18, CO2=44, O2=32, N2=28, CO=28, CH4=16)
@@ -396,3 +397,32 @@ def test_jit_matches_eager_without_loading_tracers_into_cache(species):
         compiled = jax.jit(lambda *args: rayleigh.compute_rayleigh_scattering(species, *args))
         np.testing.assert_allclose(compiled(*args), rayleigh.compute_rayleigh_scattering(species, *args),
                                    rtol=3e-6, atol=0.)
+
+
+def test_legacy_rayleigh_scattering_is_selected_by_the_environment(monkeypatch):
+    # H2 is the only legacy treatment that is finite without 64-bit JAX.
+    x, temperatures, pressures = jnp.ones(1), jnp.array([1000.]), jnp.array([1e6])
+    wavelengths = jnp.array([5000.])
+    frequencies = jnp.array([cst.c / 5e-5])
+
+    def opacity():
+        return compute_rayleigh_scattering_opacities(("H2",), pressures, temperatures, {"H2": x}, x, frequencies)
+
+    monkeypatch.delenv("PRT_LEGACY_RAYLEIGH", raising=False)
+    current = opacity()
+    np.testing.assert_allclose(
+        current, rayleigh.compute_rayleigh_scattering("H2", x, wavelengths, x, temperatures, pressures), rtol=1e-5
+    )
+
+    monkeypatch.setenv("PRT_LEGACY_RAYLEIGH", "0")
+    np.testing.assert_array_equal(opacity(), current)
+
+    monkeypatch.setenv("PRT_LEGACY_RAYLEIGH", "1")
+    with pytest.warns(UserWarning, match="PRT_LEGACY_RAYLEIGH=1: using the previous"):
+        legacy = opacity()
+    np.testing.assert_allclose(
+        legacy,
+        rayleigh_scattering_legacy.compute_rayleigh_scattering("H2", x, wavelengths, x, temperatures, pressures),
+        rtol=1e-5
+    )
+    assert not np.isclose(legacy[0, 0], current[0, 0], rtol=0.01)
