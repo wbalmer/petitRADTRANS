@@ -424,3 +424,64 @@ def test_multi_chain_runs_shard_over_devices_without_dropping_chains(
         if line.strip() and line.split()[0].isdigit()
     ]
     assert shapes == [(2, 40, 2), (3, 60, 2), (4, 80, 2)]
+
+
+
+def test_numpyro_managed_warmup_compiles_once_and_resumes_exactly(monkeypatch):
+    """The managed warmup compiles NUTS once per process, not once per iteration, and a
+    warmup stopped after its first checkpointed block resumes to the uninterrupted state.
+
+    Called eagerly, kernel.sample re-traced and recompiled the tree-building loop on every
+    iteration, ~60 s each for an emission retrieval on an A100.
+    """
+    pytest.importorskip("numpyro")
+    from numpyro.infer import NUTS
+
+    from petitRADTRANS.retrieval.samplers import numpyro as numpyro_backend
+
+    traces = []
+
+    def potential(position):
+        traces.append(None)  # Python runs only while JAX traces
+        return 0.5 * jnp.sum(position**2)
+
+    def run(num_warmup, checkpoints, checkpoint=None):
+        sampler = object.__new__(numpyro_backend.NumPyroNUTSSampler)
+        sampler.retrieval_name = "managed_warmup"
+        sampler._save_checkpoint = checkpoints.append
+        kernel = NUTS(
+            potential_fn=potential,
+            adapt_step_size=False,
+            adapt_mass_matrix=False,
+            max_tree_depth=4,
+            step_size=0.5,
+        )
+        return sampler._run_managed_warmup(
+            kernel=kernel,
+            initial_position=jnp.full(3, 0.5),
+            rng_key=jax.random.PRNGKey(0),
+            num_warmup=num_warmup,
+            num_samples=1,
+            target_accept_prob=0.8,
+            warmup_block=2,
+            checkpoint=checkpoint,
+        )
+
+    monkeypatch.delenv("PRT_WARMUP_ITERS_PER_PROCESS", raising=False)
+    run(3, [])
+    traces_short = len(traces)
+    traces.clear()
+    state, trace = run(9, [])
+    assert len(traces) == traces_short
+
+    # Stop after the first block, then resume from its checkpoint
+    checkpoints = []
+    monkeypatch.setenv("PRT_WARMUP_ITERS_PER_PROCESS", "2")
+    with pytest.raises(numpyro_backend.WarmupChunkComplete):
+        run(9, checkpoints)
+    monkeypatch.delenv("PRT_WARMUP_ITERS_PER_PROCESS")
+    resumed_state, resumed_trace = run(9, [], checkpoint=checkpoints[-1])
+
+    assert resumed_trace == trace
+    for resumed, uninterrupted in zip(jax.tree.leaves(resumed_state), jax.tree.leaves(state)):
+        np.testing.assert_array_equal(np.asarray(resumed), np.asarray(uninterrupted))

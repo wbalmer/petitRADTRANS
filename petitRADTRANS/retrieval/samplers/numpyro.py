@@ -498,6 +498,7 @@ class NumPyroSampler(GradientSampler):
         changing it mid-flight would silently change the adaptation schedule. The
         stale-checkpoint guard in the caller already enforces this.
         """
+        _opt.require_jax()
         _opt.require_numpyro()
         from numpyro.infer.hmc_util import dual_averaging
 
@@ -550,11 +551,17 @@ class NumPyroSampler(GradientSampler):
                 flush=True,
             )
 
+        # Compiled once per process, after kernel.init has built the closure it calls.
+        # Called eagerly, kernel.sample re-traces and recompiles NUTS' tree-building
+        # while_loop on every iteration: ~60 s each for an emission model on an A100,
+        # more than the trajectory itself at moderate tree depths (job 1895170).
+        sample_once = _opt.jit(lambda current_state: kernel.sample(current_state, (), {}))
+
         done_at_entry = done
         while done < num_warmup:
             block_end = min(done + max(1, int(warmup_block)), num_warmup)
             while done < block_end:
-                state = kernel.sample(state, (), {})
+                state = sample_once(state)
                 # accept_prob is the INSTANTANEOUS acceptance for this iteration.
                 # mean_accept_prob is NumPyro's CUMULATIVE running mean; reporting
                 # that as though it were the instantaneous rate is what caused a

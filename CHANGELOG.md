@@ -121,6 +121,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   (relative); all other references are unchanged.
 
 ### Fixed
+- The managed NumPyro warmup (`warmup_driver="managed"`) called NUTS' transition
+  without compiling it, so every warmup iteration retraced and recompiled the
+  tree-building loop, about a minute per iteration for an emission retrieval on a GPU.
+  It now compiles it once per process.
 - The vectorized path of the `ultranest` sampler did not compile its likelihood or
   prior transform, even though it reported `use_jit=True`, and so was retraced on every
   call. It now compiles both, padding batches to a few fixed sizes.
