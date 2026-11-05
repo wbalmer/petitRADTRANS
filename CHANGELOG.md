@@ -4,64 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [Unreleased]
-### Added
-- Native CPU kernels for the forward- and reverse-mode derivatives of the
-  correlated-k mixing, used through two JAX primitives that are each other's
-  transpose: `jax.jvp`, `jax.jacfwd`, `jax.grad` and `jax.jacrev` run on C++ on
-  CPU. Higher derivatives still come from the JAX implementation.
-- Tests that the correlated-k mixing is continuous in the abundances, including
-  where a species crosses the mixing threshold, that it stays close to the exact
-  random overlap of the species' transmissions, and that the native derivatives
-  match those of the JAX implementation, in `tests/test_fortran_modules.py`.
-- Module constants `radiative_transfer_core.CK_MIXING_THRESHOLD`,
-  `CK_MIXING_RAMP_START` and `CK_MIXING_WINDOW_FRACTION`.
-- `petitRADTRANS/cpp_src/README.md`, describing the native mixing kernel.
-
-### Changed
-- The correlated-k mixing (emission with `scattering_in_emission=True`) averages
-  the quantile function of the pairwise opacity sums over a window around each
-  g node, instead of interpolating the sorted sums at the midpoints of their
-  cumulative weights. A species is switched on smoothly between 0.5 and 1 times
-  the mixing threshold instead of at once at the threshold. The mixed opacities
-  are about four times closer to the exact random overlap (mean transmission
-  error 7.1e-4 instead of 3.0e-3 for seven species in a brown dwarf
-  atmosphere). Emission spectra with scattering change by up to 0.7% in the
-  tests. Optimisations made with the previous mixing should be redone.
-- Derivatives of the correlated-k mixing on CPU are about 265 times faster on 72
-  cores (0.049 s instead of 13.0 s for the gradient of 7 species at 586 frequencies
-  and 100 layers) and 6.7 times faster on one core. The native kernel orders the
-  pairwise sums by merging their sorted runs instead of sorting them, which makes
-  the mixing itself 1.4 times faster.
-- Regenerated the reference files of the 13 tests whose spectra go through the
-  correlated-k mixing:
-  `test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering`
-  (also `_with_adaptive_feautrier_iterations` and `_with_variable_fsed`),
-  `test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_dayside`
-  (also `_non_isotropic` and `_planetary_average`),
-  `test_correlated_k_emission_spectrum_partial_cloud_calculated_radius_stellar_scattering_non_isotropic`,
-  `test_correlated_k_emission_spectrum_surface_scattering` (also
-  `_with_adaptive_feautrier_iterations`), and
-  `test_correlated_k_spectral_model_emission` (also `_equilibrium_chemistry_imposed`,
-  `_observed` and `_with_star`). Their outputs changed by up to 7.1e-3
-  (relative); all other references are unchanged.
-
-### Fixed
-- Gradients of correlated-k emission spectra with `scattering_in_emission=True`
-  missed part of the slope: by 2-5% for the main absorbers and up to 56% for
-  weak ones (H2S in a brown dwarf atmosphere). The mixed opacities jumped
-  whenever two pairwise sums of unequal weight swapped places in the sort, or a
-  species crossed the mixing threshold, and automatic differentiation cannot see
-  jumps. The mixing is now continuous, and gradients match the slope of the
-  value (to 1e-5 relative in the same test).
-- The native CPU correlated-k mixing kernel formed the pairwise quadrature
-  weights in double precision, the JAX implementation (other backends) in
-  `WORKING_JAX_DTYPE`, so their mixed opacities differed slightly: by up to
-  1.2e-4 for single opacities with the new mixing, and 3e-8 in spectra. Both now
-  form them in `WORKING_JAX_DTYPE`, normalised by a sum accumulated in double
-  precision, and agree to 1e-13.
-
-## [4.0.0rc1] - 2026-10-29
+## [4.0.0rc1] - 2026-11-05
 ### Added
 - Nautilus sampler (`sampler_type="nautilus"`), for importance nested sampling with
   neural networks. It parallelises over MPI ranks, a `spawn` process pool, or batches
@@ -94,18 +37,18 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   new input_data directory `opacities/continuum/rayleigh`.
 - The environment variable `PRT_LEGACY_RAYLEIGH=1` selects the previous Rayleigh
   scattering treatments, for comparison tests of retrievals. It is temporary.
+- FFI for gradients of c-k mixing for CPUs (C++) and GPUs (JAX): `jax.jvp`, `jax.jacfwd`, `jax.grad` and `jax.jacrev`
+- Test that the correlated-k mixing is continuous in the abundances, including
+  where a species crosses the mixing threshold, that it stays close to the exact
+  random overlap of the species' transmissions, and that the native derivatives
+  match those of the JAX implementation, in `tests/test_fortran_modules.py`.
 
 ### Changed
 - Rayleigh scattering opacities use updated treatments:
   H2 uses Singor et al. (2024), elastic and Raman, with LTE rovibrational
   populations, calibrated to Peck & Huang (1977); He uses Puchalski et al. (2016);
   H2O uses Egan (2026) with the temperature slope of Egan & Yang (2024); CH4 uses
-  He et al. (2021). H2 opacity at 500 nm rises by 8 to 21% between 300 and 3000 K,
-  He by 45% at 500 nm, and H2O opacity at 500 nm changes by -4% at 300 K and +38%
-  at 3000 K. CH4 falls by 23%. In a clear H2/He test atmosphere, the transit radius
-  at 0.3--0.5 um rises by 0.08 to 0.13 scale heights between 300 and 2000 K. The
-  31 test references affected by this were regenerated. See
-  `docs/rayleigh_scattering.tex`.
+  He et al. (2021).
 - Each (g, frequency) column of the Feautrier scattering iteration now stops at
   its own convergence, so emission spectra no longer depend on
   `feautrier_chunk_size`.
@@ -120,9 +63,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   stepping through the whole iteration budget, which is faster on GPU.
 - Regenerated the reference file of
   `test_correlated_k_emission_spectrum_surface_scattering_with_adaptive_feautrier_iterations`.
-  The previous reference (4.0.0a42) recorded a scattering iteration that was
+  The previous reference (4.0.0a42) used a scattering iteration that was
   1.1e-3 from its converged solution; the converged solution itself is unchanged
-  (to 1e-8), and the new reference is within 3e-7 of it.
+  (to 1e-8). Rhe new reference is within 3e-7.
 - Regenerated with 4.0.0rc1 the reference files of the correlated-k emission
   tests of `tests/test_radtrans_correlated_k.py` (4 tests),
   `tests/test_radtrans_correlated_k_scattering.py` (7),
@@ -158,8 +101,24 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   `py312` to `py315`, run as a CI matrix). tox uses `tox-uv`, which downloads
   the Python versions that are not installed, builds a petitRADTRANS wheel per
   Python version with build isolation, and installs it with the `test` extra so
-  every sampler backend is tested. The CI image adds `libhdf5-dev`, needed to
-  build h5py on Python versions it has no wheels for yet.
+  every sampler backend is tested.
+- The correlated-k mixing (emission with `scattering_in_emission=True`) averages
+  the the pairwise opacity summed over a window around each
+  g node, instead of interpolating the sorted sums at the midpoints of their
+  cumulative weights. A species is switched on smoothly between 0.5 and 1 times
+  the mixing threshold instead of at once at the threshold.
+- Regenerated the reference files of the 13 tests whose spectra go through the
+  correlated-k mixing:
+  `test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering`
+  (also `_with_adaptive_feautrier_iterations` and `_with_variable_fsed`),
+  `test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_dayside`
+  (also `_non_isotropic` and `_planetary_average`),
+  `test_correlated_k_emission_spectrum_partial_cloud_calculated_radius_stellar_scattering_non_isotropic`,
+  `test_correlated_k_emission_spectrum_surface_scattering` (also
+  `_with_adaptive_feautrier_iterations`), and
+  `test_correlated_k_spectral_model_emission` (also `_equilibrium_chemistry_imposed`,
+  `_observed` and `_with_star`). Their outputs changed by up to 7.1e-3
+  (relative); all other references are unchanged.
 
 ### Fixed
 - The vectorized path of the `ultranest` sampler did not compile its likelihood or
@@ -191,9 +150,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   spectrum to R = 1e4 was off by 3%, and to R = 1e3 by 5%. The kernel now
   extends to 4 standard deviations, as in `scipy.ndimage.gaussian_filter1d`.
   The edges were also padded in scipy's "mirror" mode instead of the "reflect"
-  mode of pRT 3. Results match pRT 3 to 1e-10. Under `jax.jit` with traced
-  inputs the kernel size must be static (20 bins by default, `max_radius`
-  otherwise), and a kernel too small for the resolving powers returns NaN.
+  mode of pRT 3. Results match pRT 3 to 1e-10.
 - `calculate_flux` with `cloud_photosphere_median_optical_depth` and
   `scattering_in_emission=True` raised `TypeError`. The scaling of the cloud
   opacities to that optical depth is ported to JAX: it no longer uses an
