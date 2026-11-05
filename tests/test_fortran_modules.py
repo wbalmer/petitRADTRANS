@@ -445,7 +445,7 @@ def _random_ck_mixing_inputs():
 
 
 def test_combine_ck_opacities_cpu_kernel_matches_jax_implementation():
-    # The native CPU kernel is differentiated through the JAX implementation, so both must agree
+    # The native CPU kernel and the JAX implementation (GPU, and higher derivatives on CPU) must agree
     if jax.default_backend() != "cpu":
         pytest.skip("native FFI path is CPU-only")
 
@@ -489,6 +489,154 @@ def test_combine_ck_opacities_cpu_kernel_derivatives_agree_across_modes():
         rtol=1e-10,
         atol=0.0,
     )
+
+
+def _ck_table_like_mixing_inputs():
+    # pRT's split g grid (8 Gauss-Legendre points on [0, 0.9], 8 on [0.9, 1]), whose quadrature weights differ
+    # by up to 30x, and opacities rising steeply toward g = 1 as in the k-tables
+    nodes, weights = np.polynomial.legendre.leggauss(8)
+    g_gauss = np.concatenate([0.45 * (nodes + 1), 0.9 + 0.05 * (nodes + 1)])
+    weights_gauss = np.concatenate([0.45 * weights, 0.05 * weights])
+    rng = np.random.default_rng(0)
+    n_frequencies, n_species, n_layers = 7, 4, 5
+    shape = (n_frequencies, n_species, n_layers)
+    opacities = 10 ** rng.uniform(-4, 1, shape) * 10 ** (
+        rng.uniform(1, 4, shape) * g_gauss[:, None, None, None] ** rng.uniform(1, 4, shape)
+    )
+
+    return {
+        "opacities_fortran_order": jnp.asarray(opacities),
+        "g_gauss": jnp.asarray(g_gauss),
+        "weights_gauss": jnp.asarray(weights_gauss),
+        "line_species_mass_fractions": jnp.asarray(10 ** rng.uniform(-4, -1, (n_layers, n_species))),
+        "continuum_opacities": jnp.asarray(10 ** rng.uniform(-5, -2, (n_frequencies, n_layers))),
+    }
+
+
+def _integrated_derivative_and_change(function, start, stop, n_points=401):
+    # Trapezoid integral of the derivative of a scalar-argument function over [start, stop], the change of its
+    # value, and its value at start
+    value_and_tangent = jax.jit(lambda t: jax.jvp(function, (t,), (jnp.ones_like(t),)))
+    steps = np.linspace(start, stop, n_points)
+    values, tangents = (np.array(a) for a in zip(*(value_and_tangent(jnp.asarray(t)) for t in steps)))
+
+    return np.trapezoid(tangents, steps, axis=0), values[-1] - values[0], values[0]
+
+
+def test_combine_ck_opacities_derivative_integrates_to_value_change():
+    # The mixed opacities are continuous in the abundances, so their derivative along a path integrates to the
+    # change of their value, up to the trapezoid error at the kinks. Interpolating the sorted pairwise sums at the
+    # midpoints of their cumulative weights made the value jump whenever two sums of unequal weight swapped
+    # places, and the derivative missed the jumps
+    inputs = _ck_table_like_mixing_inputs()
+    mass_fractions = inputs.pop("line_species_mass_fractions")
+    direction = jnp.asarray(np.random.default_rng(1).choice([-1.0, 1.0], mass_fractions.shape))
+
+    def mixed_opacities(log_scale):
+        return rtc.combine_ck_opacities(
+            line_species_mass_fractions=mass_fractions * 10 ** (log_scale * direction), **inputs
+        )
+
+    integral, change, start_value = _integrated_derivative_and_change(mixed_opacities, -0.05, 0.05)
+
+    assert np.max(np.abs(integral - change) / np.abs(start_value)) < 2e-3
+
+
+def test_combine_ck_opacities_switches_species_on_continuously():
+    # A species is skipped below half the mixing threshold and switched on smoothly up to the threshold, so the
+    # mixed opacities stay continuous as its abundance crosses it
+    nodes, weights = np.polynomial.legendre.leggauss(16)
+    g_gauss = jnp.asarray((nodes + 1) / 2)
+    weights_gauss = jnp.asarray(weights / 2)
+    # Species 0 plus the continuum is 1 at g = 0, so the threshold is 0.01, reached by species 1 at a mass
+    # fraction of 0.01
+    opacities = jnp.asarray(
+        np.stack([np.geomspace(0.5, 20.0, 16), np.geomspace(1e-4, 1.0, 16)], axis=-1)[:, None, :, None]
+    )
+    continuum_opacities = jnp.asarray([[0.5]])
+
+    def mixed_opacities(log_ratio):
+        return rtc.combine_ck_opacities(
+            opacities,
+            g_gauss,
+            weights_gauss=weights_gauss,
+            line_species_mass_fractions=jnp.stack([jnp.ones_like(log_ratio), 1e-2 * 10 ** log_ratio])[None, :],
+            continuum_opacities=continuum_opacities,
+        )[:, 0, 0]
+
+    integral, change, _ = _integrated_derivative_and_change(mixed_opacities, np.log10(0.3), np.log10(2.0))
+
+    np.testing.assert_allclose(integral, change, rtol=0.0, atol=1e-3 * np.max(np.abs(change)))
+    np.testing.assert_array_equal(
+        np.asarray(mixed_opacities(jnp.log10(0.45))),
+        np.asarray(opacities[:, 0, 0, 0] + continuum_opacities[0, 0]),
+    )
+
+
+def test_combine_ck_opacities_close_to_exact_random_overlap():
+    # Under random overlap, the transmission of the mixture through any column is exactly the product of the
+    # transmissions of the species and the continuum. Window means of the quantile function reproduce it more
+    # than twice as accurately on average as interpolating the sorted pairwise sums did (mean error 6.8e-3, max
+    # 4.0e-2 here)
+    inputs = _ck_table_like_mixing_inputs()
+    mixed = np.asarray(rtc.combine_ck_opacities(**inputs))  # (n_g, n_frequencies, n_layers)
+    weights_gauss = np.asarray(inputs["weights_gauss"])
+    weighted_opacities = (
+        np.asarray(inputs["opacities_fortran_order"])
+        * np.asarray(inputs["line_species_mass_fractions"]).T[None, None, :, :]
+    )
+    errors = []
+
+    for column_scale in (0.1, 1.0, 10.0):
+        columns = column_scale / np.median(mixed, axis=0)  # (n_frequencies, n_layers)
+        transmission = np.einsum("g,gfl->fl", weights_gauss, np.exp(-columns * mixed))
+        exact_transmission = np.exp(-columns * np.asarray(inputs["continuum_opacities"])) * np.prod(
+            np.einsum("g,gfsl->fsl", weights_gauss, np.exp(-columns[None, :, None, :] * weighted_opacities)),
+            axis=1,
+        )
+        errors.append(np.abs(transmission - exact_transmission))
+
+    assert np.mean(errors) < 4e-3
+    assert np.max(errors) < 3.5e-2
+
+
+def test_combine_ck_opacities_cpu_kernel_derivatives_match_jax_implementation():
+    # The native forward- and reverse-mode derivatives of the CPU kernel, also under vmap, against those
+    # of the JAX implementation. The derivative through a species in the threshold ramp multiplies the
+    # small change that species makes to the mixture, which both compute to ~1e-8 at worst
+    if jax.default_backend() != "cpu":
+        pytest.skip("native FFI path is CPU-only")
+
+    inputs = _ck_table_like_mixing_inputs()
+    mass_fractions = inputs.pop("line_species_mass_fractions")
+    g_combination_weights, g_combination_weights_sum = rtc.build_ck_combination_state(inputs["weights_gauss"])
+    rng = np.random.default_rng(2)
+
+    def native(mass_fractions):
+        return rtc.combine_ck_opacities(line_species_mass_fractions=mass_fractions, **inputs)
+
+    def reference(mass_fractions):
+        return rtc._combine_ck_opacities_jax(
+            line_species_mass_fractions=mass_fractions,
+            g_combination_weights=g_combination_weights,
+            g_combination_weights_sum=g_combination_weights_sum,
+            **inputs,
+        )
+
+    tangent = mass_fractions * jnp.asarray(rng.standard_normal(mass_fractions.shape))
+    cotangent = jnp.asarray(rng.standard_normal(native(mass_fractions).shape))
+    batch = jnp.stack([mass_fractions, 3 * mass_fractions])
+    derivatives = {
+        "forward": lambda f: jax.jvp(f, (mass_fractions,), (tangent,))[1],
+        "reverse": lambda f: jax.vjp(f, mass_fractions)[1](cotangent)[0],
+        "reverse, vmap": lambda f: jax.vmap(lambda m: jax.vjp(f, m)[1](cotangent)[0])(batch),
+    }
+
+    for mode, derivative in derivatives.items():
+        expected = np.asarray(derivative(reference))
+        np.testing.assert_allclose(
+            np.asarray(derivative(native)), expected, rtol=0.0, atol=1e-10 * np.max(np.abs(expected)), err_msg=mode
+        )
 
 
 def test_combine_ck_opacities_cpu_float32_matches_threshold_reference():

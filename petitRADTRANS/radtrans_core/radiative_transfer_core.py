@@ -9,6 +9,9 @@ from typing import Any, Callable, Literal, NamedTuple, Optional, overload
 import jax
 import jax.numpy as jnp
 from jax import custom_jvp, jit, lax, vmap
+from jax.custom_derivatives import SymbolicZero
+from jax.extend.core import Primitive
+from jax.interpreters import ad, batching, mlir
 from jax.scipy.sparse.linalg import gmres
 from jax.typing import ArrayLike
 import petitRADTRANS.physical_constants as cst
@@ -32,19 +35,24 @@ WORKING_TINIEST = jnp.finfo(WORKING_JAX_DTYPE).tiny
 # Enable via the ``ck_chunk_size`` argument (e.g. 16384-65536)
 DEFAULT_CK_CHUNK_SIZE = 0
 
+# c-k mixing threshold: a species is mixed in only where its strongest g-point reaches this fraction of the largest
+# weakest-g-point opacity of the cell (continuum included). Below it the species' contribution is negligible
+CK_MIXING_THRESHOLD = 1e-2
+
+# A species is switched on smoothly (smoothstep weight) between this fraction of the threshold and the threshold
+CK_MIXING_RAMP_START = 0.5
+
+# Half-width of the averaging window around each g node during the c-k mixing rebinning
+CK_MIXING_WINDOW_FRACTION = 1.0
+
+# The native CPU kernel (petitRADTRANS/cpp_src/prt_ck_mixing_ffi.cc) hardcodes the three values above
+
 # Feautrier chunking defaults. Both values are static (compile-time) arguments of the flux kernels.
-# Each (g, frequency) column stops iterating at its own convergence, so the chunk size changes the runtime
-# but not the result. A chunk keeps sweeping all of its columns until its slowest one has converged, so
-# narrower chunks waste fewer sweeps on converged columns, down to the width below which a sweep no longer
-# keeps the hardware busy. Measured on the c-k benchmark (4536 frequencies): 128 was fastest on 8 CPU cores and
-# within 6% of the fastest on 1 core; 512 was fastest on an A100
 DEFAULT_CHUNK_FEAUTRIER = True
 DEFAULT_FEAUTRIER_CHUNK_SIZE = 512
 DEFAULT_FEAUTRIER_CHUNK_SIZE_CPU = 128
 
-# Relative flux-change tolerance of the scattering iteration, applied to each (g, frequency) column over
-# SCATTERING_CONVERGENCE_CYCLE sweeps. The implicit gradient is exact only at the fixed point of the iteration,
-# so the tolerance is tight
+# Relative flux-change tolerance of the scattering iteration
 SCATTERING_CONVERGENCE_THRESHOLD = 1e-6
 
 # Maximum number of scattering iterations.
@@ -59,11 +67,10 @@ SCATTERING_CONVERGENCE_CYCLE = 4
 # Relative residual tolerance of the generalized minimal residual method (GMRES) for the implicit gradient
 SCATTERING_IMPLICIT_GRADIENT_TOLERANCE = 1e-12
 
-# Krylov subspace size of the restarted GMRES solve that yields the implicit gradient. Memory scales with this
-# value, as one copy of the scattering state is stored per Krylov vector
+#  Memory scales with this value, as one copy of the scattering state is stored per Krylov vector
 SCATTERING_IMPLICIT_GRADIENT_KRYLOV_SIZE = 20
 
-# Maximum number of GMRES restarts. Strongly scattering atmospheres converge more slowly and may require more
+# Maximum number of GMRES restarts.
 SCATTERING_IMPLICIT_GRADIENT_MAX_RESTARTS = 10
 
 
@@ -113,18 +120,24 @@ def build_ck_combination_state(weights_gauss: ArrayLike) -> tuple[ArrayLike, Arr
     -------
     tuple[jax.Array, jax.Array]
         Pre-normalized pairwise g-combination weights (sum to 1) and their
-        original sum before normalization.
+        original sum before normalization, both in WORKING_JAX_DTYPE.
     """
     # Use weights_gauss directly — matches Fortran, which does not apply
     # the /3 adjustment to the outer-product weights.
-    g_combination_weights = (weights_gauss[:, None] * weights_gauss[None, :]).reshape(
-        -1
+    # The weights are products in WORKING_JAX_DTYPE, normalized by their sum
+    # accumulated in FEAUTRIER_JAX_DTYPE: the rounding of a sum depends on its
+    # order, which differs between backends, so the weights would otherwise differ
+    # by an ulp, which the narrow mixing windows near g = 1 amplify. The native
+    # CPU kernel (BuildGrid in cpp_src/prt_ck_mixing_ffi.cc) forms the same values.
+    weights = jnp.asarray(weights_gauss, dtype=WORKING_JAX_DTYPE)
+    products = (weights[:, None] * weights[None, :]).reshape(-1).astype(
+        FEAUTRIER_JAX_DTYPE
     )
-    g_combination_weights_sum = jnp.sum(g_combination_weights)
+    products_sum = jnp.sum(products)
     # Pre-normalize so the inner loop avoids a per-call vector division.
-    g_combination_weights = g_combination_weights / g_combination_weights_sum
+    g_combination_weights = (products / products_sum).astype(WORKING_JAX_DTYPE)
 
-    return g_combination_weights, g_combination_weights_sum
+    return g_combination_weights, products_sum.astype(WORKING_JAX_DTYPE)
 
 
 def _prepare_ck_opacity_inputs(
@@ -194,6 +207,15 @@ def _combine_ck_opacities_jax(
     """
     Combines correlated-k opacities across species.
 
+    Species are added to the running mixture one at a time with the random-overlap approximation: the n_g**2
+    pairwise opacity sums, weighted by the products of their quadrature weights, are sorted into a quantile
+    function Q(g), which is averaged over a window around each g node. Two sums swap places in the sort only
+    when they are equal, which leaves Q unchanged, so the mixed opacities are continuous in the inputs and
+    their derivatives give the true slopes. (Interpolating the sorted sums at the midpoints of their
+    cumulative weights, as the Fortran implementation did, makes the value jump whenever two sums of unequal
+    weight swap places.) Species below the mixing threshold are skipped, and switched on smoothly as they
+    cross it (see CK_MIXING_THRESHOLD).
+
     Parameters
     ----------
     opacities_fortran_order : jax.Array
@@ -245,6 +267,30 @@ def _combine_ck_opacities_jax(
     # Precompute constants shared across all (f*l, species) calls.
     # ------------------------------------------------------------------
     n_sample = n_g * n_g
+    n_search_iterations = max(1, (n_sample - 1).bit_length())
+    mixing_dtype = jnp.result_type(
+        opacities_flat, abundance_weights_flat, continuum_flat
+    )
+    pair_weights = g_combination_weights.astype(mixing_dtype)
+
+    # Averaging window [g_low, g_high] of each g node: centred on the node and reaching
+    # CK_MIXING_WINDOW_FRACTION of the way to the nearer edge of its quadrature bin, the bins
+    # being delimited by the cumulative quadrature weights. A node on a bin edge gets no window
+    # and takes the quantile function at the node instead.
+    bin_edges = jnp.concatenate(
+        [jnp.zeros(1, mixing_dtype), jnp.cumsum(weights_gauss.astype(mixing_dtype))]
+    )
+    bin_edges = bin_edges / bin_edges[-1]
+    g_nodes = g_gauss.astype(mixing_dtype)
+    half_widths = CK_MIXING_WINDOW_FRACTION * jnp.clip(
+        jnp.minimum(g_nodes - bin_edges[:-1], bin_edges[1:] - g_nodes), 0.0
+    )
+    window_bounds = jnp.concatenate([g_nodes - half_widths, g_nodes + half_widths])
+    window_widths = window_bounds[n_g:] - window_bounds[:n_g]
+    has_window = window_widths > 0.0
+    inverse_window_widths = jnp.where(
+        has_window, 1.0 / jnp.where(has_window, window_widths, 1.0), 0.0
+    )
 
     # ------------------------------------------------------------------
     # Core batched combination across all (f×l) cells.
@@ -268,41 +314,37 @@ def _combine_ck_opacities_jax(
         # Avoids co-sorting a tiled weight array (halves sort data movement).
         perm = jnp.argsort(k_combined, axis=-1)
         k_sorted = jnp.take_along_axis(k_combined, perm, axis=-1)
-        weights_sorted = g_combination_weights[perm]  # 1D→2D broadcast gather
+        weights_sorted = pair_weights[perm]  # 1D→2D broadcast gather
 
-        # Cumulative-sum midpoints (batched along last axis).
+        # Sample m covers g in (C_{m-1}, C_m] of the quantile function, C being the cumulative
+        # weights; its integral is Phi(q) = P_m - (C_m - q) k_m, with P the cumulative weighted
+        # opacities, and the window means are differences of Phi.
         right_edges = jnp.cumsum(weights_sorted, axis=-1)
-        g_x_vals = right_edges - weights_sorted * 0.5
+        cumulative_opacities = jnp.cumsum(weights_sorted * k_sorted, axis=-1)
 
-        # Pin endpoints.
-        k_sorted = k_sorted.at[:, 0].set(current[:, 0] + spec_s[:, 0])
-        k_sorted = k_sorted.at[:, n_sample - 1].set(current[:, -1] + spec_s[:, -1])
-
-        # Batched binary search — replaces vmap(searchsorted).
-        # 9 iterations covers 2^9 = 512 > n_sample = 256.
-        g_target = g_gauss[None, :]  # (1, n_g)
+        # Batched binary search for the sample covering each window bound — replaces
+        # vmap(searchsorted).
+        queries = jnp.broadcast_to(window_bounds[None, :], (n_fl_local, 2 * n_g))
         rows = jnp.arange(n_fl_local)[:, None]  # (n_fl, 1)
-        lo = jnp.zeros((n_fl_local, n_g), dtype=jnp.int32)
-        hi = jnp.full((n_fl_local, n_g), n_sample - 1, dtype=jnp.int32)
+        lo = jnp.zeros((n_fl_local, 2 * n_g), dtype=jnp.int32)
+        hi = jnp.full((n_fl_local, 2 * n_g), n_sample - 1, dtype=jnp.int32)
 
-        for _ in range(9):
+        for _ in range(n_search_iterations):
             mid = (lo + hi) >> 1
-            go_right = g_x_vals[rows, mid] < g_target
+            go_right = right_edges[rows, mid] < queries
             lo = jnp.where(go_right, mid + 1, lo)
             hi = jnp.where(go_right, hi, mid)
 
-        idx = jnp.clip(lo, 1, n_sample - 1)
-        idx_lo = idx - 1
-        x0 = g_x_vals[rows, idx_lo]
-        x1 = g_x_vals[rows, idx]
-        y0 = k_sorted[rows, idx_lo]
-        y1 = k_sorted[rows, idx]
-        t = jnp.clip(
-            (g_target - x0) / jnp.maximum(x1 - x0, jnp.sqrt(WORKING_TINIEST)),
-            0.0,
-            1.0,
+        k_covering = k_sorted[rows, lo]
+        integrals = (
+            cumulative_opacities[rows, lo] - (right_edges[rows, lo] - queries) * k_covering
         )
-        return y0 + t * (y1 - y0)
+
+        return jnp.where(
+            has_window,
+            (integrals[:, n_g:] - integrals[:, :n_g]) * inverse_window_widths,
+            k_covering[:, n_g:],
+        )
 
     # ------------------------------------------------------------------
     # Vectorized threshold & species loop, evaluated on a chunk of
@@ -334,10 +376,32 @@ def _combine_ck_opacities_jax(
             threshold_input = (
                 opacities_chunk[:, :, 0] * abundance_weights_chunk
             ).at[:, 0].add(continuum_chunk)
-            threshold = jnp.max(threshold_input, axis=1) * 1e-2  # (chunk,)
-            active_mask = (
-                opacities_chunk[:, :, -1] * abundance_weights_chunk
-            ) >= threshold[:, None]  # (chunk, n_species)
+            # Gather at the argmax rather than jnp.max: the JVP of reduce_max divides by the
+            # number of elements equal to the maximum, which XLA's CPU fusion can make 0 (NaN
+            # tangents) by recomputing the operand with different rounding.
+            strongest_input = jnp.argmax(threshold_input, axis=1)
+            threshold = (
+                jnp.take_along_axis(threshold_input, strongest_input[:, None], axis=1)
+                * CK_MIXING_THRESHOLD
+            )  # (chunk, 1)
+
+            # Smoothstep mixing weight of each species: 0 below CK_MIXING_RAMP_START times the
+            # threshold, 1 from the threshold on. Every species is mixed in a cell whose
+            # threshold is 0.
+            has_threshold = threshold > 0.0
+            ramp = jnp.clip(
+                (
+                    opacities_chunk[:, :, -1] * abundance_weights_chunk
+                    / jnp.where(has_threshold, threshold, 1.0)
+                    - CK_MIXING_RAMP_START
+                )
+                / (1.0 - CK_MIXING_RAMP_START),
+                0.0,
+                1.0,
+            )
+            mixing_weights = jnp.where(
+                has_threshold, ramp * ramp * (3.0 - 2.0 * ramp), 1.0
+            )  # (chunk, n_species)
 
             # Batched species loop — no vmap, single sort kernel per species.
             for s in range(1, n_species):
@@ -345,8 +409,11 @@ def _combine_ck_opacities_jax(
                 combined = _perform_combination_batched(
                     current_chunk, spec_s
                 )  # (chunk, n_g)
+                mixing_weight = mixing_weights[:, s : s + 1]
                 current_chunk = jnp.where(
-                    active_mask[:, s : s + 1], combined, current_chunk
+                    mixing_weight > 0.0,
+                    current_chunk + mixing_weight * (combined - current_chunk),
+                    current_chunk,
                 )
 
         return current_chunk
@@ -407,13 +474,306 @@ def _combine_ck_opacities_jax(
 
 
 # ---------------------------------------------------------------------------
-# Native CPU kernel, differentiated through the JAX implementation
+# Native CPU kernels: the mixing and its first derivatives
 # ---------------------------------------------------------------------------
 
 
 def _use_ck_mixing_ffi() -> bool:
     """Use the native FFI mixing kernel only on CPU backends."""
     return jax.default_backend() == "cpu"
+
+
+def _mix_weighted_opacities_jax(
+    weighted_opacities: ArrayLike,  # (n_fl, n_species, n_g)
+    continuum_opacities_flat: ArrayLike,  # (n_fl,)
+    g_gauss: ArrayLike,
+    weights_gauss: ArrayLike,
+) -> ArrayLike:
+    """The JAX mixing in the layout of the native kernels: (n_fl, n_g)."""
+    g_combination_weights, g_combination_weights_sum = build_ck_combination_state(
+        weights_gauss
+    )
+    mixed = _combine_ck_opacities_jax(
+        weighted_opacities,
+        g_gauss,
+        weights_gauss,
+        jnp.ones((1, weighted_opacities.shape[1]), dtype=weighted_opacities.dtype),
+        continuum_opacities_flat[:, None],
+        g_combination_weights,
+        g_combination_weights_sum,
+        input_layout="fl_s_ng",
+    )
+
+    return mixed[:, :, 0].T
+
+
+# First derivatives of the native mixing as two primitives: the forward-mode derivative
+# (n_tangents, n_fl, n_g), linear in its two tangent operands, and the reverse-mode derivative
+# (cotangents of the weighted opacities and of the continuum), linear in its cotangent operand.
+# Each is the other's transpose, so both modes run on the native kernels. Derivatives of the
+# primitives themselves (second order) are taken from the JAX implementation.
+_ck_mixing_jvp_p = Primitive("prt_ck_mixing_jvp")
+_ck_mixing_vjp_p = Primitive("prt_ck_mixing_vjp")
+_ck_mixing_vjp_p.multiple_results = True
+
+
+def _ck_mixing_jvp_impl(weighted, continuum, g_gauss, weights_gauss, weighted_tangents, continuum_tangents):
+    return ck_mixing_ffi.combine_ck_mixing_jvp_ffi(
+        weighted, continuum, g_gauss, weights_gauss, weighted_tangents, continuum_tangents
+    )
+
+
+def _ck_mixing_vjp_impl(weighted, continuum, g_gauss, weights_gauss, cotangents):
+    return list(
+        ck_mixing_ffi.combine_ck_mixing_vjp_ffi(weighted, continuum, g_gauss, weights_gauss, cotangents)
+    )
+
+
+def _ck_mixing_jvp_abstract_eval(weighted, continuum, g_gauss, weights_gauss, weighted_tangents, continuum_tangents):
+    return jax.core.ShapedArray(
+        (weighted_tangents.shape[0], weighted.shape[0], weighted.shape[2]), weighted.dtype
+    )
+
+
+def _ck_mixing_vjp_abstract_eval(weighted, continuum, g_gauss, weights_gauss, cotangents):
+    return [
+        jax.core.ShapedArray((cotangents.shape[0],) + tuple(weighted.shape), weighted.dtype),
+        jax.core.ShapedArray((cotangents.shape[0], weighted.shape[0]), weighted.dtype),
+    ]
+
+
+def _instantiate(tangent):
+    return ad.instantiate_zeros(tangent) if type(tangent) is ad.Zero else tangent
+
+
+def _ck_mixing_jvp_transpose(cotangent, weighted, continuum, g_gauss, weights_gauss, weighted_tangents,
+                             continuum_tangents):
+    if type(cotangent) is ad.Zero:
+        return None, None, None, None, None, None
+
+    weighted_cotangent, continuum_cotangent = _ck_mixing_vjp_p.bind(
+        weighted, continuum, g_gauss, weights_gauss, cotangent
+    )
+
+    return (
+        None,
+        None,
+        None,
+        None,
+        weighted_cotangent if ad.is_undefined_primal(weighted_tangents) else None,
+        continuum_cotangent if ad.is_undefined_primal(continuum_tangents) else None,
+    )
+
+
+def _ck_mixing_vjp_transpose(cotangents, weighted, continuum, g_gauss, weights_gauss, input_cotangents):
+    if all(type(cotangent) is ad.Zero for cotangent in cotangents):
+        return None, None, None, None, None
+
+    return (
+        None,
+        None,
+        None,
+        None,
+        _ck_mixing_jvp_p.bind(
+            weighted, continuum, g_gauss, weights_gauss, *(_instantiate(c) for c in cotangents)
+        ),
+    )
+
+
+def _ck_mixing_jvp_jvp(primals, tangents):
+    weighted, continuum, g_gauss, weights_gauss, weighted_tangents, continuum_tangents = primals
+    output = _ck_mixing_jvp_p.bind(*primals)
+    output_tangent = jnp.zeros_like(output)
+
+    # Linear in the tangent operands
+    if any(type(t) is not ad.Zero for t in tangents[4:]):
+        output_tangent = output_tangent + _ck_mixing_jvp_p.bind(
+            weighted, continuum, g_gauss, weights_gauss, *(_instantiate(t) for t in tangents[4:])
+        )
+
+    # Through the inputs: second derivatives, from the JAX implementation
+    if any(type(t) is not ad.Zero for t in tangents[:4]):
+        def first_derivatives(weighted, continuum, g_gauss, weights_gauss):
+            def tangent(weighted_tangent, continuum_tangent):
+                return jax.jvp(
+                    lambda x, c: _mix_weighted_opacities_jax(x, c, g_gauss, weights_gauss),
+                    (weighted, continuum),
+                    (weighted_tangent, continuum_tangent),
+                )[1]
+
+            return jax.vmap(tangent)(weighted_tangents, continuum_tangents)
+
+        output_tangent = output_tangent + jax.jvp(
+            first_derivatives, primals[:4], tuple(_instantiate(t) for t in tangents[:4])
+        )[1]
+
+    return output, output_tangent
+
+
+def _ck_mixing_vjp_jvp(primals, tangents):
+    weighted, continuum, g_gauss, weights_gauss, cotangents = primals
+    outputs = _ck_mixing_vjp_p.bind(*primals)
+    output_tangents = [jnp.zeros_like(output) for output in outputs]
+
+    # Linear in the cotangent operand
+    if type(tangents[4]) is not ad.Zero:
+        output_tangents = [
+            a + b
+            for a, b in zip(
+                output_tangents,
+                _ck_mixing_vjp_p.bind(weighted, continuum, g_gauss, weights_gauss, tangents[4]),
+            )
+        ]
+
+    # Through the inputs: second derivatives, from the JAX implementation
+    if any(type(t) is not ad.Zero for t in tangents[:4]):
+        def first_derivatives(weighted, continuum, g_gauss, weights_gauss):
+            _, pullback = jax.vjp(
+                lambda x, c: _mix_weighted_opacities_jax(x, c, g_gauss, weights_gauss),
+                weighted,
+                continuum,
+            )
+
+            return jax.vmap(pullback)(cotangents)
+
+        output_tangents = [
+            a + b
+            for a, b in zip(
+                output_tangents,
+                jax.jvp(first_derivatives, primals[:4], tuple(_instantiate(t) for t in tangents[:4]))[1],
+            )
+        ]
+
+    return outputs, output_tangents
+
+
+def _batch_first(operand, batch_dimension, size):
+    """Operand with its vmap batch axis first, broadcasting an unbatched operand."""
+    if batch_dimension is batching.not_mapped:
+        return jnp.broadcast_to(operand, (size,) + operand.shape)
+
+    return jnp.moveaxis(operand, batch_dimension, 0)
+
+
+def _unbatched_calls(primitive, operands, dimensions, size):
+    """Batch of quadrature grids: one call per batch element, stacked."""
+    outputs = [
+        primitive.bind(
+            *(
+                operand if dimension is batching.not_mapped else jnp.take(operand, i, axis=dimension)
+                for operand, dimension in zip(operands, dimensions)
+            )
+        )
+        for i in range(size)
+    ]
+
+    if primitive.multiple_results:
+        return [jnp.stack(parts) for parts in zip(*outputs)], [0] * len(outputs[0])
+
+    return jnp.stack(outputs), 0
+
+
+def _batch_size(operands, dimensions):
+    return next(
+        operand.shape[dimension]
+        for operand, dimension in zip(operands, dimensions)
+        if dimension is not batching.not_mapped
+    )
+
+
+def _ck_mixing_jvp_batch(operands, dimensions):
+    # The (frequency, layer) cells are mixed independently, so a batch of inputs folds into the
+    # cells, and a batch of tangents for the same inputs into the tangents
+    size = _batch_size(operands, dimensions)
+    weighted, continuum, g_gauss, weights_gauss, weighted_tangents, continuum_tangents = operands
+
+    if any(d is not batching.not_mapped for d in dimensions[2:4]):
+        return _unbatched_calls(_ck_mixing_jvp_p, operands, dimensions, size)
+
+    weighted_tangents = _batch_first(weighted_tangents, dimensions[4], size)
+    continuum_tangents = _batch_first(continuum_tangents, dimensions[5], size)
+
+    if dimensions[0] is batching.not_mapped and dimensions[1] is batching.not_mapped:
+        output = _ck_mixing_jvp_p.bind(
+            weighted,
+            continuum,
+            g_gauss,
+            weights_gauss,
+            weighted_tangents.reshape((-1,) + weighted_tangents.shape[2:]),
+            continuum_tangents.reshape((-1,) + continuum_tangents.shape[2:]),
+        )
+
+        return output.reshape((size, -1) + output.shape[1:]), 0
+
+    weighted = _batch_first(weighted, dimensions[0], size)
+    continuum = _batch_first(continuum, dimensions[1], size)
+    n_tangents = weighted_tangents.shape[1]
+    output = _ck_mixing_jvp_p.bind(
+        weighted.reshape((-1,) + weighted.shape[2:]),
+        continuum.reshape(-1),
+        g_gauss,
+        weights_gauss,
+        jnp.moveaxis(weighted_tangents, 0, 1).reshape((n_tangents, -1) + weighted_tangents.shape[3:]),
+        jnp.moveaxis(continuum_tangents, 0, 1).reshape(n_tangents, -1),
+    )
+
+    return output.reshape((n_tangents, size, -1) + output.shape[2:]), 1
+
+
+def _ck_mixing_vjp_batch(operands, dimensions):
+    # As _ck_mixing_jvp_batch, for the cotangents
+    size = _batch_size(operands, dimensions)
+    weighted, continuum, g_gauss, weights_gauss, cotangents = operands
+
+    if any(d is not batching.not_mapped for d in dimensions[2:4]):
+        return _unbatched_calls(_ck_mixing_vjp_p, operands, dimensions, size)
+
+    cotangents = _batch_first(cotangents, dimensions[4], size)
+
+    if dimensions[0] is batching.not_mapped and dimensions[1] is batching.not_mapped:
+        weighted_cotangent, continuum_cotangent = _ck_mixing_vjp_p.bind(
+            weighted, continuum, g_gauss, weights_gauss, cotangents.reshape((-1,) + cotangents.shape[2:])
+        )
+
+        return [
+            weighted_cotangent.reshape((size, -1) + weighted_cotangent.shape[1:]),
+            continuum_cotangent.reshape((size, -1) + continuum_cotangent.shape[1:]),
+        ], [0, 0]
+
+    weighted = _batch_first(weighted, dimensions[0], size)
+    continuum = _batch_first(continuum, dimensions[1], size)
+    n_tangents = cotangents.shape[1]
+    weighted_cotangent, continuum_cotangent = _ck_mixing_vjp_p.bind(
+        weighted.reshape((-1,) + weighted.shape[2:]),
+        continuum.reshape(-1),
+        g_gauss,
+        weights_gauss,
+        jnp.moveaxis(cotangents, 0, 1).reshape((n_tangents, -1) + cotangents.shape[3:]),
+    )
+
+    return [
+        weighted_cotangent.reshape((n_tangents, size, -1) + weighted_cotangent.shape[2:]),
+        continuum_cotangent.reshape(n_tangents, size, -1),
+    ], [1, 1]
+
+
+_ck_mixing_jvp_p.def_impl(_ck_mixing_jvp_impl)
+_ck_mixing_jvp_p.def_abstract_eval(_ck_mixing_jvp_abstract_eval)
+mlir.register_lowering(
+    _ck_mixing_jvp_p, mlir.lower_fun(_ck_mixing_jvp_impl, multiple_results=False), platform="cpu"
+)
+ad.primitive_jvps[_ck_mixing_jvp_p] = _ck_mixing_jvp_jvp
+ad.primitive_transposes[_ck_mixing_jvp_p] = _ck_mixing_jvp_transpose
+batching.primitive_batchers[_ck_mixing_jvp_p] = _ck_mixing_jvp_batch
+
+_ck_mixing_vjp_p.def_impl(_ck_mixing_vjp_impl)
+_ck_mixing_vjp_p.def_abstract_eval(_ck_mixing_vjp_abstract_eval)
+mlir.register_lowering(
+    _ck_mixing_vjp_p, mlir.lower_fun(_ck_mixing_vjp_impl, multiple_results=True), platform="cpu"
+)
+ad.primitive_jvps[_ck_mixing_vjp_p] = _ck_mixing_vjp_jvp
+ad.primitive_transposes[_ck_mixing_vjp_p] = _ck_mixing_vjp_transpose
+batching.primitive_batchers[_ck_mixing_vjp_p] = _ck_mixing_vjp_batch
 
 
 @partial(custom_jvp, nondiff_argnums=(7,))
@@ -427,15 +787,15 @@ def _combine_ck_opacities_ffi(
     g_combination_weights_sum: ArrayLike,
     input_layout: str,
 ) -> ArrayLike:
-    """Correlated-k mixing: native FFI value, JAX derivatives.
+    """Correlated-k mixing on the native CPU kernels.
 
     The value is computed by the batched C++ kernel
     (petitRADTRANS/cpp_src/prt_ck_mixing_ffi.cc) as a typed XLA custom call;
-    it reproduces the random-overlap mixing of the original Fortran
-    implementation, parallelized over (frequency, layer) cells on the XLA
-    intra-op thread pool. JAX cannot differentiate the custom call, so its
-    derivatives are those of the pure-JAX implementation of the same mixing,
-    ``_combine_ck_opacities_jax`` (see ``_combine_ck_ffi_jvp``).
+    it performs the same random-overlap mixing as ``_combine_ck_opacities_jax``
+    in double precision, parallelized over (frequency, layer) cells on the XLA
+    intra-op thread pool. Its first derivatives come from the kernel's forward-
+    and reverse-mode counterparts, and higher derivatives from the JAX
+    implementation (see ``_combine_ck_ffi_jvp``).
     """
     (
         opacities_flat,
@@ -463,28 +823,64 @@ def _combine_ck_opacities_ffi(
     return _finalize_ck_opacity_shape(mixed_flat, n_frequencies, n_layers, n_g)
 
 
-@_combine_ck_opacities_ffi.defjvp
 def _combine_ck_ffi_jvp(input_layout, primals, tangents):
-    """Value from the native kernel, tangent from the pure-JAX mixing.
+    """Value from the native kernel, tangent from the native forward-mode kernel.
 
     A JVP rule serves forward-mode differentiation directly and reverse mode by
-    transposition, so the mixing can be differentiated in either mode and to any
-    order. The value is obtained by calling the custom_jvp function itself, which
-    keeps it differentiable when this rule is differentiated again (higher orders).
-    ``jax.checkpoint`` makes reverse mode recompute the JAX mixing in the backward
-    pass instead of storing its (cells, n_g**2) sort intermediates from the
-    forward pass.
+    transposition: the tangent is computed by a primitive whose transpose is the
+    native reverse-mode kernel, so the mixing can be differentiated in either mode.
+    The value is obtained by calling the custom_jvp function itself, and the
+    primitives' own derivatives come from the JAX implementation, which keeps the
+    mixing differentiable to any order. Derivatives with respect to the quadrature
+    grid, which no caller takes, also come from the JAX implementation.
     """
+    opacities_fortran_order, _, _, line_species_mass_fractions, continuum_opacities, _, _ = primals
+    g_gauss, weights_gauss = primals[1], primals[2]
     result = _combine_ck_opacities_ffi(*primals, input_layout)
 
-    def _jax_tangent(primals, tangents):
-        return jax.jvp(
+    def weighted_inputs(opacities, mass_fractions, continuum):
+        opacities_flat, abundance_weights_flat, continuum_flat, *_ = _prepare_ck_opacity_inputs(
+            opacities, mass_fractions, continuum, input_layout=input_layout
+        )
+
+        return opacities_flat * abundance_weights_flat[:, :, None], continuum_flat
+
+    opacity_inputs = (opacities_fortran_order, line_species_mass_fractions, continuum_opacities)
+    (weighted, continuum_flat), (weighted_tangent, continuum_tangent) = jax.jvp(
+        weighted_inputs,
+        opacity_inputs,
+        tuple(
+            jnp.zeros_like(primal) if isinstance(tangent, SymbolicZero) else tangent
+            for primal, tangent in zip(opacity_inputs, (tangents[0], tangents[3], tangents[4]))
+        ),
+    )
+    mixed_tangent = _ck_mixing_jvp_p.bind(
+        weighted,
+        continuum_flat,
+        g_gauss,
+        weights_gauss,
+        weighted_tangent[None],
+        continuum_tangent[None],
+    )[0]
+    n_frequencies, n_layers = continuum_opacities.shape
+    tangent = _finalize_ck_opacity_shape(mixed_tangent, n_frequencies, n_layers, g_gauss.shape[0])
+
+    grid_indices = (1, 2, 5, 6)
+    if any(not isinstance(tangents[i], SymbolicZero) for i in grid_indices):
+        tangent = tangent + jax.jvp(
             partial(_combine_ck_opacities_jax, input_layout=input_layout),
             primals,
-            tangents,
+            tuple(
+                tangents[i] if i in grid_indices and not isinstance(tangents[i], SymbolicZero)
+                else jnp.zeros_like(primal)
+                for i, primal in enumerate(primals)
+            ),
         )[1]
 
-    return result, jax.checkpoint(_jax_tangent)(primals, tangents)
+    return result, tangent
+
+
+_combine_ck_opacities_ffi.defjvp(_combine_ck_ffi_jvp, symbolic_zeros=True)
 
 
 # ---------------------------------------------------------------------------
@@ -505,15 +901,15 @@ def combine_ck_opacities(
 ) -> ArrayLike:
     """Combine correlated-k opacities across species.
 
-    On CPU, the value is computed by the native FFI kernel (a typed XLA custom
-    call) and its derivatives, in forward or reverse mode and to any order, by
-    the JAX implementation. Non-CPU backends use the pure JAX implementation for
-    both.
+    On CPU, the value and its first derivatives, in forward or reverse mode, are
+    computed by native FFI kernels (typed XLA custom calls), and higher
+    derivatives by the JAX implementation. Non-CPU backends use the pure JAX
+    implementation for all of them.
 
     ``ck_chunk_size`` only affects the pure JAX path on non-CPU backends: it caps
     the peak memory of the per-species combination by processing the
     (frequency, layer) cells in chunks. A non-positive value (the default)
-    disables chunking. The derivatives of the CPU kernel are always computed
+    disables chunking. The higher derivatives on CPU are always computed
     without chunking.
     """
     if g_combination_weights is None or g_combination_weights_sum is None:
