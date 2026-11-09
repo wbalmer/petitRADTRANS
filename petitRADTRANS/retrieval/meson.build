@@ -4,6 +4,7 @@ py.install_sources([
     '_mpi.py',
     'covariance.py',
     'data.py',
+    'linearised.py',
     'runtime.py',
     'models.py',
     'multichain.py',

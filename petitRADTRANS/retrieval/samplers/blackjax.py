@@ -3,13 +3,17 @@
 BlackJAX exposes sampling as explicit, composable steps rather than a driver
 loop, so this module owns the loop itself: one ``lax.scan`` per chain, and --
 for multi-chain runs -- a ``shard_map`` that spreads chains across devices with
-``vmap`` inside each one. Window adaptation runs once and its adapted step size
-and mass matrix are shared by every chain.
+``vmap`` inside each one. Every chain runs its own window adaptation, so
+multi-chain runs are independent and their R-hat is meaningful.
 
 Everything the NumPyro backend also does (the optax MAP warm-up, saving,
 reloading, summaries) lives in
 :mod:`~petitRADTRANS.retrieval.samplers.gradient`.
 """
+
+import contextlib
+import importlib.util
+import warnings
 
 import numpy as np
 
@@ -47,6 +51,26 @@ class BlackJAXSampler(GradientSampler):
     def algorithm_factory(self):
         """The BlackJAX algorithm constructor, e.g. ``blackjax.nuts``."""
         raise NotImplementedError
+
+    @staticmethod
+    def _progress_bar_context(enabled):
+        """A context that shows BlackJAX's progress bar around the code it wraps.
+
+        BlackJAX >= 1.6 dropped the ``progress_bar`` argument of its
+        algorithms; ``blackjax.progress_bar()`` instruments the outermost
+        ``lax.scan`` instead. It needs the optional ``jaxtap`` package
+        (``blackjax[progress]``), so without it the run proceeds silently.
+        """
+        if not enabled:
+            return contextlib.nullcontext()
+        if importlib.util.find_spec("jaxtap") is None:
+            warnings.warn(
+                "BlackJAX progress bars need the optional 'jaxtap' package "
+                "(`pip install 'blackjax[progress]'`); running without one.",
+                RuntimeWarning,
+            )
+            return contextlib.nullcontext()
+        return _opt.blackjax.progress_bar()
 
     @classmethod
     def _prepare_blackjax(
@@ -123,7 +147,6 @@ class BlackJAXSampler(GradientSampler):
         num_chains=1,
         **blackjax_kwargs,
     ):
-        # --- Single warmup run; adapted parameters are shared across all chains. ---
         blackjax_kwargs.pop("jit", None)
         warmup = _opt.blackjax.window_adaptation(
             self.algorithm_factory,
@@ -131,79 +154,101 @@ class BlackJAXSampler(GradientSampler):
             is_mass_matrix_diagonal=is_mass_matrix_diagonal,
             initial_step_size=initial_step_size,
             target_acceptance_rate=target_acceptance_rate,
-            progress_bar=progress_bar,
             **blackjax_kwargs,
         )
 
         rng_key = _opt.random.PRNGKey(seed)
         rng_key, warmup_key, sample_key = _opt.random.split(rng_key, 3)
-        (initial_state, warmup_parameters), _ = warmup.run(
-            warmup_key,
-            initial_position,
-            num_steps=num_warmup,
-        )
 
-        algorithm = self.algorithm_factory(
-            self.log_likelihood_func, **warmup_parameters
-        )
-        kernel = algorithm.step
+        def sample_from(chain_sample_key, chain_state, chain_parameters):
+            kernel = self.algorithm_factory(
+                self.log_likelihood_func, **chain_parameters
+            ).step
 
-        # --- Per-chain sampling loop (captures initial_state and kernel). ---
-        def run_one_chain(chain_sample_key):
             def one_step(current_state, rng_k):
                 next_state, info = kernel(rng_k, current_state)
                 return next_state, (next_state, info)
 
-            chain_keys = _opt.random.split(chain_sample_key, num_samples)
+            step_keys = _opt.random.split(chain_sample_key, num_samples)
             _, (chain_states, chain_infos) = _opt.lax.scan(
-                one_step, initial_state, chain_keys
+                one_step, chain_state, step_keys
             )
             return chain_states, chain_infos
 
+        # Spread the chains over as many devices as divide them evenly, so no
+        # chain is dropped; one device just vmaps them all.
+        effective_devices = self._chain_device_count(num_chains)
+
         if num_chains == 1:
-            # Original single-chain path.
-            if use_jit:
-                run_one_chain = _opt.jit(run_one_chain)
-            states, infos = run_one_chain(sample_key)
+            with self._progress_bar_context(progress_bar):
+                (initial_state, warmup_parameters), _ = warmup.run(
+                    warmup_key,
+                    initial_position,
+                    num_steps=num_warmup,
+                )
+
+                def run_one_chain(chain_sample_key):
+                    return sample_from(chain_sample_key, initial_state, warmup_parameters)
+
+                if use_jit:
+                    run_one_chain = _opt.jit(run_one_chain)
+                states, infos = run_one_chain(sample_key)
         else:
-            # Multi-chain path: distribute chains across devices using shard_map + vmap.
-            # Each device runs chains_per_device independent chains using the same adapted
-            # warmup parameters but different RNG seeds.
-            n_devices = _opt.local_device_count()
-            effective_devices = min(n_devices, num_chains)
-            chains_per_device = max(1, num_chains // effective_devices)
+            # Every chain runs its own window adaptation from its own start, so
+            # the chains are independent and R-hat compares genuinely separate
+            # runs rather than one adapted state resampled with different keys.
+            initial_positions = self._per_chain_positions(initial_position, num_chains)
+            chain_keys = _opt.random.split(sample_key, num_chains)
+
+            def warm_and_sample(chain_key, chain_position):
+                chain_warmup_key, chain_sample_key = _opt.random.split(chain_key)
+                (chain_state, chain_parameters), _ = warmup.run(
+                    chain_warmup_key,
+                    chain_position,
+                    num_steps=num_warmup,
+                )
+                chain_states, chain_infos = sample_from(
+                    chain_sample_key, chain_state, chain_parameters
+                )
+                return (
+                    chain_states,
+                    chain_infos,
+                    chain_parameters["step_size"],
+                    chain_parameters["inverse_mass_matrix"],
+                )
 
             if effective_devices > 1:
-                mesh = _opt.make_mesh((effective_devices,), ("devices",))
-
-                def run_device_chains(base_key):
-                    # Derive a unique sample key per device from the shared base key,
-                    # then vmap over chains_per_device independent chains.
-                    device_idx = _opt.lax.axis_index("devices")
-                    device_key = _opt.random.fold_in(base_key, device_idx)
-                    per_chain_keys = _opt.random.split(device_key, chains_per_device)
-                    return _opt.vmap(run_one_chain)(per_chain_keys)
-
+                # No progress bar here: under shard_map it fires once per
+                # device per step, so the count would be misleading.
+                mesh = self._chain_mesh(effective_devices)
                 run_all = _opt.shard_map(
-                    run_device_chains,
+                    _opt.vmap(warm_and_sample),
                     mesh=mesh,
-                    in_specs=_opt.P(),  # base_key replicated to every device
-                    out_specs=_opt.P(
-                        "devices"
-                    ),
+                    in_specs=(_opt.P("devices"), _opt.P("devices")),
+                    out_specs=_opt.P("devices"),
                     check_vma=False,
                 )
                 if use_jit:
                     run_all = _opt.jit(run_all)
                 with _opt.set_mesh(mesh):
-                    all_states, all_infos = run_all(sample_key)
+                    all_states, all_infos, step_sizes, inverse_mass_matrices = run_all(
+                        chain_keys, initial_positions
+                    )
             else:
-                # Single device: vmap over all chains.
-                chain_keys = _opt.random.split(sample_key, num_chains)
-                run_all_single = _opt.vmap(run_one_chain)
+                run_all = _opt.vmap(warm_and_sample)
                 if use_jit:
-                    run_all_single = _opt.jit(run_all_single)
-                all_states, all_infos = run_all_single(chain_keys)
+                    run_all = _opt.jit(run_all)
+                # Under vmap the bar fires once per step for the whole batch.
+                with self._progress_bar_context(progress_bar):
+                    all_states, all_infos, step_sizes, inverse_mass_matrices = run_all(
+                        chain_keys, initial_positions
+                    )
+
+            warmup_parameters = {
+                "step_size": step_sizes,
+                "inverse_mass_matrix": inverse_mass_matrices,
+                **blackjax_kwargs,
+            }
 
             # Flatten [num_chains, num_samples, ...] → [num_chains * num_samples, ...]
             def _flatten(x):

@@ -24,7 +24,7 @@ from .utils import (
     reference_filenames
 )
 
-relative_tolerance = 1e-4  # relative tolerance when comparing with older results
+relative_tolerance = 1e-6  # relative tolerance when comparing with older results
 
 
 # Initializations
@@ -116,6 +116,7 @@ def test_correlated_k_emission_contribution_cloud_calculated_radius():
         get_cloud_parameters("mass_fractions_correlated_k")
     )
 
+    # TODO: Is this tolerance correct?
     benchmark = Benchmark(
         function=atmosphere_ck.calculate_flux,
         relative_tolerance=1e5,  # relax tolerance due to test pipeline inconsistencies
@@ -363,6 +364,7 @@ def test_correlated_k_transmission_contribution_cloud_calculated_radius():
         get_cloud_parameters("mass_fractions_correlated_k")
     )
 
+    # TODO: Is this tolerance correct?
     benchmark = Benchmark(
         function=atmosphere_ck.calculate_transit_radii,
         relative_tolerance=1e3,  # relax tolerance due to test pipeline inconsistencies

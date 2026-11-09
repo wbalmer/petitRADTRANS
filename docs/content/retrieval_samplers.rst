@@ -33,13 +33,13 @@ All built-in samplers follow the same high-level flow:
 4. ``Retrieval`` saves a generic ``out_samples/<retrieval_name>_samples.npz`` archive for downstream plotting and analysis.
 
 If a backend is inherently weighted, it should convert its posterior to equal-weight samples before handing the results back to ``Retrieval``.
-The built-in Dynesty and JAXNS integrations already do this.
+The built-in Dynesty, Nautilus and JAXNS integrations already do this.
 
 Where the code lives
 --------------------
 
 Each backend is one module under ``petitRADTRANS/retrieval/samplers/``:
-``pymultinest.py``, ``ultranest.py``, ``dynesty.py``, ``jaxns.py``,
+``pymultinest.py``, ``ultranest.py``, ``dynesty.py``, ``nautilus.py``, ``jaxns.py``,
 ``jaxns_distributed.py``, ``blackjax.py``, ``numpyro.py`` and
 ``optimal_estimation.py``. Around them:
 
@@ -74,14 +74,19 @@ Choosing a sampler
      - Dynamic nested sampling
      - Dynesty
      - Dynamic nested sampling with pure-Python control flow and optional JIT-compiled likelihood evaluation.
+   * - ``nautilus``
+     - Importance nested sampling
+     - Nautilus
+     - Neural-network boosted sampling that often needs far fewer likelihood calls than nested sampling, with evidence, checkpointing, and pool, MPI or GPU parallelism.
    * - ``jaxns``
      - Nested sampling
      - JAXNS, JAX, TFP
      - Default JAX-native nested sampler for differentiable retrievals.
-   * - ``jaxnsshardedstaticnestedsampler``
+   * - ``jaxns_distributed``
      - Nested sampling
-     - JAXNS, JAX, TFP
-     - Advanced static/sharded JAXNS backend for more specialized distributed runs.
+     - JAXNS (``jaxns[distributed]``), JAX, TFP
+     - Multi-device JAXNS through a worker pool; replaces the removed
+       ``jaxnsshardedstaticnestedsampler``, which now raises ``ValueError``.
    * - ``numpyronuts`` / ``numpyro_nuts``
      - Gradient MCMC
      - NumPyro, JAX
@@ -125,6 +130,9 @@ Key parameters:
 * ``multimodal``: enable mode finding.
 * ``importance_nested_sampling``: enable INS mode.
 * ``use_MPI``: use MPI if available.
+* ``use_jit`` (default ``True``): compile the scalar likelihood once with JAX instead of
+  evaluating it eagerly on every call. Falls back to the eager path, with a warning, for
+  retrievals with legacy (non-JAX) model groups.
 * ``likelihood_devices``: list of JAX devices to dispatch likelihood evaluation to (see :ref:`gpu_likelihood_dispatch`).
 
 Use PyMultiNest when you already rely on the MultiNest ecosystem or need its MPI-oriented execution model.
@@ -135,13 +143,22 @@ UltraNest
 Key parameters:
 
 * ``vectorized``: evaluate batches of samples at once when the retrieval is fully differentiable.
+  The likelihood and the prior transform are compiled, with each batch padded to the next power
+  of two (at least 8), so expect a few compilations early on, and up to twice the evaluations
+  per batch.
 * ``resume``: reuse an existing UltraNest log directory.
 * ``dlogz``: evidence convergence target.
 * ``frac_remain``: stop when the remaining live-point weight drops below this fraction.
 * ``min_num_live_points``: minimum number of live points.
 * ``max_iters`` / ``max_ncalls``: hard stopping limits.
-* ``enable_step_sampling``: attach an UltraNest step sampler.
+* ``enable_step_sampling``: replace region sampling with UltraNest's slice
+  ``SliceSampler``. Region sampling (MLFriends) becomes inefficient beyond roughly ten
+  dimensions, so enable this for larger retrievals. Tune it with ``nsteps`` (default 100;
+  a common choice is a small multiple of the number of free parameters),
+  ``generate_direction`` (default ``generate_mixture_random_direction``),
+  ``adaptive_nsteps``, ``max_nsteps``, ``scale`` and ``check_nsteps``.
 * ``warmstart_max_tau``: enable warm starts from similar previous runs.
+* ``use_jit`` (default ``True``): as for PyMultiNest; applies to the non-vectorized path.
 * ``likelihood_devices``: list of JAX devices to dispatch likelihood evaluation to (non-vectorized path only; see :ref:`gpu_likelihood_dispatch`).
 
 UltraNest is often the easiest pure-Python nested sampler to experiment with when you want reactive nested sampling or warm-start support.
@@ -161,6 +178,10 @@ Key parameters:
 * ``pool_njobs``: convenience option that asks pRT to build an internal ``dynesty.pool.Pool`` with this many worker processes.
 * ``queue_size``: number of queued proposals. When pRT creates the pool internally, this defaults to the pool size if you do not pass it explicitly.
 * ``use_pool``: Dynesty per-stage pool switches such as ``loglikelihood`` and ``propose_point``. If a pool is active and this is omitted, pRT defaults to using the pool for likelihood evaluation, point proposals, and bound updates, but not for the prior transform.
+* ``pin_pool_workers`` (default ``False``): pin each pool worker to its own core of the
+  process's CPU set. Without it, every worker sizes its XLA thread pool to the whole
+  allocation, so ``pool_njobs`` workers oversubscribe the cores ``pool_njobs``-fold.
+  Recommended whenever ``pool_njobs`` equals the number of allocated cores.
 * ``dlogz_init``: initial evidence stopping threshold.
 * ``nlive_init`` / ``nlive_batch``: live-point settings for the initial and follow-up batches.
 * ``n_effective``: stop once an effective posterior sample target is reached.
@@ -189,6 +210,97 @@ For example, a parallel Dynesty run can be configured as:
 
 In practice, ``queue_size`` should usually match the number of worker processes, and ``pool`` and ``pool_njobs`` should not be passed together.
 
+Nautilus
+~~~~~~~~
+
+`Nautilus <https://nautilus-sampler.readthedocs.io/>`_ is an importance nested sampler that
+trains neural networks to decide where to sample, which often takes far fewer likelihood
+calls than nested sampling. Install it with ``pip install nautilus-sampler``; it is also
+part of the ``retrieval`` extra. It needs at least 2 free parameters, and its documentation
+reports testing up to about 60.
+
+Key parameters:
+
+* ``n_live`` (default ``2000``): number of live points. Nautilus recommends at least 1000.
+* ``n_eff`` (default ``10000``): stop once the effective sample size reaches this.
+* ``f_live`` (default ``0.01``): end the exploration phase once the live set holds less than
+  this fraction of the evidence.
+* ``discard_exploration`` (default ``True``): drop the points of the exploration phase, which
+  Nautilus requires for a fully unbiased posterior and evidence. **pRT's default differs from
+  that of Nautilus**, which recommends ``True`` for publications but defaults to ``False``.
+* ``n_like_max`` / ``timeout``: stop after this many likelihood calls, or seconds. ``timeout``
+  is only checked between batches, so leave some margin before a wall-clock limit.
+* ``resume`` (default ``True``): continue from the checkpoint if there is one. See below.
+* ``filepath``: path of the checkpoint, by default
+  ``out_Nautilus/<retrieval name>_checkpoint.hdf5``. ``filepath=None`` turns checkpointing off.
+* ``verify_checkpoint`` (default ``True``): refuse a checkpoint of a different problem. See below.
+* ``pool_njobs``: run the likelihood in this many worker processes on one node.
+* ``sampler_pool_njobs``: train the neural networks in this many worker processes, for a run
+  without ``pool_njobs``, such as a vectorized one.
+* ``vectorized`` (default ``False``): evaluate each batch with ``jax.vmap``, which is what a GPU
+  wants. It is disabled, with a warning, for legacy model groups and ragged observations.
+* ``n_batch``: number of likelihood evaluations per step, by default the smallest multiple of
+  the number of workers that is at least 100. Pick it to fit the GPU memory in vectorized mode.
+* ``likelihood_devices``: list of JAX devices, assigned per MPI rank (see :ref:`gpu_likelihood_dispatch`).
+* ``use_mpi`` (default ``True``): parallelise over the MPI ranks when launched with ``mpiexec``.
+* ``use_jit`` (default ``True``): as for PyMultiNest.
+* ``equal_weight_boost``: see the note on the posterior below.
+* ``max_initial_invalid_calls`` (default ``100 * n_live``): raise an error if this many
+  likelihood calls in a row find no valid point. Nautilus would never stop on its own.
+* ``enlarge_per_dim``, ``n_points_min``, ``split_threshold``, ``n_networks``,
+  ``neural_network_kwargs``, ``n_update``, ``n_like_new_bound``, ``periodic``, ``n_shell``,
+  ``seed``, ``verbose``: passed on to Nautilus unchanged.
+
+Unknown arguments raise a ``TypeError``.
+
+For example, on one node:
+
+.. code-block:: python
+
+   if __name__ == "__main__":
+       retrieval.run(n_live=2000, n_eff=10000, pool_njobs=32)
+
+**Start method.** ``pool_njobs`` uses ``spawn`` workers on every platform, because JAX is already
+running by then and forking a multithreaded process can deadlock. The main code of your
+retrieval script therefore has to sit under ``if __name__ == "__main__":``. Each worker receives
+a copy of the retrieval runtime and compiles the model itself, so the first batch is slow; see
+``compilation_cache_dir`` to reuse compiled code. On a GPU node set ``JAX_PLATFORMS=cpu`` for such
+a run, so that the workers do not compete for the GPU. See :ref:`par_nautilus` for the thread
+count of the workers, and for MPI.
+
+**Resuming.** Because ``resume`` is on by default, **running the same script again continues
+the previous run**, and a run that had finished returns its results without new likelihood
+calls. This is what turns a wall-clock limit into a continuation, and to get more samples you
+can simply raise ``n_eff``. Pass ``resume=False`` to start over, which overwrites the checkpoint.
+
+Nautilus itself would restore a checkpoint without comparing it to the retrieval at hand, so
+pRT writes a ``<retrieval name>_checkpoint_fingerprint.json`` next to it. It holds the parameter
+names, the prior at a few points, the log-likelihood at the centre of the prior (which depends
+on the data, the model and the fixed parameters), and the sampler settings that determine the
+sampling regions. If any of these changed, the run stops with a ``ValueError`` naming them.
+The stopping criteria are not part of it. If you know the checkpoint is still valid, for example
+because the likelihood differs by more than the relative tolerance of ``1e-6`` between two kinds
+of hardware, pass ``verify_checkpoint=False``.
+
+Nautilus prints ``Resuming nautilus run...`` on every run, even a new one, because pRT draws the
+first batch separately to check for valid points. pRT prints its own line when it really does
+resume from a checkpoint.
+
+**Stopping early.** A run stopped before the end of the exploration phase has no usable posterior,
+so it warns, saves nothing and returns ``None``; the checkpoint is what you resume from. One stopped
+later saves its posterior with ``converged`` set to ``False`` in the results and the summary.
+
+**Posterior.** The native posterior is weighted. It is kept as ``weighted_samples``, and is what
+to use for high-precision estimates. The equal-weight ``samples`` are drawn from it, aiming for one
+draw per effective sample, which can repeat a few points. Set ``equal_weight_boost=1`` for
+Nautilus' own default, which repeats none but gives many fewer samples (656 instead of about 5000
+in one test). As for Dynesty, the first row is replaced by the maximum-likelihood point, because
+the best fit is read from these samples.
+
+**Evidence.** Nautilus does not report an error on ``ln Z``. pRT gives its statistical estimate,
+``1 / sqrt(n_eff)``, which does not include systematic errors; to check those, Nautilus recommends
+repeating the run with a few times as many live points and checking that the results are stable.
+
 JAXNS
 ~~~~~
 
@@ -199,22 +311,24 @@ API, so a 2.x install will not work.
 
    JAXNS has continued to change its public API after the 3.0.0 release
    *without bumping its version number*, so ``jaxns>=3.0.0`` is a floor, not a
-   guarantee. pRT needs a JAXNS that provides
-   ``jaxns.depth_condition.DepthCondition`` (which replaced
-   ``jaxns.termination_condition``); the 3.0.0 release itself does not. pRT
-   probes for this at import and raises with installation guidance.
+   guarantee. pRT needs a JAXNS that provides ``jaxns.run_config`` (the API
+   cleanup of commit 9efa455, which renamed the live-point and replacement
+   options) and ``jaxns.depth_condition.DepthCondition``; the 3.0.0 release
+   itself provides neither. pRT probes for this at import and raises with
+   installation guidance.
 
 Key parameters:
 
-* ``num_live_points`` (alias ``target_num_live_points``): number of root
-  lineages. Defaults to JAXNS' own ``30 * n_parameters``.
+* ``num_live_points`` (aliases ``root_allocation_degree``,
+  ``target_num_live_points``): number of root lineages. Defaults to JAXNS' own
+  ``30 * n_parameters``.
 * ``max_samples``: hard cap on collected samples. Defaults to JAXNS' own
   ``1000 * num_live_points``; sample storage grows on demand up to it, so
   there is no longer any reason to pre-declare a huge value.
-* ``num_slices`` / ``no_step_out``: slice-sampler controls. Omit both to use the
-  JAXNS default (``5 * n_parameters`` slices, isotropic directions).
-* ``collect_phantom_samples`` (default ``True``) and ``max_phantom_samples``:
-  retain intermediate slice-chain states to condition the evidence estimate.
+* ``num_slices``: slice steps per replacement. Omit it to use the JAXNS default
+  (``5 * n_parameters`` slices, isotropic directions).
+* ``collect_phantom_samples`` (default ``True``): retain every intermediate
+  slice-chain state to condition the evidence estimate.
 * ``evidence_conditioning``: ``"phantom"`` (default), ``"classic"``, or ``None``
   to skip the Monte Carlo evidence entirely. ``evidence_num_samples`` (default
   4096) and ``num_phantoms`` tune the draw.
@@ -224,8 +338,9 @@ Key parameters:
 * ``goal_cond``: an optional Python callable evaluated on the JAXNS ``State`` at
   each depth boundary. Supplying it makes it the *only* stopping rule, so it
   must express everything the run needs, including evidence convergence.
-* ``allocation_target``, ``shell_size``, ``delta_K``, ``initial_capacity``,
-  ``unlimited_samples``: advanced race-tree allocation and storage controls.
+* ``allocation_target``, ``replacement_width`` (formerly ``shell_size``),
+  ``delta_K``, ``initial_capacity``, ``unlimited_samples``: advanced race-tree
+  allocation and storage controls.
 * ``seed``: random seed.
 * ``sanity_check``: run :meth:`jaxns.model.Model.sanity_check` before sampling,
   which catches NaN or ``+inf`` likelihoods before a long run starts.
@@ -257,6 +372,18 @@ run early. If you set ``dlogZ``/``cummax_XL_frac`` *as well*, the run stops as
 soon as **any** of them is met, matching how the old termination condition
 combined its fields. Setting none of them leaves JAXNS' own default
 (``dlogZ = log1p(1e-3)``, the JAXNS 2 stopping goal) in place.
+
+.. warning::
+
+   JAXNS' ``dlogZ`` is **not** a ln Z tolerance like MultiNest's
+   ``evidence_tolerance`` or Dynesty's ``dlogz``. JAXNS compares it with the
+   remaining-evidence *fraction* :math:`L X / (Z + L X)` at the last sample
+   block, and that block includes the end-of-run drain of the live points.
+   A MultiNest-style value such as ``0.5`` is therefore met after the first
+   allocation round: on an 18-parameter transmission benchmark it stopped
+   every run about 30 nats of prior compression short of the posterior, with
+   an effective sample size of 1. Omit ``dlogZ`` to use the default; pRT warns
+   for values above 0.01.
 
 ``ess`` is the one expensive criterion: JAXNS exposes no cheap effective sample
 size on its run state, so pRT materialises the full result at each round
@@ -309,13 +436,14 @@ Example
 
    retrieval.run(
        num_live_points=400,
-       dlogZ=0.1,
+       dlogZ=float(np.log1p(1e-3)),
        ess=512,
        termination_max_samples=200000,
    )
 
-This stops as soon as any one of them is satisfied: JAXNS' own ``dlogZ`` check,
-or pRT's goal reaching 512 effective samples, or 200000 collected samples.
+This stops as soon as any one of them is satisfied: JAXNS' own ``dlogZ`` check
+(here at its default value, see the warning above), or pRT's goal reaching 512
+effective samples, or 200000 collected samples.
 
 Migrating from JAXNS 2
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -450,6 +578,8 @@ NumPyro is a good choice when you want adaptive Hamiltonian MCMC rather than nes
 BlackJAX NUTS / HMC
 ~~~~~~~~~~~~~~~~~~~
 
+pRT requires BlackJAX 1.7 or later.
+
 Key parameters shared by both BlackJAX samplers:
 
 * ``num_samples``: number of post-warmup draws.
@@ -457,9 +587,14 @@ Key parameters shared by both BlackJAX samplers:
 * ``initial_step_size``: initial integrator step size.
 * ``target_acceptance_rate``: adaptation target.
 * ``is_mass_matrix_diagonal``: diagonal or dense mass matrix.
-* ``num_chains``: number of chains.
+* ``num_chains``: number of chains. Each chain runs its own window adaptation from its
+  own start, so multi-chain runs are independent and their R-hat is meaningful.
 * ``seed``: random seed.
 * ``use_jit``: JIT the per-chain sampling loop.
+* ``progress_bar``: show BlackJAX's progress bar. It needs the optional ``jaxtap``
+  package (``pip install 'blackjax[progress]'``); without it pRT warns and runs
+  without one. Chains sharded over several devices never show one, because the
+  bar would count each step once per device.
 
 Additional HMC control:
 
@@ -535,7 +670,7 @@ Laplace approximation of the posterior from the curvature at that optimum. This 
 the classic *optimal estimation* idea (Rodgers): near the mode the posterior is
 approximately Gaussian with covariance equal to the inverse Hessian of the negative
 log-posterior. It is implemented in
-:mod:`petitRADTRANS.retrieval.optimal_estimation`.
+:mod:`petitRADTRANS.retrieval.samplers.optimal_estimation`.
 
 Like the gradient-MCMC backends, it requires a fully differentiable retrieval
 runtime and operates in the *unconstrained* parameter space (so all prior bounds are
@@ -622,7 +757,7 @@ To avoid this, the NumPyro and BlackJAX backends accept an optional optax warm-u
 replaces the prior-median initial position with a MAP estimate before sampling starts.
 Enable it with ``optimize_init=True`` and configure the optimiser through
 ``optimizer_kwargs`` (forwarded to
-:func:`petitRADTRANS.retrieval.optimal_estimation.optimize_unconstrained_position`,
+:func:`petitRADTRANS.retrieval.samplers.optimal_estimation.optimize_unconstrained_position`,
 so it accepts the same ``optimizer``, ``learning_rate``, ``clip_norm``, ``n_steps``,
 ``patience``, ``n_starts``, and ``lbfgs_polish_steps`` keys as above). The optimiser
 defaults to Adam.
@@ -663,6 +798,21 @@ Notes:
 * The achieved MAP log-posterior is recorded in the run summary as
   ``warmup_best_logdensity`` so you can confirm the warm-up moved the walkers into the
   bulk of the posterior.
+* How close the warm start came to a stationary point is reported as its **Newton
+  decrement** :math:`\lambda^2 = g^T H^{-1} g` (printed, and saved as
+  ``newton_decrement_sq`` in ``<retrieval_name>_map_warmup.json``). A Newton step would
+  gain :math:`\lambda^2 / 2` nats, so :math:`\lambda^2 \ll 1` means converged whatever
+  the parameter scales are; a gradient norm cannot say that on an ill-conditioned
+  posterior. ``n_nonpositive_curvature`` counts the directions that are flat or curve
+  the wrong way: a non-zero value means the start lies on a ridge or a saddle, not at a
+  maximum. It costs one Hessian (one Hessian-vector product per free parameter); switch
+  it off with ``"report_newton_decrement": False`` in ``optimizer_kwargs``.
+* ``converged`` in the same file is ``null`` unless you set a gradient tolerance
+  (``"tol"``): without one no convergence test is run.
+* A MAP in the unconstrained space is only a starting point. Where the data do not
+  constrain a parameter, the logit transform of its uniform prior places the mode at the
+  centre of the prior range, not where the posterior mass is; start multi-chain runs from
+  scattered points rather than from one converged MAP.
 
 Defining a custom sampler
 -------------------------

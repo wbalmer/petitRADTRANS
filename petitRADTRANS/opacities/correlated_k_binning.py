@@ -91,6 +91,27 @@ class Spectral_object(object):
         self.Nw = self.wns.size
         return iw_min, iw_max
 
+    @property
+    def wnrange(self):
+        """Returns the limits of the wavenumber range.
+
+        First tries with wnedges (for Ktables) and then wns (Xtables).
+        """
+        if self.wnedges is not None:
+            return self.wnedges[[0, -1]]
+        elif self.wns is not None:
+            return self.wns[[0, -1]]
+        else:
+            raise RuntimeError("self.wns or wnedges should not be None when requesting wnrange")
+
+    @property
+    def wlrange(self):
+        """Returns the limits of the wavelength range (in micron)"""
+        if (self.wnedges is None) and (self.wns is None):
+            raise RuntimeError("self.wns or wnedges should not be None when requesting wlrange")
+        else:
+            return np.sort(10000.0 / self.wnrange)
+
 
 class Data_table(Spectral_object):
     """An abstract class that will serve as a basis for Ktable and Xtable.
@@ -107,6 +128,7 @@ class Data_table(Spectral_object):
         super().__init__()
         self.filename = None
         self.mol = None
+        self._molar_mass = None
         self.isotopolog_id = 0
         self.pgrid = None
         self.logpgrid = None
@@ -132,6 +154,23 @@ class Data_table(Spectral_object):
         # A None value means that we have either a regular Ktable or a Xtable.
         self.p_unit = "unspecified"
         self.kdata_unit = "unspecified"
+
+    @property
+    def molar_mass(self):
+        """Molar mass of the molecule in kg/mol.
+
+        Read from the input file if it provides one, and calculated from the molecule name otherwise.
+        """
+        if self._molar_mass is not None:
+            return self._molar_mass
+
+        from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
+
+        return get_species_molar_mass(self.mol) * 1e-3  # AMU to kg/mol
+
+    @molar_mass.setter
+    def molar_mass(self, value):
+        self._molar_mass = value
 
     def remove_zeros(self, deltalog_min_value=10.0):
         """Finds zeros in the kdata and set them to (10.**-deltalog_min_value)
@@ -348,6 +387,9 @@ class Ktable(Data_table):
                 self.mol = self.mol[0]
             if isinstance(self.mol, bytes):
                 self.mol = self.mol.decode("UTF-8")
+            if "mol_mass" in f:
+                # The pRT and ExoMol k-tables store the molar mass in AMU
+                self.molar_mass = float(np.ravel(f["mol_mass"][()])[0]) * 1e-3
             if "method" in f:
                 self.sampling_method = f["method"][()][0]
                 if isinstance(self.sampling_method, bytes):

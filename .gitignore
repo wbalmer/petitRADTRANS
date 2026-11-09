@@ -10,4 +10,51 @@ dist/
 petitRADTRANS.egg-info/
 /builds/
 /div/
+.coverage
+.tox/
+tests/errors/
+.idea/
+input_data/
+pixi.lock
+pixi.toml
+experiment_spot.py
 tests/results/
+
+# Local input data (opacities, chemistry tables, stellar spectra, ...)
+/input_data/
+
+# Generated outputs
+/retrieval_outputs/
+tests/errors/
+.jax_cache/
+docs/content/notebooks/retrievals/runs/*
+!docs/content/notebooks/retrievals/runs/.info
+docs/content/notebooks/generated_files/*
+!docs/content/notebooks/generated_files/.info
+docs/content/notebooks/runs/
+docs/content/runs/
+docs/content/notebooks/data/
+docs/content/notebooks/evaluate_*/
+docs/content/notebooks/species_config.ini
+docs/content/notebooks/species_database.hdf5
+*.mod
+*.log
+.coverage
+
+# Editor / tool settings
+.vscode/
+.claude/settings.local.json
+*.code-workspace
+
+# Local test logs and scratch scripts
+/*pRTTest*.txt
+/*PRTTests*.txt
+/TestsUpdatedpRT*.txt
+/test_output.txt
+/timing_results.txt
+/notebook_execution_*.txt
+/debug_script.py
+/analyze_errors.py
+/validation_script.py
+/test_preparing.py
+/test_precision.py

@@ -5,6 +5,9 @@ into posterior samples. ``Retrieval`` never talks to a backend library
 directly; it builds a :class:`SamplerContext` and drives the sampler through
 the small lifecycle below.
 
+TODO: Eventually use python 3.15 lazy loading syntax rather than loading
+from within functions. e.g. ``lazy import pymultinest``.
+
 Workflow
 ---------
 
@@ -274,6 +277,87 @@ class Sampler(abc.ABC):
             "output_file": f"{self._get_output_prefix()}_samples.npz",
         }
 
+    def _save_results(
+        self,
+        parameter_names,
+        samples,
+        log_likelihood,
+        weighted_samples,
+        weighted_log_likelihood,
+        weighted_log_weights,
+        metadata,
+    ):
+        """Write the archive of a backend whose native posterior is weighted."""
+        output_prefix = self._get_output_prefix()
+        samples_file = f"{output_prefix}_samples.npz"
+        params_file = f"{output_prefix}_params.json"
+        metadata_file = f"{output_prefix}_metadata.json"
+
+        np.savez(
+            samples_file,
+            samples=samples,
+            log_likelihood=log_likelihood,
+            weighted_samples=weighted_samples,
+            weighted_log_likelihood=weighted_log_likelihood,
+            weighted_log_weights=weighted_log_weights,
+        )
+
+        with open(params_file, "w") as handle:
+            json.dump(parameter_names, handle, indent=4)
+
+        with open(metadata_file, "w") as handle:
+            json.dump(metadata, handle, indent=4)
+
+        return samples_file, metadata_file
+
+    def _load_weighted_results(self, metadata_keys):
+        """Reload what :meth:`_save_results` wrote, including its run statistics.
+
+        Falls back to :meth:`load_results` of the base class, which has no
+        statistics, when that archive is missing. ``metadata_keys`` names the
+        entries of the metadata file to copy into the results.
+        """
+        samples_file = self._get_output_prefix() + "_samples.npz"
+        params_file = self._get_output_prefix() + "_params.json"
+        metadata_file = self._get_output_prefix() + "_metadata.json"
+
+        if not os.path.exists(samples_file) or not os.path.exists(params_file):
+            return Sampler.load_results(self)
+
+        with open(params_file, "r") as handle:
+            self.parameter_names = list(json.load(handle))
+
+        with np.load(samples_file, allow_pickle=False) as archive:
+            samples = np.asarray(archive["samples"], dtype=float)
+            log_likelihood = np.asarray(archive["log_likelihood"], dtype=float).reshape(
+                -1
+            )
+            self.results = {
+                "samples": samples,
+                "log_likelihood": log_likelihood,
+                "log_weights": equal_weight_log_weights(samples.shape[0]),
+                "weighted_samples": {
+                    "points": np.asarray(archive["weighted_samples"], dtype=float),
+                    "logl": np.asarray(
+                        archive["weighted_log_likelihood"], dtype=float
+                    ).reshape(-1),
+                    "log_weights": np.asarray(
+                        archive["weighted_log_weights"], dtype=float
+                    ).reshape(-1),
+                },
+                "output_file": samples_file,
+                "metadata_file": metadata_file,
+            }
+
+        if os.path.exists(metadata_file):
+            with open(metadata_file, "r") as handle:
+                metadata = json.load(handle)
+            for key in metadata_keys:
+                if key in metadata:
+                    self.results[key] = metadata[key]
+
+        return self.results
+
     @classmethod
     def load_samples_archive(cls, output_directory, retrieval_name):
         """Read this backend's own posterior archive, without instantiating it.
@@ -362,6 +446,12 @@ class Sampler(abc.ABC):
         """Find a matplotlib figure inside whatever a plotting helper returned."""
         if plot_output is None:
             return None
+
+        # ArviZ >=1.0 returns a PlotCollection: it has `savefig` but is not a
+        # matplotlib figure, which is stored in its `viz` tree instead.
+        viz = getattr(plot_output, "viz", None)
+        if viz is not None and "figure" in viz:
+            return viz["figure"].item()
 
         if hasattr(plot_output, "savefig"):
             return plot_output

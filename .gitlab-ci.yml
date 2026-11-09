@@ -4,23 +4,35 @@
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "master"'
       changes:
         - .gitlab-ci.yml
+        - meson.build
+        - pyproject.toml
+        - setup.cfg
         - petitRADTRANS/**/*
         - tests/**/*
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "dev"'
       changes:
         - .gitlab-ci.yml
+        - meson.build
+        - pyproject.toml
+        - setup.cfg
         - petitRADTRANS/**/*
         - tests/**/*
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
        $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "dev"'
       changes:
         - .gitlab-ci.yml
+        - meson.build
+        - pyproject.toml
+        - setup.cfg
         - petitRADTRANS/**/*
         - tests/**/*
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
        $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
       changes:
         - .gitlab-ci.yml
+        - meson.build
+        - pyproject.toml
+        - setup.cfg
         - petitRADTRANS/**/*
         - tests/**/*
 
@@ -52,7 +64,8 @@ build-py-venv:
   script:
     - python3 -m venv $CI_PROJECT_DIR/venv
     - source $CI_PROJECT_DIR/venv/bin/activate
-    - pip install tox
+    # tox-uv lets tox download the Python versions the image does not have
+    - pip install tox tox-uv
   artifacts:
     expire_in: 30 minutes
     paths:
@@ -76,11 +89,19 @@ test-tox-py:
   stage: test
   interruptible: true
   <<: *default_rules
+  # One job per supported Python version (the tox environments in setup.cfg)
+  parallel:
+    matrix:
+      - TOX_ENV: [py312, py313, py314, py315]
+  variables:
+    # Debian names the HDF5 pkg-config file hdf5-serial; h5py builds from source
+    # on Python versions it has no wheels for yet.
+    HDF5_PKGCONFIG_NAME: hdf5-serial
   before_script:
     - source $CI_PROJECT_DIR/venv/bin/activate
     - export LD_LIBRARY_PATH=$CI_PROJECT_DIR/MultiNest/lib:$LD_LIBRARY_PATH
   script:
-    - tox -e py
+    - tox -e $TOX_ENV
   needs:
     - job: build-multinest
       artifacts: true

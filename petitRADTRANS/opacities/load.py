@@ -13,6 +13,7 @@ from petitRADTRANS.opacities.registry import (
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.utils import intersection_indices
 from petitRADTRANS.utils import LockedDict
+from petitRADTRANS.validation import _handle_grid_misalignment
 
 
 from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE, WORKING_JAX_DTYPE
@@ -90,6 +91,7 @@ def load_cloud_opacity(file_path_hdf5, return_radtrans_opacities=True):
             np.asarray(f["scattering_opacities"][:], dtype=host_dtype),
             np.asarray(f["asymmetry_parameters"][:], dtype=host_dtype),
         )
+
 
 def load_hdf5_ktables(
     file_path_hdf5,
@@ -215,9 +217,7 @@ def load_hdf5_ktables(
     # With wavelengths in ascending order.
 
     if not (line_opacities_grid.shape[1] == frequencies.size and np.all(indices_opacities)):
-    # Only fill in those values where the data existed in the opacity
-    # input file:
-    # else:
+        # Only fill in those values where the data existed in the opacity input file
         opacities = np.zeros(
             (g_size, frequencies.size, temperature_pressure_grid_size),
             dtype=host_dtype,
@@ -229,6 +229,7 @@ def load_hdf5_ktables(
         return line_opacities_grid
 
     return jnp.asarray(line_opacities_grid, dtype=WORKING_JAX_DTYPE)
+
 
 def load_hdf5_line_opacity_table(
     file_path_hdf5,

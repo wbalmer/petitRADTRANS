@@ -1,7 +1,6 @@
 import os
 import sys
 import copy
-import importlib
 import json
 import traceback
 import warnings
@@ -25,6 +24,7 @@ from petitRADTRANS.radtrans_core.spectrum_utils import (
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data, PhotometryData
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
+from petitRADTRANS.retrieval.parameter_aliases import normalize_parameter_mapping
 from petitRADTRANS.retrieval.models import (
     MODEL_CONTRACT_DIFFERENTIABLE,
     _build_model_context_from_parameters,
@@ -45,11 +45,11 @@ from petitRADTRANS.retrieval.utils import (
     extract_spectrum_parameters,
     process_spectrum_pipeline,
 )
+# SAMPLER_DISPATCH is re-exported: registering a custom sampler through
+# `from petitRADTRANS.retrieval.retrieval import SAMPLER_DISPATCH` is the
+# documented extension point, and it is the same object either way.
+from petitRADTRANS.retrieval.samplers import SAMPLER_DISPATCH  # noqa: F401
 from petitRADTRANS.retrieval.samplers import (
-    # SAMPLER_DISPATCH is re-exported: registering a custom sampler through
-    # `from petitRADTRANS.retrieval.retrieval import SAMPLER_DISPATCH` is the
-    # documented extension point, and it is the same object either way.
-    SAMPLER_DISPATCH,  # noqa: F401
     Sampler,
     SamplerContext,
     resolve_sampler_class,
@@ -410,6 +410,59 @@ class Retrieval:
 
         print("No errors detected in the model functions!")
 
+    def _linearised_data_names(self) -> list[str]:
+        """Names of the datasets registered as linearised time series."""
+        return [
+            name
+            for name, data_object in self.configuration.data.items()
+            if ((getattr(data_object, "time_series_config", None) or {}).get(
+                "linearised") is not None)
+        ]
+
+    def _linearised_response_names(
+        self, data_name: str, n_response: int
+    ) -> tuple[str, ...]:
+        """Labels for the response columns, physical ones first then nuisances."""
+        config = self.configuration.data[data_name].time_series_config or {}
+        names = tuple(config.get("modulated_parameters", ()))
+        n_nuisance = n_response - len(names)
+
+        if n_nuisance < 0:
+            raise ValueError(
+                f"dataset '{data_name}' has {len(names)} modulated parameters "
+                f"but the design has only {n_response} response columns"
+            )
+
+        return names + tuple(f"nuisance_mode_{i}" for i in range(n_nuisance))
+
+    def _resolve_linearised_data_name(self, data_name: str | None) -> str:
+        """Pick the linearised dataset to act on, or explain why it is ambiguous."""
+        available = self._linearised_data_names()
+
+        if not available:
+            raise ValueError(
+                "no linearised time series is registered in this retrieval; "
+                "add one with "
+                "RetrievalConfig.add_linearised_time_series_data()."
+            )
+
+        if data_name is None:
+            if len(available) > 1:
+                raise ValueError(
+                    "several linearised datasets are registered "
+                    f"({', '.join(available)}); name the one to use."
+                )
+
+            return available[0]
+
+        if data_name not in available:
+            raise ValueError(
+                f"'{data_name}' is not a registered linearised dataset; "
+                f"available: {', '.join(available) if available else 'none'}"
+            )
+
+        return data_name
+
     def _rebin_opacities(self, resolution: float):
         """
         Based on exo-k, will rebin c-k opacities down to the requested resolution
@@ -560,41 +613,30 @@ class Retrieval:
 
         return _model_result_to_legacy_output(model_result)
 
-    def calculate_forward_model(
+    def _resolve_configuration_parameters(
         self,
         parameters=None,
-        data=None,
-        pt_plot_mode: bool = False,
-        adaptive_mesh_refinement: bool = False,
         copy_configuration_parameters: bool = True,
         **kwargs,
     ):
-        """Calculate the forward model associated with the given datasets, for the given parameters.
+        """Resolve a parameter specification into a configuration parameter mapping.
+
+        Shared by :meth:`calculate_forward_model` and
+        :meth:`calculate_modulation_posterior`, which both need the model
+        evaluated at a caller-specified state and must agree on what that state
+        means.
 
         Args:
             parameters:
-                Parameters of the forward models.
-                Can be a dictionary with parameter names as keys, or a string, or None.
-                Possible string values are:
-                    - 'best fit': return the forward model with the retrieved best fit parameters.
-                    - 'median': return the forward model with the retrieved median parameters.
-                    - 'quantile': return the forward model with retrieved parameters at the given quantile.
-                If ``parameter='quantile'``, then a ``quantile`` (float) keyword argument must be added.
-                If None, the free parameters of the retrieval are set to their prior mid-range value.
-            data:
-                Can be a string, or a dictionary with data name as keys and Data objects as values, or None.
-                If None, the forward models of all the data in the retrieval configuration are calculated.
-            pt_plot_mode:
-                If True, the model function should return the pressure and temperature arrays before computing the flux.
-            adaptive_mesh_refinement:
-                If True, use an adaptive high resolution pressure grid around the location of cloud condensation.
-                This will increase the size of the pressure grid by a constant factor that can be adjusted in the
-                setup_pres function.
+                A mapping of parameter names to values, a sequence of free
+                parameter values in configuration order, one of the strings
+                ``'best fit'``, ``'median'`` or ``'quantile'``, or None for the
+                prior mid-range values.
             copy_configuration_parameters:
-                If True, copy the configuration parameters to prevent unwanted modifications.
+                If True, work on a copy so the configuration is left untouched.
+
         Returns:
-            A dictionary with the outputs of the forward models for the requested data, or, if data is a string, the
-            output of the forward model corresponding to these data.
+            The configuration parameter mapping, with every value set.
         """
         if parameters is None:
             parameters = {}
@@ -703,6 +745,50 @@ class Retrieval:
                     configuration_parameters[parameter_name].set_param(parameters[i_p])
                     i_p += 1
 
+        return configuration_parameters
+
+    def calculate_forward_model(
+        self,
+        parameters=None,
+        data=None,
+        pt_plot_mode: bool = False,
+        adaptive_mesh_refinement: bool = False,
+        copy_configuration_parameters: bool = True,
+        **kwargs,
+    ):
+        """Calculate the forward model associated with the given datasets, for the given parameters.
+
+        Args:
+            parameters:
+                Parameters of the forward models.
+                Can be a dictionary with parameter names as keys, or a string, or None.
+                Possible string values are:
+                    - 'best fit': return the forward model with the retrieved best fit parameters.
+                    - 'median': return the forward model with the retrieved median parameters.
+                    - 'quantile': return the forward model with retrieved parameters at the given quantile.
+                If ``parameter='quantile'``, then a ``quantile`` (float) keyword argument must be added.
+                If None, the free parameters of the retrieval are set to their prior mid-range value.
+            data:
+                Can be a string, or a dictionary with data name as keys and Data objects as values, or None.
+                If None, the forward models of all the data in the retrieval configuration are calculated.
+            pt_plot_mode:
+                If True, the model function should return the pressure and temperature arrays before computing the flux.
+            adaptive_mesh_refinement:
+                If True, use an adaptive high resolution pressure grid around the location of cloud condensation.
+                This will increase the size of the pressure grid by a constant factor that can be adjusted in the
+                setup_pres function.
+            copy_configuration_parameters:
+                If True, copy the configuration parameters to prevent unwanted modifications.
+        Returns:
+            A dictionary with the outputs of the forward models for the requested data, or, if data is a string, the
+            output of the forward model corresponding to these data.
+        """
+        configuration_parameters = self._resolve_configuration_parameters(
+            parameters=parameters,
+            copy_configuration_parameters=copy_configuration_parameters,
+            **kwargs,
+        )
+
         model_returned_values = {}
         return_dict = False
 
@@ -734,6 +820,184 @@ class Retrieval:
             return model_returned_values
         else:
             return model_returned_values[list(data.keys())[0]]
+
+    def calculate_modulation_posterior(
+        self,
+        parameters=None,
+        data_name: str | None = None,
+        copy_configuration_parameters: bool = True,
+        **kwargs,
+    ) -> dict:
+        """Recover the modulation amplitudes of a linearised time series.
+
+        A linearised retrieval integrates the modulation amplitudes out, so the
+        sampler only ever sees ``ln Z`` as a function of the static reference
+        state.  The amplitudes are still available: at any given reference state
+        their posterior is an exact Gaussian, so this reconstructs the linear
+        system at that state and solves it in closed form.  No sampling is
+        involved and no iteration is required.
+
+        The result is CONDITIONAL on the reference state passed in.  Because the
+        amplitudes have been measured to depend on that state far more strongly
+        than on the noise, a single call understates the uncertainty.  For the
+        unconditional posterior, call this at a set of draws from the
+        reference-state posterior and combine the results with
+        :func:`~petitRADTRANS.retrieval.linearised.mixture_moments`, which
+        splits the covariance into its statistical and reference-state parts by
+        the law of total variance.
+
+        Args:
+            parameters:
+                The reference state at which to solve, in any form accepted by
+                :meth:`calculate_forward_model`: a mapping, a sequence of free
+                parameter values, ``'best fit'``, ``'median'``, ``'quantile'``,
+                or None for the prior mid-range values.
+            data_name:
+                Which registered dataset to solve.  May be omitted when exactly
+                one linearised dataset is registered.
+            copy_configuration_parameters:
+                If True, work on a copy so the configuration is left untouched.
+
+        Returns:
+            A dictionary holding ``amplitudes`` ``(n_response, 2 * n_harmonics)``
+            and their ``covariance`` ``(n_column, n_column)``, the matching
+            ``column_names`` and ``response_names``, the ``excursion`` of each
+            modulated parameter through time with its
+            ``excursion_standard_deviation`` (both ``(n_time, n_response)``),
+            the ``times``, the harmonic ``basis`` ``(n_time, 2 * n_harmonics)``
+            that maps amplitudes onto that excursion, and the ``log_evidence``
+            and ``chi2`` at this state.  For the time-domain plots it also
+            carries the data-grid fields: the observation ``wavelengths``, the
+            ``log_residual`` ``(n_wavelength, n_time)`` of the data about the
+            projected reference spectrum, its per-point ``variance``, and the
+            projected ``log_jacobian`` ``(n_wavelength, n_response)``, so that
+            ``log_jacobian @ amplitudes @ basis.T`` is the modelled modulation.
+            Finally, ``period`` is the rotation period the basis was built with,
+            and ``reference_state`` maps every free parameter to its value at
+            this state.
+
+        Raises:
+            ValueError: If no linearised dataset is registered, if ``data_name``
+                is ambiguous or unknown, or if the model function did not return
+                a flux Jacobian.
+        """
+        from petitRADTRANS.retrieval import linearised as _lin
+        from petitRADTRANS.retrieval.runtime import (
+            compute_linearised_system,
+            project_model_to_observation_space,
+        )
+
+        data_name = self._resolve_linearised_data_name(data_name)
+        configuration_parameters = self._resolve_configuration_parameters(
+            parameters=parameters,
+            copy_configuration_parameters=copy_configuration_parameters,
+            **kwargs,
+        )
+        data_object = self.configuration.data[data_name]
+
+        if data_object.external_radtrans_reference is not None:
+            radtrans_object = self.configuration.data[
+                data_object.external_radtrans_reference
+            ].radtrans_object
+        else:
+            radtrans_object = data_object.radtrans_object
+
+        model_output = self._call_model_generating_function(
+            data_object.model_generating_function,
+            radtrans_object,
+            configuration_parameters,
+            data_name=data_name,
+            data_object=data_object,
+        )
+
+        if not isinstance(model_output, tuple) or len(model_output) < 3:
+            raise ValueError(
+                f"the model function of '{data_name}' returned no auxiliary "
+                "outputs, so it carries no flux Jacobian. Wrap it with "
+                "models.make_linearised_time_series_model()."
+            )
+
+        wavelengths, reference_spectrum, auxiliary_outputs = model_output[:3]
+        flux_jacobian = (auxiliary_outputs or {}).get("flux_jacobian")
+
+        if flux_jacobian is None:
+            raise ValueError(
+                f"the model function of '{data_name}' returned auxiliary outputs "
+                "without a 'flux_jacobian'. Wrap it with "
+                "models.make_linearised_time_series_model()."
+            )
+
+        observation = self.runtime.observations[data_name]
+        (
+            normal_matrix,
+            normal_vector,
+            chi2_data,
+            basis,
+            log_jacobian,
+            state,
+        ) = compute_linearised_system(
+            wavelengths,
+            reference_spectrum,
+            flux_jacobian,
+            observation,
+            configuration_parameters,
+            data_name,
+        )
+        prior_variance = jnp.asarray(state["prior_variance"])
+        n_harmonics = state["n_harmonics"]
+        n_response = log_jacobian.shape[1]
+        amplitudes, covariance = _lin.solve_modulation(
+            normal_matrix,
+            normal_vector,
+            prior_variance,
+            n_response,
+            n_harmonics,
+        )
+        log_evidence, chi2 = _lin.modulation_log_evidence(
+            normal_matrix,
+            normal_vector,
+            chi2_data,
+            prior_variance,
+            state["noise_normalisation"],
+        )
+        excursion, excursion_standard_deviation = _lin.modulation_time_series(
+            amplitudes, covariance, basis
+        )
+        response_names = self._linearised_response_names(data_name, n_response)
+
+        # The residual the system was built from, kept for the time-domain plots.
+        # Projecting the reference again costs one convolution, not a forward model.
+        projected_reference = project_model_to_observation_space(
+            wavelengths, reference_spectrum, observation, configuration_parameters, data_name
+        )
+        log_residual = (
+            jnp.asarray(state["log_spectrum"]) - jnp.log(projected_reference)[:, None]
+        )
+        period = configuration_parameters[state["period_parameter"]]
+        period = getattr(period, "value", period)
+
+        return {
+            "amplitudes": amplitudes,
+            "basis": basis,
+            "covariance": covariance,
+            "column_names": _lin.amplitude_column_names(response_names, n_harmonics),
+            "response_names": response_names,
+            "excursion": excursion,
+            "excursion_standard_deviation": excursion_standard_deviation,
+            "times": jnp.asarray(state["times"]),
+            "log_evidence": log_evidence,
+            "chi2": chi2,
+            "wavelengths": jnp.asarray(data_object.wavelengths),
+            "log_residual": log_residual,
+            "variance": jnp.asarray(state["var_point"]),
+            "log_jacobian": log_jacobian,
+            "period": float(period),
+            "reference_state": {
+                name: float(np.asarray(parameter.value))
+                for name, parameter in configuration_parameters.items()
+                if parameter.is_free_parameter
+            },
+        }
 
     def calculate_temperature_profile(
         self,
@@ -1593,11 +1857,14 @@ class Retrieval:
         Builds a matrix of parameter samples and their corresponding log-likelihoods from the sampler results.
 
         Args:
-            results (dict or object, optional): The sampler results to process. If None, the active sampler results are used.
-            parameter_names (list of str, optional): The names of the parameters. If None, the free parameter names are used.
+            results (dict or object, optional): The sampler results to process. If None, the active sampler results
+                are used.
+            parameter_names (list of str, optional): The names of the parameters. If None, the free parameter names
+                are used.
 
         Returns:
-            tuple: A tuple containing the matrix of parameter samples with log-likelihoods appended as the last row, and the ordered parameter names.
+            tuple: A tuple containing the matrix of parameter samples with log-likelihoods appended as the last row,
+                and the ordered parameter names.
         """
         if parameter_names is None:
             parameter_names = list(self._free_parameter_names_cache)
@@ -1615,6 +1882,7 @@ class Retrieval:
             parameter_samples, parameter_names
         )
 
+        from_weighted_points = False
         if matrix is None and isinstance(results, dict):
             weighted_samples = results.get("weighted_samples")
             if isinstance(weighted_samples, dict):
@@ -1622,6 +1890,7 @@ class Retrieval:
                     weighted_samples.get("points"),
                     parameter_names,
                 )
+                from_weighted_points = matrix is not None
 
         if matrix is None:
             return None, parameter_names
@@ -1637,7 +1906,9 @@ class Retrieval:
             "log_L",
         )
 
-        if log_likelihood is None and isinstance(results, dict):
+        # The weighted chain's likelihoods belong to its own points: an
+        # equal-weight resample of the same length lines up with none of them.
+        if log_likelihood is None and from_weighted_points:
             weighted_samples = results.get("weighted_samples")
             if isinstance(weighted_samples, dict):
                 log_likelihood = self._get_results_field(
@@ -3835,12 +4106,14 @@ class Retrieval:
                 The type of sampler to use. Can be one of the following:
                     pymultinest - requires Multinest installation.
                     dynesty - requires Dynesty and runs dynamic nested sampling.
+                    nautilus - requires Nautilus and runs importance nested sampling.
                     blackjaxnuts - requires BlackJAX and runs NUTS with window adaptation.
                     blackjaxhmc - requires BlackJAX and runs HMC with window adaptation.
                     numpyronuts - requires NumPyro and runs NUTS with warmup adaptation.
                     numpyrohmc - requires NumPyro and runs HMC with warmup adaptation.
                     jaxns - Requires JAXNS. Default choice for JAXNS
-                    jaxnsshardedstaticnestedsampler - Requires JAXNS. Advanced option for JAXNS
+                    jaxns_distributed - Requires JAXNS[distributed]. Multi-device JAXNS
+                        (replaces the removed jaxnsshardedstaticnestedsampler)
                     ultranest - Requires ultranest. Implements.
         """
         sampler_type = self.configuration.sampler_type
@@ -4071,11 +4344,12 @@ class Retrieval:
                 else:
                     wavelengths, model, __ = ret_val
 
+                normalized_parameters = normalize_parameter_mapping(parameters)
                 temperature_fit = compute_effective_temperature(
                     wavelengths=wavelengths,
                     flux=model,
-                    orbit_semi_major_axis=parameters["D_pl"].value,
-                    planet_radius=parameters["planet_radius"].value,
+                    orbit_semi_major_axis=normalized_parameters["system_distance"].value,
+                    planet_radius=normalized_parameters["planet_radius"].value,
                     use_si_units=True,
                 )
                 temperature_fits.append(temperature_fit)
@@ -4754,6 +5028,180 @@ class Retrieval:
             None
         """
         return self.plotter.plot_data(yscale=yscale)
+
+    def plot_modulation(
+        self,
+        sample_dict=None,
+        parameters_read=None,
+        data_name=None,
+        n_reference_samples=None,
+        refresh=False,
+        **kwargs,
+    ):
+        """
+        Plot the modulation of a linearised time series, with its error budget.
+        This is a wrapper for RetrievalPlotter.plot_modulation.
+
+        Args:
+            sample_dict: Dictionary of posterior samples for each retrieval. If None,
+                the modulation is solved at the best fit alone.
+            parameters_read: List of free parameter names, in the order of the rows of
+                sample_dict.
+            data_name: Name of the linearised dataset to plot. May be omitted when
+                exactly one is registered.
+            n_reference_samples: Number of reference states at which to solve the
+                modulation. Each costs one forward model and one Jacobian.
+            refresh: If True, solve again rather than reuse the cached amplitudes.
+            **kwargs: Additional keyword arguments passed to the plotting function.
+        Returns:
+            fig, axes: Matplotlib figure object and its array of axes.
+        """
+        return self.plotter.plot_modulation(
+            sample_dict=sample_dict,
+            parameters_read=parameters_read,
+            data_name=data_name,
+            n_reference_samples=n_reference_samples,
+            refresh=refresh,
+            **kwargs,
+        )
+
+    def plot_modulation_correlation(
+        self,
+        sample_dict=None,
+        parameters_read=None,
+        data_name=None,
+        n_reference_samples=None,
+        refresh=False,
+        **kwargs,
+    ):
+        """
+        Plot the correlations of the Fourier amplitudes of a linearised time series,
+        in total and split into their statistical and reference-state parts.
+        This is a wrapper for RetrievalPlotter.plot_modulation_correlation.
+
+        Args:
+            sample_dict: Dictionary of posterior samples for each retrieval. If None,
+                the modulation is solved at the best fit alone.
+            parameters_read: List of free parameter names, in the order of the rows of
+                sample_dict.
+            data_name: Name of the linearised dataset to plot. May be omitted when
+                exactly one is registered.
+            n_reference_samples: Number of reference states at which to solve the
+                modulation. Each costs one forward model and one Jacobian.
+            refresh: If True, solve again rather than reuse the cached amplitudes.
+            **kwargs: Additional keyword arguments passed to the plotting function.
+        Returns:
+            fig, axes: Matplotlib figure object and its array of axes.
+        """
+        return self.plotter.plot_modulation_correlation(
+            sample_dict=sample_dict,
+            parameters_read=parameters_read,
+            data_name=data_name,
+            n_reference_samples=n_reference_samples,
+            refresh=refresh,
+            **kwargs,
+        )
+
+    def plot_modulation_light_curves(
+        self,
+        parameters="best fit",
+        data_name=None,
+        bands=None,
+        refresh=False,
+        **kwargs,
+    ):
+        """
+        Plot band light curves of a linearised time series, data against model.
+        This is a wrapper for RetrievalPlotter.plot_modulation_light_curves.
+
+        Args:
+            parameters: The reference state at which the modulation is solved.
+                Defaults to the best fit.
+            data_name: Name of the linearised dataset to plot. May be omitted when
+                exactly one is registered.
+            bands: Sequence of (low, high) wavelength limits. Defaults to six bands of
+                equal width in log wavelength.
+            refresh: If True, solve again rather than reuse the cached fit.
+            **kwargs: Additional keyword arguments passed to the plotting function.
+        Returns:
+            fig, axes: Matplotlib figure object and its array of axes.
+        """
+        return self.plotter.plot_modulation_light_curves(
+            parameters=parameters,
+            data_name=data_name,
+            bands=bands,
+            refresh=refresh,
+            **kwargs,
+        )
+
+    def plot_modulation_map(
+        self,
+        parameters="best fit",
+        data_name=None,
+        n_phase_bins=32,
+        refresh=False,
+        **kwargs,
+    ):
+        """
+        Plot the variability of a linearised time series folded on the rotation:
+        data, model and residual against wavelength and rotational phase.
+        This is a wrapper for RetrievalPlotter.plot_modulation_map.
+
+        Args:
+            parameters: The reference state at which the modulation is solved.
+                Defaults to the best fit.
+            data_name: Name of the linearised dataset to plot. May be omitted when
+                exactly one is registered.
+            n_phase_bins: Number of rotational-phase bins.
+            refresh: If True, solve again rather than reuse the cached fit.
+            **kwargs: Additional keyword arguments passed to the plotting function.
+        Returns:
+            fig, axes: Matplotlib figure object and its array of axes.
+        """
+        return self.plotter.plot_modulation_map(
+            parameters=parameters,
+            data_name=data_name,
+            n_phase_bins=n_phase_bins,
+            refresh=refresh,
+            **kwargs,
+        )
+
+    def plot_modulation_temperature(
+        self,
+        sample_dict=None,
+        parameters_read=None,
+        data_name=None,
+        n_reference_samples=None,
+        refresh=False,
+        **kwargs,
+    ):
+        """
+        Plot how the temperature profile changes through one rotation of a
+        linearised time series.
+        This is a wrapper for RetrievalPlotter.plot_modulation_temperature.
+
+        Args:
+            sample_dict: Dictionary of posterior samples for each retrieval. If None,
+                the modulation is solved at the best fit alone.
+            parameters_read: List of free parameter names, in the order of the rows of
+                sample_dict.
+            data_name: Name of the linearised dataset to plot. May be omitted when
+                exactly one is registered.
+            n_reference_samples: Number of reference states at which to solve the
+                modulation. Each costs one forward model and one Jacobian.
+            refresh: If True, solve again rather than reuse the cached amplitudes.
+            **kwargs: Additional keyword arguments passed to the plotting function.
+        Returns:
+            fig, axes: Matplotlib figure object and its array of axes.
+        """
+        return self.plotter.plot_modulation_temperature(
+            sample_dict=sample_dict,
+            parameters_read=parameters_read,
+            data_name=data_name,
+            n_reference_samples=n_reference_samples,
+            refresh=refresh,
+            **kwargs,
+        )
 
     def plot_pt(
         self,

@@ -11,7 +11,6 @@ picklable -- hence the helper classes in
 :mod:`~petitRADTRANS.retrieval.samplers.dynesty_pool` rather than closures.
 """
 
-import json
 import os
 import warnings
 
@@ -131,6 +130,7 @@ class DynestySampler(Sampler):
         *,
         use_jit: bool = True,
         pool_safe: bool = False,
+        pin_pool_workers: bool = False,
     ):
         prior_transform = context.prior_ultranest_func
         log_likelihood_func = context.log_likelihood_func
@@ -165,8 +165,11 @@ class DynestySampler(Sampler):
                     uncertainties_mode=context.uncertainties_mode,
                     print_log_likelihood_for_debugging=context.print_log_likelihood_for_debugging,
                     use_jit=helper_use_jit,
+                    pin_worker=pin_pool_workers,
                 ),
-                DynestyPoolPriorTransform(context.parameter_layout),
+                DynestyPoolPriorTransform(
+                    context.parameter_layout, pin_worker=pin_pool_workers
+                ),
                 helper_use_jit,
             )
 
@@ -216,11 +219,13 @@ class DynestySampler(Sampler):
         queue_size = sampler_kwargs.pop("queue_size", None)
         use_pool = sampler_kwargs.pop("use_pool", None)
         use_jit = sampler_kwargs.pop("use_jit", True)
+        pin_pool_workers = bool(sampler_kwargs.pop("pin_pool_workers", False))
         pool_safe = pool is not None or pool_njobs is not None
         log_likelihood_func, prior_func, jit_enabled = cls._build_dynesty_interface(
             context,
             use_jit=use_jit,
             pool_safe=pool_safe,
+            pin_pool_workers=pin_pool_workers,
         )
         seed = sampler_kwargs.pop("seed", 42654)
 
@@ -315,6 +320,7 @@ class DynestySampler(Sampler):
         }
         if pool_njobs is not None:
             summary_parameters["pool_njobs"] = int(pool_njobs)
+            summary_parameters["pin_pool_workers"] = pin_pool_workers
         if init_kwargs["queue_size"] is not None:
             summary_parameters["queue_size"] = init_kwargs["queue_size"]
         if init_kwargs["use_pool"] is not None:
@@ -348,38 +354,6 @@ class DynestySampler(Sampler):
             return np.full(weights.shape, 1.0 / weights.size, dtype=float)
 
         return weights / weight_sum
-
-    def _save_results(
-        self,
-        parameter_names,
-        samples,
-        log_likelihood,
-        weighted_samples,
-        weighted_log_likelihood,
-        weighted_log_weights,
-        metadata,
-    ):
-        output_prefix = self._get_output_prefix()
-        samples_file = f"{output_prefix}_samples.npz"
-        params_file = f"{output_prefix}_params.json"
-        metadata_file = f"{output_prefix}_metadata.json"
-
-        np.savez(
-            samples_file,
-            samples=samples,
-            log_likelihood=log_likelihood,
-            weighted_samples=weighted_samples,
-            weighted_log_likelihood=weighted_log_likelihood,
-            weighted_log_weights=weighted_log_weights,
-        )
-
-        with open(params_file, "w") as handle:
-            json.dump(parameter_names, handle, indent=4)
-
-        with open(metadata_file, "w") as handle:
-            json.dump(metadata, handle, indent=4)
-
-        return samples_file, metadata_file
 
     def _build_equal_weight_posterior(self, raw_results, seed):
         weighted_samples = np.asarray(raw_results.samples, dtype=float)
@@ -517,46 +491,9 @@ class DynestySampler(Sampler):
         return self.results
 
     def load_results(self):
-        samples_file = self._get_output_prefix() + "_samples.npz"
-        params_file = self._get_output_prefix() + "_params.json"
-        metadata_file = self._get_output_prefix() + "_metadata.json"
-
-        if not os.path.exists(samples_file) or not os.path.exists(params_file):
-            return super().load_results()
-
-        with open(params_file, "r") as handle:
-            self.parameter_names = list(json.load(handle))
-
-        with np.load(samples_file, allow_pickle=False) as archive:
-            samples = np.asarray(archive["samples"], dtype=float)
-            log_likelihood = np.asarray(archive["log_likelihood"], dtype=float).reshape(
-                -1
-            )
-            self.results = {
-                "samples": samples,
-                "log_likelihood": log_likelihood,
-                "log_weights": equal_weight_log_weights(samples.shape[0]),
-                "weighted_samples": {
-                    "points": np.asarray(archive["weighted_samples"], dtype=float),
-                    "logl": np.asarray(
-                        archive["weighted_log_likelihood"], dtype=float
-                    ).reshape(-1),
-                    "log_weights": np.asarray(
-                        archive["weighted_log_weights"], dtype=float
-                    ).reshape(-1),
-                },
-                "output_file": samples_file,
-                "metadata_file": metadata_file,
-            }
-
-        if os.path.exists(metadata_file):
-            with open(metadata_file, "r") as handle:
-                metadata = json.load(handle)
-            for key in ("niter", "ncall", "eff", "n_effective", "logz", "logzerr"):
-                if key in metadata:
-                    self.results[key] = metadata[key]
-
-        return self.results
+        return self._load_weighted_results(
+            ("niter", "ncall", "eff", "n_effective", "logz", "logzerr")
+        )
 
     def pretty_print_results(self):
         if self.raw_results is not None and hasattr(self.raw_results, "summary"):
@@ -661,4 +598,3 @@ class DynestySampler(Sampler):
             list(free_parameter_names or self.parameter_names),
         )
         return summary
-

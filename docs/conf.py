@@ -41,8 +41,9 @@ project = "petitRADTRANS"
 copyright = "2019-2026, the pRT team"
 author = "pRT team"
 
-# The full version, including alpha/beta/rc tags
-release = "4.0.0b3"
+# The full version, including alpha/beta/rc tags. Read from VERSION.txt
+# rather than the package: Read the Docs does not install petitRADTRANS.
+release = (Path(__file__).resolve().parents[1] / "VERSION.txt").read_text().strip()
 
 # -- General configuration ---------------------------------------------------
 

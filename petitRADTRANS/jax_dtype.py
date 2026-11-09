@@ -14,4 +14,3 @@ WORKING_JAX_DTYPE = jnp.float32
 FEAUTRIER_JAX_DTYPE = jnp.float32
 if config.jax_enable_x64:
     FEAUTRIER_JAX_DTYPE = jnp.float64
-

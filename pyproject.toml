@@ -10,7 +10,8 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "4.0.0b3"
+# The version is read by meson from VERSION.txt.
+dynamic = ["version"]
 requires-python = ">=3.12"
 description = "Exopanet spectral synthesis tool for retrievals"
 authors = [
@@ -25,8 +26,12 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Natural Language :: English",
     "Operating System :: OS Independent",
-    "Programming Language :: Fortran",
+    "Programming Language :: C++",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Scientific/Engineering :: Astronomy"
 ]
 dependencies = [
@@ -39,10 +44,6 @@ dependencies = [
     "molmass",
     "h5py",
     "dill",
-    # NOTE: JAXNS still reports 3.0.0 for post-release API changes pRT
-    # depends on (jaxns.depth_condition replacing jaxns.termination_condition),
-    # so this bound is a floor only. require_jaxns() probes the real API.
-    "jaxns>=3.0.0",
     "pyvo",
     "bs4",
     "selenium",
@@ -72,15 +73,14 @@ full = [
     "matplotlib",
     "arviz",
     "corner",
-    "dynesty",
-    "pymultinest",
-    "blackjax",
-    "numpyro>=0.21.0",
+    "tfp-nightly",
+    "jaxns>=3.0.0",
     "dynesty>=3.0.0",
-    "equinox>=0.13.8",
+    "nautilus-sampler>=1.0.5",
+    "pymultinest",
+    "blackjax>=1.7",
+    "numpyro>=0.21.0",
     "optax>=0.2.8",
-    "orbax-checkpoint>=0.6",
-    "distrax>=0.1.5",
     "ultranest",
 ]
 
@@ -92,24 +92,22 @@ retrieval = [
     "matplotlib",
     "arviz",
     "corner",
+    # petitRADTRANS.retrieval imports TensorFlow Probability's JAX substrate at
+    # import time. Only the nightly works with current JAX: the stable
+    # tensorflow-probability 0.25 fails to import against JAX >= 0.12. Do not
+    # install both; they provide the same `tensorflow_probability` package.
+    "tfp-nightly",
     # NOTE: JAXNS still reports 3.0.0 for post-release API changes pRT
     # depends on (jaxns.depth_condition replacing jaxns.termination_condition),
     # so this bound is a floor only. require_jaxns() probes the real API.
     "jaxns>=3.0.0",
     "dynesty>=3.0.0",
+    "nautilus-sampler>=1.0.5",
     "pymultinest",
-    "blackjax",
+    "blackjax>=1.7",
     "numpyro>=0.21.0",
     "optax>=0.2.8",
     "ultranest",
-]
-
-# Dependencies for petitRADTRANS.experimental.sbi (under active development).
-sbi = [
-    "equinox>=0.11",
-    "optax>=0.2.8",
-    "orbax-checkpoint>=0.6",
-    "distrax>=0.1.5"
 ]
 
 test = [
@@ -123,11 +121,13 @@ test = [
     "matplotlib",
     "arviz",
     "corner",
-    "dynesty",
+    "tfp-nightly",
+    "jaxns>=3.0.0",
+    "dynesty>=3.0.0",
+    "nautilus-sampler>=1.0.5",
     "pymultinest",
-    "blackjax",
+    "blackjax>=1.7",
     "numpyro>=0.21.0",
-    "equinox>=0.11",
     "optax>=0.2.8",
     "ultranest",
 ]

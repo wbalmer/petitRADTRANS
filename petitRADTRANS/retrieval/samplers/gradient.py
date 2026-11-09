@@ -6,9 +6,9 @@ Both backends sample the same object: the log-posterior over the
 They therefore need the same preparation (an optional optax MAP warm-up, the
 same window/warmup knobs), produce the same diagnostics (acceptance rate,
 divergences, integration steps), and write the same files. All of that lives
-here; each backend module keeps only what is genuinely its own -- BlackJAX's
-``shard_map`` multi-chain fan-out, NumPyro's mass-matrix seeding, chain
-methods and block checkpointing.
+here, including how chains are spread over devices; each backend module keeps
+only what is genuinely its own -- its ``shard_map`` multi-chain fan-out,
+NumPyro's mass-matrix seeding, chain methods and block checkpointing.
 """
 
 import json
@@ -127,6 +127,9 @@ class GradientSampler(Sampler):
                 warmup_initial_position, dtype=initial_position.dtype
             )
 
+        # The warm start is judged by its Newton decrement, not a gradient norm;
+        # opt out with optimizer_kwargs={"report_newton_decrement": False}.
+        warmup_optimizer_kwargs.setdefault("report_newton_decrement", True)
         optimize_result = optimize_unconstrained_position(
             logdensity, initial_position, seed=warmup_seed, **warmup_optimizer_kwargs
         )
@@ -158,6 +161,49 @@ class GradientSampler(Sampler):
         _opt.clear_caches()
 
         return initial_position, best_logdensity
+
+    @staticmethod
+    def _per_chain_positions(initial_position, num_chains):
+        """One start per chain: broadcast a single position, or check a stack.
+
+        ``optimize_init`` with ``walker_jitter`` already yields a
+        ``(num_chains, n_params)`` stack; a single position is shared, and the
+        chains then diverge through their own warmup and sampling keys.
+        """
+        positions = _opt.jnp.asarray(initial_position)
+        if positions.ndim == 1:
+            return _opt.jnp.broadcast_to(positions, (num_chains,) + positions.shape)
+        if positions.shape[0] != num_chains:
+            raise ValueError(
+                f"initial_position holds {positions.shape[0]} chain starts, "
+                f"but num_chains={num_chains}."
+            )
+        return positions
+
+    @staticmethod
+    def _chain_device_count(num_chains):
+        """How many devices to spread ``num_chains`` over.
+
+        The largest device count that divides the chains evenly, so that every
+        device runs the same number of chains and none is dropped; 1 means
+        "do not shard".
+        """
+        n_devices = _opt.local_device_count()
+        return max(
+            d for d in range(1, min(n_devices, num_chains) + 1) if num_chains % d == 0
+        )
+
+    @staticmethod
+    def _chain_mesh(n_devices):
+        """A one-axis ``"devices"`` mesh for the multi-chain ``shard_map``.
+
+        The axis is Auto: with the Explicit axes that ``jax.make_mesh`` now
+        defaults to, ``shard_map`` rejects inputs that were not already
+        sharded to match its ``in_specs``.
+        """
+        return _opt.make_mesh(
+            (n_devices,), ("devices",), axis_types=(_opt.AxisType.Auto,)
+        )
 
     @staticmethod
     def _common_run_kwargs(

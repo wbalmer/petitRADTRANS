@@ -2,6 +2,7 @@ import copy
 
 import jax.numpy as jnp
 from jax import jit
+from jax.core import Tracer
 from interpax import PchipInterpolator
 
 from numpy import argsort
@@ -540,7 +541,18 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
 
     If mode is even, the nodes are evenly spaced in log pressure, with a total of
     nnodes + 2 points (including the top and bottom of the atmospheres).
-    If mode is relative, then points list is returned.
+    If mode is relative, the pressure_node_{i} parameters are decade offsets that
+    are summed cumulatively from the top of the grid (compute_pressure_nodes).
+    If mode is absolute, the pressure_node_{i} parameters ARE the log10 pressures
+    of the interior nodes, used as given between the top and bottom of the grid.
+
+    "absolute" is what lets each node carry its own independent prior -- e.g. one
+    node confined to each third of the atmosphere. Under "relative" the offsets are
+    cumulative, so a per-node prior couples every node to the ones above it. The
+    caller is responsible for giving the nodes non-overlapping, increasing prior
+    ranges, because the abundance profile is built with jnp.interp, which requires
+    increasing abscissae. Any other mode string is treated as "absolute", which is
+    the historical behaviour this branch now makes explicit.
 
     Args:
         pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
@@ -582,6 +594,8 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
                 points_list=pnodes,
             )
 
+        # "absolute" (and, historically, any other string): the node parameters
+        # are log10 pressures, placed between the top and bottom of the grid.
         return jnp.concatenate(
             (
                 jnp.array([log_top_pressure]),

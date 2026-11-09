@@ -32,6 +32,7 @@ import dataclasses
 import gc
 import json
 import os
+import time
 import warnings
 from typing import Any
 
@@ -57,6 +58,10 @@ _JAXNS_DEPTH_FIELDS = (
     "dlogZ",
     "cummax_XL_frac",
 )
+
+# dlogZ above this is almost certainly a MultiNest-style ln Z tolerance passed
+# by mistake; see _build_stopping_conditions.
+_JAXNS_DLOGZ_WARNING_THRESHOLD = 0.01
 
 # Stopping criteria JAXNS moved out of its condition dataclass and into the
 # Python goal loop. pRT still accepts them as sampler kwargs and synthesises
@@ -128,22 +133,41 @@ _JAXNS_TERMINATION_REMOVED = {
 # NestedSampler kwargs removed in JAXNS 3, mapped to what replaces them. These
 # are rejected loudly rather than dropped: silently ignoring, say, 'devices'
 # would change the execution model without telling the user.
-# TODO: remove in version 5.0.0
+# TODO: remove in version 5.0.0
 _JAXNS_REMOVED_SAMPLER_KWARGS = {
     "s": "JAXNS 3 removed 's'. Slice count is now 'num_slices' on the sampler.",
-    "k": "JAXNS 3 removed 'k' (phantom count). Use 'max_phantom_samples'.",
+    "k": (
+        "JAXNS 3 removed 'k' (phantom count). Phantom collection now keeps every "
+        "intermediate slice state; 'num_phantoms' selects a prefix for the evidence."
+    ),
+    "max_phantom_samples": (
+        "JAXNS removed 'max_phantom_samples': phantom collection now keeps every "
+        "intermediate slice state. Use 'num_phantoms' to condition the evidence on "
+        "a shorter prefix."
+    ),
     "c": (
         "JAXNS 3 removed 'c'. Live-point count is 'num_live_points' "
-        "(alias of 'target_num_live_points')."
+        "(alias of 'root_allocation_degree')."
     ),
     "shell_fraction": (
         "JAXNS 3 removed 'shell_fraction'. The replacement vmap width is the "
-        "explicit 'shell_size'."
+        "explicit 'replacement_width'."
+    ),
+    "batch_size": (
+        "JAXNS removed 'batch_size'. The local replacement vmap width is "
+        "'replacement_width'; distributed worker batches are set in the jaxns-cli TOML."
     ),
     "gradient_guided": (
-        "JAXNS 3 moved 'gradient_guided' onto the slice sampler; pass "
-        "'gradient_guided' together with 'num_slices' to build a custom "
-        "UniDimSliceSampler (experimental in JAXNS 3)."
+        "JAXNS removed gradient-guided slice sampling; its slice sampler now "
+        "takes only 'num_slices'."
+    ),
+    "gradient_guided_slices": (
+        "JAXNS removed gradient-guided slice sampling; its slice sampler now "
+        "takes only 'num_slices'."
+    ),
+    "no_step_out": (
+        "JAXNS removed 'no_step_out': its slice sampler always brackets with the "
+        "unit-hypercube bounds and never steps out."
     ),
     "difficult_model": (
         "JAXNS 3 removed 'difficult_model'. Raise 'num_slices' and/or "
@@ -162,6 +186,192 @@ _JAXNS_REMOVED_SAMPLER_KWARGS = {
         "with a jaxns-cli worker pool for multi-device runs."
     ),
 }
+
+
+def _log_goal_boundary(state, observed, started_at, *, reached):
+    """Print one progress line per completed goal boundary.
+
+    Goal boundaries are also the only points where JAXNS may checkpoint, so this
+    line is the run's heartbeat: without it a multi-day run is silent until it
+    finishes. Reads only cheap State scalars (plus whatever the goal already
+    computed), and tolerates DistributedState lacking any of them.
+    """
+
+    def scalar(name):
+        value = getattr(state, name, None)
+        if value is None:
+            return float("nan")
+        try:
+            return float(np.asarray(value))
+        except (TypeError, ValueError):
+            return float("nan")
+
+    elapsed_h = (time.monotonic() - started_at) / 3600.0
+    parts = [
+        f"iter {int(state.goal_loop_iter)}",
+        f"samples={scalar('num_samples'):.0f}",
+        f"L-evals={scalar('total_num_likelihood_evaluations'):.0f}",
+        f"max logL={scalar('log_L_supremum'):.2f}",
+        f"expected dlogZ={scalar('expected_log_Z_uncert'):.3f}",
+    ]
+    parts += [
+        f"{name}={current:.4g} (goal {target:.4g})"
+        for name, (current, target) in observed.items()
+        if name not in ("num_samples", "total_num_likelihood_evaluations",
+                        "log_L_supremum", "expected_log_Z_uncert")
+    ]
+    parts.append(f"elapsed={elapsed_h:.2f} h")
+    if reached:
+        parts.append("goal reached")
+    print("[pRT-JAXNS] goal boundary: " + ", ".join(parts), flush=True)
+
+
+#: Defaults for the ``gmm_directions`` sampler kwarg. ``min_ess=None`` means
+#: 4 x the number of free parameters.
+GMM_DIRECTION_DEFAULTS = {
+    "min_ess": None,
+    "refit_every": 1,
+    "num_components": 1,
+    "num_iterations": 10,
+    "iso_prob": 0.05,
+    "regularisation": 1e-6,
+}
+
+
+def _resolve_gmm_directions(value):
+    """Validate the ``gmm_directions`` kwarg: None/False (off), True, or a dict."""
+    if value is None or value is False:
+        return None
+    if value is True:
+        value = {}
+    if not isinstance(value, dict):
+        raise TypeError(
+            "gmm_directions must be True, False/None, or a dict of options "
+            f"{sorted(GMM_DIRECTION_DEFAULTS)}; got {type(value).__name__}."
+        )
+    unknown = set(value) - set(GMM_DIRECTION_DEFAULTS)
+    if unknown:
+        raise TypeError(
+            f"Unknown gmm_directions option(s) {sorted(unknown)}; supported: "
+            f"{sorted(GMM_DIRECTION_DEFAULTS)}."
+        )
+    options = {**GMM_DIRECTION_DEFAULTS, **value}
+    if options["min_ess"] is not None and float(options["min_ess"]) < 0:
+        raise ValueError("gmm_directions.min_ess must be non-negative.")
+    if int(options["refit_every"]) < 1 or int(options["num_components"]) < 1:
+        raise ValueError("gmm_directions.refit_every and num_components must be >= 1.")
+    if not 0.0 <= float(options["iso_prob"]) <= 1.0:
+        raise ValueError("gmm_directions.iso_prob must be between 0 and 1.")
+    return options
+
+
+def _scientific_state(state):
+    """The State inside a DistributedState, or the State itself."""
+    return state.state if hasattr(state, "pending") else state
+
+
+def run_with_direction_refits(
+    sampler,
+    goal_cond,
+    *,
+    key,
+    checkpoint_dir,
+    checkpoint_cadence,
+    options,
+    n_free_parameters,
+    log=None,
+    checkpoint_manager_cls=None,
+):
+    """Run the goal loop one round at a time, refitting slice directions between rounds.
+
+    JAXNS 3 draws slice directions isotropically unless a direction law is
+    fitted explicitly at a drained boundary (``fit_gmm_directions``). Its goal
+    loop has no hook for that, so this drives it: one ``resume_until_goal``
+    call per round, then -- once the posterior is resolved well enough (ESS >=
+    ``min_ess``; the fit is posterior-weighted and degenerate before that) -- a
+    refit. A failed fit keeps the current direction law.
+
+    Checkpointing is owned here rather than by JAXNS: a JAXNS run/resume call
+    given a checkpoint directory reloads the latest checkpoint, which "takes
+    precedence over the explicit state", so a refit made between calls would be
+    silently discarded. JAXNS is therefore called with ``checkpoint_dir=None``
+    and this function loads, saves (at most every ``checkpoint_cadence``
+    seconds, after any refit) and finally saves through JAXNS'
+    CheckpointManager -- so a resumed run keeps its fitted directions.
+
+    Works for both the local NestedSampler and DistributedNestedSampler.
+    """
+    from contextlib import nullcontext
+
+    if checkpoint_manager_cls is None:
+        from jaxns.checkpoint import CheckpointManager as checkpoint_manager_cls
+    if log is None:
+        def log(message):
+            print(message, flush=True)
+
+    min_ess = options["min_ess"]
+    if min_ess is None:
+        min_ess = 4 * int(n_free_parameters)
+    min_ess = float(min_ess)
+
+    manager_context = (
+        checkpoint_manager_cls(checkpoint_dir, checkpoint_cadence)
+        if checkpoint_dir is not None
+        else nullcontext()
+    )
+    with manager_context as manager:
+        state = manager.load() if manager is not None else None
+        if state is None:
+            state = sampler.initialise(key)
+        rounds_since_fit = 0
+
+        while True:
+            start_iteration = int(_scientific_state(state).goal_loop_iter)
+            outcome = {"goal": False}
+
+            def one_round(candidate, start_iteration=start_iteration, outcome=outcome):
+                # The boundary we start from was already judged (before a
+                # refit, or before the checkpoint was written); judge only the
+                # next one, then hand control back.
+                if int(_scientific_state(candidate).goal_loop_iter) <= start_iteration:
+                    return False
+                outcome["goal"] = bool(goal_cond(candidate))
+                return True
+
+            state = sampler.resume_until_goal(state, one_round, checkpoint_dir=None)
+            iteration = int(_scientific_state(state).goal_loop_iter)
+            if outcome["goal"] or int(_scientific_state(state).termination_reason) != 0:
+                break
+
+            rounds_since_fit += 1
+            if rounds_since_fit >= int(options["refit_every"]):
+                ess = float(np.asarray(state.to_result().ess))
+                if ess < min_ess:
+                    log(f"[pRT-JAXNS] slice directions: isotropic after iter {iteration} "
+                        f"(ESS {ess:.4g} < {min_ess:g})")
+                else:
+                    try:
+                        state = state.fit_gmm_directions(
+                            num_components=int(options["num_components"]),
+                            num_iterations=int(options["num_iterations"]),
+                            iso_prob=float(options["iso_prob"]),
+                            regularisation=float(options["regularisation"]),
+                        )
+                    except ValueError as problem:
+                        log(f"[pRT-JAXNS] slice directions: GMM fit failed after iter "
+                            f"{iteration} ({problem}); keeping the current law")
+                    else:
+                        rounds_since_fit = 0
+                        log(f"[pRT-JAXNS] slice directions: fitted "
+                            f"{int(options['num_components'])}-component GMM after iter "
+                            f"{iteration} (ESS {ess:.4g})")
+
+            if manager is not None:
+                manager.maybe_save(state)
+
+        if manager is not None:
+            manager.save_if_changed(state)
+    return state
 
 
 class JAXNSSampler(Sampler):
@@ -350,6 +560,23 @@ class JAXNSSampler(Sampler):
             if name in _JAXNS_GOAL_FIELDS
         }
 
+        dlogZ = depth_values.get("dlogZ")
+        if dlogZ is not None and float(dlogZ) > _JAXNS_DLOGZ_WARNING_THRESHOLD:
+            # JAXNS compares dlogZ with the remaining-evidence FRACTION
+            # L*X / (Z + L*X) at the last sample block, and that block carries
+            # the end-of-run drain of the live points (X shrinks by ~1/n_live).
+            # A MultiNest-style tolerance such as 0.5 is therefore met after the
+            # first allocation round: on an 18-parameter pRT benchmark it
+            # stopped runs ~30 nats of compression short of the posterior.
+            warnings.warn(
+                f"JAXNS dlogZ={float(dlogZ):g} is a remaining-evidence fraction, not a "
+                "ln Z tolerance like MultiNest's evidence_tolerance, and values this "
+                "large typically end the run after one allocation round, far from the "
+                "posterior. JAXNS' default is log1p(1e-3) ~ 1e-3; omit dlogZ to use it.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+
         if len(depth_values) > 0:
             depth_condition = _opt.DepthCondition(**depth_values)
         elif len(goal_values) > 0:
@@ -369,16 +596,14 @@ class JAXNSSampler(Sampler):
         return depth_condition, goal_values, dict(termination_condition_values)
 
     @staticmethod
-    def _build_slice_sampler(model, sampler_kwargs: dict[str, Any], n_free_parameters: int):
+    def _build_slice_sampler(sampler_kwargs: dict[str, Any]):
         """Build an explicit UniDimSliceSampler only if the user asked for one.
 
         Returning ``None`` lets JAXNS pick its own default
         (``num_slices = 5 * D``, isotropic directions), which is the reference
-        configuration.
+        configuration. The runner, not the sampler, owns phantom collection.
         """
         num_slices = sampler_kwargs.pop("num_slices", None)
-        no_step_out = sampler_kwargs.pop("no_step_out", None)
-        gradient_guided = sampler_kwargs.pop("gradient_guided_slices", None)
 
         # JAXNS 3 removed UniDimSliceSampler's 'direction' field: ellipsoidal
         # geometry is no longer a sampler option but immutable State data,
@@ -396,31 +621,11 @@ class JAXNSSampler(Sampler):
                 "between depth epochs. Runs default to isotropic directions."
             )
 
-        if all(
-            option is None
-            for option in (num_slices, no_step_out, gradient_guided)
-        ):
+        if num_slices is None:
             return None, {}
 
-        slice_kwargs = {
-            "num_slices": (
-                int(num_slices) if num_slices is not None else max(1, 5 * n_free_parameters)
-            ),
-            "no_step_out": True if no_step_out is None else bool(no_step_out),
-            "gradient_guided": bool(gradient_guided) if gradient_guided else False,
-        }
-
-        sampler = _opt.UniDimSliceSampler(
-            model=model,
-            collect_phantom_samples=sampler_kwargs.get("collect_phantom_samples", True),
-            **slice_kwargs,
-        )
-        summary = {
-            "num_slices": slice_kwargs["num_slices"],
-            "no_step_out": slice_kwargs["no_step_out"],
-            "gradient_guided_slices": slice_kwargs["gradient_guided"],
-        }
-        return sampler, summary
+        sampler = _opt.UniDimSliceSampler(num_slices=int(num_slices))
+        return sampler, {"num_slices": int(num_slices)}
 
     @classmethod
     def _resolve_run_config(cls, sampler_kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -452,35 +657,53 @@ class JAXNSSampler(Sampler):
             cls._build_stopping_conditions(sampler_kwargs)
         )
 
-        num_live_points = sampler_kwargs.pop("num_live_points", None)
-        target_num_live_points = sampler_kwargs.pop("target_num_live_points", None)
-        if num_live_points is not None and target_num_live_points is not None:
+        # The root population: JAXNS' 'root_allocation_degree', with pRT's
+        # 'num_live_points' and JAXNS' former 'target_num_live_points' accepted
+        # as aliases.
+        root_aliases = {
+            name: sampler_kwargs.pop(name)
+            for name in ("num_live_points", "target_num_live_points", "root_allocation_degree")
+            if sampler_kwargs.get(name) is not None
+        }
+        sampler_kwargs.pop("num_live_points", None)
+        sampler_kwargs.pop("target_num_live_points", None)
+        sampler_kwargs.pop("root_allocation_degree", None)
+        if len(set(int(value) for value in root_aliases.values())) > 1:
             raise TypeError(
-                "got both 'num_live_points' and 'target_num_live_points'; they are aliases."
+                f"got different root populations {root_aliases}; 'num_live_points', "
+                "'target_num_live_points' and 'root_allocation_degree' are aliases."
             )
-        if target_num_live_points is None:
-            target_num_live_points = num_live_points
+        root_allocation_degree = (
+            int(next(iter(root_aliases.values()))) if root_aliases else None
+        )
+
+        # The local replacement vmap width; 'shell_size' is its former name.
+        width_aliases = {
+            name: sampler_kwargs.pop(name)
+            for name in ("shell_size", "replacement_width")
+            if sampler_kwargs.get(name) is not None
+        }
+        sampler_kwargs.pop("shell_size", None)
+        sampler_kwargs.pop("replacement_width", None)
+        if len(set(int(value) for value in width_aliases.values())) > 1:
+            raise TypeError(
+                f"got different replacement widths {width_aliases}; 'shell_size' is the "
+                "former name of 'replacement_width'."
+            )
 
         # NestedSampler construction kwargs. None means "let JAXNS decide",
         # which is what makes the v3 defaults (30*D roots, 1000*roots samples,
         # geometric buffer growth) actually apply.
         nested_sampler_kwargs = {
-            "target_num_live_points": (
-                None if target_num_live_points is None else int(target_num_live_points)
-            ),
+            "root_allocation_degree": root_allocation_degree,
             "max_samples": (
                 None
                 if sampler_kwargs.get("max_samples") is None
                 else int(sampler_kwargs.pop("max_samples"))
             ),
-            "shell_size": sampler_kwargs.pop("shell_size", None),
-            # Added by JAXNS after the 3.0.0 release. root_allocation_degree is
-            # the new spelling of the root population and must agree with
-            # target_num_live_points; batch_size bounds one compiled epoch.
-            "root_allocation_degree": sampler_kwargs.pop(
-                "root_allocation_degree", None
+            "replacement_width": (
+                int(next(iter(width_aliases.values()))) if width_aliases else None
             ),
-            "batch_size": sampler_kwargs.pop("batch_size", None),
             "delta_K": sampler_kwargs.pop("delta_K", None),
             "initial_capacity": sampler_kwargs.pop("initial_capacity", None),
             "unlimited_samples": bool(sampler_kwargs.pop("unlimited_samples", False)),
@@ -488,7 +711,6 @@ class JAXNSSampler(Sampler):
             "collect_phantom_samples": bool(
                 sampler_kwargs.pop("collect_phantom_samples", True)
             ),
-            "max_phantom_samples": sampler_kwargs.pop("max_phantom_samples", None),
         }
         sampler_kwargs.pop("max_samples", None)
 
@@ -519,6 +741,8 @@ class JAXNSSampler(Sampler):
             # default because it is calibrated tighter than classic shrinkage.
             "evidence_num_samples": int(sampler_kwargs.pop("evidence_num_samples", 4096)),
             "evidence_conditioning": sampler_kwargs.pop("evidence_conditioning", "phantom"),
+            # Posterior-aligned slice directions, refitted between goal rounds.
+            "gmm_directions": _resolve_gmm_directions(sampler_kwargs.pop("gmm_directions", None)),
             "num_phantoms": sampler_kwargs.pop("num_phantoms", None),
             "evidence_batch_size": sampler_kwargs.pop("evidence_batch_size", None),
             "num_equal_weight_samples": sampler_kwargs.pop(
@@ -530,8 +754,6 @@ class JAXNSSampler(Sampler):
                 key: sampler_kwargs.pop(key)
                 for key in (
                     "num_slices",
-                    "no_step_out",
-                    "gradient_guided_slices",
                     # Removed in JAXNS 3; forwarded only so that
                     # _build_slice_sampler can reject it with guidance rather
                     # than letting it fall through to NestedSampler.
@@ -1023,8 +1245,7 @@ class JAXNSSampler(Sampler):
             num_phantoms = None
 
         evidence_kwargs = {
-            "num_samples": run_config["evidence_num_samples"],
-            "conditioning": conditioning,
+            "phantom_conditioning": conditioning == "phantom",
             "key": _opt.random.PRNGKey(self.seed + 1),
             "batch_size": run_config["evidence_batch_size"],
             "diagnostics": False,
@@ -1035,10 +1256,14 @@ class JAXNSSampler(Sampler):
         cpu_device = self._get_cpu_device()
         try:
             if cpu_device is None:
-                evidence_samples = raw_results.sample_evidence_mc(**evidence_kwargs)
+                evidence_samples = raw_results.sample_evidence(
+                    run_config["evidence_num_samples"], **evidence_kwargs
+                )
             else:
                 with _opt.default_device(cpu_device):
-                    evidence_samples = raw_results.sample_evidence_mc(**evidence_kwargs)
+                    evidence_samples = raw_results.sample_evidence(
+                        run_config["evidence_num_samples"], **evidence_kwargs
+                    )
         except Exception as error:
             warnings.warn(
                 f"JAXNS Monte Carlo evidence estimation failed ({error}); falling back "
@@ -1055,6 +1280,36 @@ class JAXNSSampler(Sampler):
             # Match the classic sample count, the usual convention for an
             # equal-weight posterior (cf. dynesty's resample_equal).
             num_equal_weight_samples = int(np.asarray(raw_results.total_num_samples).item())
+        elif isinstance(num_equal_weight_samples, str):
+            # "ess": size the archive to the effective sample size instead.
+            #
+            # The default convention stores as many rows as there were nested
+            # samples, drawn WITH REPLACEMENT from a posterior whose effective
+            # size is far smaller. On a SIMP 0136 stage-1 run that was 45985 rows
+            # carrying a Kish ESS of 4643 -- every effective sample present about
+            # six times, unevenly. A histogram or kernel density built on those
+            # rows is six times over-resolved and shows spikes that are pure
+            # resampling grain; they read as modes in a corner plot and are not.
+            # Sizing the draw to the ESS makes the stored archive claim only the
+            # resolution the run actually supports.
+            if num_equal_weight_samples.lower() != "ess":
+                raise ValueError(
+                    "num_equal_weight_samples must be an int, None, or the "
+                    f"string 'ess'; got {num_equal_weight_samples!r}."
+                )
+            ess = getattr(raw_results, "ess", None)
+            if ess is None:
+                warnings.warn(
+                    "num_equal_weight_samples='ess' was requested but this "
+                    "JAXNS result exposes no 'ess'; falling back to the total "
+                    "sample count.",
+                    RuntimeWarning,
+                )
+                num_equal_weight_samples = int(
+                    np.asarray(raw_results.total_num_samples).item()
+                )
+            else:
+                num_equal_weight_samples = int(round(float(np.asarray(ess).item())))
         num_equal_weight_samples = max(1, int(num_equal_weight_samples))
 
         cpu_device = self._get_cpu_device()
@@ -1141,12 +1396,8 @@ class JAXNSSampler(Sampler):
             if value is not None
         }
 
-        slice_kwargs = dict(run_config["slice_sampler_kwargs"])
-        slice_kwargs["collect_phantom_samples"] = nested_sampler_kwargs.get(
-            "collect_phantom_samples", True
-        )
         slice_sampler, slice_summary = self._build_slice_sampler(
-            model, slice_kwargs, len(self.parameter_names)
+            dict(run_config["slice_sampler_kwargs"])
         )
         if slice_sampler is not None:
             nested_sampler_kwargs["sampler"] = slice_sampler
@@ -1239,6 +1490,7 @@ class JAXNSSampler(Sampler):
             checks.append((attribute_name, comparison, needs_result, float(value)))
 
         needs_result = any(check[2] for check in checks)
+        started_at = time.monotonic()
 
         def goal_cond(state):
             # Iteration 0 has no completed allocation round to judge; JAXNS'
@@ -1249,22 +1501,26 @@ class JAXNSSampler(Sampler):
             if depth_reached is not None and bool(
                 depth_reached(state, depth_condition)
             ):
+                _log_goal_boundary(state, {}, started_at, reached=True)
                 return True
 
             # Only materialise the result tree when a criterion needs it
             # (currently just 'ess'); the State scalars are the cheap path.
             result = state.to_result() if needs_result else None
 
+            reached = False
+            observed = {}
             for attribute_name, comparison, from_result, target in checks:
                 source = result if from_result else state
                 current = float(np.asarray(getattr(source, attribute_name)))
+                observed[attribute_name] = (current, target)
                 if comparison == "at_least":
-                    if current >= target:
-                        return True
-                elif current <= target:
-                    return True
+                    reached = reached or current >= target
+                else:
+                    reached = reached or current <= target
 
-            return False
+            _log_goal_boundary(state, observed, started_at, reached=reached)
+            return reached
 
         return goal_cond
 
@@ -1278,6 +1534,24 @@ class JAXNSSampler(Sampler):
         goal_cond = run_config["goal_cond"]
         if goal_cond is None:
             goal_cond = self._build_goal_condition(run_config)
+
+        gmm_options = run_config.get("gmm_directions")
+        if gmm_options is not None:
+            if goal_cond is None:
+                raise ValueError(
+                    "gmm_directions refits slice directions between goal rounds, so it "
+                    "needs a stopping goal (e.g. ess=1000). Without one JAXNS runs a "
+                    "single depth epoch and there is no boundary to refit at."
+                )
+            return run_with_direction_refits(
+                self.sampler,
+                goal_cond,
+                key=jax_random_key,
+                checkpoint_dir=checkpoint_dir,
+                checkpoint_cadence=run_config["checkpoint_cadence"],
+                options=gmm_options,
+                n_free_parameters=len(self.parameter_names),
+            )
 
         if goal_cond is None:
             return self.sampler.run(

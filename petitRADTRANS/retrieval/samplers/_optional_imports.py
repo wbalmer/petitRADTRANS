@@ -1,8 +1,8 @@
 """Lazy imports of the optional third-party libraries the samplers wrap.
 
 Every sampler backend (JAX, JAXNS, BlackJAX, NumPyro, PyMultiNest, UltraNest,
-Dynesty, ArviZ, matplotlib) is optional: a user installs only the ones they
-intend to run. This module holds one ``require_<library>()`` function per
+Dynesty, Nautilus, ArviZ, matplotlib) is optional: a user installs only the ones
+they intend to run. This module holds one ``require_<library>()`` function per
 backend that imports it on first use and publishes its handles as **module
 globals**, so importing any sampler module stays free.
 
@@ -25,6 +25,8 @@ globals**, so importing any sampler module stays free.
        jnp, random, jit = _opt.jnp, _opt.random, _opt.jit
 """
 
+import inspect
+
 # --------------------------------------------------------------------------- #
 # JAX
 # --------------------------------------------------------------------------- #
@@ -44,13 +46,14 @@ device_get = None
 clear_caches = None
 jnp = None
 P = None
+AxisType = None
 
 
 def require_jax():
     """Import JAX and publish the handles the samplers use."""
     global lax, random, tree, vmap, tree_util, jit, local_device_count
     global make_mesh, shard_map, set_mesh, devices, default_device, device_get
-    global clear_caches, jnp, P
+    global clear_caches, jnp, P, AxisType
 
     if jnp is not None:
         return
@@ -73,7 +76,7 @@ def require_jax():
             clear_caches as _clear_caches,
         )
         import jax.numpy as _jnp
-        from jax.sharding import PartitionSpec as _ps
+        from jax.sharding import AxisType as _axis_type, PartitionSpec as _ps
     except ImportError as error:
         raise ImportError(
             "JAX is required for JAX-based samplers but is not installed."
@@ -95,6 +98,7 @@ def require_jax():
     clear_caches = _clear_caches
     jnp = _jnp
     P = _ps
+    AxisType = _axis_type
 
 
 # --------------------------------------------------------------------------- #
@@ -140,8 +144,8 @@ def require_jaxns():
     # JAXNS 3 has kept changing its public surface *after* the 3.0.0 release
     # without bumping its version (its pyproject still reads 3.0.0), so a
     # version pin cannot express what pRT needs. Probe the actual API instead:
-    # jaxns.depth_condition replaced jaxns.termination_condition, and is the
-    # marker separating the 3.0.0 release from the API pRT targets.
+    # jaxns.run_config arrived with the API cleanup pRT targets (root degree,
+    # replacement_width, sample_evidence); jaxns.depth_condition before it.
     try:
         import jaxns as jaxns_module
         from jaxns.core import NestedSampler as jaxns_nested_sampler
@@ -151,15 +155,16 @@ def require_jaxns():
         from jaxns.constrained_sampler import (
             UniDimSliceSampler as jaxns_unidim_slice_sampler,
         )
+        import jaxns.run_config  # noqa: F401
     except Exception as error:
         raise ImportError(
             "JAXNS 3 (and jaxctx) could not be imported. This sampler cannot be used. "
-            "pRT requires a JAXNS 3 that exposes 'jaxns.depth_condition.DepthCondition'. "
-            "A JAXNS 2.x install will fail here, and so will the JAXNS 3.0.0 release, "
-            "which still had 'jaxns.termination_condition' -- note that JAXNS reports "
-            "itself as 3.0.0 in both cases, so the version number cannot be trusted. "
-            "Install jaxctx>=1.2.0 and a JAXNS 3 from after the depth-scheduling "
-            "change (jaxns commit 4c70caf or later)."
+            "pRT requires a JAXNS 3 that exposes 'jaxns.run_config' and "
+            "'jaxns.depth_condition.DepthCondition'. A JAXNS 2.x install will fail "
+            "here, and so will earlier JAXNS 3 builds -- note that JAXNS reports "
+            "itself as 3.0.0 in every case, so the version number cannot be trusted. "
+            "Install jaxctx>=1.2.0 and a JAXNS 3 from after the API cleanup "
+            "(jaxns commit 9efa455 or later)."
         ) from error
 
     jaxns = jaxns_module
@@ -281,10 +286,13 @@ def require_pymultinest():
 
 ultranest = None
 MLFriends = None
+UltranestSliceSampler = None
+ultranest_generate_mixture_random_direction = None
 
 
 def require_ultranest():
     global ultranest, MLFriends
+    global UltranestSliceSampler, ultranest_generate_mixture_random_direction
 
     if ultranest is not None:
         return
@@ -292,6 +300,10 @@ def require_ultranest():
     try:
         import ultranest as _ultranest
         from ultranest.mlfriends import MLFriends as _MLFriends
+        from ultranest.stepsampler import (
+            SliceSampler as _SliceSampler,
+            generate_mixture_random_direction as _generate_mixture_random_direction,
+        )
     except ImportError as error:
         raise ImportError(
             "UltraNest is not installed. This sampler cannot be used."
@@ -299,6 +311,8 @@ def require_ultranest():
 
     ultranest = _ultranest
     MLFriends = _MLFriends
+    UltranestSliceSampler = _SliceSampler
+    ultranest_generate_mixture_random_direction = _generate_mixture_random_direction
 
 
 dynesty = None
@@ -332,6 +346,37 @@ def require_dynesty():
     dyfunc = _dyfunc
 
 
+nautilus = None
+NautilusBackend = None
+
+
+def require_nautilus():
+    global nautilus, NautilusBackend
+
+    if nautilus is not None:
+        return
+
+    try:
+        import nautilus as _nautilus
+        from nautilus import Sampler as _NautilusBackend
+    except ImportError as error:
+        raise ImportError(
+            "Nautilus is not installed. This sampler cannot be used. "
+            "Install it with `pip install nautilus-sampler`."
+        ) from error
+
+    # pRT sizes its equal-weight posterior through this argument, which arrived
+    # in nautilus 1.0.5.
+    if "equal_weight_boost" not in inspect.signature(_NautilusBackend.posterior).parameters:
+        raise ImportError(
+            "pRT requires nautilus-sampler>=1.0.5, whose Sampler.posterior accepts "
+            f"equal_weight_boost; found version {_nautilus.__version__}."
+        )
+
+    nautilus = _nautilus
+    NautilusBackend = _NautilusBackend
+
+
 # --------------------------------------------------------------------------- #
 # Diagnostics / plotting
 # --------------------------------------------------------------------------- #
@@ -350,6 +395,14 @@ def require_arviz():
     except ImportError as error:
         raise ImportError(
             "ArviZ is required to plot NumPyro diagnostics but is not installed."
+        ) from error
+    except Exception as error:  # noqa: BLE001
+        # A broken install fails in its own import code (e.g. arviz_plots 1.1
+        # against matplotlib 3.11 raises AttributeError on matplotlib.style.core).
+        # Report it as unavailable: diagnostics plotting must never fail a run
+        # whose sampling has already finished.
+        raise ImportError(
+            f"ArviZ is installed but could not be imported ({type(error).__name__}: {error})."
         ) from error
 
     az = _az

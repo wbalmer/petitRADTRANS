@@ -12,7 +12,11 @@ from .utils import (
     test_parameters,
 )
 
-relative_tolerance = 1e-3  # relative tolerance when comparing with older results
+relative_tolerance = 1e-6  # relative tolerance when comparing with older results
+# TODO: find why these tests differ from their pRT 3.2.0a8 references by up to 3.9e-4 (emission_full_all, in the
+#  exposures around the eclipse) and 1.3e-5 (transmission_full_all_with_complete_coverage); the rebinning, the
+#  preparing pipeline, the transit light loss, the convolution and the physical constants have been ruled out
+relaxed_relative_tolerance = 1e-3
 
 
 def init_spectral_model_line_by_line():
@@ -227,7 +231,7 @@ def test_line_by_line_spectral_model_emission_full_all():
     )
 
     benchmark = Benchmark(
-        function=calculate_spectrum, relative_tolerance=relative_tolerance
+        function=calculate_spectrum, relative_tolerance=relaxed_relative_tolerance
     )
 
     benchmark.run(
@@ -398,7 +402,7 @@ def test_line_by_line_spectral_model_transmission_full_all_with_complete_coverag
     }
 
     benchmark = Benchmark(
-        function=calculate_spectrum, relative_tolerance=relative_tolerance
+        function=calculate_spectrum, relative_tolerance=relaxed_relative_tolerance
     )
 
     # Test flux cloudy
@@ -452,7 +456,7 @@ def test_line_by_line_spectral_model_transmission_full_all_with_complete_coverag
         + (1 - test_parameters["cloud_parameters"]["cloud_fraction"]) * flux_coverage0,
         reference_file.outputs["1"],
         atol=0,
-        rtol=relative_tolerance,
+        rtol=relaxed_relative_tolerance,
     )
 
     print("OK")

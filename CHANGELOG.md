@@ -4,6 +4,225 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.0.0rc1] - 2026-11-05
+### Added
+- Nautilus sampler (`sampler_type="nautilus"`), for importance nested sampling with
+  neural networks. It parallelises over MPI ranks, a `spawn` process pool, or batches
+  on GPUs, and refuses to resume from a checkpoint of a different problem. Unlike
+  Nautilus itself it defaults to `discard_exploration=True`, and it reuses a checkpoint
+  when run again unless given `resume=False`.
+- Test of second-order (Hessian-vector product) derivatives of the scattering
+  emission flux in `tests/test_feautrier_scattering.py`.
+- Tests that the native CPU correlated-k mixing kernel matches its JAX
+  implementation, and that its forward- and reverse-mode derivatives agree to
+  second order, in `tests/test_fortran_modules.py`.
+- Time-series retrieval framework. Includes full end-to-end running, tests, plotting,
+  and documentation. Core functionality lives in `retrieval/linearised.py`.
+- File `VERSION.txt`, the single source of the package version. `meson.build`
+  reads it, `pyproject.toml` declares the version dynamic, `docs/conf.py` reads
+  it, and the build generates `petitRADTRANS/_version.py` from it, so an
+  editable install reports the current version.
+- Function `OptimalEstimationSampler.load_results`, restoring the MAP results
+  (best fit, Laplace covariance, convergence) in `run_mode="evaluate"`.
+- Tests that run BlackJAX, NumPyro and the optax optimiser against the
+  installed library versions, including multi-chain runs on two forced CPU
+  devices.
+- Tests of the correlated-k binning (`opacities/correlated_k_binning.py`), in
+  `tests/test_correlated_k_binning.py`, including a comparison with exo-k when
+  it is installed.
+- Tests of the scaling of cloud opacities to `cloud_photosphere_median_optical_depth`,
+  in `tests/test_optical_depths.py` and `tests/test_radtrans_correlated_k_scattering.py`.
+-  H2 Rayleigh scattering table
+  `1H2__Singor.DeltaWavenumber363_0.207-27.5mu.rayleightable.petitRADTRANS.h5` in the
+  new input_data directory `opacities/continuum/rayleigh`.
+- The environment variable `PRT_LEGACY_RAYLEIGH=1` selects the previous Rayleigh
+  scattering treatments, for comparison tests of retrievals. It is temporary.
+- FFI for gradients of c-k mixing for CPUs (C++) and GPUs (JAX): `jax.jvp`, `jax.jacfwd`, `jax.grad` and `jax.jacrev`
+- Test that the correlated-k mixing is continuous in the abundances, including
+  where a species crosses the mixing threshold, that it stays close to the exact
+  random overlap of the species' transmissions, and that the native derivatives
+  match those of the JAX implementation, in `tests/test_fortran_modules.py`.
+
+### Changed
+- Rayleigh scattering opacities use updated treatments:
+  H2 uses Singor et al. (2024), elastic and Raman, with LTE rovibrational
+  populations, calibrated to Peck & Huang (1977); He uses Puchalski et al. (2016);
+  H2O uses Egan (2026) with the temperature slope of Egan & Yang (2024); CH4 uses
+  He et al. (2021).
+- Each (g, frequency) column of the Feautrier scattering iteration now stops at
+  its own convergence, so emission spectra no longer depend on
+  `feautrier_chunk_size`.
+- The convergence test of the Feautrier scattering iteration measures the
+  relative flux change over one Ng acceleration cycle (4 iterations) instead of
+  over a single iteration, and `SCATTERING_CONVERGENCE_THRESHOLD` is 1e-6
+  (was 1e-3). A threshold of 1e-5 left a strongly scattering atmosphere with
+  an optically thick lowest layer 3e-6 from its converged flux; at 1e-6 it is
+  within 4e-7. The correlated-k scattering benchmark spectra change by less
+  than 3e-7.
+- The adaptive Feautrier iteration stops as soon as it has converged instead of
+  stepping through the whole iteration budget, which is faster on GPU.
+- Regenerated the reference file of
+  `test_correlated_k_emission_spectrum_surface_scattering_with_adaptive_feautrier_iterations`.
+  The previous reference (4.0.0a42) used a scattering iteration that was
+  1.1e-3 from its converged solution; the converged solution itself is unchanged
+  (to 1e-8). Rhe new reference is within 3e-7.
+- Regenerated with 4.0.0rc1 the reference files of the correlated-k emission
+  tests of `tests/test_radtrans_correlated_k.py` (4 tests),
+  `tests/test_radtrans_correlated_k_scattering.py` (7),
+  `tests/test_radtrans_correlated_k_surface_scattering.py` (1) and
+  `test_correlated_k_spectral_model_emission_equilibrium_chemistry_imposed`,
+  so that they are compared with a relative tolerance of 1e-6. The previous
+  references (3.1.3, 3.2.0a8, 3.2.0a31 and 4.0.0a42) differed from the 4.0.0rc1
+  spectra by 1e-6 to 1e-5 (float32 opacities against the double-precision
+  Fortran of pRT 3), and the stellar intensities by up to 4.5e-6.
+- Regenerated the reference file of
+  `test_line_by_line_spectral_model_transmission_ccf`: the previous one
+  (4.0.0a42) was calculated with the incorrect convolution fixed in this
+  version.
+- The comparison tolerance of the line-by-line `SpectralModel` tests is 1e-6
+  (was 1e-3), except for `test_line_by_line_spectral_model_emission_full_all`
+  and `test_line_by_line_spectral_model_transmission_full_all_with_complete_coverage`,
+  which still differ from their pRT 3.2.0a8 references by up to 3.9e-4 and
+  1.3e-5 for a reason not yet identified, and keep 1e-3.
+- BlackJAX 1.7 or later is required. Its progress bar is now shown through
+  `blackjax.progress_bar()`, which needs the optional `jaxtap` package
+  (`blackjax[progress]`).
+- Multi-chain BlackJAX and NumPyro runs spread their chains over the largest
+  number of devices that divides `num_chains` evenly. The NumPyro multi-device
+  path now starts each chain from its own position and reports the adapted
+  step size and mass matrix per chain.
+- The `retrieval`, `full` and `test` extras install `tfp-nightly`, which
+  `petitRADTRANS.retrieval` imports; `full` and `test` also install `jaxns`.
+  Importing the retrieval module without TensorFlow Probability raises an
+  `ImportError` explaining what to install.
+- Retired `sampler_type` `jaxnsshardedstaticnestedsampler` raises a
+  `ValueError` pointing to `jaxns_distributed`.
+- tox and the GitLab CI test Python 3.12, 3.13, 3.14 and 3.15 (tox environments
+  `py312` to `py315`, run as a CI matrix). tox uses `tox-uv`, which downloads
+  the Python versions that are not installed, builds a petitRADTRANS wheel per
+  Python version with build isolation, and installs it with the `test` extra so
+  every sampler backend is tested.
+- The correlated-k mixing (emission with `scattering_in_emission=True`) averages
+  the the pairwise opacity summed over a window around each
+  g node, instead of interpolating the sorted sums at the midpoints of their
+  cumulative weights. A species is switched on smoothly between 0.5 and 1 times
+  the mixing threshold instead of at once at the threshold.
+- Regenerated the reference files of the 13 tests whose spectra go through the
+  correlated-k mixing:
+  `test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering`
+  (also `_with_adaptive_feautrier_iterations` and `_with_variable_fsed`),
+  `test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_dayside`
+  (also `_non_isotropic` and `_planetary_average`),
+  `test_correlated_k_emission_spectrum_partial_cloud_calculated_radius_stellar_scattering_non_isotropic`,
+  `test_correlated_k_emission_spectrum_surface_scattering` (also
+  `_with_adaptive_feautrier_iterations`), and
+  `test_correlated_k_spectral_model_emission` (also `_equilibrium_chemistry_imposed`,
+  `_observed` and `_with_star`). Their outputs changed by up to 7.1e-3
+  (relative); all other references are unchanged.
+
+### Fixed
+- The managed NumPyro warmup (`warmup_driver="managed"`) called NUTS' transition
+  without compiling it, so every warmup iteration retraced and recompiled the
+  tree-building loop, about a minute per iteration for an emission retrieval on a GPU.
+  It now compiles it once per process.
+- The vectorized path of the `ultranest` sampler did not compile its likelihood or
+  prior transform, even though it reported `use_jit=True`, and so was retraced on every
+  call. It now compiles both, padding batches to a few fixed sizes.
+- Forward-mode (`jax.jvp`, `jax.jacfwd`) and second-order derivatives of
+  correlated-k emission spectra with `scattering_in_emission=True` on CPU raised
+  `TypeError`: the native correlated-k mixing kernel defined only a reverse-mode
+  derivative. It now defines a forward-mode rule, from which JAX derives both.
+- The JAXNS calls of the retrieval tutorials used arguments that JAXNS 3
+  removed, so they raised `TypeError`; PyMultiNest calls spelled `max_iter` as
+  `max_iters` and passed UltraNest arguments, which PyMultiNest silently
+  ignores.
+- BlackJAX runs raised `TypeError` with BlackJAX >= 1.6, which removed the
+  `progress_bar` argument of `window_adaptation`.
+- Multi-chain BlackJAX and NumPyro runs on more than one device raised in
+  `shard_map` on current JAX. NumPyro also silently dropped chains when
+  `num_chains` was not a multiple of the device count.
+- UltraNest results could not be reloaded after a run with the default
+  `resume="subfolder"`, which writes into a `run<N>` subfolder.
+- The retrieval summary of an optax optimisation was lost in
+  `run_mode="evaluate"`.
+- `Data` built without a spectrum called the deprecated `jnp.shape(None)`.
+- The installation instructions omitted JAX from the packages needed before a
+  `--no-build-isolation` install.
+- Constant-resolution convolutions (`SpectralModel` with `convolve=True`, and
+  the convolution of retrieval models to the data resolution) truncated the
+  Gaussian kernel at 20 bins, whatever its width: convolving an R = 1e6
+  spectrum to R = 1e4 was off by 3%, and to R = 1e3 by 5%. The kernel now
+  extends to 4 standard deviations, as in `scipy.ndimage.gaussian_filter1d`.
+  The edges were also padded in scipy's "mirror" mode instead of the "reflect"
+  mode of pRT 3. Results match pRT 3 to 1e-10.
+- `calculate_flux` with `cloud_photosphere_median_optical_depth` and
+  `scattering_in_emission=True` raised `TypeError`. The scaling of the cloud
+  opacities to that optical depth is ported to JAX: it no longer uses an
+  undefined variable or SciPy-style interpolation, works under `jax.jit`, and
+  accepts the scalar `cloud_f_sed` values that pRT stores as 0-d arrays.
+- Setting `Radtrans.cloud_species` or `Radtrans.rayleigh_species` raised
+  `NameError`.
+- `utils.check_all_close` compared every element of a sequence of strings with
+  its first element, and could not compare arrays of strings.
+- Loading an HDF5 k-table whose frequency grid is misaligned by one bin with the
+  model grid raised `NameError`.
+- `Ktable.write_hdf5` of the correlated-k binning raised `AttributeError`
+  (missing `molar_mass`, `wnrange` and `wlrange`), so
+  `file_conversion.rebin_ck_line_opacities` could not write the binned-down
+  table.
+- Module `petitRADTRANS.opacities.file_conversion`, documented in "Adding
+  opacities", was not installed.
+- flake8 reports no errors on `petitRADTRANS/` (unused imports, a duplicated
+  definition of `compute_hydrostatic_interval_integrals` and
+  `compute_radius_hydrostatic_equilibrium`, and formatting).
+- CO and CO2 Rayleigh scattering copied misprinted coefficients from Sneep & Ubachs
+  (2005), Eqs. 17 and 13. CO was a factor of 2 too low at 532 nm.
+- CO2 Rayleigh scattering was 17% too high in the optical, from a positive floor on
+  its dispersion denominators, and gave NaN in float32 at its 4.135 um pole.
+- N2 Rayleigh scattering used a molecular mass of 34 instead of 28 amu, and was
+  zero beyond 2.059 um.
+- With 64-bit JAX disabled, Rayleigh scattering opacities were exactly zero for all
+  species except H2.
+
+### Removed
+- Package `petitRADTRANS.experimental` (simulation-based inference), its tests,
+  its examples, and the `sbi` optional-dependency group. SBI now lives in the
+  separate [petitSBI](https://gitlab.com/enasedkin/petitSBI) package.
+
+## [4.0.0b4] - 2026-09-21
+### Added
+- Function `Retrieval.calculate_modulation_posterior` to recover the modulation
+  amplitudes, their covariance and their time series from a linearised
+  time-series retrieval, which marginalises them and so never samples them.
+- Argument `nuisance_response_modes` of
+  `RetrievalConfig.add_linearised_time_series_data`, appending smooth wavelength
+  modes to the log Jacobian to absorb forward-model error that varies in time,
+  with `nuisance_prior_width` setting their prior.
+- Function `runtime.compute_linearised_system`, assembling the normal equations
+  of a linearised time series at one reference state, shared by the likelihood
+  and the reporting path.
+- Function `Retrieval.plot_modulation`, drawing the recovered modulation of each
+  modulated parameter with its statistical and reference-state uncertainties
+  shown separately. `Retrieval.plot_all` calls it for every registered
+  linearised dataset.
+- Documentation page "Linearised Time-Series Retrievals".
+- Test module `tests/test_linearised.py`, checking the closed-form solve against
+  dense reference implementations.
+
+### Changed
+- Docstrings in `retrieval.linearised` now follow the `Args:`/`Returns:` style
+  used elsewhere in the package, and `__all__` is in alphabetical order.
+- `Retrieval.calculate_forward_model` resolves its parameter argument through
+  the new `Retrieval._resolve_configuration_parameters`, so that the forward
+  model and the modulation posterior interpret `parameters` identically.
+
+### Fixed
+- `NameError` is raised whenever a cloud-base smoothing width is given
+  explicitly, because `Tracer` was used in `chemistry.utils` without being
+  imported.
+- Two typos and an over-long line in the `RetrievalConfig.add_cloud_species`
+  docstring.
+
 ## [4.0.0b3] - 2026-09-03
 ### Changed
 - `calculate_flux` and `calculate_transit_radii` now fully JIT compiled for
@@ -20,6 +239,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   and optax MAP warm-up. Behaviour and file formats are unchanged.
 - `scattering_in_emission=True` now raises `ValueError` unless JAX is running in
   64-bit mode.
+- The convergence threshold of the Feautrier scattering iteration is tightened from 1e-6 to 1e-8.
+- `RetrievalConfig` and `SpectralModel.calculate_emission_spectrum` now default to
+  `adaptive_feautrier_iterations=True`, as `Radtrans.calculate_flux` already did.
 - patchy_clouds is now empty by default, and analytical background clouds are also
   patchy, if not specifically requested.
 
@@ -32,6 +254,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - CIA opacities being set to 0 due to 32-bit underflow.
 - `return_opacities=True` returned all-zero `cloud_absorption_opacities` and
   `cloud_anisotropic_scattering_opacities` whenever `sum_opacities` was False.
+- Inaccurate gradients of the emission flux with `scattering_in_emission=True`. Differentiating through the
+  Ng-accelerated scattering iteration gave an unconverged derivative. The gradient is now obtained by implicit
+  differentiation of the converged scattering solution.
+- NaN emission flux with `scattering_in_emission=True` when the lowest layer is optically thick and strongly
+  scattering, caused by an unstable surface term of the approximate Lambda operator.
 
 ### Removed
 - autodiff versions of `calculate_flux` and `calculate_transit_radii`
@@ -87,7 +314,7 @@ to run natively on GPUs and TPUs. Version 4.0 is in beta, and is subject to chan
 - a16: Shard_map parallelisation for MCMC samplers
 - a15 Reverse-mode differentiation changes to rebinning and particle radius functions.
 - a15 Renamed retrieval dataset controls from `scale`, `scale_err`, and `offset_bool` to `scale_flux`, `scale_uncertainties`, and `fit_flux_offset` throughout `Data`, `RetrievalConfig`, runtime metadata, plotting, tests, and tutorials.
-- a15 Documented the runtime-native retrieval workflow around `RetrievalRuntime` and the built-in JAX retrieval models exported from `petitRADTRANS.retrieval.models`.
+- a15 Documented the differentiable retrieval workflow around `RetrievalRuntime` and the built-in JAX retrieval models exported from `petitRADTRANS.retrieval.models`.
 - a14 Added BlackJAX and Numpyro HMC and NUTS samplers. Integrated samplers into retrieval summary.
 - a14 Moved retrieval plotting into RetrievalPlotter class, inheriting from Retrieval.
 - a12 Optimised Feautrier and ensured consistency with Fortran implementation.
@@ -132,7 +359,7 @@ to run natively on GPUs and TPUs. Version 4.0 is in beta, and is subject to chan
 - a15 Added RetrievalPlotter class, replacing plotting functions and `plot_kwargs` from the Retrieval class.
 - a15 Added automatic calculation of BIC, AIC and BPICS following retrievals.
 - a15 Added covariance fitting for spectroscopic retrieval datasets, including automatic covariance hyperparameters in `RetrievalConfig`, covariance construction in `Data`, and Cholesky-based covariance likelihood evaluation in `LogLikelihood`.
-- a15 Added a dedicated runtime-native JAX emission retrieval tutorial using the built-in runtime model exports.
+- a15 Added a dedicated differentiable JAX emission retrieval tutorial using the built-in runtime model exports.
 - a15 Added the `petitRADTRANS.experimental.sbi` package scaffold for simulation-based inference workflows built on the retrieval runtime.
 - a14: Added autodiff version of calculate_transit_radii function.
 - a13: Added autodiff version of calculate_flux functions.

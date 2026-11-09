@@ -6,8 +6,8 @@ a pRT ``.npz``.
 
 Two likelihood modes are available. The default drives the scalar
 ``Retrieval.log_likelihood`` callback one point at a time (and can dispatch it
-to a chosen JAX device). ``vectorized=True`` instead hands UltraNest a batched
-JAX likelihood, which is much faster but requires a fully differentiable,
+to a chosen JAX device). ``vectorized=True`` instead hands UltraNest a batched,
+jitted likelihood, which is much faster but requires a fully differentiable,
 non-ragged retrieval -- :meth:`UltranestSampler._resolve_vectorized` checks
 that and downgrades with a warning rather than failing mid-run.
 """
@@ -22,7 +22,12 @@ import numpy as np
 from petitRADTRANS.retrieval.samplers import _optional_imports as _opt
 from petitRADTRANS.retrieval.samplers.base import Sampler, SamplerContext
 from petitRADTRANS.retrieval.samplers.interfaces import (
+    build_batched_prior_transform,
     build_device_likelihood_wrapper,
+    build_jitted_batched_likelihood,
+    pad_batches_to_buckets,
+    resolve_scalar_likelihood,
+    vectorization_disable_reason,
 )
 
 
@@ -55,25 +60,41 @@ class UltranestSampler(Sampler):
         """UltraNest's own run folder, which it creates and populates itself."""
         return os.path.join(output_directory, "out_" + retrieval_name + "_ultranest")
 
+    @staticmethod
+    def _get_run_dir(log_dir):
+        """The folder holding the outputs of the most recent UltraNest run.
+
+        With ``resume="subfolder"`` (pRT's default) UltraNest writes each run
+        into a new ``run<N>`` subfolder of ``log_dir``, numbered with the first
+        unused N; the other resume modes write into ``log_dir`` itself.
+        Returns ``log_dir`` when it holds no run output either way.
+        """
+        def has_outputs(directory):
+            return any(
+                os.path.isdir(os.path.join(directory, name)) for name in ("info", "chains")
+            )
+
+        if has_outputs(log_dir) or not os.path.isdir(log_dir):
+            return log_dir
+
+        run_numbers = []
+        for name in os.listdir(log_dir):
+            if name.startswith("run") and name[3:].isdigit():
+                if has_outputs(os.path.join(log_dir, name)):
+                    run_numbers.append(int(name[3:]))
+
+        if not run_numbers:
+            return log_dir
+        return os.path.join(log_dir, f"run{max(run_numbers)}")
+
     @classmethod
     def _resolve_vectorized(cls, context: SamplerContext, requested: bool) -> bool:
         if not requested:
             return False
-        runtime = context.runtime
-        if any(
-            group.model_contract != "differentiable" for group in runtime.model_groups
-        ):
+        disable_reason = vectorization_disable_reason(context)
+        if disable_reason is not None:
             warnings.warn(
-                "UltraNest vectorized mode disabled because the retrieval contains legacy model groups.",
-                RuntimeWarning,
-            )
-            return False
-        if any(
-            getattr(obs.spectrum, "dtype", None) == "O"
-            for obs in runtime.observations.values()
-        ):
-            warnings.warn(
-                "UltraNest vectorized mode disabled because the retrieval contains ragged observation groups.",
+                f"UltraNest vectorized mode disabled because {disable_reason}.",
                 RuntimeWarning,
             )
             return False
@@ -82,9 +103,12 @@ class UltranestSampler(Sampler):
     @classmethod
     def prepare(cls, context: SamplerContext, **sampler_kwargs):
         likelihood_devices = sampler_kwargs.pop("likelihood_devices", None)
+        use_jit = sampler_kwargs.pop("use_jit", True)
         vectorized = cls._resolve_vectorized(
             context, sampler_kwargs.pop("vectorized", False)
         )
+        # The vectorized path always runs through JAX.
+        jit_enabled = vectorized
 
         if likelihood_devices is not None and vectorized:
             warnings.warn(
@@ -100,28 +124,20 @@ class UltranestSampler(Sampler):
                 log_likelihood_func, target_device = build_device_likelihood_wrapper(
                     device_context
                 )
+                jit_enabled = True
             else:
-                log_likelihood_func = context.log_likelihood_func
+                log_likelihood_func, jit_enabled = resolve_scalar_likelihood(
+                    context, use_jit, "UltraNest"
+                )
                 target_device = None
             prior_func = context.prior_ultranest_func
         else:
-            parameter_layout = context.parameter_layout
-            runtime = context.runtime
-
-            def prior_transform(cube):
-                return parameter_layout.prior_transform_numpy(cube)
-
-            def log_likelihood_batch(physical_positions):
-                return np.asarray(
-                    runtime.evaluate_likelihood_jax_batched(
-                        free_parameter_values=physical_positions,
-                        uncertainties_mode=context.uncertainties_mode,
-                        print_log_likelihood_for_debugging=False,
-                    )
-                )
-
-            log_likelihood_func = log_likelihood_batch
-            prior_func = prior_transform
+            # UltraNest's batches change size on every call, so padding them is
+            # what keeps compilation from repeating throughout the run.
+            log_likelihood_func = pad_batches_to_buckets(
+                build_jitted_batched_likelihood(context)
+            )
+            prior_func = pad_batches_to_buckets(build_batched_prior_transform(context))
 
         sampler = cls(
             log_likelihood_func=log_likelihood_func,
@@ -142,14 +158,18 @@ class UltranestSampler(Sampler):
             "sampler_type": "ultranest",
             "parameter_names": run_kwargs["parameter_names"],
             "vectorized": vectorized,
+            "use_jit": jit_enabled,
         }
+        if run_kwargs.get("enable_step_sampling"):
+            summary_parameters["enable_step_sampling"] = True
+            summary_parameters["nsteps"] = run_kwargs.get("nsteps", 100)
         if likelihood_devices is not None:
             summary_parameters["likelihood_devices"] = [str(d) for d in likelihood_devices]
             summary_parameters["likelihood_target_device"] = str(target_device)
         return sampler, run_kwargs, summary_parameters
 
     def load_results(self):
-        log_dir = self._get_output_directory()
+        log_dir = self._get_run_dir(self._get_output_directory())
         results_file = os.path.join(log_dir, "info", "results.json")
         equal_weighted_file = os.path.join(
             log_dir, "chains", "equal_weighted_post.txt"
@@ -199,6 +219,12 @@ class UltranestSampler(Sampler):
                 if "samples" not in results:
                     results["samples"] = weighted_points
                     results["log_likelihood"] = weighted_log_likelihood
+                else:
+                    aligned = _equal_weighted_log_likelihood(
+                        results["samples"], weighted_points, weighted_log_likelihood
+                    )
+                    if aligned is not None:
+                        results["log_likelihood"] = aligned
 
         self.results = results if results else None
         return self.results
@@ -221,42 +247,35 @@ class UltranestSampler(Sampler):
             "ndraw_max": kwargs.pop("ndraw_max", 65536),
             "storage_backend": kwargs.pop("storage_backend", "hdf5"),
             "warmstart_max_tau": kwargs.pop("warmstart_max_tau", -1),
-            "enable_step_sampling": kwargs.pop("enable_step_sampling", False),
         }
 
-        if reactive_kwargs.get("enable_step_sampling"):
-            try:
-                from _opt.ultranest.stepsampler import (
-                    SliceSampler,
-                    generate_mixture_random_direction,
-                )
+        # UltraNest's region sampling (MLFriends) degrades quickly beyond ~10
+        # dimensions; a slice step sampler is its recommended replacement there.
+        # It attaches to an already-constructed ReactiveNestedSampler.
+        step_sampler_kwargs = None
+        if kwargs.pop("enable_step_sampling", False):
+            step_sampler_kwargs = {
+                "nsteps": kwargs.pop("nsteps", 100),
+                "generate_direction": kwargs.pop(
+                    "generate_direction",
+                    _opt.ultranest_generate_mixture_random_direction,
+                ),
+                "scale": kwargs.pop("scale", 1.0),
+                "check_nsteps": kwargs.pop("check_nsteps", "move-distance"),
+                "adaptive_nsteps": kwargs.pop("adaptive_nsteps", False),
+                "max_nsteps": kwargs.pop("max_nsteps", 1000),
+                "region_filter": kwargs.pop("region_filter", False),
+                "log": kwargs.pop("log", False),
+            }
 
-                step_sampler_kwargs = {
-                    "nsteps": kwargs.pop("nsteps", 100),
-                    "generate_direction": kwargs.pop(
-                        "generate_direction", generate_mixture_random_direction
-                    ),
-                    "scale": kwargs.pop("scale", 1.0),
-                    "check_nsteps": kwargs.pop("check_nsteps", "move-distance"),
-                    "adaptive_nsteps": kwargs.pop("adaptive_nsteps", False),
-                    "max_nsteps": kwargs.pop("max_nsteps", 1000),
-                    "region_filter": kwargs.pop("region_filter", False),
-                    "log": kwargs.pop("log", False),
-                }
-                self.sampler.stepsampler = SliceSampler(**step_sampler_kwargs)
-            except ImportError:
-                warnings.warn(
-                    "Could not import SliceSampler. Step sampler disabled.",
-                    RuntimeWarning,
-                )
-        else:
-            reactive_kwargs.pop("enable_step_sampling", None)
-            self.sampler = _opt.ultranest.ReactiveNestedSampler(  # Renamed to avoid conflict with base class name
-                param_names=parameter_names,
-                loglike=self.log_likelihood_func,
-                transform=self.prior_func,
-                **reactive_kwargs,
-            )
+        self.sampler = _opt.ultranest.ReactiveNestedSampler(
+            param_names=parameter_names,
+            loglike=self.log_likelihood_func,
+            transform=self.prior_func,
+            **reactive_kwargs,
+        )
+        if step_sampler_kwargs is not None:
+            self.sampler.stepsampler = _opt.UltranestSliceSampler(**step_sampler_kwargs)
         run_kwargs = {
             "update_interval_volume_fraction": kwargs.pop(
                 "update_interval_volume_fraction", 0.8
@@ -290,7 +309,7 @@ class UltranestSampler(Sampler):
         # run_kwargs['max_iters'] = self.max_iters if self.max_iters > 0 else None
 
         self.sampler.run(**run_kwargs)
-        self.results = self.sampler.results
+        self.results = _with_sample_log_likelihood(self.sampler.results)
         if self.results:
             self.sampler.print_results()
         return self.results
@@ -344,7 +363,7 @@ class UltranestSampler(Sampler):
         fallback for a run whose generic archive is missing.
         """
         weighted_file = os.path.join(
-            cls._get_log_dir(output_directory, retrieval_name),
+            cls._get_run_dir(cls._get_log_dir(output_directory, retrieval_name)),
             "chains",
             "weighted_post.txt",
         )
@@ -363,3 +382,47 @@ class UltranestSampler(Sampler):
 
         parameter_names = header[2:] if len(header) == weighted_rows.shape[1] else []
         return weighted_rows[:, 2:], weighted_rows[:, 1], parameter_names
+
+
+def _with_sample_log_likelihood(results):
+    """UltraNest's in-memory results, with the log likelihood of each equal-weighted sample.
+
+    ``ReactiveNestedSampler.results`` holds the equal-weighted ``samples`` and the
+    weighted chain (``weighted_samples``) but no per-sample log likelihood, so the
+    retrieval would otherwise re-evaluate every sample one by one when it saves them
+    (hours for ~10^4 samples). The values are looked up in the weighted chain, as
+    :meth:`UltranestSampler.load_results` does for the files.
+    """
+    if not isinstance(results, dict) or results.get("samples") is None:
+        return results
+    if "log_likelihood" in results:
+        return results
+    weighted = results.get("weighted_samples")
+    if not isinstance(weighted, dict) or weighted.get("points") is None or weighted.get("logl") is None:
+        return results
+    aligned = _equal_weighted_log_likelihood(results["samples"], weighted["points"], weighted["logl"])
+    if aligned is not None:
+        results["log_likelihood"] = aligned
+    return results
+
+
+def _equal_weighted_log_likelihood(equal_weighted, weighted_points, weighted_log_likelihood):
+    """Log likelihoods of UltraNest's equal-weighted samples, row by row.
+
+    ``equal_weighted_post.txt`` resamples the weighted chain (same number of rows,
+    with repeats) and stores no likelihoods; its rows are exact copies of
+    ``weighted_post.txt`` rows, so each is looked up there. Pairing the samples
+    with the weighted chain's ``logl`` column instead mismatches every row.
+    Returns None if any row is missing, so the caller can recompute them.
+    """
+    equal_weighted = np.ascontiguousarray(np.asarray(equal_weighted, dtype=float))
+    weighted_points = np.ascontiguousarray(np.asarray(weighted_points, dtype=float))
+    if equal_weighted.ndim != 2 or equal_weighted.shape[1] != weighted_points.shape[1]:
+        return None
+    lookup = {
+        row.tobytes(): value for row, value in zip(weighted_points, weighted_log_likelihood)
+    }
+    values = [lookup.get(row.tobytes()) for row in equal_weighted]
+    if any(value is None for value in values):
+        return None
+    return np.asarray(values, dtype=float)

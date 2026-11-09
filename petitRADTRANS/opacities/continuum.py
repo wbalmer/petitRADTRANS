@@ -72,7 +72,7 @@ def compute_continuum_opacities(
     )
 
     # Add CIA opacities
-    continuum_opacities += compute_cia_opacities( # TODO Paul_review : continue from within here
+    continuum_opacities += compute_cia_opacities(  # TODO Paul_review : continue from within here
         cia_dicts=cias_loaded_opacities,
         mass_fractions=mass_fractions,
         pressures=pressures,
@@ -131,9 +131,9 @@ def compute_combined_opacities(
 
     # Combine line opacities with continuum opacities, apply line opacity mass fraction weighting
     opacities = combine_opacities(
-        line_species_mass_fractions=line_species_mass_fractions, # for lbl this will just be ones, since
-                                                                 # the mass fraction scaling has already
-                                                                 # been done.
+        line_species_mass_fractions=line_species_mass_fractions,  # for lbl this will just be ones, since
+                                                                  # the mass fraction scaling has already
+                                                                  # been done.
         opacities=opacities,
         continuum_opacities=continuum_opacities,  # added to the first species slot
     )
@@ -188,6 +188,7 @@ def compute_continuum_scattering_opacities(
     mean_molar_masses,
     rayleigh_species,
     haze_factor,
+    path_input_data=None,
 ):
     # Reset
     continuum_opacities_scattering = jnp.zeros(
@@ -207,6 +208,7 @@ def compute_continuum_scattering_opacities(
             mean_molar_masses=mean_molar_masses,
             frequencies=frequencies,
             haze_factor=haze_factor,
+            path_input_data=path_input_data,
         )
 
     return continuum_opacities_scattering, scattering_in_transmission

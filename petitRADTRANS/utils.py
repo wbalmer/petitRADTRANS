@@ -2,6 +2,7 @@
 
 import copy
 import csv
+import os
 import warnings
 
 import h5py
@@ -10,6 +11,39 @@ from jax import Array
 import numpy as np
 import numpy.typing as npt
 from jax.tree_util import register_pytree_node_class
+
+
+#: Environment variables that MPI launchers set in every rank they start: srun with
+#: PMIx (MeluXina's pspmix sets PMIX_RANK) or PMI-2, Open MPI's mpirun/prterun,
+#: MPICH/Hydra, Intel MPI and Cray PALS.
+MPI_LAUNCHER_ENVIRONMENT_VARIABLES = (
+    "PMIX_RANK",
+    "PMI_RANK",
+    "PMI_SIZE",
+    "OMPI_COMM_WORLD_SIZE",
+    "MPI_LOCALRANKID",
+    "PALS_RANKID",
+)
+
+#: Set to 1/true/yes/on to keep petitRADTRANS from using MPI in this process tree.
+DISABLE_MPI_ENVIRONMENT_VARIABLE = "PETITRADTRANS_DISABLE_MPI"
+
+
+def mpi_launch_detected(environ=None) -> bool:
+    """Whether this process may import mpi4py, i.e. was started as an MPI rank.
+
+    Importing mpi4py runs MPI_Init. In a process that no MPI launcher started --
+    a worker spawned by a JAX sampler runtime (jaxns-cli, the multichain helpers),
+    or a plain subprocess of a batch script -- MPI_Init falls back to singleton
+    mode, which aborts the process on some MPI stacks. An abort is not an
+    exception, so it cannot be caught after the fact: the only safe choice is not
+    to import mpi4py in such processes. They are single processes (rank 0 of 1)
+    either way, so petitRADTRANS' no-MPI path is equivalent for them.
+    """
+    environ = os.environ if environ is None else environ
+    if environ.get(DISABLE_MPI_ENVIRONMENT_VARIABLE, "").strip().lower() in ("1", "true", "yes", "on"):
+        return False
+    return any(name in environ for name in MPI_LAUNCHER_ENVIRONMENT_VARIABLES)
 
 
 @register_pytree_node_class
@@ -141,6 +175,9 @@ def check_all_close(a, b, **kwargs):
     elif isinstance(a, str):
         if a != b:
             raise AssertionError(f"'{a}' != '{b}'")
+    elif isinstance(a, np.ndarray) and a.dtype.kind in "SU":  # array of strings (e.g. loaded from an HDF5 file)
+        if np.shape(a) != np.shape(b) or not np.all(a.astype(str) == np.asarray(b).astype(str)):
+            raise AssertionError(f"'{a}' != '{b}'")
     elif isinstance(a, Array):
         if not jnp.allclose(a, b, **kwargs):
             raise AssertionError(
@@ -155,7 +192,7 @@ def check_all_close(a, b, **kwargs):
     elif isinstance(b, list):
         if isinstance(b[0], str):
             for i, value in enumerate(a):
-                if value != b[0]:
+                if value != b[i]:
                     raise AssertionError(f"'{a}' != '{b}'")
         elif not np.allclose(a, b, **kwargs):
             raise AssertionError(
@@ -400,8 +437,8 @@ def hdf52dict(hdf5_file):
 def intersection_indices(array1: npt.NDArray, array2: npt.NDArray):
     """Get the indices of the intersection between two sorted arrays in decreasing order.
 
-    For example, if array1 is [0.1, ..., 0.3, ..., 3][::-1] and array2 is interval [0.3, ..., 3, ..., 28][::-1], then the output
-    indices will be the indices corresponding to [0.3, ..., 3][::-1] in both arrays.
+    For example, if array1 is [0.1, ..., 0.3, ..., 3][::-1] and array2 is interval [0.3, ..., 3, ..., 28][::-1], then
+    the output indices will be the indices corresponding to [0.3, ..., 3][::-1] in both arrays.
     The [::-1] denotes changing the array from increasing to decreasing order, since intersection_indices
     only works for decreasing order arrays.
 

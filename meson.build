@@ -2,8 +2,10 @@
 
 project('petitRADTRANS',
     'c',
-    # version must be updated here as well
-    version : '4.0.0b3',
+    # VERSION.txt is the single source of the package version: pyproject.toml
+    # declares it dynamic, docs/conf.py reads the file, and petitRADTRANS/_version.py
+    # is generated from it (see petitRADTRANS/meson.build).
+    version : files('VERSION.txt'),
     license: 'MIT',
     meson_version: '>=1.1.0',
     default_options : [

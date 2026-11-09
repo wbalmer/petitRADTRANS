@@ -3,6 +3,7 @@
 import os
 
 import h5py
+import jax
 import jax.numpy as jnp
 import numpy as np  # For file I/O, as JAX doesn't handle it directly
 from jax import lax, vmap
@@ -406,15 +407,23 @@ class PreCalculatedEquilibriumChemistryTable:
         species = tuple(species[index] for index in species_order)
         mass_fractions = mass_fractions[species_order, ...]
 
-        mass_fractions = jnp.array(mass_fractions, dtype=WORKING_JAX_DTYPE)
-        mean_molar_masses = jnp.array(mean_molar_masses, dtype=WORKING_JAX_DTYPE)
-        nabla_adiabatic = jnp.array(nabla_adiabatic, dtype=WORKING_JAX_DTYPE)
-        log10_metallicities = jnp.array(
-            log10_metallicities, dtype=WORKING_JAX_DTYPE
-        )
-        co_ratios = jnp.array(co_ratios, dtype=WORKING_JAX_DTYPE)
-        temperatures = jnp.array(temperatures, dtype=WORKING_JAX_DTYPE)
-        pressures = jnp.array(pressures, dtype=WORKING_JAX_DTYPE)
+        # interpolate_mass_fractions loads the table lazily, so this can first run
+        # inside a jit/vmap trace -- e.g. a JAXNS distributed worker, which traces
+        # the likelihood without evaluating it eagerly first. The dtype
+        # conversions below would then be staged into that trace, the cached
+        # arrays would be tracers, and the next trace would fail with
+        # UnexpectedTracerError. Evaluating them at compile time keeps the cached
+        # table concrete however it is first reached.
+        with jax.ensure_compile_time_eval():
+            mass_fractions = jnp.array(mass_fractions, dtype=WORKING_JAX_DTYPE)
+            mean_molar_masses = jnp.array(mean_molar_masses, dtype=WORKING_JAX_DTYPE)
+            nabla_adiabatic = jnp.array(nabla_adiabatic, dtype=WORKING_JAX_DTYPE)
+            log10_metallicities = jnp.array(
+                log10_metallicities, dtype=WORKING_JAX_DTYPE
+            )
+            co_ratios = jnp.array(co_ratios, dtype=WORKING_JAX_DTYPE)
+            temperatures = jnp.array(temperatures, dtype=WORKING_JAX_DTYPE)
+            pressures = jnp.array(pressures, dtype=WORKING_JAX_DTYPE)
 
         print("Done.")
         return (

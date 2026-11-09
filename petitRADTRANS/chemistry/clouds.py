@@ -6,7 +6,6 @@ import warnings
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.core import Tracer
 from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE
 from petitRADTRANS.opacities.opacities import CloudOpacity
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
@@ -454,7 +453,8 @@ def setup_clouds(pressures, parameters, cloud_species):
             ``parameters['sigma_lnorm']``). Use :func:`setup_clouds_from_legacy_dict`
             if you have a legacy parameter dictionary with ``.value`` attributes.
             Should contain:
-                 *  fsed : sedimentation parameter - can be unique to each cloud type
+                 *  f_sed (or fsed) : sedimentation parameter - can be unique to each cloud type
+                    (f_sed_* or fsed_*)
                 One of:
                   *  sigma_lnorm : Width of cloud particle size distribution (log normal)
                   *  b_hans : Width of cloud particle size distribution (hansen)
@@ -484,7 +484,9 @@ def setup_clouds(pressures, parameters, cloud_species):
     kzz = None
 
     # Setup distribution shape
-    if "sigma_lnorm" in parameters.keys():
+    if any(str(key).startswith("sigma_lnorm_") for key in parameters.keys()):
+        sigma_lnorm = cloud_dict(parameters, "sigma_lnorm", cloud_species)
+    elif "sigma_lnorm" in parameters.keys():
         sigma_lnorm = parameters["sigma_lnorm"]
     elif "b_hans" in parameters.keys():
         b_hans = get_bhans(parameters, cloud_species, pressures.shape[0])
@@ -664,7 +666,14 @@ def get_fseds(parameters, cloud_species):
     This function checks to see if the fsed values are input on a per-cloud basis
     or only as a single value, and returns the dictionary providing the fsed values
     for each cloud, or None, if no cloud is used.
+    Aliases such as ``fsed`` and ``fsed_*`` are accepted for ``f_sed`` and ``f_sed_*``.
     """
+    from petitRADTRANS.retrieval.parameter_aliases import normalize_parameter_name
+
+    parameters = {
+        normalize_parameter_name(key): parameters[key] for key in parameters.keys()
+    }
+
     return cloud_dict(parameters, "f_sed", cloud_species)
 
 

@@ -1,6 +1,6 @@
 import copy
 import jax.numpy as jnp
-from jax import vmap, debug
+from jax import vmap
 from petitRADTRANS.utils import LockedDict
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.opacities.opacities import Opacity
@@ -142,10 +142,10 @@ def compute_cia_opacities(
                     * base_species_mass_fractions[collision_species]
                 )
             else:
-                raise ValueError( # Dictionaries keys and CIA
-                                  # species names are never traced
-                                  # so this error here would fire
-                                  # corretly at trace time.
+                raise ValueError(  # Dictionaries keys and CIA
+                                   # species names are never traced
+                                   # so this error here would fire
+                                   # corretly at trace time.
                     f"species '{collision_species}' of CIA '{collision}' "
                     f"not found in mass fractions dict "
                     f"(listed species: {list(mass_fractions.keys())}, "
@@ -190,8 +190,8 @@ def interpolate_cia(
         combined_mass_fractions: combined mass fractions of the colliding species
             e.g., for H2-He and an atmosphere with H2 and He MMR of respectively 0.74 and 0.24,
             combined_mas_fractions = 0.74 * 0.24
-            combined_mas_fractions is divided by the combined weight later (e.g. for H2 and He, 2 * 4 AMU^2), so there is
-            no units issue.
+            combined_mas_fractions is divided by the combined weight later (e.g. for H2 and He, 2 * 4 AMU^2), so there
+            is no units issue.
         pressures (ArrayLike):
             pressures of the atmospheric layers (cgs units). Shape (N_layers).
         temperatures (ArrayLike):
@@ -225,7 +225,7 @@ def interpolate_cia(
         / temperatures
     )
 
-    log10_alpha = jnp.log10(alphas) # TODO: better to safe as log10(alpha) from the start?
+    log10_alpha = jnp.log10(alphas)  # TODO: better to safe as log10(alpha) from the start?
 
     # if collision_dict['temperature'].shape[0] > 1:
     # Interpolation on temperatures for each wavelength point

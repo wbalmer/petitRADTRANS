@@ -27,6 +27,7 @@ _SAMPLER_REGISTRY: dict[str, tuple[str, str]] = {
     "pymultinest": ("pymultinest", "PymultinestSampler"),
     "ultranest": ("ultranest", "UltranestSampler"),
     "dynesty": ("dynesty", "DynestySampler"),
+    "nautilus": ("nautilus", "NautilusSampler"),
     "blackjaxhmc": ("blackjax", "BlackJAXHMCSampler"),
     "blackjax_hmc": ("blackjax", "BlackJAXHMCSampler"),
     "hmc": ("blackjax", "BlackJAXHMCSampler"),
@@ -47,9 +48,20 @@ _SAMPLER_REGISTRY: dict[str, tuple[str, str]] = {
     "map": ("optimal_estimation", "OptimalEstimationSampler"),
 }
 
+#: Retired ``sampler_type`` names -> what replaces them. Their backends no
+#: longer exist, so resolving one strictly raises with this guidance.
+# TODO: remove in version 5.0.0
+_RETIRED_SAMPLER_TYPES: dict[str, str] = {
+    "jaxnsshardedstaticnestedsampler": (
+        "JAXNS 3 removed device sharding; use sampler_type='jaxns_distributed' "
+        "for multi-device nested sampling, or 'jaxns' on a single device."
+    ),
+}
+
 #: Mutable registry for custom backends registered at runtime. Also used as the
 #: resolution cache for the built-in table.
 SAMPLER_DISPATCH: dict[str, type[Sampler]] = {}
+
 
 def resolve_sampler_class(
     sampler_type: str,
@@ -60,25 +72,35 @@ def resolve_sampler_class(
     Args:
         sampler_type: an alias from :data:`_SAMPLER_REGISTRY`, a key registered
             in :data:`SAMPLER_DISPATCH`, or a retired JAXNS 2 name.
-        strict: whether a backend that cannot be imported is an error. Callers
-            that *run* a retrieval want the ImportError, because the name they
-            asked for is the one they need. Callers that merely *ask a backend
-            about itself* -- which output folder it owns, whether it needs
-            distribution priors -- must not fail merely because an unrelated
-            optional dependency is absent, and pass ``strict=False`` to get
-            ``None`` instead.
+        strict: whether a backend that cannot be imported, or a retired name,
+            is an error. Callers that *run* a retrieval want the error, because
+            the name they asked for is the one they need. Callers that merely
+            *ask a backend about itself* -- which output folder it owns,
+            whether it needs distribution priors -- must not fail merely
+            because an unrelated optional dependency is absent, and pass
+            ``strict=False`` to get ``None`` instead.
     Returns:
         The sampler class, or ``None`` if the name is not known (or, when
-        ``strict`` is False, if its backend cannot be imported).
+        ``strict`` is False, if its backend cannot be imported or is retired).
     Raises:
         ImportError: if the backend's own third-party library is missing and
             ``strict`` is True.
+        ValueError: if ``sampler_type`` is a retired name and ``strict`` is
+            True.
     """
     sampler_type_normalized = sampler_type.lower()
 
     sampler_class = SAMPLER_DISPATCH.get(sampler_type_normalized)
     if sampler_class is not None:
         return sampler_class
+
+    retired_guidance = _RETIRED_SAMPLER_TYPES.get(sampler_type_normalized)
+    if retired_guidance is not None:
+        if strict:
+            raise ValueError(
+                f"sampler_type '{sampler_type}' is no longer available. {retired_guidance}"
+            )
+        return None
 
     registry_entry = _SAMPLER_REGISTRY.get(sampler_type_normalized)
     if registry_entry is None:

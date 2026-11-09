@@ -1205,13 +1205,13 @@ def compute_cloud_continuum_opacities(
     )
 
     (
-        cloudy_continuum_opacities, # total cloud *absorption* opacities (may include opaque cloud deck)
-        cloudy_continuum_opacities_scattering, # total cloud *scattering* opacities,
-                                               # optionally scaled by (1-g)
-        cloud_scattering_opacities, # total cloud *scattering* opacities, scaled by (1-g)
-        cloud_absorption_opacities, # total cloud *absorption* opacities
-        cloud_opacities, # total cloud extinction opacity, so continuum and (1-g) (not optional) *
-                         # scattering opacity.
+        cloudy_continuum_opacities,  # total cloud *absorption* opacities (may include opaque cloud deck)
+        cloudy_continuum_opacities_scattering,  # total cloud *scattering* opacities,
+                                                # optionally scaled by (1-g)
+        cloud_scattering_opacities,  # total cloud *scattering* opacities, scaled by (1-g)
+        cloud_absorption_opacities,  # total cloud *absorption* opacities
+        cloud_opacities,  # total cloud extinction opacity, so continuum and (1-g) (not optional) *
+                          # scattering opacity.
         _cloud_particle_mean_radii,
         cloudy_branch_has_effect,
     ) = _maybe_compute_cloud_branch(
@@ -1545,23 +1545,26 @@ def _compute_cloud_opacities(
     )
 
 
-def compute_species_optical_depths(reference_gravity, pressures, cloud_opacities):
-    """Compute cloud optical depths from per-species cloud opacities.
-
-    Optical depths are integrated from the top of the atmosphere downward using
-    the atmospheric pressure grid and a vertically constant reference gravity.
+def compute_species_optical_depths(
+        reference_gravity: float,
+        pressures: ArrayLike,
+        species_opacities: ArrayLike,
+) -> ArrayLike:
+    """
+    Compute cloud optical depths from per-species opacities. Optical depths are integrated from the top of the
+    atmosphere downward using the atmospheric pressure grid and a vertically constant reference gravity.
 
     Args:
-        reference_gravity:
-            Surface gravity in cgs units.
-        pressures:
-            Atmospheric pressure grid in cgs units.
-        cloud_opacities:
-            Cloud opacity array with dimensions ``(..., n_layers)``.
+        reference_gravity: float
+            (cm/s^2) Surface gravity of the object.
+        pressures: jax.numpy.ndarray, shape (n_layers,)
+            (barye) Atmospheric pressure grid in cgs units.
+        species_opacities: jax.numpy.ndarray, shape (..., n_layers,)
+            (cm^2/g) Species opacity array.
 
     Returns:
         Cloud optical depths with the same shape as ``cloud_opacities``.
     """
-    return radiative_transfer_core.compute_species_optical_depths(
-        reference_gravity, pressures, cloud_opacities
+    return radiative_transfer_core.compute_species_optical_depths_core(
+        reference_gravity, pressures, species_opacities
     )

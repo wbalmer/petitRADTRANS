@@ -11,7 +11,6 @@ import numpy as np
 import numpy.typing as npt
 from jax import config as jax_config
 from jax import core as jax_core
-from jax import lax, debug
 from jax.typing import ArrayLike
 
 import petitRADTRANS.physical_constants as cst
@@ -392,14 +391,14 @@ def _sanitize_emission_surface_inputs(
             and star_effective_temperature is not None
             and orbit_semi_major_axis is not None
         ):
-            stellar_intensities = compute_star_spectrum( # TODO: make stellar parameters not
-                                                         # static anymore. Requires changes to
-                                                         # stellar_spectra/phoenix.py
-                                                         # and its cache key treatment
-                                                         # we want to load the full stellar
-                                                         # spectrum table and then just
-                                                         # interpolate in it, using the traced
-                                                         # stellar parameters.
+            stellar_intensities = compute_star_spectrum(  # TODO: make stellar parameters not
+                                                          # static anymore. Requires changes to
+                                                          # stellar_spectra/phoenix.py
+                                                          # and its cache key treatment
+                                                          # we want to load the full stellar
+                                                          # spectrum table and then just
+                                                          # interpolate in it, using the traced
+                                                          # stellar parameters.
                 star_effective_temperature=star_effective_temperature,
                 orbit_semi_major_axis=orbit_semi_major_axis,
                 frequencies=frequencies,
@@ -477,8 +476,9 @@ def _normalize_optional_mapping_or_scalar(
 
 def _normalize_cloud_species_selection(selection, default_species):
     if selection is None:
-        return tuple() # this branch is never used, since cloud species is never
-                       # None when _normalize_cloud_species_selection is called.
+        # This branch is never used, since cloud species is never None when
+        # _normalize_cloud_species_selection is called.
+        return tuple()
 
     if isinstance(selection, (str, bytes)):
         selection = (selection,)

@@ -1,6 +1,6 @@
 """Using the retrieval model functions directly.
 
-Demonstrates calling the runtime-native model-function interface outside a full
+Demonstrates calling the differentiable model-function interface outside a full
 retrieval loop to compute spectra and temperature profiles. Each model takes a
 ``ModelContext`` (Radtrans object + evaluation flags) and a ``PhysicalParams``
 mapping, and returns a ``ModelResult``. Includes built-in emission and

@@ -107,10 +107,9 @@ When you estimate that your work is done, you can think about pushing to the ``d
 1. Check that you respect the :ref:`stylistic guidelines<stylistic_guidelines>`.
 2. Check the :ref:`merge request guidelines<merge_guidelines>`.
 3. Update the ``dev`` version number (see :ref:`versioning`) in the following files:
-    - ``pyproject.toml``
-    - ``meson.build``
+    - ``VERSION.txt`` (the single source: ``meson.build``, ``pyproject.toml``,
+      ``docs/conf.py`` and ``petitRADTRANS.__version__`` all read it)
     - ``CHANGELOG.md``
-    - ``docs/conf.py``
 4. In ``CHANGELOG.md``, update the date of the latest version.
 5. Summarize your changes in ``CHANGELOG.md``, respecting the convention (see :ref:`versioning`).
 6. You are ready to push!

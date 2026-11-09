@@ -6,6 +6,7 @@ py.install_sources([
     'physics_core.py',
     'radiative_transfer_core.py',
     'rayleigh_scattering.py',
+    'rayleigh_scattering_legacy.py',
     'spectrum_utils.py',
     '__init__.py',
     ],

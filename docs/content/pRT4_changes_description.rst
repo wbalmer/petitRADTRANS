@@ -36,7 +36,7 @@ Added
 -  Built-in differentiable JAX retrieval models exported from
     ``petitRADTRANS.retrieval.models``, together with dedicated tutorials for
       emission, transmission, and time-series retrievals.
--  New retrieval samplers: ``dynesty``, ``jaxns``, ``blackjax`` HMC and NUTS,
+-  New retrieval samplers: ``dynesty``, ``nautilus``, ``jaxns``, ``blackjax`` HMC and NUTS,
     and ``numpyro`` HMC and NUTS, in addition to the existing PyMultiNest and
     UltraNest workflows.
 -  Ability to use optimal estimation to find the maximum a posteriori (MAP) solution
@@ -49,9 +49,9 @@ Added
     likelihood evaluation through ``LogLikelihood``.
 -  The ``RetrievalPlotter`` class, which separates retrieval plotting from the
     core ``Retrieval`` object.
--  A new ``petitRADTRANS.experimental.sbi`` package scaffold for simulation-based inference,
-    including simulators, training tasks, and normalising flow
-    based SBI workflows.
+-  Simulation-based inference (simulators, training tasks, and normalising
+    flow based SBI workflows) built on the retrieval runtime, available as the
+    separate `petitSBI <https://gitlab.com/enasedkin/petitSBI>`_ package.
 -  Time-variable retrieval support through
     ``RetrievalConfig.add_time_series_data()`` and time-series
     model parameterizations.
@@ -64,8 +64,7 @@ Added
     retrieval pipeline can compute model-selection diagnostics such as BIC, AIC,
     and BPIC.
 -  New tutorial and reference material covering the JAX runtime, sampler
-    choices, differentiable retrieval models, covariance-aware retrievals, and
-    SBI.
+    choices, differentiable retrieval models, and covariance-aware retrievals.
 
 Changed
 =======
@@ -96,7 +95,7 @@ Changed
 -  The tutorial set, retrieval examples, and public documentation now assume
     the current v4 dataset-control names, the differentiable model examples, and
     the expanded sampler ecosystem.
--  pRT 4 ships optional dependency groups for ``[retrieval]``, ``[sbi]``, and
+-  pRT 4 ships optional dependency groups for ``[retrieval]`` and
     ``[full]``, reflecting the broader runtime and inference stack introduced in
     this release line.
 -  The installation and runtime expectations changed with the new backend: pRT
@@ -159,9 +158,8 @@ Installation and runtime
     installations work out of the box, while GPU or TPU execution depends on the
     JAX wheel you install.
 -  Choose the optional extras that match your workflow:
-    ``petitRADTRANS[retrieval]`` for retrievals,
-    ``petitRADTRANS[sbi]`` for SBI, or ``petitRADTRANS[full]`` for the full
-    stack.
+    ``petitRADTRANS[retrieval]`` for retrievals or ``petitRADTRANS[full]``
+    for the full stack. For SBI, install the separate ``petitSBI`` package.
 
 Updating forward models
 -----------------------

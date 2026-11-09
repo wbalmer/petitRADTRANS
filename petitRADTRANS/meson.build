@@ -7,7 +7,6 @@ subdir('plotlib')
 subdir('temperature_profiles')
 subdir('radtrans_core')
 subdir('retrieval')
-subdir('experimental')
 subdir('slurm_runs')
 subdir('stellar_spectra')
 
@@ -27,4 +26,12 @@ py.install_sources([
     '__init__.py',
     ],
     subdir: 'petitRADTRANS'
+)
+
+configure_file(
+    input: '_version.py.in',
+    output: '_version.py',
+    configuration: {'VERSION': meson.project_version()},
+    install: true,
+    install_dir: py.get_install_dir() / 'petitRADTRANS',
 )

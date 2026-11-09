@@ -4,18 +4,22 @@ Each backend wants the retrieval's posterior in a different shape:
 
 * PyMultiNest and non-vectorized UltraNest want scalar callbacks over the unit
   hypercube (optionally dispatched to a specific JAX device).
+* Nautilus wants a prior transform and a log-likelihood over batches of points.
 * BlackJAX, NumPyro and the optax optimiser want a differentiable
   log-posterior over an *unconstrained* space, plus the transform back to
   physical parameters and the change-of-variables Jacobian.
 * JAXNS 3 wants a single callable that realises its JAXCTX priors and returns
   the scalar log likelihood.
 
-The builders here derive all three from a :class:`~petitRADTRANS.retrieval.samplers.base.SamplerContext`,
+The builders here derive all of them from a :class:`~petitRADTRANS.retrieval.samplers.base.SamplerContext`,
 so no backend needs to know how a ``RetrievalRuntime`` or a ``ParameterLayout``
 is put together.
 """
 
 import pickle
+import warnings
+
+import numpy as np
 
 from petitRADTRANS.retrieval._mpi import get_mpi_context
 from petitRADTRANS.retrieval.samplers import _optional_imports as _opt
@@ -30,6 +34,88 @@ def check_differentiable_support(context: SamplerContext, sampler_label: str) ->
             f"{sampler_label} requires at least one differentiable model group; "
             "legacy-only retrievals are not supported."
         )
+
+
+def build_jitted_scalar_likelihood(context: SamplerContext, target_device=None):
+    """Return a jitted, PyMultiNest/UltraNest-compatible scalar log-likelihood.
+
+    The compiled function takes the flat vector of free-parameter values, so
+    every call has the same abstract signature and compiles exactly once. The
+    returned callable accepts anything the samplers hand over -- a NumPy row, a
+    list, or MultiNest's ctypes buffer -- and returns a plain Python float.
+
+    ``target_device`` pins every evaluation to one JAX device; ``None`` uses the
+    process default. Requires differentiable model groups.
+    """
+    _opt.require_jax()
+    from petitRADTRANS.retrieval.runtime import _flatten_parameter_values
+
+    parameter_layout = context.parameter_layout
+    runtime = context.runtime
+    uncertainties_mode = context.uncertainties_mode
+    print_debug = context.print_log_likelihood_for_debugging
+    n_free_parameters = parameter_layout.n_free_parameters
+    default_device = _opt.default_device
+    device_get = _opt.device_get
+
+    @_opt.jit
+    def _jit_evaluate(free_parameter_values):
+        physical_params = parameter_layout.physical_params_from_vector(
+            free_parameter_values
+        )
+        return runtime.evaluate_likelihood_jax(
+            physical_params=physical_params,
+            uncertainties_mode=uncertainties_mode,
+            print_log_likelihood_for_debugging=print_debug,
+        )
+
+    def jitted_likelihood(cube, ndim=0, nparam=0):
+        free_parameter_values = np.asarray(
+            _flatten_parameter_values(cube, expected_size=n_free_parameters),
+            dtype=float,
+        )
+        if target_device is None:
+            result = _jit_evaluate(free_parameter_values)
+        else:
+            with default_device(target_device):
+                result = _jit_evaluate(free_parameter_values)
+        return float(device_get(result))
+
+    return jitted_likelihood
+
+
+def resolve_scalar_likelihood(context: SamplerContext, use_jit: bool, sampler_label: str):
+    """Pick the scalar log-likelihood a CPU-driven sampler should call.
+
+    Returns ``(log_likelihood_func, jit_enabled)``. With ``use_jit`` the
+    likelihood is compiled once (:func:`build_jitted_scalar_likelihood`);
+    otherwise, or when JAX or a differentiable model is unavailable, it falls
+    back to the eager ``Retrieval.log_likelihood`` callback with a warning.
+    """
+    if not use_jit:
+        return context.log_likelihood_func, False
+
+    try:
+        _opt.require_jax()
+    except ImportError:
+        warnings.warn(
+            f"JAX is unavailable; {sampler_label} will use the non-jitted scalar likelihood.",
+            RuntimeWarning,
+        )
+        return context.log_likelihood_func, False
+
+    if any(
+        group.model_contract != "differentiable"
+        for group in context.runtime.model_groups
+    ):
+        warnings.warn(
+            f"{sampler_label} JIT likelihood disabled because the retrieval contains "
+            "legacy model groups.",
+            RuntimeWarning,
+        )
+        return context.log_likelihood_func, False
+
+    return build_jitted_scalar_likelihood(context), True
 
 
 def build_device_likelihood_wrapper(context: SamplerContext):
@@ -55,28 +141,135 @@ def build_device_likelihood_wrapper(context: SamplerContext):
     _, _, rank = get_mpi_context()
     target_device = likelihood_devices[rank % len(likelihood_devices)]
 
-    parameter_layout = context.parameter_layout
+    return build_jitted_scalar_likelihood(context, target_device), target_device
+
+
+def vectorization_disable_reason(context: SamplerContext) -> str | None:
+    """Why this retrieval cannot use a batched likelihood, or ``None`` if it can."""
+    runtime = context.runtime
+
+    if any(group.model_contract != "differentiable" for group in runtime.model_groups):
+        return "the retrieval contains legacy model groups"
+
+    if any(
+        getattr(observation.spectrum, "dtype", None) == "O"
+        for observation in runtime.observations.values()
+    ):
+        return "the retrieval contains ragged observation groups"
+
+    return None
+
+
+def build_jitted_batched_likelihood(context: SamplerContext, target_device=None):
+    """Return a jitted log-likelihood mapping ``(n_points, n_free)`` to ``(n_points,)``.
+
+    It compiles once per batch shape, so callers should keep the batch size fixed.
+    ``target_device`` pins every evaluation to one JAX device; ``None`` uses the
+    process default. Requires a retrieval that passes :func:`vectorization_disable_reason`.
+    """
+    _opt.require_jax()
     runtime = context.runtime
     uncertainties_mode = context.uncertainties_mode
-    print_debug = context.print_log_likelihood_for_debugging
     default_device = _opt.default_device
-    device_get = _opt.device_get
 
-    _jit_evaluate = _opt.jit(
-        lambda physical_params: runtime.evaluate_likelihood_jax(
-            physical_params=physical_params,
+    @_opt.jit
+    def _jit_evaluate(free_parameter_values):
+        return runtime.evaluate_likelihood_jax_batched(
+            free_parameter_values=free_parameter_values,
             uncertainties_mode=uncertainties_mode,
-            print_log_likelihood_for_debugging=print_debug,
+            print_log_likelihood_for_debugging=False,
         )
-    )
 
-    def device_likelihood(cube, ndim=0, nparam=0):
-        physical_params = parameter_layout.physical_params_from_vector(cube)
+    def jitted_likelihood(points):
+        if target_device is None:
+            return np.asarray(_jit_evaluate(points))
         with default_device(target_device):
-            result = _jit_evaluate(physical_params)
-        return float(device_get(result))
+            return np.asarray(_jit_evaluate(points))
 
-    return device_likelihood, target_device
+    return jitted_likelihood
+
+
+def pad_batches_to_buckets(batched_function, smallest_bucket=8):
+    """Let a jitted function of ``(n_points, ...)`` take any batch size cheaply.
+
+    A jitted function compiles once per input shape, which is a problem for a
+    sampler whose batches change size on every call. This pads each batch to the
+    next power of two (at least ``smallest_bucket``) by repeating its last point,
+    and returns only the results of the real points, so that a handful of shapes
+    get compiled at the price of up to twice the evaluations per batch.
+    """
+
+    def padded_function(points):
+        points = np.asarray(points, dtype=float)
+
+        if points.ndim == 1:
+            return padded_function(points[np.newaxis])[0]
+
+        n_points = points.shape[0]
+        if n_points == 0:
+            return batched_function(points)
+
+        bucket = max(smallest_bucket, 1 << (n_points - 1).bit_length())
+        padding = np.repeat(points[-1:], bucket - n_points, axis=0)
+        return batched_function(np.concatenate((points, padding)))[:n_points]
+
+    return padded_function
+
+
+def build_batched_prior_transform(context: SamplerContext):
+    """Return a prior transform for ``(n_points, n_free)`` unit-cube arrays.
+
+    ``ParameterLayout.prior_transform_numpy`` evaluates each distribution eagerly,
+    one parameter of one point at a time, which costs milliseconds per point for
+    a typical retrieval. That adds up for a sampler that transforms every point
+    in its main process, so this compiles the transform and keeps it on the CPU,
+    leaving accelerators to the likelihood.
+
+    A custom ``transform_prior_cube_coordinate`` need not be traceable, or may
+    trace into something else, so the compiled transform is checked against the
+    eager one and replaced by it, with a warning, if the two disagree.
+    """
+    parameter_layout = context.parameter_layout
+
+    try:
+        _opt.require_jax()
+        default_device = _opt.default_device
+        cpu_device = _opt.devices("cpu")[0]
+        jitted_transform = _opt.jit(parameter_layout.transform_cube_to_physical_batch)
+
+        def batched_transform(cube_positions):
+            with default_device(cpu_device):
+                return np.asarray(jitted_transform(cube_positions), dtype=float)
+
+        probe = np.linspace(0.01, 0.99, 8)[:, np.newaxis] * np.ones(
+            parameter_layout.n_free_parameters
+        )
+        eager_values = parameter_layout.prior_transform_numpy(probe)
+        # Relative to the range of each prior rather than to each value. Bounds
+        # given as Python numbers make a distribution float32 even under x64, so
+        # its eager quantile rounds to float32 while the compiled one does not,
+        # and that rounding is large compared to a value close to zero.
+        transforms_agree = np.all(
+            np.abs(batched_transform(probe) - eager_values)
+            <= 1e-5 * np.ptp(eager_values, axis=0)
+        )
+    except Exception as error:  # noqa: BLE001
+        warnings.warn(
+            f"The prior transform could not be compiled ({type(error).__name__}: {error}); "
+            "using the slower eager transform.",
+            RuntimeWarning,
+        )
+        return parameter_layout.prior_transform_numpy
+
+    if not transforms_agree:
+        warnings.warn(
+            "The compiled prior transform disagrees with the eager one; "
+            "using the slower eager transform.",
+            RuntimeWarning,
+        )
+        return parameter_layout.prior_transform_numpy
+
+    return batched_transform
 
 
 def build_unconstrained_mcmc_interface(context: SamplerContext):
@@ -212,8 +405,10 @@ def build_jaxns_prior_model(context: SamplerContext):
             build_distributed_prior_model,
         )
 
+        # This process evaluates the model itself, so reuse its runtime rather
+        # than rebuilding a second copy of every opacity table from the factory.
         free_parameter_names, prior_model, _spec_path = build_distributed_prior_model(
-            context
+            context, reuse_runtime=True
         )
         return free_parameter_names, prior_model
 

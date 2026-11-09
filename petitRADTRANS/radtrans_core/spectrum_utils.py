@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+from jax import core as jax_core
 from jax import jit, lax, vmap, debug
 from jax.typing import ArrayLike
 import numpy as np
@@ -7,7 +8,6 @@ from interpax import interp1d
 from petitRADTRANS.utils import get_parameter_alias_value
 from petitRADTRANS.math import (
     compute_resolving_power,
-    gaussian_kernel_1d,
     gaussian_weights_running,
     median_filter,
     savgol_filter,
@@ -141,12 +141,36 @@ def continuum_subtract_spectrum(
     )
 
 
+# Half-width (in bins) of the Gaussian kernel of convolve_constant_resolution when its standard deviation is traced
+# (e.g. under jit), as the kernel size must then be static
+_DEFAULT_CONSTANT_CONVOLUTION_MAX_RADIUS = 20
+
+
 def convolve_constant_resolution(
     input_wavelength: ArrayLike,
     input_flux: ArrayLike,
     instrument_res: any,
-    max_radius: int = 20,
+    max_radius: int = None,
+    truncate: float = 4.0,
 ) -> ArrayLike:
+    """Convolve a spectrum of constant resolving power with a Gaussian line spread function.
+
+    This is equivalent to scipy.ndimage.gaussian_filter1d(input_flux, sigma, mode='reflect', truncate=truncate), with
+    sigma the standard deviation of the line spread function in bins.
+
+    Args:
+        input_wavelength: wavelengths of the spectrum, of constant resolving power
+        input_flux: spectrum to convolve, along its last axis
+        instrument_res: resolving power of the convolved spectrum
+        max_radius: half-width (in bins) of the convolution kernel. By default, it is the scipy one,
+            int(truncate * sigma + 0.5). When sigma is traced (e.g. under jit), the kernel size must be static, and
+            max_radius defaults to _DEFAULT_CONSTANT_CONVOLUTION_MAX_RADIUS; the convolved spectrum is then NaN if
+            max_radius is smaller than the scipy half-width, instead of being silently truncated.
+        truncate: truncate the kernel at this many standard deviations
+
+    Returns:
+        The convolved spectrum
+    """
     input_dtype = jnp.result_type(input_wavelength, input_flux, instrument_res)
     input_wavelength = jnp.asarray(input_wavelength, dtype=input_dtype)
     input_flux = jnp.asarray(input_flux, dtype=input_dtype)
@@ -162,12 +186,24 @@ def convolve_constant_resolution(
     sigma_lsf_gauss_filter = input_resolving_power / instrument_res / (
         2.0 * jnp.sqrt(2.0 * jnp.log(2.0))
     )
+    kernel_radius = jnp.floor(truncate * sigma_lsf_gauss_filter + 0.5)
 
-    kernel = jnp.asarray(
-        gaussian_kernel_1d(sigma_lsf_gauss_filter, max_radius), dtype=input_dtype
+    if max_radius is None:
+        if isinstance(kernel_radius, jax_core.Tracer):
+            max_radius = _DEFAULT_CONSTANT_CONVOLUTION_MAX_RADIUS
+        else:
+            max_radius = int(kernel_radius)
+
+    kernel_offsets = jnp.arange(-max_radius, max_radius + 1)
+    kernel = jnp.where(
+        jnp.abs(kernel_offsets) <= kernel_radius,
+        jnp.exp(-0.5 * kernel_offsets ** 2 / sigma_lsf_gauss_filter ** 2),
+        0.0,
     )
+    kernel = jnp.asarray(kernel / jnp.sum(kernel), dtype=input_dtype)
     pad_width = [(0, 0)] * (input_flux.ndim - 1) + [(max_radius, max_radius)]
-    padded_flux = jnp.pad(input_flux, pad_width, mode="reflect")
+    # numpy's "symmetric" mode (d c b a | a b c d) is scipy's "reflect" mode; numpy's "reflect" is scipy's "mirror"
+    padded_flux = jnp.pad(input_flux, pad_width, mode="symmetric")
 
     lhs = padded_flux.reshape((-1, padded_flux.shape[-1], 1))
     rhs = kernel[:, None, None]
@@ -179,7 +215,10 @@ def convolve_constant_resolution(
         dimension_numbers=("NWC", "WIO", "NWC"),
     )
 
-    return flux_lsf[..., 0].reshape(input_flux.shape)
+    # A kernel narrower than requested by truncate (only possible with a traced sigma) would silently be wrong
+    return jnp.where(
+        kernel_radius > max_radius, jnp.nan, flux_lsf[..., 0].reshape(input_flux.shape)
+    )
 
 
 # Half-width (in *model grid points*) of the sliding Gaussian-LSF window used by

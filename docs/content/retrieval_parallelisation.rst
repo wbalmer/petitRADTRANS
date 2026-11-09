@@ -40,6 +40,8 @@ each sampler uses one or both:
      so they scale across cores *and* nodes.
    * **Dynesty** parallelises with a **Python multiprocessing pool**
      (``dynesty.pool.Pool``) — many worker *processes* on one node.
+   * **Nautilus** evaluates its batches on **MPI ranks** or on a **process pool**,
+     and its networks train on the same workers.
    * **JAX nested samplers** (JAXNS) and **gradient MCMC** (NumPyro, BlackJAX)
      parallelise with **JAX device sharding** (``shard_map`` / ``vmap`` over a
      device mesh) — naturally a multi-GPU mechanism.
@@ -85,15 +87,20 @@ Capability matrix
      - **No** (pool is single-node)
      - Not supported
      - Not supported
+   * - ``nautilus``
+     - MPI ranks, or process pool (``pool_njobs``)
+     - **Yes** (MPI)
+     - ``vectorized``, one or several GPUs
+     - **Yes** (``likelihood_devices``, under MPI)
    * - ``jaxns``
-     - Device mesh (limited on CPU)
-     - Advanced only (multi-host)
-     - **Yes** (``devices``)
+     - Single device (XLA threading)
+     - **No**
+     - **Yes** (one GPU)
      - N/A (whole sampler is on-device)
-   * - ``jaxnsshardedstaticnestedsampler``
-     - Device mesh (limited on CPU)
-     - Advanced only (multi-host)
-     - **Yes** (sharded)
+   * - ``jaxns_distributed``
+     - ``jaxns-cli`` worker pool
+     - Advanced only (worker pool)
+     - **Yes** (one worker per GPU)
      - N/A
    * - ``numpyronuts`` / ``numpyrohmc``
      - Chains via mesh (limited) or independent processes
@@ -227,8 +234,8 @@ exists to *exercise* multi-device code paths, not to gain performance.
 
 On a CPU node, genuine parallelism comes from:
 
-* **MPI ranks** (PyMultiNest, UltraNest),
-* a **process pool** (Dynesty), or
+* **MPI ranks** (PyMultiNest, UltraNest, Nautilus),
+* a **process pool** (Dynesty, Nautilus), or
 * **independent OS processes**, one per MCMC chain (NumPyro, BlackJAX — see
   :ref:`par_native_multichain`),
 
@@ -306,6 +313,76 @@ let pRT build the pool:
 
 ``queue_size`` should match ``pool_njobs``; do not pass ``pool`` and
 ``pool_njobs`` together.
+
+.. _par_nautilus:
+
+Nautilus
+--------
+
+**MPI (recommended for a full node, and required across nodes).** Launch it like
+PyMultiNest: every rank runs the script and builds its own likelihood, rank 0 drives the
+sampler, and the other ranks evaluate the batches and train the networks. So ``N`` ranks
+give ``N - 1`` workers.
+
+.. code-block:: bash
+
+   #SBATCH --nodes=2
+   #SBATCH --ntasks-per-node=64
+   #SBATCH --cpus-per-task=1
+
+   export OMP_NUM_THREADS=1
+   srun --cpu-bind=cores python my_retrieval.py
+
+.. code-block:: python
+
+   retrieval.run(n_live=2000, n_eff=10000, timeout=46 * 3600)
+
+Do **not** use the launch command from the Nautilus documentation,
+``mpiexec python -m mpi4py.futures my_retrieval.py``. It runs the script on rank 0 only, so
+the barriers in ``Retrieval.run`` never complete and the run hangs.
+
+Binding at launch is also what limits the XLA threads of each rank, which size their pool
+from the cores they can see when pRT is imported.
+
+**Process pool (one node).** Request the cores as one task, and put the main code of the
+script under ``if __name__ == "__main__":``, because the workers are started with ``spawn``:
+
+.. code-block:: bash
+
+   #SBATCH --nodes=1
+   #SBATCH --ntasks-per-node=1
+   #SBATCH --cpus-per-task=32
+
+.. code-block:: python
+
+   if __name__ == "__main__":
+       retrieval.run(n_live=2000, n_eff=10000, pool_njobs=32)
+
+Unlike for Dynesty there is no ``pin_pool_workers``. A ``spawn`` worker imports pRT, which
+starts XLA, before it runs any code of ours, so pinning it could no longer limit XLA's
+threads. Each worker therefore sizes its thread pool to the whole allocation, and can
+oversubscribe it. That matters less the less a model parallelises internally, but MPI with
+``--cpu-bind`` avoids it altogether. Workers also each hold a copy of the retrieval runtime,
+so check the memory use of a run with large opacity tables. If a worker runs out of memory
+the run stops with a ``BrokenProcessPool`` error, and can then be resumed.
+
+**One GPU.** Batch the likelihood, and use some CPU cores to train the networks:
+
+.. code-block:: python
+
+   if __name__ == "__main__":
+       retrieval.run(vectorized=True, n_batch=256, sampler_pool_njobs=8)
+
+**Several GPUs.** Use one MPI rank per GPU, plus rank 0, which only drives the sampler:
+
+.. code-block:: python
+
+   import jax
+
+   retrieval.run(vectorized=True, n_batch=256, likelihood_devices=jax.devices("gpu"))
+
+Each rank uses ``likelihood_devices[rank % len(likelihood_devices)]``. See
+:ref:`par_cpu_gpu` for how to isolate the ranks from each other.
 
 NumPyro / BlackJAX on CPU
 -------------------------
@@ -422,8 +499,8 @@ device mesh.
 
   .. code-block:: python
 
+     # sampler_type="jaxns_distributed" is set on the RetrievalConfig
      retrieval.run(
-         sampler_type="jaxns_distributed",
          num_live_points=800,
          coordinator_port=5555,
      )
@@ -440,11 +517,12 @@ device mesh.
 
   .. note::
 
-     On JAX builds that put the device-mesh axes in *Explicit* sharding mode, the
-     multi-device NumPyro path passes the initial position into ``shard_map`` as
-     an argument rather than closing over it; closing over an Explicit-sharded
-     array raises ``NotImplementedError: Closing over inputs to shard_map ...``.
-     This is handled inside pRT; no user action is required.
+     Chains are spread over the largest number of devices that divides
+     ``num_chains`` evenly, so every device runs the same number of chains and
+     none is dropped. With 4 GPUs, ``num_chains=8`` runs two chains per device,
+     but ``num_chains=6`` uses only 2 of the GPUs (three chains each), and a
+     prime ``num_chains`` such as 5 is not sharded at all: its chains are
+     vectorised on a single device.
 
 **Incompatible: Dynesty** (no GPU path) and the **MPI nested samplers' kernels**
 (PyMultiNest/UltraNest run their search on the host — only their *likelihood* can
@@ -638,6 +716,8 @@ Quick reference
   MPI ranks (``srun``, ``ntasks-per-node``, ``OMP_NUM_THREADS=1``).
 * **Nested sampling, one node, pure Python:** Dynesty with ``pool_njobs`` (single
   node only).
+* **Importance nested sampling (Nautilus):** MPI ranks with ``--cpu-bind`` on any number of
+  nodes, ``pool_njobs`` on one, or ``vectorized=True`` on GPUs — see :ref:`par_nautilus`.
 * **Nested sampling on one GPU:** JAXNS (it uses the default JAX device).
 * **Nested sampling on many GPUs:** ``sampler_type="jaxns_distributed"``
   with a ``jaxns-cli`` worker pool.
