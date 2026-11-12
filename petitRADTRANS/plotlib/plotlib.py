@@ -1846,9 +1846,10 @@ def plot_radtrans_opacities(
             line_opacities_pressure_grid_size = radtrans.lines_loaded_opacities[
                 "pressure_grid_size"
             ]
+            line_opacities_node_offsets = None
         else:
             line_opacities_grid = radtrans.lines_loaded_opacities[
-                "opacity_grid_stacked"
+                "opacity_grid_packed"
             ]
             line_opacities_temperature_pressure_grid = radtrans.lines_loaded_opacities[
                 "temperature_pressure_grid_stacked"
@@ -1858,6 +1859,9 @@ def plot_radtrans_opacities(
             ]
             line_opacities_pressure_grid_size = radtrans.lines_loaded_opacities[
                 "pressure_grid_size_array"
+            ]
+            line_opacities_node_offsets = radtrans.lines_loaded_opacities[
+                "opacity_grid_node_offsets"
             ]
 
         _opacities = interpolate_species_opacities(
@@ -1871,6 +1875,7 @@ def plot_radtrans_opacities(
             ),
             line_opacities_temperature_grid_size=line_opacities_temperature_grid_size,
             line_opacities_pressure_grid_size=line_opacities_pressure_grid_size,
+            line_opacities_node_offsets=line_opacities_node_offsets,
         )
 
         _opacities_dict = {}

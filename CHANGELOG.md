@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [4.0.0rc1] - 2026-11-05
 ### Added
+- Tests of the interpolation of the line opacities in their runtime layout, in
+  `tests/test_line_opacity_interpolation.py`, and of the block-wise loading of
+  correlated-k tables, in `tests/test_load_ktables.py`.
+- Tests of the gradient of the scattering emission flux with respect to the photon
+  destruction probabilities alone, and of its independence of the frequency chunks,
+  in `tests/test_feautrier_scattering.py`.
 - Nautilus sampler (`sampler_type="nautilus"`), for importance nested sampling with
   neural networks. It parallelises over MPI ranks, a `spawn` process pool, or batches
   on GPUs, and refuses to resume from a checkpoint of a different problem. Unlike
@@ -44,6 +50,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   match those of the JAX implementation, in `tests/test_fortran_modules.py`.
 
 ### Changed
+- Reduced memory when loading opacities. The line opacities of all species are stored in one array without padding
+- Performance improvement by reordering `compute_transit_radii` calculations
+- The adaptive Feautrier scattering iteration advances one Ng acceleration cycle (4 sweeps) per loop step, so that the Ng history rotation and the convergence test are resolved when tracing instead of at every sweep: 9 to 25% faster, identical results.
 - Rayleigh scattering opacities use updated treatments:
   H2 uses Singor et al. (2024), elastic and Raman, with LTE rovibrational
   populations, calibrated to Peck & Huang (1977); He uses Puchalski et al. (2016);
@@ -121,6 +130,12 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   (relative); all other references are unchanged.
 
 ### Fixed
+- The reverse-mode gradient of the scattering emission flux raised an `AssertionError` in `jax.lax.custom_linear_solve` when taken with respect to the photon destruction
+- With 64-bit JAX enabled (required by `scattering_in_emission=True`), the interpolated line opacities were promoted to double precision although the tables are in single
+precision, doubling the memory of the largest array of a spectral calculation.
+- The interpolation of the line opacities in pressure and temperature returned 0 for
+  an opacity more than 1e7 times smaller than that of the neighbouring grid point,
+  and lost precision for smaller contrasts. It is now a weighted sum of the 4 surrounding grid points.
 - The managed NumPyro warmup (`warmup_driver="managed"`) called NUTS' transition
   without compiling it, so every warmup iteration retraced and recompiled the
   tree-building loop, about a minute per iteration for an emission retrieval on a GPU.

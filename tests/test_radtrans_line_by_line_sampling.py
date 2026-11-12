@@ -88,9 +88,26 @@ def test_line_opacity_debug_data_not_retained_by_default():
         )
         == 0
     )
+    # The opacities of all species share one array, one temperature-pressure point after the other
     assert atmosphere_lbl_downsampled.lines_loaded_opacities[
-        "opacity_grid_stacked"
+        "opacity_grid_node_offsets"
     ].shape[0] == len(atmosphere_lbl_downsampled.line_species)
+    assert atmosphere_lbl_downsampled.lines_loaded_opacities[
+        "opacity_grid_packed"
+    ].shape[-1] == int(
+        np.sum(
+            np.asarray(
+                atmosphere_lbl_downsampled.lines_loaded_opacities[
+                    "temperature_grid_size_array"
+                ]
+            )
+            * np.asarray(
+                atmosphere_lbl_downsampled.lines_loaded_opacities[
+                    "pressure_grid_size_array"
+                ]
+            )
+        )
+    )
 
 
 def test_plot_radtrans_opacities_works_without_debug_layout():

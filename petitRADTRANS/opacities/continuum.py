@@ -173,9 +173,28 @@ def combine_ck_opacities(
 
 
 def combine_opacities(line_species_mass_fractions, opacities, continuum_opacities):
-    abundance_weights = line_species_mass_fractions.T[None, None, :, :]
-    opacities = opacities * abundance_weights
-    opacities = opacities.at[:, :, 0, :].add(continuum_opacities[None, :, :])
+    """Weight the line opacities by their mass fractions and add the continuum to the first species.
+
+    Args:
+        line_species_mass_fractions:
+            Mass fractions of the line species, of shape (n_layers, n_species). None if the opacities
+            are already weighted by the mass fractions (e.g., during their interpolation): the opacities
+            are then not copied to be weighted.
+        opacities: line opacities, of shape (n_g, n_frequencies, n_species, n_layers)
+        continuum_opacities: continuum opacities, of shape (n_frequencies, n_layers)
+
+    Returns:
+        The combined opacities, of the shape and precision of ``opacities``.
+    """
+    if line_species_mass_fractions is not None:
+        abundance_weights = line_species_mass_fractions.T[None, None, :, :]
+        opacities = opacities * abundance_weights
+
+    # The continuum may be of a higher precision than the line opacities (when 64-bit JAX is enabled):
+    # it is added in the precision of the line opacities, which is the precision used downstream
+    opacities = opacities.at[:, :, 0, :].add(
+        jnp.asarray(continuum_opacities, dtype=opacities.dtype)[None, :, :]
+    )
 
     return opacities
 

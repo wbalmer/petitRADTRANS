@@ -9,7 +9,9 @@ from typing import Any, Callable, Literal, NamedTuple, Optional, overload
 import jax
 import jax.numpy as jnp
 from jax import custom_jvp, jit, lax, vmap
+from jax.ad_checkpoint import checkpoint_name
 from jax.custom_derivatives import SymbolicZero
+from jax.flatten_util import ravel_pytree
 from jax.extend.core import Primitive
 from jax.interpreters import ad, batching, mlir
 from jax.scipy.sparse.linalg import gmres
@@ -72,6 +74,10 @@ SCATTERING_IMPLICIT_GRADIENT_KRYLOV_SIZE = 20
 
 # Maximum number of GMRES restarts.
 SCATTERING_IMPLICIT_GRADIENT_MAX_RESTARTS = 10
+
+# Name under which the converged state of the scattering iteration is kept when the frequency chunks of the
+# Feautrier solver are rematerialised in reverse-mode differentiation (see compute_feautrier_radiative_transfer)
+SCATTERING_FIXED_POINT_CHECKPOINT_NAME = "feautrier_scattering_fixed_point"
 
 
 def default_feautrier_chunk_size():
@@ -1364,8 +1370,8 @@ def _differentiate_scattering_fixed_point(
 
     def _solve_gmres(
         linear_operator: Callable,
-        right_hand_side: tuple[ArrayLike, ArrayLike],
-    ) -> tuple[ArrayLike, ArrayLike]:
+        right_hand_side: ArrayLike,
+    ) -> ArrayLike:
         solution, _ = gmres(
             linear_operator,
             right_hand_side,
@@ -1383,12 +1389,23 @@ def _differentiate_scattering_fixed_point(
         right_hand_side: tuple[ArrayLike, ArrayLike],
     ) -> tuple[ArrayLike, ArrayLike]:
         # The solver sets its tolerance from the norm of the right-hand side, which cannot be transposed, so
-        # it is wrapped in a linear solve with an explicit transpose to support reverse-mode differentiation
-        return lax.custom_linear_solve(
-            linear_operator,
-            right_hand_side,
-            solve=_solve_gmres,
-            transpose_solve=_solve_gmres,
+        # it is wrapped in a linear solve with an explicit transpose to support reverse-mode differentiation.
+        # The source function and the surface intensities are solved for as a single vector: the transpose
+        # of a linear solve requires every part of its right-hand side to depend on the differentiated
+        # inputs, which the surface intensities do not when differentiating with respect to the photon
+        # destruction probabilities only.
+        flat_right_hand_side, unravel = ravel_pytree(right_hand_side)
+
+        def _flat_linear_operator(flat_vector: ArrayLike) -> ArrayLike:
+            return ravel_pytree(linear_operator(unravel(flat_vector)))[0]
+
+        return unravel(
+            lax.custom_linear_solve(
+                _flat_linear_operator,
+                flat_right_hand_side,
+                solve=_solve_gmres,
+                transpose_solve=_solve_gmres,
+            )
         )
 
     # Differentiably solve for the roots of a function
@@ -2070,21 +2087,34 @@ def _compute_feautrier_radiative_transfer_chunk(
             I_H_top=jnp.where(frozen_gf[:, None], state.I_H_top, next_state.I_H_top),
         )
 
-    def _advance_and_test_convergence(
+    def _advance_cycle_and_test_convergence(
         state: _ScatterState,
-        iter_idx: ArrayLike,
+        completed_iterations: ArrayLike,
     ) -> _ScatterState:
-        """Sweep once, then freeze every (g, frequency) column that has converged.
+        """Sweep over one Ng cycle, then freeze every (g, frequency) column that has converged.
 
         At the end of each Ng cycle, a column has converged when its flux changed by
         less than the threshold over the cycle. Each column stops at its own
         convergence instead of iterating until the slowest column of its chunk has
         converged, so its result does not depend on the chunk size, nor on which
         columns share its chunk.
+
+        The convergence can only change at the end of a cycle, so the sweeps of a cycle are
+        advanced together. Their position in the cycle is then known when tracing: the
+        rotation of the Ng history and the Ng step itself become static dataflow, instead
+        of a lax.switch and a lax.cond copying the history at every sweep, and the
+        convergence bookkeeping runs once per cycle instead of once per sweep.
+
+        ``completed_iterations`` is the number of sweeps made before this cycle.
         """
-        next_state = _advance_state(state, iter_idx)
-        completed_iterations = iter_idx + jnp.array(1, dtype=jnp.int32)
-        cycle_end = completed_iterations % SCATTERING_CONVERGENCE_CYCLE == 0
+        next_state = state
+
+        for cycle_sweep in range(SCATTERING_CONVERGENCE_CYCLE):
+            next_state = _advance_state(next_state, cycle_sweep)
+
+        completed_iterations = completed_iterations + jnp.array(
+            SCATTERING_CONVERGENCE_CYCLE, dtype=jnp.int32
+        )
         cycle_change_gf = jnp.abs(
             1.0
             - state.cycle_flux_gf
@@ -2095,16 +2125,19 @@ def _compute_feautrier_radiative_transfer_chunk(
             )
         )
         converged_gf = state.converged_gf | (
-            cycle_end
-            & (completed_iterations >= n_iter_min_gf)
+            (completed_iterations >= n_iter_min_gf)
             & (cycle_change_gf < convergence_threshold)
         )
+        # The columns are independent of each other, so discarding the sweeps of the columns
+        # that were already frozen before the cycle once, here, is the same as discarding
+        # them after each sweep.
         next_state = _keep_converged_columns(next_state, state)
         return next_state._replace(
-            cycle_flux_gf=jnp.where(cycle_end, next_state.flux_gf, state.cycle_flux_gf),
+            cycle_flux_gf=next_state.flux_gf,
             converged_gf=converged_gf,
             all_converged=jnp.all(converged_gf),
-            solve_count=state.solve_count + jnp.array(1, dtype=jnp.int32),
+            solve_count=state.solve_count
+            + jnp.array(SCATTERING_CONVERGENCE_CYCLE, dtype=jnp.int32),
         )
 
     def _iterate_until_converged() -> _ScatterState:
@@ -2116,24 +2149,65 @@ def _compute_feautrier_radiative_transfer_chunk(
         what allows a while_loop, which cannot be reverse-differentiated, to stop
         as soon as the chunk has converged instead of stepping through the whole
         iteration budget.
+
+        The loop advances one Ng cycle at a time (see _advance_cycle_and_test_convergence).
         """
+        # The sweeps of a cycle are given their position in the cycle as iteration index,
+        # which sets the slot of the Ng history they fill and whether they end with a Ng step.
+        # This is their actual iteration index modulo the period of the Ng acceleration
+        # (4 sweeps, see _advance_state) only if the cycles hold a whole number of Ng periods.
+        if SCATTERING_CONVERGENCE_CYCLE % 4 != 0:
+            raise ValueError(
+                f"SCATTERING_CONVERGENCE_CYCLE must be a multiple of the period of the Ng acceleration "
+                f"(4 sweeps), but is {SCATTERING_CONVERGENCE_CYCLE}"
+            )
+
+        max_iterations = iter_scat_max + 1
 
         def _not_converged(loop_state: tuple[_ScatterState, ArrayLike]) -> ArrayLike:
-            state, iter_idx = loop_state
-            return jnp.logical_not(state.all_converged) & (iter_idx <= iter_scat_max)
+            state, completed_iterations = loop_state
+            return jnp.logical_not(state.all_converged) & (
+                completed_iterations + SCATTERING_CONVERGENCE_CYCLE <= max_iterations
+            )
 
-        def _sweep(
+        def _cycle(
             loop_state: tuple[_ScatterState, ArrayLike],
         ) -> tuple[_ScatterState, ArrayLike]:
-            state, iter_idx = loop_state
+            state, completed_iterations = loop_state
             return (
-                _advance_and_test_convergence(state, iter_idx),
-                iter_idx + jnp.array(1, dtype=jnp.int32),
+                _advance_cycle_and_test_convergence(state, completed_iterations),
+                completed_iterations
+                + jnp.array(SCATTERING_CONVERGENCE_CYCLE, dtype=jnp.int32),
             )
 
         final_carry, _ = lax.while_loop(
-            _not_converged, _sweep, (initial_carry, jnp.array(0, dtype=jnp.int32))
+            _not_converged, _cycle, (initial_carry, jnp.array(0, dtype=jnp.int32))
         )
+
+        # Sweeps left below the iteration cap that do not fill a cycle. The convergence is not
+        # tested within a cycle, so they only advance the columns that have not converged.
+        n_remaining_iterations = max_iterations % SCATTERING_CONVERGENCE_CYCLE
+
+        if n_remaining_iterations > 0:
+
+            def _advance_remaining_iterations(state: _ScatterState) -> _ScatterState:
+                next_state = state
+
+                for cycle_sweep in range(n_remaining_iterations):
+                    next_state = _advance_state(next_state, cycle_sweep)
+
+                return _keep_converged_columns(next_state, state)._replace(
+                    solve_count=state.solve_count
+                    + jnp.array(n_remaining_iterations, dtype=jnp.int32),
+                )
+
+            # The loop above only stops without convergence at the last whole cycle below the cap
+            final_carry = lax.cond(
+                final_carry.all_converged,
+                lambda state: state,
+                _advance_remaining_iterations,
+                final_carry,
+            )
 
         # The part of the iteration budget left unused at convergence.
         return final_carry._replace(
@@ -2156,9 +2230,15 @@ def _compute_feautrier_radiative_transfer_chunk(
         # The implicit gradient requires a converged solution, so it is only applied to the
         # convergence-tested (adaptive) iteration. The forward iteration is evaluated without
         # tangents, and the gradient is attached to the converged state afterwards.
+        # The converged state is named so that rematerialisation in reverse-mode differentiation
+        # (see compute_feautrier_radiative_transfer) keeps it instead of repeating the iteration
+        converged_state = jax.tree_util.tree_map(
+            lambda leaf: checkpoint_name(leaf, SCATTERING_FIXED_POINT_CHECKPOINT_NAME),
+            _evaluate_without_tangents(_iterate_until_converged),
+        )
         final_carry = _differentiate_scattering_fixed_point(
             advance_state=_advance_state,
-            converged_state=_evaluate_without_tangents(_iterate_until_converged),
+            converged_state=converged_state,
         )
 
         return (
@@ -2569,7 +2649,23 @@ def compute_feautrier_radiative_transfer(
             thomas_min_batch=thomas_min_batch,
         )
 
-    _, chunk_outputs = lax.scan(_chunk_body, None, chunk_starts)
+    # In reverse-mode differentiation, the chunk body is rematerialised: rather than keeping the
+    # intermediate values of every chunk until the backward pass reaches it (~160 MB per chunk of 128
+    # frequencies, 16 g-points and 100 layers, i.e. several GB for a typical spectrum), each chunk is
+    # recomputed just before its own backward pass. Only the converged state of the scattering iteration
+    # (one source function and surface intensity per (g, frequency) column) is kept, so the iteration
+    # itself is not repeated. This makes the backward pass several times faster as soon as the
+    # intermediates of all chunks would not fit in memory. It has no effect without differentiation.
+    _, chunk_outputs = lax.scan(
+        jax.checkpoint(
+            _chunk_body,
+            policy=jax.checkpoint_policies.save_only_these_names(
+                SCATTERING_FIXED_POINT_CHECKPOINT_NAME
+            ),
+        ),
+        None,
+        chunk_starts,
+    )
 
     if return_solver_diagnostics:
         (
@@ -3057,28 +3153,11 @@ def compute_transit_radii(
     )
 
     rho = atmospheric_densities
-    rho_work = jnp.asarray(rho, dtype=WORKING_JAX_DTYPE)
     opacities_work = jnp.asarray(opacities, dtype=WORKING_JAX_DTYPE)
     continuum_opacities_scattering_work = jnp.asarray(
         continuum_opacities_scattering, dtype=WORKING_JAX_DTYPE
     )
     weights_gauss_work = jnp.asarray(weights_gauss, dtype=WORKING_JAX_DTYPE)
-
-    # Build adjacent-layer extinction pairs directly so we do not retain both
-    # the full opacity*rho cube and a second paired copy at the same time.
-    pair_continuum_transparencies = (
-        continuum_opacities_scattering_work[:, :-1] * rho_work[:-1][None, :]
-        + continuum_opacities_scattering_work[:, 1:] * rho_work[1:][None, :]
-    )
-
-    # Factor 1/2 is omitted because it cancels with effective planet area integration below.
-    pair_transparencies = (
-        opacities_work[..., :-1] * rho_work[:-1][None, None, None, :]
-        + opacities_work[..., 1:] * rho_work[1:][None, None, None, :]
-    )
-    pair_transparencies = pair_transparencies.at[:, :, :1, :].add(
-        pair_continuum_transparencies[None, :, None, :]
-    )
 
     # Only the active shell-path block contributes; avoid building the padded
     # (n_layers, n_layers) matrix whose first row and column are identically zero.
@@ -3101,32 +3180,52 @@ def compute_transit_radii(
         diff_s_active,
         0.0,
     )
-    diff_s_active = jnp.asarray(diff_s_active, dtype=WORKING_JAX_DTYPE)
+
+    # The optical depth along the ray m is the sum, over the shells l it crosses, of the path length in
+    # the shell times the mean extinction of the two layers bounding it:
+    #     tau_m = sum_l diff_s[m, l] * (opacity_l * rho_l + opacity_{l+1} * rho_{l+1})
+    # Gathering the terms of each layer instead gives
+    #     tau_m = sum_l opacity_l * rho_l * (diff_s[m, l] + diff_s[m, l - 1])
+    # so the densities and the pairing of the layers can be applied to the small (n_rays, n_layers) path
+    # matrix, rather than to the opacities.
+    layer_path_weights = (
+        jnp.pad(diff_s_active, ((0, 0), (0, 1))) + jnp.pad(diff_s_active, ((0, 0), (1, 0)))
+    ) * rho[None, :]
+    layer_path_weights = jnp.asarray(layer_path_weights, dtype=WORKING_JAX_DTYPE)
 
     # Calculate optical depths
     optical_depths_active = jnp.einsum(
-        "gfsl,ml->gfsm", pair_transparencies, diff_s_active, optimize=True
+        "gfsl,ml->gfsm", opacities_work, layer_path_weights, optimize=True
     )
-    # Calculate transmittances (exp(-optical_depths)
-    transparencies = jnp.exp(
-        -jnp.pad(optical_depths_active, ((0, 0), (0, 0), (0, 0), (1, 0)))
-    )
+    # Calculate transmittances (exp(-optical_depths))
+    transparencies = jnp.exp(-optical_depths_active)
 
     if weights_gauss.size == 1:
-        transparencies = transparencies[0]  # (frequencies, species, layers)
+        transparencies = transparencies[0]  # (frequencies, species, rays)
     else:
         # Integrate over correlated-k's g-coordinate
         transparencies = jnp.einsum(
-            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True  # (frequencies, species, layers)
+            "gfsl,g->fsl", transparencies, weights_gauss_work, optimize=True  # (frequencies, species, rays)
         )
 
     # get rid of species dimension
     # remove axis 1 (species) if only single species
     if transparencies.shape[1] == 1:
-        transparencies = transparencies[:, 0, :]  # (frequencies, layers)
+        transparencies = transparencies[:, 0, :]  # (frequencies, rays)
     # combine transmission of several species (exp(-tau1) * exp(-tau2)...)
     else:
-        transparencies = jnp.prod(transparencies, axis=1)  # (frequencies, layers)
+        transparencies = jnp.prod(transparencies, axis=1)  # (frequencies, rays)
+
+    # The continuum scattering extinction is the same for all g and species. Its transmittance
+    # therefore factors out of the integral over g and of the product over species, and is applied
+    # to the (frequencies, rays) transmittances instead of being added to the opacities.
+    continuum_optical_depths_active = jnp.einsum(
+        "fl,ml->fm", continuum_opacities_scattering_work, layer_path_weights, optimize=True
+    )
+    transparencies = transparencies * jnp.exp(-continuum_optical_depths_active)
+
+    # The ray grazing the top of the atmosphere crosses no shell
+    transparencies = jnp.pad(transparencies, ((0, 0), (1, 0)), constant_values=1.0)
 
     # Calculate transparencies (1 - transmittances)
     transparencies = 1.0 - transparencies

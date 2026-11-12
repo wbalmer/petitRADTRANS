@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import numpy.typing as npt
+import jax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 import h5py
@@ -21,6 +22,280 @@ from petitRADTRANS.jax_dtype import FEAUTRIER_JAX_DTYPE, WORKING_JAX_DTYPE
 # JAX-friendly sentinels and helpers for optional inputs
 _MISSING_FLOAT = jnp.array(-1.0, dtype=WORKING_JAX_DTYPE)
 _MISSING_NEG_INF = jnp.array(-jnp.inf, dtype=WORKING_JAX_DTYPE)
+
+# Size of the staging buffer through which line opacity tables are read from disk. The tables are
+# stored in double precision and in a different axis order than the one used at runtime, so they are
+# converted block by block: only this much memory is needed on top of the final table.
+_OPACITY_READ_BLOCK_BYTES = 32 * 1024 * 1024
+
+# Size of the pieces in which a staging buffer is reordered into the runtime layout. A piece and the
+# part of the table it is written to must fit in the CPU caches for the reordering to be efficient.
+_OPACITY_REORDER_BLOCK_BYTES = 2 * 1024 * 1024
+
+# Byte alignment of the host buffer holding the loaded line opacities. On CPU, JAX adopts a
+# sufficiently aligned NumPy buffer without copying it (see transfer_to_device).
+_HOST_BUFFER_ALIGNMENT = 64
+
+
+def empty_aligned(shape, dtype, alignment=_HOST_BUFFER_ALIGNMENT):
+    """Allocate an uninitialized C-contiguous NumPy array whose data is aligned to ``alignment`` bytes.
+
+    NumPy only guarantees the alignment of the array's dtype. JAX's CPU backend can adopt a host
+    buffer without copying it only if the buffer is aligned for vectorized access, which a plain
+    ``np.empty`` does not guarantee on every platform.
+
+    Args:
+        shape: shape of the array
+        dtype: dtype of the array
+        alignment: required alignment of the first element, in bytes (must be a multiple of the itemsize)
+
+    Returns:
+        An uninitialized array of the requested shape and dtype. It is a view of a larger byte buffer,
+        which it keeps alive.
+    """
+    dtype = np.dtype(dtype)
+    n_bytes = int(np.prod(shape, dtype=np.int64)) * dtype.itemsize
+    buffer = np.empty(n_bytes + alignment, dtype=np.uint8)
+    offset = (-buffer.ctypes.data) % alignment
+
+    return buffer[offset:offset + n_bytes].view(dtype).reshape(shape)
+
+
+def transfer_to_device(host_array):
+    """Hand a host (NumPy) array over to JAX with at most one copy.
+
+    On CPU, an aligned host buffer is adopted in place, so that no second copy of the array ever
+    exists. On an accelerator, the array is copied to the device once, and the host buffer is released
+    as soon as the caller drops its own reference to it.
+
+    The JAX array may share its memory with ``host_array``: the caller must not modify ``host_array``
+    afterwards. To guard against this, it is made read-only.
+
+    Args:
+        host_array: the NumPy array to transfer
+
+    Returns:
+        The JAX array, on the default device.
+    """
+    host_array.flags.writeable = False
+
+    return jax.device_put(host_array)
+
+
+def _read_opacity_table_into(
+    dataset,
+    source_indices,
+    destination,
+    destination_indices,
+    n_temperatures,
+    n_pressures,
+    scale,
+    clip_negative,
+    block_bytes=None,
+    reorder_block_bytes=None,
+):
+    """Read spectral columns of an HDF5 line opacity table into its runtime layout, block by block.
+
+    The table is converted to the destination dtype by HDF5 while it is read, clipped (optional) and
+    scaled exactly as the full-array operations it replaces: the scaling is evaluated in double
+    precision on the single precision values, then rounded to the destination dtype.
+
+    The file is read in blocks of pressures (and of temperatures, if a single pressure is larger than
+    the staging buffer), i.e. along its slowest-varying axes, so that it is accessed sequentially.
+
+    Args:
+        dataset:
+            HDF5 dataset of shape (n_pressures, n_temperatures, n_spectral_points) (line-by-line) or
+            (n_pressures, n_temperatures, n_spectral_points, n_g) (correlated-k).
+        source_indices:
+            Indices of the spectral points of the dataset to read, in the order of the destination.
+        destination:
+            Array of shape (n_g, n_frequencies, n_temperatures * n_pressures), filled in place. The
+            temperature-pressure index is i_temperature * n_pressures + i_pressure. May be a view.
+        destination_indices:
+            Indices along the frequency axis of the destination receiving the columns ``source_indices``.
+        n_temperatures: number of temperatures of the table
+        n_pressures: number of pressures of the table
+        scale: factor by which the table is multiplied (e.g. to convert cross-sections to opacities)
+        clip_negative: if True, negative values are set to 0 before scaling
+        block_bytes:
+            Approximate size of the staging buffer, in bytes (default: _OPACITY_READ_BLOCK_BYTES).
+        reorder_block_bytes:
+            Approximate size of the pieces in which the staging buffer is reordered, in bytes
+            (default: _OPACITY_REORDER_BLOCK_BYTES).
+    """
+    if block_bytes is None:
+        block_bytes = _OPACITY_READ_BLOCK_BYTES
+
+    if reorder_block_bytes is None:
+        reorder_block_bytes = _OPACITY_REORDER_BLOCK_BYTES
+
+    source_indices = np.asarray(source_indices, dtype=np.int64)
+    destination_indices = np.asarray(destination_indices, dtype=np.int64)
+
+    if source_indices.size != destination_indices.size:
+        raise ValueError(
+            f"frequencies size mismatch: {source_indices.size} spectral points selected in the opacity file "
+            f"cannot be stored into {destination_indices.size} frequencies\n"
+            f"This may be caused by loading opacities of different resolving power"
+        )
+
+    has_g = dataset.ndim == 4
+    n_g = dataset.shape[3] if has_g else 1
+    n_columns = source_indices.size
+    staging_dtype = destination.dtype
+
+    if dataset.shape[0] != n_pressures or dataset.shape[1] != n_temperatures:
+        raise ValueError(
+            f"opacity table of shape {dataset.shape} is inconsistent with its pressure-temperature grid "
+            f"({n_pressures} pressures, {n_temperatures} temperatures)"
+        )
+
+    if destination.shape[0] != n_g or destination.shape[2] != n_temperatures * n_pressures:
+        raise ValueError(
+            f"cannot store an opacity table with {n_g} g-samples and {n_temperatures * n_pressures} "
+            f"pressure-temperature points into an array of shape {destination.shape}"
+        )
+
+    # Splitting an axis never requires a copy, so this is a view of the destination
+    destination_4d = destination.reshape(
+        (n_g, destination.shape[1], n_temperatures, n_pressures)
+    )
+
+    if not np.may_share_memory(destination_4d, destination):
+        raise RuntimeError("the opacity table destination could not be reshaped in place")
+
+    if n_columns == 0:
+        return
+
+    # Spectral selection in the file. The requested columns are regularly spaced (consecutive, or
+    # every n-th one when the opacities are down-sampled), in increasing or decreasing order: they
+    # are read with a regular (strided) selection, so that only the requested columns are read.
+    source_steps = np.diff(source_indices)
+    regular = n_columns == 1 or (source_steps[0] != 0 and np.all(source_steps == source_steps[0]))
+
+    if regular:
+        source_step = abs(int(source_steps[0])) if n_columns > 1 else 1
+        reverse_columns = n_columns > 1 and source_steps[0] < 0
+        first_column = int(source_indices.min())
+        spectral_selection = slice(
+            first_column, first_column + (n_columns - 1) * source_step + 1, source_step
+        )
+        n_read_columns = n_columns
+        take_columns = None
+    else:  # irregular spacing: never the case for petitRADTRANS tables
+        first_column = int(source_indices.min())
+        spectral_selection = slice(first_column, int(source_indices.max()) + 1)
+        n_read_columns = spectral_selection.stop - spectral_selection.start
+        reverse_columns = False
+        take_columns = source_indices - first_column
+
+    # Frequencies of the destination receiving the columns, as a slice if possible
+    if np.all(np.diff(destination_indices) == 1):
+        destination_columns = slice(
+            int(destination_indices[0]), int(destination_indices[-1]) + 1
+        )
+    else:
+        destination_columns = None
+
+    # Blocks of pressures, or of temperatures at one pressure if a pressure does not fit the staging buffer
+    bytes_per_temperature = n_read_columns * n_g * staging_dtype.itemsize
+    bytes_per_pressure = n_temperatures * bytes_per_temperature
+    pressures_per_block = int(min(n_pressures, max(1, block_bytes // bytes_per_pressure)))
+    temperatures_per_block = n_temperatures
+
+    if bytes_per_pressure > block_bytes:
+        temperatures_per_block = int(max(1, block_bytes // bytes_per_temperature))
+
+    # Read whole HDF5 chunks: otherwise a compressed chunk would be decompressed once per block it overlaps
+    if dataset.chunks is not None:
+        pressures_per_block = int(
+            min(n_pressures, -(-pressures_per_block // dataset.chunks[0]) * dataset.chunks[0])
+        )
+
+        if temperatures_per_block < n_temperatures:
+            temperatures_per_block = int(
+                min(n_temperatures, -(-temperatures_per_block // dataset.chunks[1]) * dataset.chunks[1])
+            )
+
+    staging_shape = (pressures_per_block, temperatures_per_block, n_read_columns)
+
+    if has_g:
+        staging_shape += (n_g,)
+
+    staging = np.empty(staging_shape, dtype=staging_dtype)
+    trailing = (slice(None),) if has_g else ()
+
+    for pressure_start in range(0, n_pressures, pressures_per_block):
+        pressure_stop = min(pressure_start + pressures_per_block, n_pressures)
+        n_block_pressures = pressure_stop - pressure_start
+
+        for temperature_start in range(0, n_temperatures, temperatures_per_block):
+            temperature_stop = min(temperature_start + temperatures_per_block, n_temperatures)
+            n_block_temperatures = temperature_stop - temperature_start
+
+            # HDF5 converts the stored (double precision) values to the staging dtype while reading
+            dataset.read_direct(
+                staging,
+                source_sel=(
+                    slice(pressure_start, pressure_stop),
+                    slice(temperature_start, temperature_stop),
+                    spectral_selection,
+                ) + trailing,
+                dest_sel=(
+                    slice(0, n_block_pressures),
+                    slice(0, n_block_temperatures),
+                    slice(None),
+                ) + trailing,
+            )
+            block = staging[:n_block_pressures, :n_block_temperatures]
+
+            if clip_negative:
+                np.maximum(block, 0.0, out=block)
+
+            # Columns in the order of the destination
+            if take_columns is not None:
+                block = np.take(block, take_columns, axis=2)
+            elif reverse_columns:
+                block = block[:, :, ::-1]
+
+            # (pressure, temperature, column[, g]) to (g, column, temperature, pressure)
+            if has_g:
+                block = np.transpose(block, (3, 2, 1, 0))
+            else:
+                block = np.transpose(block, (2, 1, 0))[np.newaxis]
+
+            # Reorder a few columns at a time, so that the work stays within the CPU caches
+            columns_per_piece = int(
+                max(
+                    1,
+                    reorder_block_bytes
+                    // (n_g * n_block_temperatures * n_block_pressures * staging_dtype.itemsize),
+                )
+            )
+
+            for column_start in range(0, n_columns, columns_per_piece):
+                column_stop = min(column_start + columns_per_piece, n_columns)
+
+                # Scale in double precision, in the destination's memory order, then round on assignment
+                scaled = np.multiply(
+                    block[:, column_start:column_stop], scale, dtype=np.float64, order="C"
+                )
+
+                if destination_columns is not None:
+                    piece_columns = slice(
+                        destination_columns.start + column_start,
+                        destination_columns.start + column_stop,
+                    )
+                else:
+                    piece_columns = destination_indices[column_start:column_stop]
+
+                destination_4d[
+                    :,
+                    piece_columns,
+                    temperature_start:temperature_stop,
+                    pressure_start:pressure_stop,
+                ] = scaled
 
 
 def load_cia_opacity(file_path_hdf5, return_radtrans_opacities=True):
@@ -101,8 +376,33 @@ def load_hdf5_ktables(
     frequency_grid_misalignment_tolerance,
     return_radtrans_opacities=True,
     return_host_array=False,
+    out=None,
 ):
-    """Load k-coefficient tables in HDF5 format, based on the ExoMolOP setup."""
+    """Load k-coefficient tables in HDF5 format, based on the ExoMolOP setup.
+
+    The table is read in blocks and converted on the fly to the working precision and to the runtime
+    layout (g, frequency, temperature-pressure), so that no full-size intermediate copy is made.
+
+    Args:
+        file_path_hdf5: path to the k-table file
+        frequencies: the Radtrans frequency grid, in decreasing order
+        g_size: number of g-samples of the k-table
+        temperature_pressure_grid_size: number of temperature-pressure points of the k-table
+        frequency_grid_misalignment_tolerance:
+            Tolerated misalignment between the file and the Radtrans frequency grids, relative to the
+            resolving power of the file.
+        return_radtrans_opacities: if False, the arrays as directly read from the HDF5 table are returned
+        return_host_array: if True, return a NumPy array instead of a JAX array
+        out:
+            Optional NumPy array of shape (g_size, frequencies.size, temperature_pressure_grid_size) into
+            which the opacities are written. It may be a view of a larger array (e.g., the slot of a
+            species in a table shared by several species). If given, it is also the returned array.
+
+    Returns:
+        The opacities in cm2/g, of shape (g_size, frequencies.size, temperature_pressure_grid_size), in the
+        working precision. The temperature-pressure index is i_temperature * n_pressures + i_pressure.
+        Frequencies not covered by the file are set to 0.
+    """
     # TODO other opacity spurces are loaded in load.py, so load_hdf5_ktables should
     #   do the same!
     import h5py
@@ -194,38 +494,50 @@ def load_hdf5_ktables(
         # but opacity file is still in its original order.
         selection_start = n_wavelengths - int(selected_file_indices[-1]) - 1
         selection_stop = n_wavelengths - int(selected_file_indices[0])
-        selected_wavelengths = selection_stop - selection_start
-
-        k_table = np.asarray(
-            f["kcoeff"][:, :, selection_start:selection_stop, :],
-            dtype=host_dtype,
-        )
-        # Reshape k-table to petitRADTRANS format while staying on the host.
-        k_table = np.swapaxes(k_table, 0, 1)
-        k_table = k_table.reshape(
-            (n_pressures * n_temperatures, selected_wavelengths, g_size)
-        )
-        k_table = np.swapaxes(k_table, 0, 2)
-        k_table = np.maximum(k_table[:, ::-1, :], 0.0)
 
         # Divide by mass to convert cross-sections to opacities
-        mol_mass_inv = 1 / (f["mol_mass"][()] * cst.amu)
+        mol_mass_inv = float(np.ravel(1 / (f["mol_mass"][()] * cst.amu))[0])
 
-    line_opacities_grid = k_table * mol_mass_inv
+        n_frequencies = int(np.size(frequencies))
+        table_shape = (g_size, n_frequencies, temperature_pressure_grid_size)
 
-    # So line opacities grid has shape (g_size, selected_wavelengths, n_pressures*n_temperatures)
-    # With wavelengths in ascending order.
+        if temperature_pressure_grid_size != n_pressures * n_temperatures:
+            raise ValueError(
+                f"temperature_pressure_grid_size ({temperature_pressure_grid_size}) does not match the "
+                f"pressure-temperature grid of file '{file_path_hdf5}' "
+                f"({n_pressures} pressures x {n_temperatures} temperatures)"
+            )
 
-    if not (line_opacities_grid.shape[1] == frequencies.size and np.all(indices_opacities)):
-        # Only fill in those values where the data existed in the opacity input file
-        opacities = np.zeros(
-            (g_size, frequencies.size, temperature_pressure_grid_size),
-            dtype=host_dtype,
+        if out is None:
+            line_opacities_grid = np.empty(table_shape, dtype=host_dtype)
+        else:
+            if tuple(out.shape) != table_shape:
+                raise ValueError(
+                    f"out must be of shape {table_shape}, but is of shape {tuple(out.shape)}"
+                )
+
+            line_opacities_grid = out
+
+        # The line opacities grid has shape (g_size, frequencies.size, n_pressures * n_temperatures),
+        # with wavelengths in ascending order: the file columns are read in reverse order.
+        # Only fill in those values where the data exists in the opacity input file.
+        covered_frequencies = np.asarray(indices_opacities, dtype=bool)
+
+        if not np.all(covered_frequencies):
+            line_opacities_grid[:, ~covered_frequencies, :] = 0.0
+
+        _read_opacity_table_into(
+            dataset=f["kcoeff"],
+            source_indices=np.arange(selection_stop - 1, selection_start - 1, -1),
+            destination=line_opacities_grid,
+            destination_indices=np.nonzero(covered_frequencies)[0],
+            n_temperatures=n_temperatures,
+            n_pressures=n_pressures,
+            scale=mol_mass_inv,
+            clip_negative=True,
         )
-        opacities[:, indices_opacities, :] = line_opacities_grid
-        line_opacities_grid = opacities
 
-    if return_host_array:
+    if return_host_array or out is not None:
         return line_opacities_grid
 
     return jnp.asarray(line_opacities_grid, dtype=WORKING_JAX_DTYPE)
@@ -236,11 +548,30 @@ def load_hdf5_line_opacity_table(
     frequencies,
     line_by_line_opacity_sampling=1,
     return_radtrans_opacities=True,
+    out=None,
 ):
     """Load line-by-line opacities into a host-side ``(g, frequency, n_temperature*n_pressure)`` table.
 
     The returned array stays on the host as a NumPy array so callers can build
-    the final stacked runtime layout first and only convert to JAX once.
+    the final runtime layout first and only convert to JAX once.
+
+    The table is read in blocks and converted on the fly to the working precision and to the runtime
+    layout, so that no full-size intermediate copy is made.
+
+    Args:
+        file_path_hdf5: path to the line-by-line opacity file
+        frequencies: the Radtrans frequency grid, in decreasing order
+        line_by_line_opacity_sampling: only every line_by_line_opacity_sampling-th point of the file is loaded
+        return_radtrans_opacities: if False, the arrays as directly read from the HDF5 table are returned
+        out:
+            Optional NumPy array of shape (1, frequencies.size, n_temperatures * n_pressures) into which the
+            opacities are written. It may be a view of a larger array (e.g., the slot of a species in a
+            table shared by several species). If given, it is also the returned array.
+
+    Returns:
+        The opacities in cm2/g, of shape (1, frequencies.size, n_temperatures * n_pressures), in the working
+        precision. The temperature-pressure index is i_temperature * n_pressures + i_pressure.
+        Frequencies not covered by the file are set to 0.
     """
     frequencies_relative_tolerance = (
         1e-12  # allow for a small relative deviation from the wavenumber grid
@@ -290,64 +621,65 @@ def load_hdf5_line_opacity_table(
                 (selection_stop - 1 - expanded_start) % line_by_line_opacity_sampling
             )
 
-        line_opacities_grid = np.asarray(
-            f["xsecarr"][
-                :,
-                :,
-                selection_start:selection_stop:line_by_line_opacity_sampling,
-            ],
-            dtype=host_dtype,
-        )
+        # Indices of the selected spectral points in the file, in the order of the Radtrans frequency
+        # grid (decreasing frequencies, hence reversed), and the frequencies they are stored into
+        source_indices = np.arange(
+            selection_start, selection_stop, line_by_line_opacity_sampling
+        )[::-1]
+        destination_indices = np.arange(source_indices.size)
+
+        if source_indices.size != frequencies.size:
+            file_frequencies = frequency_grid[source_indices]
+
+            if (
+                file_frequencies[-1] == file_frequencies[-2]
+            ):  # handle duplicated last wavenumber
+                file_frequencies = file_frequencies[:-1]
+                source_indices = source_indices[:-1]
+
+            indices_opacities, indices_file = get_frequency_grids_intersection_indices(
+                frequencies=frequencies,
+                file_frequencies=file_frequencies,
+                tolerate_grid_misalignment=False,
+            )
+
+            source_indices = source_indices[indices_file]
+            destination_indices = np.nonzero(indices_opacities)[0]
+
+        n_pressures, n_temperatures = f["xsecarr"].shape[:2]
+        table_shape = (1, frequencies.size, n_temperatures * n_pressures)
+
+        if out is None:
+            line_opacities_grid = np.empty(table_shape, dtype=host_dtype)
+        else:
+            if tuple(out.shape) != table_shape:
+                raise ValueError(
+                    f"out must be of shape {table_shape}, but is of shape {tuple(out.shape)}"
+                )
+
+            line_opacities_grid = out
+
+        # Only fill in those values where the data exists in the opacity input file
+        if destination_indices.size != frequencies.size:
+            covered_frequencies = np.zeros(frequencies.size, dtype=bool)
+            covered_frequencies[destination_indices] = True
+            line_opacities_grid[:, ~covered_frequencies, :] = 0.0
 
         # Divide by mass to convert cross-sections to opacities
-        mol_mass_inv = 1 / (f["mol_mass"][()] * cst.amu)
-        line_opacities_grid *= mol_mass_inv
+        mol_mass_inv = float(np.ravel(1 / (f["mol_mass"][()] * cst.amu))[0])
 
-    line_opacities_grid = line_opacities_grid[:, :, ::-1]
-
-    if line_opacities_grid.shape[-1] != frequencies.size:
-        frequency_grid = frequency_grid[
-            selection_start:selection_stop:line_by_line_opacity_sampling
-        ][::-1]
-
-        if (
-            frequency_grid[-1] == frequency_grid[-2]
-        ):  # handle duplicated last wavenumber
-            frequency_grid = frequency_grid[:-1]
-            line_opacities_grid = line_opacities_grid[:, :, :-1]
-
-        indices_opacities, indices_file = get_frequency_grids_intersection_indices(
-            frequencies=frequencies,
-            file_frequencies=frequency_grid,
-            tolerate_grid_misalignment=False,
+        _read_opacity_table_into(
+            dataset=f["xsecarr"],
+            source_indices=source_indices,
+            destination=line_opacities_grid,
+            destination_indices=destination_indices,
+            n_temperatures=n_temperatures,
+            n_pressures=n_pressures,
+            scale=mol_mass_inv,
+            clip_negative=False,
         )
 
-        # Fill opacity array
-        _line_opacities_grid = np.zeros(
-            (
-                line_opacities_grid.shape[0],
-                line_opacities_grid.shape[1],
-                frequencies.size,
-            ),
-            dtype=host_dtype,
-        )
-        _line_opacities_grid[:, :, indices_opacities] = line_opacities_grid[
-            :, :, indices_file
-        ]
-    else:
-        _line_opacities_grid = line_opacities_grid
-
-    _line_opacities_grid = np.swapaxes(_line_opacities_grid, 0, 1)  # (t, p, wvl)
-    _line_opacities_grid = _line_opacities_grid.reshape(
-        (
-            _line_opacities_grid.shape[0] * _line_opacities_grid.shape[1],
-            _line_opacities_grid.shape[2],
-        )
-    )  # (tp, wvl)
-    _line_opacities_grid = np.swapaxes(_line_opacities_grid, 0, 1)  # (wvl, tp)
-    _line_opacities_grid = _line_opacities_grid[np.newaxis, :, :]  # (g, wvl, tp)
-
-    return _line_opacities_grid
+    return line_opacities_grid
 
 
 def get_line_opacity_file(path_input_data, species, category, disable_mpi=False):
